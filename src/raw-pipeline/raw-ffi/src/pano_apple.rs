@@ -40,9 +40,9 @@ use std::sync::atomic::Ordering;
 use maple_pano::ba::RetentionPolicy;
 use maple_pano::exif_embed::build_exif_blob;
 use maple_pano::ingest::PlanarImage;
-use maple_pano::render::{write_frame_png, PngMetadata};
+use maple_pano::render::PngMetadata;
 use maple_pano::stitch::{
-    develop_for_display, stitch_reusing, write_display_sidecars, AlignmentReuse, FeatureEngine,
+    stitch_reusing, write_display_png, AlignmentReuse, FeatureEngine, SidecarDownscaler,
     SolvedAlignment, StitchError, StitchOptions,
 };
 use maple_pano::strategy::StrategyRequest;
@@ -139,22 +139,23 @@ pub(super) fn run_stitch_apple(
             }
         }
         // Develop the scene-linear composite into a FINISHED, display-referred
-        // sRGB 16-bit buffer (#1335): AgX view tail matching raw-core's RAW
+        // sRGB 16-bit PNG (#1335): AgX view tail matching raw-core's RAW
         // render, so the app re-opens the pano as a correct photo instead of
-        // mis-reading scene-linear Rec.2020 data as display sRGB
-        // (cold/desaturated/flat). develop_for_display already encodes + quantizes.
-        let data = develop_for_display(img);
-        // Embed EXIF from the first source frame + tag as sRGB (#1333).
-        if let Err(e) = write_frame_png(out_path, img.width(), img.height(), &data, &display_meta) {
+        // mis-reading scene-linear Rec.2020 data as display sRGB. Developed
+        // and encoded a block of rows at a time (#5451); the render-time
+        // derivatives (#1365) are downscaled from the same blocks.
+        let mut sidecars = SidecarDownscaler::new(img.width(), img.height());
+        if let Err(e) = write_display_png(img, out_path, &display_meta, |rows| {
+            sidecars.push_rows(rows)
+        }) {
             set_last_error(format!("maple_pano_stitch: write PNG: {e}"));
             return -7;
         }
-        // Render-time derivatives (#1365): 256px thumb + 1280px preview into
-        // <dir>/.maple/{thumbs,previews}/ so the grid tile isn't a blank ghost
-        // and cold-open is instant. The preview is the canonical
-        // `<filename>.avif` Apple's read path expects (#2009). Non-fatal — the
-        // pano itself already wrote.
-        if let Err(e) = write_display_sidecars(data, img.width(), img.height(), out_path) {
+        // 512px thumb + 1280px preview into <dir>/.maple/{thumbs,previews}/
+        // so the grid tile isn't a blank ghost and cold-open is instant. The
+        // preview is the canonical `<filename>.avif` Apple's read path expects
+        // (#2009). Non-fatal — the pano itself already wrote.
+        if let Err(e) = sidecars.write(out_path) {
             eprintln!("maple_pano_stitch: derivative generation failed (non-fatal): {e}");
         }
         0

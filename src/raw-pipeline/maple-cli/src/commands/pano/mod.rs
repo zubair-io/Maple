@@ -43,12 +43,14 @@ use clap::Subcommand;
 
 use maple_pano::exif_embed::build_exif_blob;
 use maple_pano::render::PngMetadata;
-use maple_pano::stitch::{self, StitchOptions, StitchSuccess};
+use maple_pano::stitch::{
+    self, write_display_png, write_scene_linear_png, StitchOptions, StitchSuccess,
+};
 use raw_core::read_exif;
 use serde_json::Value;
 
 use discovery::filter_conforming_frames;
-use io::{stitch_report, write_png16, ReportContext};
+use io::{stitch_report, ReportContext};
 
 mod args;
 pub use args::StitchArgs;
@@ -278,23 +280,16 @@ fn stitch_set(
         StitchSuccess::Rotation(outcome) => {
             // ---- write outputs -----------------------------------------------
             let t_out = Instant::now();
-            write_png16(&outs.linear, &outcome.image, false)?;
+            write_scene_linear_png(&outcome.image, &outs.linear)
+                .map_err(|e| format!("{}: {e}", outs.linear.display()))?;
             if let Some(display) = &outs.display {
-                // Finished, display-referred sRGB (#1335): AgX view tail like a
-                // RAW render. develop_for_display returns the encoded 16-bit
-                // buffer directly → write it straight out (no re-quantize).
-                let data = maple_pano::stitch::develop_for_display(&outcome.image);
-                // EXIF + sRGB tag were computed BEFORE stitch() to avoid a
-                // peak-RSS re-read of the source RAW (#1349 fix).
+                // Finished, display-referred sRGB (#1335): AgX view tail like a RAW
+                // render, developed and encoded a block of rows at a time (#5451).
+                // EXIF + sRGB tag were computed BEFORE the stitch to avoid re-reading
+                // the source RAW at peak RSS (#1349 fix).
                 let meta = display_meta.expect("display_meta is Some when outs.display is Some");
-                maple_pano::render::write_frame_png(
-                    display,
-                    outcome.image.width(),
-                    outcome.image.height(),
-                    &data,
-                    &meta,
-                )
-                .map_err(|e| format!("{}: {e}", display.display()))?;
+                write_display_png(&outcome.image, display, &meta, |_| {})
+                    .map_err(|e| format!("{}: {e}", display.display()))?;
             }
             let write_s = t_out.elapsed().as_secs_f64();
 

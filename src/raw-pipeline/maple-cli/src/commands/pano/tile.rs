@@ -12,9 +12,9 @@ use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use maple_pano::render::PngMetadata;
-use maple_pano::stitch::TileStitchOutcome;
+use maple_pano::stitch::{write_display_png, write_scene_linear_png, TileStitchOutcome};
 
-use super::io::{tile_stitch_report, write_png16, TileReportContext};
+use super::io::{tile_stitch_report, TileReportContext};
 
 // ─── Primary entry point: outcome already computed ────────────────────────────
 
@@ -93,23 +93,16 @@ pub(super) fn run_tile_from_outcome(
     );
 
     let t_out = Instant::now();
-    write_png16(outs_linear, &outcome.image, false)?;
+    write_scene_linear_png(&outcome.image, outs_linear)
+        .map_err(|e| format!("{}: {e}", outs_linear.display()))?;
     if let Some(display) = outs_display {
         // Finished, display-referred sRGB (#1335): AgX view tail like a RAW
-        // render. develop_for_display returns the encoded 16-bit buffer
-        // directly → write it straight out (no re-quantize).
-        let data = maple_pano::stitch::develop_for_display(&outcome.image);
-        // EXIF + sRGB tag were computed BEFORE stitch() to avoid re-reading
+        // render, developed and encoded a block of rows at a time (#5451).
+        // EXIF + sRGB tag were computed BEFORE the stitch to avoid re-reading
         // the source RAW at peak RSS (#1349 fix).
         let meta = display_meta.expect("display_meta is Some when outs_display is Some");
-        maple_pano::render::write_frame_png(
-            display,
-            outcome.image.width(),
-            outcome.image.height(),
-            &data,
-            &meta,
-        )
-        .map_err(|e| format!("{}: {e}", display.display()))?;
+        write_display_png(&outcome.image, display, &meta, |_| {})
+            .map_err(|e| format!("{}: {e}", display.display()))?;
     }
     let write_s = t_out.elapsed().as_secs_f64();
 

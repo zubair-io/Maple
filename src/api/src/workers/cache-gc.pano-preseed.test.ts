@@ -6,8 +6,8 @@
  * run standalone or together without sharing any state.
  *
  * The pano stitcher pre-seeds a `<filename>.avif` thumb immediately after
- * stitching, before the pano is indexed (maple-pano/src/stitch/io.rs
- * write_display_sidecars, #1365): it is live iff that filename is live in
+ * stitching, before the pano is indexed (maple-pano/src/stitch/sidecars.rs
+ * SidecarDownscaler, #1365): it is live iff that filename is live in
  * this exact directory. The older `sha256_prefix16(basename)` pre-seed name is
  * a #4793-retired name the sweep leaves untouched (#4928).
  */

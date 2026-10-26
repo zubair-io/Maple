@@ -1,14 +1,12 @@
-//! Output helpers for [`super`] (`pano stitch`): pixel-buffer encode +
-//! the `StitchReport` JSON assembly. Split from `pano/mod.rs` for the
+//! Output helpers for [`super`] (`pano stitch`): the `StitchReport` JSON
+//! assembly. Split from `pano/mod.rs` for the
 //! file-size budget.
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use maple_pano::ba::BaSolution;
 use maple_pano::composite::CompositeReport;
 use maple_pano::graph::{GraphSummary, ReverifySummary};
-use maple_pano::ingest::PlanarImage;
-use maple_pano::render::{write_frame_png, PngMetadata};
 use maple_pano::strategy::StrategyReport;
 use maple_pano::tile::TileCompositeReport;
 
@@ -215,39 +213,6 @@ pub(super) fn stitch_report(ctx: &ReportContext) -> serde_json::Value {
     report
 }
 
-/// Quantize the composite to 16-bit PNG. `srgb` applies the IEC 61966
-/// transfer for an eyeball-able preview AND tags the PNG with an `sRGB`
-/// chunk so viewers interpret the pixels correctly. When `srgb = false`
-/// values stay linear (clamped to [0, 1]) and the PNG carries no colour
-/// space tag (scene-linear data is not display-referred sRGB; tagging it
-/// as such would mislead viewers).
-///
-/// Note: callers that need EXIF embedding (the display pano PNG) call
-/// `write_frame_png` directly with a populated [`PngMetadata`] — this
-/// helper is for the plain sRGB-or-linear case only.
-pub(super) fn write_png16(path: &Path, img: &PlanarImage, srgb: bool) -> Result<(), String> {
-    let n = img.pixel_count();
-    let mut data = Vec::with_capacity(n * 3);
-    for i in 0..n {
-        for plane in [&img.r, &img.g, &img.b] {
-            let v = plane[i].clamp(0.0, 1.0);
-            let v = if srgb { srgb_encode(v) } else { v };
-            data.push((v * 65535.0).round() as u16);
-        }
-    }
-    let meta = if srgb {
-        PngMetadata {
-            tag_srgb: true,
-            ..Default::default()
-        }
-    } else {
-        // Scene-linear carrier: no colour-space tag (would mislead viewers).
-        PngMetadata::default()
-    };
-    write_frame_png(path, img.width(), img.height(), &data, &meta)
-        .map_err(|e| format!("{}: {e}", path.display()))
-}
-
 /// Context for the tile strategy stitch report (no BA solution / leveling /
 /// wrap closure — those keys are absent, not zeroed).
 pub(super) struct TileReportContext<'a> {
@@ -412,14 +377,6 @@ pub(super) fn tile_stitch_report(ctx: &TileReportContext) -> serde_json::Value {
         "exposure_field_max_abs_ev": tr.exposure_field_max_abs_ev,
         "timings_s": timings,
     })
-}
-
-fn srgb_encode(v: f32) -> f32 {
-    if v <= 0.003_130_8 {
-        12.92 * v
-    } else {
-        1.055 * v.powf(1.0 / 2.4) - 0.055
-    }
 }
 
 #[cfg(test)]

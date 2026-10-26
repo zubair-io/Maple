@@ -4,7 +4,7 @@
 // injected pano — which lives in a `Panoramas/` subfolder while the cache
 // singletons are configured for the open folder — resolve its render-time
 // derivatives. Mirrors the Rust writer in
-// `maple-pano/src/stitch/io.rs::write_display_sidecars` (#1365).
+// `maple-pano/src/stitch/sidecars.rs::SidecarDownscaler` (#1365).
 
 import Foundation
 

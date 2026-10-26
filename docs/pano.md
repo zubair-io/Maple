@@ -98,7 +98,7 @@ Graph-cut seams also take **user constraints** (`seam::SeamConstraint`, #4520), 
 
 Compositing always runs the **tiled** path on the rotation strategy. `composite_tiled` takes already-solved gains and a strip height, decodes each source frame on demand one at a time, warps it into a `canvas_width × tile_rows` strip, and frees the pixels before the next frame. Under the default Voronoi strategy the ownership mask needs only camera geometry, no pixels; under graph-cut the per-frame weight is sampled from the precomputed seam masks. Either way each strip is multi-band blended (#4524): it is processed inside a taller window, the strip plus a halo of `2·2^levels` rows on each side snapped to the coarsest pyramid level's grid, and each frame's Laplacian pyramid is built only over its own weighted columns, folded into the window's per-level accumulator and dropped. The halo covers the pyramid's full reach, so the tiled output is identical to the whole-canvas blend at the same band count and does not depend on the strip height, while blend memory stays bounded by one window. A geometric survey pass runs first because the band count (`log2` of the narrowest overlap) is a whole-canvas property. Without the tiled path, all N full-resolution frames would be resident at once.
 
-Finally `stitch/io.rs`'s `develop_for_display` runs the same view tail raw-core uses for a RAW — **AgX** at neutral contrast, then Rec.2020 → sRGB primaries, then the sRGB transfer curve, then 16-bit quantization. A stitched pano has no embedded camera JPEG, so there is no Auto Profile to fit and AgX/Neutral is the correct fallback. This matters: written raw, the scene-linear Rec.2020 composite re-opened cold looking desaturated and flat, because a non-RAW file is assumed to be display-encoded sRGB and the data was then misread on every axis at once. `exif_embed.rs` builds a small TIFF blob for the PNG `eXIf` chunk carrying Make/Model/Software, exposure fields, and GPS when the source frames had it, so Apple's ImageIO surfaces the pano's camera and location panel.
+Finally `stitch/save.rs`'s `write_display_png` runs the same view tail raw-core uses for a RAW — **AgX** at neutral contrast, then Rec.2020 → sRGB primaries, then the sRGB transfer curve, then 16-bit quantization — 128 rows at a time, streamed into the PNG encoder, so saving never holds a second copy of the canvas (#5451). Every step is per-pixel, so the result is identical to developing the whole image at once. A stitched pano has no embedded camera JPEG, so there is no Auto Profile to fit and AgX/Neutral is the correct fallback. This matters: written raw, the scene-linear Rec.2020 composite re-opened cold looking desaturated and flat, because a non-RAW file is assumed to be display-encoded sRGB and the data was then misread on every axis at once. `exif_embed.rs` builds a small TIFF blob for the PNG `eXIf` chunk carrying Make/Model/Software, exposure fields, and GPS when the source frames had it, so Apple's ImageIO surfaces the pano's camera and location panel. The PNG is written as `<name>.partial` and renamed into place only after every byte reached the disk, so a failed save never leaves a truncated panorama in the library. The Apple path also writes the `.maple/` thumb and preview from an area-averaged intermediate (at most 2560 px on the long edge) accumulated from the same row blocks; panos that small keep exactly the pixels a direct resize would give.
 
 ## Quick preview and reusable alignment
 
@@ -139,14 +139,15 @@ Both corrections are applied per pixel during the warp.
 
 A 21-frame 100 MP DJI set is the working reference, and peak resident memory is the design constraint throughout.
 
-| Phase              | Bound                                                                                  |
-| ------------------ | -------------------------------------------------------------------------------------- |
-| Stage 0 decode     | full-resolution buffer freed immediately; only proxy planes and metadata stay resident |
-| Stage 3 refinement | 2-entry LRU decode cache — at most 2 full-resolution frames at once                    |
-| Gain solve         | frames decoded one at a time, freed before the next                                    |
-| Stage 5 composite  | tiled strips, one decoded frame per strip pass; default 512 canvas rows                |
+| Phase              | Bound                                                                                     |
+| ------------------ | ----------------------------------------------------------------------------------------- |
+| Stage 0 decode     | full-resolution buffer freed immediately; only proxy planes and metadata stay resident    |
+| Stage 3 refinement | 2-entry LRU decode cache — at most 2 full-resolution frames at once                       |
+| Gain solve         | frames decoded one at a time, freed before the next                                       |
+| Stage 5 composite  | tiled strips, one decoded frame per strip pass; default 512 canvas rows                   |
+| Save               | 128 developed rows at a time into the PNG encoder; sidecars from a ≤ 2560 px intermediate |
 
-Measured on the 21-frame set, frame-processing peak dropped from about 34 GB to about 4.9 GB. End-to-end peak is around 13.6 GB, dominated by ONNX Runtime's own roughly 8.7 GiB resident floor.
+Measured on the 21-frame set, frame-processing peak dropped from about 34 GB to about 4.9 GB. End-to-end peak is around 13.6 GB with the ML matcher, dominated by ONNX Runtime's own roughly 8.7 GiB resident floor. With the classical matcher, through the Apple entry point, the peak is 5.75 GiB (Mac17,6, 256 MP output, #5451): about 2 GiB through stages 0–4, the rest in the composite, which still assembles the whole canvas (#5452). Saving used to add three more whole-canvas copies, for a 10.24 GiB peak.
 
 ## The C-FFI surface
 

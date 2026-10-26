@@ -96,7 +96,9 @@ mod photometry;
 mod preview;
 mod rotation_composite;
 mod rotation_tail;
+mod save;
 mod seam_gate;
+mod sidecars;
 mod tile_standalone;
 mod tile_stitch;
 mod types;
@@ -108,8 +110,10 @@ pub use alignment::{
 };
 pub use engine::FeatureEngine;
 pub use focal_bootstrap::FocalSeedSource;
-pub use io::{develop_for_display, interleave_planar, quantize_to_u16, write_display_sidecars};
+pub use io::{develop_for_display, interleave_planar, quantize_to_u16};
 pub use preview::{preview, PanoPreview, PREVIEW_LONG_EDGE_PX};
+pub use save::{write_display_png, write_scene_linear_png};
+pub use sidecars::SidecarDownscaler;
 pub use tile_standalone::stitch_tile;
 pub use types::{StitchError, StitchOptions, StitchOutcome, StitchSuccess, TileStitchOutcome};
 
