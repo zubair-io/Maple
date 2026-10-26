@@ -87,6 +87,7 @@ interface ImageEntry extends Entry {
   isVideo?: true;
   isAudio?: true;
   isStub?: true;
+  isMotionPhoto?: true;
   edited?: boolean;
   rating?: number;
   flag?: 'pick' | 'reject';
@@ -171,6 +172,7 @@ function imageEntry(scanned: Scanned): ImageEntry {
           width: catalog.width ?? undefined,
           height: catalog.height ?? undefined,
           capturedAt: catalog.captured_at ?? catalog.exif?.captured_at ?? undefined,
+          ...(catalog.motion_photo ? { isMotionPhoto: true as const } : {}),
         }
       : {}),
   };

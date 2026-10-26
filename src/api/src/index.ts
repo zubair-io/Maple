@@ -51,6 +51,7 @@ import { managedHttps } from './network/managed-https.ts';
 import { httpsListenerFactory } from './network/managed-https-listener.ts';
 import { eventsRoutes } from './routes/events.ts';
 import { videoRoutes } from './routes/video.ts';
+import { motionRoutes } from './routes/motion.ts';
 import { securityHeaders } from './middleware/security-headers.ts';
 import { authRoutes } from './routes/auth.ts';
 import {
@@ -177,6 +178,7 @@ export function buildApp(_opts: { stageNames?: string[] } = {}): Elysia {
     // sub-app's `requireAuth` derive.
     .use(eventsRoutes)
     .use(videoRoutes)
+    .use(motionRoutes)
 
     // Authenticated API routes — the shared-bearer sub-app, extracted to
     // routes/authed-api.ts (#2893). Wrapped so the `requireAuth`
