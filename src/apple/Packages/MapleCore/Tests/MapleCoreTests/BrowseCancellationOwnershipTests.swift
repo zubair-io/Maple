@@ -114,7 +114,40 @@ final class BrowseCancellationOwnershipTests: XCTestCase {
       await Task.yield()
     }
     let remainingInFlight = await loader.inFlight[key]
+    let remainingProducerIDs = await loader.taskProducerIDs
     XCTAssertNil(remainingInFlight)
+    XCTAssertTrue(remainingProducerIDs.isEmpty)
+  }
+
+  func testReplacedQueuedLocalProducerCleansUpTaskProducerID() async throws {
+    let loader = ThumbnailLoader()
+    for _ in 0..<ThumbnailLoader.maxConcurrentDecodes {
+      try await loader.acquireDecodeSlot()
+    }
+    let key = "local:" + UUID().uuidString
+    let firstTask = await loader.startLocalProducer(key: key) { Data([0xAA]) }
+    let firstWaiter = Task { await loader.awaitThumbnail(firstTask) }
+    let queued = await loader.decodeSlots.waitForQueue(atLeast: 1, timeout: .seconds(5))
+    XCTAssertTrue(queued)
+
+    firstWaiter.cancel()
+    _ = await firstWaiter.value
+    let secondTask = await loader.startLocalProducer(key: key) { Data([0xBB]) }
+    let secondWaiter = Task { await loader.awaitThumbnail(secondTask) }
+
+    for _ in 0..<ThumbnailLoader.maxConcurrentDecodes {
+      await loader.releaseDecodeSlot()
+    }
+    let secondResult = await secondWaiter.value
+    XCTAssertEqual(secondResult, Data([0xBB]))
+    for _ in 0..<10_000 {
+      if await loader.taskProducerIDs.isEmpty { break }
+      await Task.yield()
+    }
+    let remainingInFlight = await loader.inFlight[key]
+    let remainingProducerIDs = await loader.taskProducerIDs
+    XCTAssertNil(remainingInFlight)
+    XCTAssertTrue(remainingProducerIDs.isEmpty)
   }
 
   @MainActor
