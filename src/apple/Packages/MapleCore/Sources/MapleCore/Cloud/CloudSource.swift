@@ -197,6 +197,21 @@ extension CloudSource: ImageSource {
       ])
   }
 
+  /// The clip an Android Motion Photo embeds in this still, as a seekable
+  /// AVPlayer URL, or nil when the server has none (#5447). The HEAD probe
+  /// lets Full image decide whether to offer playback without fetching it.
+  public func motionClipURL(for refID: String) async throws -> URL? {
+    let address = try await addresses.url(route: "motion", absPath: Self.absPath(from: refID))
+    let token = try await httpClient.accessTokenForURL()
+    var components = URLComponents(url: address, resolvingAgainstBaseURL: false)
+    components?.queryItems = [URLQueryItem(name: "token", value: token)]
+    guard let clipURL = components?.url else { return nil }
+    var probe = URLRequest(url: clipURL)
+    probe.httpMethod = "HEAD"
+    let (_, response) = try await httpClient.data(for: probe)
+    return (response as? HTTPURLResponse)?.statusCode == 200 ? clipURL : nil
+  }
+
   /// Download the full RAW bytes for `ref` while reporting byte-level
   /// progress (#822). Routes through a delegate-backed download task
   /// configured with a `DownloadProgressDelegate` — the non-buffered transport

@@ -64,7 +64,7 @@ struct PreviewVideoView: View {
 #if os(macOS)
   /// Avoid SwiftUI's `_AVKit_SwiftUI` video view on macOS. On the v0.1.5 QA
   /// runtime, creating that view aborts while initializing its class metadata.
-  private struct MacVideoPlayerView: NSViewRepresentable {
+  struct MacVideoPlayerView: NSViewRepresentable {
     let player: AVPlayer
 
     func makeNSView(context: Context) -> AVPlayerView {

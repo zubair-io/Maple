@@ -321,6 +321,7 @@ PartialWhiteBalanceTests
 CloudSourceTests
 CloudSourceOriginalHTTPTests
 CloudAddressResolverTests
+CloudSourceMotionClipTests
 
 # Unified native folder readers and the production API contract (#4006).
 UnifiedFolderConsumerTests

@@ -99,6 +99,10 @@ struct PreviewView: View {
   /// Finger travel of the pull-down (iPhone) — the still follows it.
   @State private var plainPullTranslation: CGSize = .zero
   @State private var isPlainPullDismissing = false
+  /// The embedded clip of an Android Motion Photo still, once the server
+  /// confirms it has one, and whether the user asked to play it (#5447).
+  @State private var motionClipURL: URL?
+  @State private var playsMotionClip = false
   /// The open Duo can retain a compact size class. Use available width for
   /// Preview's rail/Info adaptation, not the size class or reference pixels.
   private func usesWideLayout(_ width: CGFloat) -> Bool {
@@ -167,6 +171,12 @@ struct PreviewView: View {
       // swipe / pager.
       ZStack {
         imageBody
+          .overlay {
+            if playsMotionClip, let motionClipURL {
+              MotionClipPlayerView(url: motionClipURL) { playsMotionClip = false }
+                .background(MapleTokens.bg)
+            }
+          }
           .background(photoAreaReporter)
           .padding(.horizontal, isWide ? 16 : 8)
           .scaleEffect(PreviewViewVM.plainPullScale(translationY: plainPullTranslation.height))
@@ -229,6 +239,21 @@ struct PreviewView: View {
           .padding(.horizontal, 12)
           .accessibilityIdentifier("preview-filename")
       } trailing: {
+        if motionClipURL != nil {
+          Button {
+            playsMotionClip.toggle()
+          } label: {
+            Image(systemName: playsMotionClip ? "stop.circle" : "play.circle")
+              .font(.system(size: 22))
+              .frame(minWidth: 44, minHeight: 44)
+              .contentShape(Rectangle())
+          }
+          .buttonStyle(.plain)
+          .foregroundStyle(ProTokens.text)
+          .accessibilityLabel(playsMotionClip ? "Show still photo" : "Play Motion Photo")
+          .accessibilityIdentifier("preview-motion")
+        }
+
         Button {
           onEdit(asset)
         } label: {
@@ -281,6 +306,13 @@ struct PreviewView: View {
     // asset rather than reusing the previous one's session.
     .onChange(of: asset.id) { _, _ in
       infoSession = nil
+    }
+    .task(id: asset.id) {
+      playsMotionClip = false
+      motionClipURL = nil
+      let url = await PreviewMotionClip.clipURL(for: asset, source: source)
+      guard !Task.isCancelled else { return }
+      motionClipURL = url
     }
     // Re-prime the Info session whenever the pane is open — on first
     // appearance (the pane defaults to open, so no tap ever fires) and

@@ -58,6 +58,13 @@ final class CloudOriginalHTTPFixture: @unchecked Sendable {
       "/maple/api/image/library/My%20Album/renamed%20%23%3F.dng",
     ].contains(target)
     let authorized = request.lowercased().contains("authorization: bearer original-token")
+    if request.hasPrefix("HEAD ") {
+      let isMotionClip =
+        target == "/maple/api/motion/library/My%20Album/PXL_1.MP.jpg?token=original-token"
+      return Data(
+        "HTTP/1.1 \(isMotionClip ? 200 : 404) Response\r\nContent-Length: 4096\r\nContent-Type: video/mp4\r\nConnection: close\r\n\r\n"
+          .utf8)
+    }
     let status = authorized && (isFolders || isOriginal) ? 200 : 404
     let body = isFolders ? Data(folders.utf8) : isOriginal ? original : Data("not found".utf8)
     let header =
