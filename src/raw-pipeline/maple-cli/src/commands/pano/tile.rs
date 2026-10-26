@@ -11,8 +11,7 @@
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
-use maple_pano::render::PngMetadata;
-use maple_pano::stitch::{write_display_png, write_scene_linear_png, TileStitchOutcome};
+use maple_pano::stitch::TileStitchOutcome;
 
 use super::io::{tile_stitch_report, TileReportContext};
 
@@ -23,23 +22,20 @@ use super::io::{tile_stitch_report, TileReportContext};
 /// Called by `stitch_set` when [`maple_pano::stitch::stitch`] returned
 /// `StitchSuccess::Tile` — the tile pipeline already ran inside `stitch`
 /// (with shared ALIKED + LightGlue from #1270). This function only owns
-/// the I/O tail (PNG write + JSON report assembly).
+/// the report tail; the PNGs streamed out during the composite (#5452).
 pub(super) struct TileOutcomeArgs<'a> {
     pub outcome: TileStitchOutcome,
     pub outs_linear: &'a Path,
-    pub outs_display: Option<&'a Path>,
     pub inputs: &'a [PathBuf],
-    /// PNG metadata (EXIF blob + sRGB tag) pre-computed BEFORE stitch() ran
-    /// so that this write phase does not re-read any source RAW at peak RSS
-    /// (#1349 fix). `None` iff `outs_display` is `None`.
-    pub display_meta: Option<PngMetadata>,
+    /// Seconds spent closing the streamed PNGs after the composite.
+    pub write_s: f64,
     pub t0: Instant,
 }
 
 /// Write outputs for a tile stitch that already ran inside `stitch()` (#1270).
 ///
 /// After the unified pipeline the tile outcome arrives pre-computed;
-/// this function only handles the PNG writes and JSON report assembly that
+/// this function only handles the logging and JSON report assembly that
 /// `stitch_set` can't do generically.
 pub(super) fn run_tile_from_outcome(
     args: TileOutcomeArgs<'_>,
@@ -47,11 +43,14 @@ pub(super) fn run_tile_from_outcome(
     let TileOutcomeArgs {
         outcome,
         outs_linear,
-        outs_display,
         inputs,
-        display_meta,
+        write_s,
         t0,
     } = args;
+    let (width, height) = (
+        outcome.tile_report.canvas.width,
+        outcome.tile_report.canvas.height,
+    );
 
     let [decode_s, features_s, graph_s, refine_s, solve_s, composite_s] = outcome.stage_timings_s;
 
@@ -85,26 +84,10 @@ pub(super) fn run_tile_from_outcome(
         outcome.tile_report.canvas.height,
     );
     eprintln!(
-        "pano[tile]: composite — {}×{}, mean planar {:.3}px, max {:.3}px ({composite_s:.1}s)",
-        outcome.image.width(),
-        outcome.image.height(),
+        "pano[tile]: composite — {width}×{height}, mean planar {:.3}px, max {:.3}px ({composite_s:.1}s)",
         outcome.mean_planar_residual_px,
         outcome.max_planar_residual_px,
     );
-
-    let t_out = Instant::now();
-    write_scene_linear_png(&outcome.image, outs_linear)
-        .map_err(|e| format!("{}: {e}", outs_linear.display()))?;
-    if let Some(display) = outs_display {
-        // Finished, display-referred sRGB (#1335): AgX view tail like a RAW
-        // render, developed and encoded a block of rows at a time (#5451).
-        // EXIF + sRGB tag were computed BEFORE the stitch to avoid re-reading
-        // the source RAW at peak RSS (#1349 fix).
-        let meta = display_meta.expect("display_meta is Some when outs_display is Some");
-        write_display_png(&outcome.image, display, &meta, |_| {})
-            .map_err(|e| format!("{}: {e}", display.display()))?;
-    }
-    let write_s = t_out.elapsed().as_secs_f64();
 
     let report = tile_stitch_report(&TileReportContext {
         inputs,
@@ -129,10 +112,8 @@ pub(super) fn run_tile_from_outcome(
         ],
     });
     eprintln!(
-        "pano[tile]: wrote {} ({}x{}) in {:.1}s",
+        "pano[tile]: wrote {} ({width}x{height}) in {:.1}s",
         outs_linear.display(),
-        outcome.image.width(),
-        outcome.image.height(),
         t0.elapsed().as_secs_f64()
     );
     Ok(report)

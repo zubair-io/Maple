@@ -10,6 +10,8 @@
 
 use std::path::PathBuf;
 
+use crate::composite::CanvasSink;
+
 use super::alignment::{usable, AlignmentKey, AlignmentReuse, SolvedAlignment};
 use super::rotation_tail::rotation_tail;
 use super::tile_stitch::{tile_tail, TileEarlyState};
@@ -31,6 +33,7 @@ pub fn stitch_reusing(
     inputs: &[PathBuf],
     opts: &StitchOptions,
     offered: Option<&SolvedAlignment>,
+    sink: &mut dyn CanvasSink,
     mut progress: impl FnMut(u32, f32),
     is_cancelled: impl Fn() -> bool,
 ) -> Result<AlignedStitch, StitchError> {
@@ -63,6 +66,7 @@ pub fn stitch_reusing(
             opts,
             alignment.applied_opcodes(),
             alignment.priors(),
+            sink,
             &mut progress,
             &is_cancelled,
         )?),
@@ -71,6 +75,7 @@ pub fn stitch_reusing(
             opts,
             &alignment,
             head_timings,
+            sink,
             &mut progress,
             &is_cancelled,
         )?),

@@ -35,9 +35,10 @@ use crate::local_align::LocalCorrection;
 use crate::seam::{self, SeamConstraint, SeamMasks};
 use crate::warp::warp_to_canvas_strip;
 
-use super::super::CompositeReport;
+use super::super::{CanvasSink, CompositeReport};
 use super::{check_inputs, strips, with_exposure_field};
 
+#[allow(clippy::too_many_arguments)]
 pub(super) fn composite_tiled_graph_cut(
     paths: &[std::path::PathBuf],
     cameras: &[Camera],
@@ -47,7 +48,8 @@ pub(super) fn composite_tiled_graph_cut(
     canvas: &CanvasSpec,
     tile_rows: u32,
     seam_constraints: &[SeamConstraint],
-) -> Result<(PlanarImage, CompositeReport), PanoError> {
+    sink: &mut dyn CanvasSink,
+) -> Result<CompositeReport, PanoError> {
     check_inputs(
         "composite_tiled(graph_cut)",
         "paths",
@@ -93,9 +95,11 @@ pub(super) fn composite_tiled_graph_cut(
                 tile_y0,
             ))
         },
+        sink,
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(super) fn composite_tiled_frames_graph_cut(
     frames: &[PlanarImage],
     cameras: &[Camera],
@@ -105,7 +109,8 @@ pub(super) fn composite_tiled_frames_graph_cut(
     canvas: &CanvasSpec,
     tile_rows: u32,
     seam_constraints: &[SeamConstraint],
-) -> Result<(PlanarImage, CompositeReport), PanoError> {
+    sink: &mut dyn CanvasSink,
+) -> Result<CompositeReport, PanoError> {
     check_inputs(
         "composite_tiled_frames(graph_cut)",
         "frames",
@@ -150,6 +155,7 @@ pub(super) fn composite_tiled_frames_graph_cut(
                 tile_y0,
             ))
         },
+        sink,
     )
 }
 
@@ -157,6 +163,7 @@ pub(super) fn composite_tiled_frames_graph_cut(
 /// strip window, weighted by [`SeamMasks::weight`]. `warp_strip(frame_index,
 /// y0, y1)` is the caller's decode-or-reuse closure, so the file-path and
 /// pre-loaded-frames entry points share this loop.
+#[allow(clippy::too_many_arguments)]
 fn graph_cut_blend(
     cameras: &[Camera],
     photometry: &[FramePhotometry],
@@ -165,10 +172,11 @@ fn graph_cut_blend(
     tile_rows: u32,
     seam: &SeamMasks,
     warp_strip: impl FnMut(usize, u32, u32) -> Result<PlanarImage, PanoError>,
-) -> Result<(PlanarImage, CompositeReport), PanoError> {
-    let survey = strips::survey(cameras, local_corrections, canvas, tile_rows, false);
+    sink: &mut dyn CanvasSink,
+) -> Result<CompositeReport, PanoError> {
+    let survey = strips::survey(cameras, local_corrections, canvas, false);
     let levels = levels_for_overlap_width(survey.min_overlap_px);
-    let blended = strips::blend_strips(
+    strips::blend_strips(
         (canvas.width, canvas.height),
         cameras.len(),
         tile_rows,
@@ -176,6 +184,7 @@ fn graph_cut_blend(
         |fi, y0, y1| survey.footprint_touches(fi, y0, y1),
         |fi, x, y| seam.weight(fi, x as f64 + 0.5, y as f64 + 0.5),
         warp_strip,
+        sink,
     )?;
     let report = CompositeReport {
         canvas: canvas.clone(),
@@ -188,5 +197,5 @@ fn graph_cut_blend(
         exposure_field: None,
         owner: None,
     };
-    Ok((blended, report))
+    Ok(report)
 }

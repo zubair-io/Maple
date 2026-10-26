@@ -22,7 +22,7 @@ use std::time::Instant;
 use crate::ba::{self, BaOptions};
 use crate::camera::Camera;
 use crate::canvas::{auto_canvas, CanvasOptions, CanvasSpec, ProjectionMode};
-use crate::composite::composite_tiled_frames;
+use crate::composite::{composite_tiled_frames, CanvasCollector};
 use crate::gain::{solve_exposure_field, solve_photometry, GainMode, GainOptions};
 use crate::ingest::PlanarImage;
 use crate::leveling;
@@ -100,8 +100,8 @@ pub fn preview(
     let (image, solve_s, composite_s) = match &alignment.tile_graph {
         Some(tile_graph) => {
             let cache = TileFrameCache::from_frames(proxies);
+            let mut collector = CanvasCollector::default();
             let TilePlaced {
-                image,
                 solve_s,
                 composite_s,
                 ..
@@ -112,10 +112,11 @@ pub fn preview(
                 &alignment.lenses,
                 opts.local_align,
                 long_edge_pixel_cap,
+                &mut collector,
                 &mut progress,
                 &is_cancelled,
             )?;
-            (image, solve_s, composite_s)
+            (collector.into_image(), solve_s, composite_s)
         }
         None => rotation_preview(&alignment, proxies, opts, &mut progress, &is_cancelled)?,
     };

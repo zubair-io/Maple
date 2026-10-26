@@ -24,6 +24,7 @@ use rayon::prelude::*;
 use crate::blend::BandAccumulator;
 use crate::camera::Camera;
 use crate::canvas::CanvasSpec;
+use crate::composite::{CanvasSink, OwnerRuns};
 use crate::error::PanoError;
 use crate::ingest::{PlanarImage, ValidityMask};
 use crate::local_align::LocalCorrection;
@@ -45,9 +46,9 @@ pub(super) fn halo_rows(levels: usize) -> usize {
 /// Canvas-wide geometry the blend needs before it starts: the band-count
 /// input and, per frame, the canvas rows its footprint spans.
 pub(super) struct Survey {
-    /// Voronoi owner per canvas pixel (`u16::MAX` = uncovered); kept only
-    /// when the caller weights by hard ownership.
-    pub(super) owner: Option<Vec<u16>>,
+    /// Voronoi owner per canvas pixel; kept only when the caller weights by
+    /// hard ownership.
+    pub(super) owner: Option<OwnerRuns>,
     pub(super) footprint_rows: Vec<Option<(u32, u32)>>,
     pub(super) min_overlap_px: usize,
 }
@@ -58,17 +59,21 @@ impl Survey {
     }
 }
 
+/// Rows per survey pass. Everything the survey records is per pixel or per
+/// row, so the pass height changes only its transient memory: `k` depth
+/// planes of this many canvas rows (#5452).
+const SURVEY_ROWS: u32 = 64;
+
 pub(super) fn survey(
     cameras: &[Camera],
     local_corrections: &[Option<LocalCorrection>],
     canvas: &CanvasSpec,
-    tile_rows: u32,
     keep_owner: bool,
 ) -> Survey {
     let k = cameras.len();
     let cw = canvas.width as usize;
-    let tile_rows = tile_rows.max(1).min(canvas.height);
-    let mut owner = keep_owner.then(Vec::new);
+    let tile_rows = SURVEY_ROWS.min(canvas.height).max(1);
+    let mut owner = keep_owner.then(|| OwnerRuns::new(canvas.width));
     let mut footprint_rows: Vec<Option<(u32, u32)>> = vec![None; k];
     let mut overlap_count = vec![vec![0usize; k]; k];
     let mut overlap_rows: Vec<Vec<BTreeSet<usize>>> = vec![vec![BTreeSet::new(); k]; k];
@@ -98,7 +103,9 @@ pub(super) fn survey(
             }
         }
         if let Some(owner) = owner.as_mut() {
-            owner.extend_from_slice(&strip_owner);
+            strip_owner
+                .chunks_exact(cw)
+                .for_each(|row| owner.push_row(row));
         }
     }
 
@@ -109,12 +116,14 @@ pub(super) fn survey(
     }
 }
 
-/// Blend the whole canvas strip by strip.
+/// Blend the whole canvas strip by strip, handing each finished strip to
+/// `sink` as soon as it is collapsed (#5452).
 ///
 /// - `touches(fi, y0, y1)`: may frame `fi` carry weight in canvas rows
 ///   `y0..y1`? `false` skips its decode for that window.
 /// - `weight(fi, x, y)`: seam weight of frame `fi` at canvas pixel `(x, y)`.
 /// - `warp_strip(fi, y0, y1)`: the frame warped into canvas rows `y0..y1`.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn blend_strips(
     (width, height): (u32, u32),
     frame_count: usize,
@@ -123,18 +132,13 @@ pub(super) fn blend_strips(
     touches: impl Fn(usize, u32, u32) -> bool,
     weight: impl Fn(usize, usize, usize) -> f32 + Sync,
     mut warp_strip: impl FnMut(usize, u32, u32) -> Result<PlanarImage, PanoError>,
-) -> Result<PlanarImage, PanoError> {
+    sink: &mut dyn CanvasSink,
+) -> Result<(), PanoError> {
     let (cw, ch) = (width as usize, height as usize);
     let tile_rows = tile_rows.max(1).min(height) as usize;
     let halo = halo_rows(levels);
     let grid = 1usize << (levels.max(1) - 1);
-
-    let mut out = [
-        vec![0.0_f32; cw * ch],
-        vec![0.0; cw * ch],
-        vec![0.0; cw * ch],
-    ];
-    let mut covered = vec![false; cw * ch];
+    sink.begin(width, height)?;
 
     for ty0 in (0..ch).step_by(tile_rows) {
         let ty1 = (ty0 + tile_rows).min(ch);
@@ -142,6 +146,7 @@ pub(super) fn blend_strips(
         let wy1 = (ty1 + halo).min(ch);
         let interior = (ty0 - wy0) * cw..(ty1 - wy0) * cw;
         let mut acc = BandAccumulator::new(cw, wy1 - wy0, levels);
+        let mut covered = vec![false; (ty1 - ty0) * cw];
 
         for fi in 0..frame_count {
             if !touches(fi, wy0 as u32, wy1 as u32) {
@@ -152,10 +157,7 @@ pub(super) fn blend_strips(
             let Some((bx0, bx1)) = weighted_columns(&wt, cw) else {
                 continue;
             };
-            for (c, &w) in covered[ty0 * cw..ty1 * cw]
-                .iter_mut()
-                .zip(&wt[interior.clone()])
-            {
+            for (c, &w) in covered.iter_mut().zip(&wt[interior.clone()]) {
                 *c |= w > 0.0;
             }
             // A frame's pyramid only reaches `halo` past its weighted
@@ -165,23 +167,21 @@ pub(super) fn blend_strips(
             acc.add(&strip, &wt, band);
         }
 
-        let planes = acc.collapse();
-        for (dst, src) in out.iter_mut().zip(&planes) {
-            dst[ty0 * cw..ty1 * cw].copy_from_slice(&src[interior.clone()]);
+        let [r, g, b] = acc.collapse().map(|plane| {
+            plane[interior.clone()]
+                .iter()
+                .zip(&covered)
+                .map(|(&v, &c)| if c { v } else { 0.0 })
+                .collect::<Vec<_>>()
+        });
+        let rows = (ty1 - ty0) as u32;
+        let mut validity = ValidityMask::new_filled(width, rows, false);
+        for (i, _) in covered.iter().enumerate().filter(|(_, &c)| c) {
+            validity.set((i % cw) as u32, (i / cw) as u32, true);
         }
+        sink.rows(&PlanarImage::from_planes(width, rows, r, g, b, validity))?;
     }
-
-    let mut validity = ValidityMask::new_filled(width, height, false);
-    for (i, _) in covered.iter().enumerate().filter(|(_, &c)| c) {
-        validity.set((i % cw) as u32, (i / cw) as u32, true);
-    }
-    for plane in &mut out {
-        for (v, _) in plane.iter_mut().zip(&covered).filter(|(_, &c)| !c) {
-            *v = 0.0;
-        }
-    }
-    let [r, g, b] = out;
-    Ok(PlanarImage::from_planes(width, height, r, g, b, validity))
+    Ok(())
 }
 
 /// Seam weight × validity over one warped window, row-major.
@@ -217,6 +217,7 @@ fn weighted_columns(wt: &[f32], cw: usize) -> Option<(usize, usize)> {
 mod tests {
     use super::*;
     use crate::blend::blend_multiband;
+    use crate::composite::CanvasCollector;
     use crate::prng::SplitMix64;
 
     const W: usize = 400;
@@ -279,7 +280,8 @@ mod tests {
         for levels in [1, 3, 5, 7] {
             let whole = blend_multiband(&layers, &weights, levels);
             for tile_rows in [23, 96] {
-                let strips = blend_strips(
+                let mut collector = CanvasCollector::default();
+                blend_strips(
                     (W as u32, H as u32),
                     layers.len(),
                     tile_rows,
@@ -287,8 +289,10 @@ mod tests {
                     |_, _, _| true,
                     |fi, x, y| weights[fi][y * W + x],
                     |fi, y0, y1| Ok(rows(&layers[fi], y0, y1)),
+                    &mut collector,
                 )
                 .expect("blend");
+                let strips = collector.into_image();
                 let ctx = format!("levels={levels} tile_rows={tile_rows}");
                 for i in 0..W * H {
                     let (x, y) = ((i % W) as u32, (i / W) as u32);

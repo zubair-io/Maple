@@ -27,7 +27,7 @@ use crate::local_align::LocalCorrection;
 use crate::seam::{SeamConstraint, SeamConstraintError, SeamStrategy};
 use crate::warp::warp_to_canvas_strip;
 
-use super::CompositeReport;
+use super::{CanvasCollector, CanvasSink, CompositeReport};
 
 /// Compute per-frame Voronoi depth scores over one canvas strip.
 ///
@@ -181,8 +181,9 @@ pub fn composite_tiled(
     tile_rows: u32,
     seam_strategy: SeamStrategy,
     seam_constraints: &[SeamConstraint],
-) -> Result<(PlanarImage, CompositeReport), PanoError> {
-    let composited = match seam_strategy {
+    sink: &mut dyn CanvasSink,
+) -> Result<CompositeReport, PanoError> {
+    let report = match seam_strategy {
         SeamStrategy::Voronoi if !seam_constraints.is_empty() => {
             Err(SeamConstraintError::RequiresGraphCut.into())
         }
@@ -194,6 +195,7 @@ pub fn composite_tiled(
             exposure_field,
             canvas,
             tile_rows,
+            sink,
         ),
         SeamStrategy::GraphCut => graph_cut::composite_tiled_graph_cut(
             paths,
@@ -204,19 +206,16 @@ pub fn composite_tiled(
             canvas,
             tile_rows,
             seam_constraints,
+            sink,
         ),
-    };
-    composited.map(|(image, report)| {
-        (
-            image,
-            CompositeReport {
-                exposure_field: exposure_field.map(|field| field.summary),
-                ..report
-            },
-        )
+    }?;
+    Ok(CompositeReport {
+        exposure_field: exposure_field.map(|field| field.summary),
+        ..report
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 fn composite_tiled_voronoi(
     paths: &[std::path::PathBuf],
     cameras: &[Camera],
@@ -225,7 +224,8 @@ fn composite_tiled_voronoi(
     exposure_field: Option<&ExposureField>,
     canvas: &CanvasSpec,
     tile_rows: u32,
-) -> Result<(PlanarImage, CompositeReport), PanoError> {
+    sink: &mut dyn CanvasSink,
+) -> Result<CompositeReport, PanoError> {
     check_inputs(
         "composite_tiled",
         "paths",
@@ -254,6 +254,7 @@ fn composite_tiled_voronoi(
             );
             Ok(with_exposure_field(exposure_field, fi, strip, canvas, y0))
         },
+        sink,
     )
 }
 
@@ -278,6 +279,8 @@ pub fn composite_tiled_frames(
     seam_strategy: SeamStrategy,
     seam_constraints: &[SeamConstraint],
 ) -> Result<(PlanarImage, CompositeReport), PanoError> {
+    let mut collector = CanvasCollector::default();
+    let sink = &mut collector;
     let composited = match seam_strategy {
         SeamStrategy::Voronoi if !seam_constraints.is_empty() => {
             Err(SeamConstraintError::RequiresGraphCut.into())
@@ -290,6 +293,7 @@ pub fn composite_tiled_frames(
             exposure_field,
             canvas,
             tile_rows,
+            sink,
         ),
         SeamStrategy::GraphCut => graph_cut::composite_tiled_frames_graph_cut(
             frames,
@@ -300,11 +304,12 @@ pub fn composite_tiled_frames(
             canvas,
             tile_rows,
             seam_constraints,
+            sink,
         ),
     };
-    composited.map(|(image, report)| {
+    composited.map(|report| {
         (
-            image,
+            collector.into_image(),
             CompositeReport {
                 exposure_field: exposure_field.map(|field| field.summary),
                 ..report
@@ -313,6 +318,7 @@ pub fn composite_tiled_frames(
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 fn composite_tiled_frames_voronoi(
     frames: &[PlanarImage],
     cameras: &[Camera],
@@ -321,7 +327,8 @@ fn composite_tiled_frames_voronoi(
     exposure_field: Option<&ExposureField>,
     canvas: &CanvasSpec,
     tile_rows: u32,
-) -> Result<(PlanarImage, CompositeReport), PanoError> {
+    sink: &mut dyn CanvasSink,
+) -> Result<CompositeReport, PanoError> {
     check_inputs(
         "composite_tiled_frames",
         "frames",
@@ -349,6 +356,7 @@ fn composite_tiled_frames_voronoi(
             );
             Ok(with_exposure_field(exposure_field, fi, strip, canvas, y0))
         },
+        sink,
     )
 }
 
@@ -361,25 +369,26 @@ fn voronoi_blend(
     canvas: &CanvasSpec,
     tile_rows: u32,
     warp_strip: impl FnMut(usize, u32, u32) -> Result<PlanarImage, PanoError>,
-) -> Result<(PlanarImage, CompositeReport), PanoError> {
-    let mut survey = strips::survey(cameras, local_corrections, canvas, tile_rows, true);
-    let owner = survey.owner.as_deref().expect("survey kept the owner map");
-    let cw = canvas.width as usize;
+    sink: &mut dyn CanvasSink,
+) -> Result<CompositeReport, PanoError> {
+    let mut survey = strips::survey(cameras, local_corrections, canvas, true);
+    let owner = survey.owner.as_ref().expect("survey kept the owner map");
     let levels = levels_for_overlap_width(survey.min_overlap_px);
-    let blended = strips::blend_strips(
+    strips::blend_strips(
         (canvas.width, canvas.height),
         cameras.len(),
         tile_rows,
         levels,
-        |fi, y0, y1| owner[y0 as usize * cw..y1 as usize * cw].contains(&(fi as u16)),
+        |fi, y0, y1| owner.owns_any(fi as u16, y0, y1),
         |fi, x, y| {
-            if owner[y * cw + x] == fi as u16 {
+            if owner.at(x, y) == fi as u16 {
                 1.0
             } else {
                 0.0
             }
         },
         warp_strip,
+        sink,
     )?;
     let report = CompositeReport {
         canvas: canvas.clone(),
@@ -392,7 +401,7 @@ fn voronoi_blend(
         exposure_field: None,
         owner: survey.owner.take(),
     };
-    Ok((blended, report))
+    Ok(report)
 }
 
 /// Scale a freshly warped strip (canvas rows from `y0`) by frame `fi`'s

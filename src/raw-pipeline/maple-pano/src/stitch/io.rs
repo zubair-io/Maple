@@ -24,7 +24,7 @@ use crate::ingest::PlanarImage;
 /// display-encoded sRGB, which would violate `PlanarImage`'s
 /// scene-linear-Rec.2020 invariant. Holds the whole developed image, so it is
 /// for the small preview; the full stitch saves through
-/// [`super::save::write_display_png`] a block at a time (#5451).
+/// [`super::PngCanvasSink`] a block at a time as it composites (#5452).
 pub fn develop_for_display(img: &PlanarImage) -> Vec<u16> {
     super::save::develop_rows_for_display(img, 0..img.height())
 }

@@ -11,6 +11,7 @@
 
 use std::path::PathBuf;
 
+use crate::composite::CanvasSink;
 use crate::graph::{DescriptorTopKProvider, LoopClosureCheck, LoopClosureGate, MatchGraph};
 use crate::ingest::{ingest_file_proxy, FrameMeta, FramePriors};
 use crate::strategy::StrategyReport;
@@ -45,6 +46,7 @@ pub fn stitch_tile(
     inputs: &[PathBuf],
     opts: &StitchOptions,
     strategy_report: StrategyReport,
+    sink: &mut dyn CanvasSink,
     mut progress: impl FnMut(u32, f32),
     is_cancelled: impl Fn() -> bool,
 ) -> Result<TileStitchOutcome, StitchError> {
@@ -175,6 +177,7 @@ pub fn stitch_tile(
         opts,
         applied_opcodes,
         priors,
+        sink,
         progress,
         is_cancelled,
     )

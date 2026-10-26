@@ -180,7 +180,7 @@ impl Drop for PngRowWriter {
     }
 }
 
-fn partial_path(path: &Path) -> PathBuf {
+pub(crate) fn partial_path(path: &Path) -> PathBuf {
     let mut name = path.file_name().unwrap_or_default().to_os_string();
     name.push(".partial");
     path.with_file_name(name)

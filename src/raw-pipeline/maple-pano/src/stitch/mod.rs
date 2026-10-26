@@ -112,13 +112,14 @@ pub use engine::FeatureEngine;
 pub use focal_bootstrap::FocalSeedSource;
 pub use io::{develop_for_display, interleave_planar, quantize_to_u16};
 pub use preview::{preview, PanoPreview, PREVIEW_LONG_EDGE_PX};
-pub use save::{write_display_png, write_scene_linear_png};
+pub use save::{DisplayPng, PngCanvasSink};
 pub use sidecars::SidecarDownscaler;
 pub use tile_standalone::stitch_tile;
 pub use types::{StitchError, StitchOptions, StitchOutcome, StitchSuccess, TileStitchOutcome};
 
 use std::path::PathBuf;
 
+use crate::composite::CanvasSink;
 use crate::gain::LensGroups;
 use crate::graph::{DescriptorTopKProvider, LoopClosureCheck, LoopClosureGate};
 use crate::ingest::{ingest_file_proxy, FrameMeta};
@@ -148,14 +149,17 @@ pub use crate::strategy::StrategyRequest;
 /// - **Tile** → NCC refinement → planar placement → planar composite;
 ///   returns `Ok(StitchSuccess::Tile(_))`.
 ///
+/// The composited canvas streams into `sink` strip by strip (#5452).
+///
 /// Equivalent to [`stitch_reusing`] with no alignment offered.
 pub fn stitch(
     inputs: &[PathBuf],
     opts: &StitchOptions,
+    sink: &mut dyn CanvasSink,
     progress: impl FnMut(u32, f32),
     is_cancelled: impl Fn() -> bool,
 ) -> Result<StitchSuccess, StitchError> {
-    stitch_reusing(inputs, opts, None, progress, is_cancelled).map(|run| run.success)
+    stitch_reusing(inputs, opts, None, sink, progress, is_cancelled).map(|run| run.success)
 }
 
 /// Request checks shared by the stitch and the preview, before any decode.

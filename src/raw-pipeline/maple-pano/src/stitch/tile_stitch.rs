@@ -35,6 +35,7 @@ use std::collections::HashSet;
 use std::path::PathBuf;
 
 use crate::camera::Camera;
+use crate::composite::CanvasSink;
 use crate::features::FeatureSet;
 use crate::gain::LensGroups;
 use crate::graph::{
@@ -213,6 +214,7 @@ pub(super) fn tile_tail(
     opts: &StitchOptions,
     applied_opcodes: Vec<Vec<String>>,
     priors: Vec<FramePriors>,
+    sink: &mut dyn CanvasSink,
     mut progress: impl FnMut(u32, f32),
     is_cancelled: impl Fn() -> bool,
 ) -> Result<TileStitchOutcome, StitchError> {
@@ -300,7 +302,6 @@ pub(super) fn tile_tail(
     progress(3, 1.0);
 
     let TilePlaced {
-        image,
         tile_report,
         orphans: tile_orphans,
         poses_placed,
@@ -313,6 +314,7 @@ pub(super) fn tile_tail(
         &lenses,
         opts.local_align,
         |_, _| opts.max_canvas_px,
+        sink,
         &mut progress,
         &is_cancelled,
     )?;
@@ -321,7 +323,6 @@ pub(super) fn tile_tail(
     let max_planar_residual_px = tile_report.max_planar_residual_px;
 
     Ok(TileStitchOutcome {
-        image,
         tile_report,
         strategy_report,
         focal_seed_source,
@@ -348,7 +349,6 @@ pub(super) fn tile_tail(
 
 /// What [`place_and_composite`] produced.
 pub(super) struct TilePlaced {
-    pub image: crate::ingest::PlanarImage,
     pub tile_report: crate::tile::TileCompositeReport,
     pub orphans: Vec<usize>,
     pub poses_placed: usize,
@@ -369,6 +369,7 @@ pub(super) fn place_and_composite(
     lenses: &LensGroups,
     local_align: bool,
     canvas_cap_px: impl FnOnce(u32, u32) -> usize,
+    sink: &mut dyn CanvasSink,
     progress: &mut dyn FnMut(u32, f32),
     is_cancelled: &dyn Fn() -> bool,
 ) -> Result<TilePlaced, StitchError> {
@@ -434,7 +435,7 @@ pub(super) fn place_and_composite(
     if is_cancelled() {
         return Err(StitchError::Cancelled);
     }
-    let (image, tile_report) = composite_tile(
+    let tile_report = composite_tile(
         cache,
         dims,
         &component_edges,
@@ -444,13 +445,13 @@ pub(super) fn place_and_composite(
         lenses,
         &Default::default(),
         None,
+        sink,
     )
     .map_err(|e| StitchError::Composite(e.to_string()))?;
     let composite_s = t5.elapsed().as_secs_f64();
     progress(5, 1.0);
 
     Ok(TilePlaced {
-        image,
         tile_report,
         orphans,
         poses_placed,

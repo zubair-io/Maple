@@ -11,6 +11,7 @@ use std::error::Error;
 use std::path::{Path, PathBuf};
 
 use clap::Parser;
+use maple_pano::composite::CanvasCollector;
 use maple_pano::ingest::{ingest_file, PlanarImage, ValidityMask};
 use maple_pano::stitch::{quantize_to_u16, stitch, StitchOptions, StitchSuccess};
 use maple_pano::warp::warp_to_canvas_strip;
@@ -63,9 +64,11 @@ fn main() -> Result<()> {
     let regions: Vec<Region> = serde_json::from_slice(&std::fs::read(&args.regions)?)?;
     let (dimensions, expected) = candidate_crops(&args.candidate, &regions)?;
     let mut last_stage = None;
+    let mut collector = CanvasCollector::default();
     let result = stitch(
         &args.inputs,
         &StitchOptions::default(),
+        &mut collector,
         |stage, _| {
             if last_stage != Some(stage) {
                 eprintln!("seam evidence: stage {stage}");
@@ -78,6 +81,7 @@ fn main() -> Result<()> {
     let StitchSuccess::Rotation(outcome) = result else {
         return Err("tile strategy does not exercise graph-cut seams".into());
     };
+    let image = collector.into_image();
     let canvas = &outcome.comp_report.canvas;
     if dimensions != (canvas.width, canvas.height) {
         return Err("candidate canvas differs from the current production solve".into());
@@ -85,14 +89,14 @@ fn main() -> Result<()> {
     // Match all measured candidate pixels exactly, including quantization. A
     // stale candidate or differing calibration/geometry cannot furnish evidence.
     for (region, previous) in regions.iter().zip(&expected) {
-        let crop = crop(&outcome.image, region.rect).ok_or("candidate ROI has holes")?;
+        let crop = crop(&image, region.rect).ok_or("candidate ROI has holes")?;
         let actual = quantize_to_u16(&crop, false);
         if &actual != previous {
             return Err(format!("ROI {} differs from the supplied candidate", region.name).into());
         }
     }
     drop(expected);
-    drop(outcome.image);
+    drop(image);
     std::fs::create_dir_all(&args.out_dir)?;
     let mut evidence: Vec<EvidenceRoi> = regions
         .into_iter()
