@@ -174,6 +174,49 @@ pub unsafe extern "C" fn maple_search_query_vector(
     })
 }
 
+/// Embeds `texts_json` (a JSON array of strings) with the engine's bge-m3 and
+/// writes one unit vector of 1024 f32 per text, in input order, to `out`.
+/// `out_cap` counts f32; it must hold `1024 × texts`, else rc 100 with the
+/// floats needed in `*out_len`. API-only.
+///
+/// # Safety
+/// `texts_json` must be a NUL-terminated string, `out_len` non-null, and a
+/// non-null `out` valid for `out_cap` f32.
+#[no_mangle]
+pub unsafe extern "C" fn maple_search_embed(
+    handle: *const MapleSearchHandle,
+    texts_json: *const c_char,
+    out: *mut f32,
+    out_cap: usize,
+    out_len: *mut usize,
+) -> i32 {
+    catch_panic_rc("maple_search_embed", || {
+        rc(engine(handle).and_then(|engine| {
+            if out_len.is_null() {
+                set_last_error("out_len is null".into());
+                return Err(RC_INVALID_ARGUMENT);
+            }
+            let texts: Vec<String> =
+                serde_json::from_str(utf8(texts_json, "texts")?).map_err(|e| {
+                    set_last_error(format!("texts are not a JSON array of strings: {e}"));
+                    RC_INVALID_ARGUMENT
+                })?;
+            *out_len = texts.len() * DIM;
+            if out.is_null() || out_cap < *out_len {
+                return Err(RC_NEED_LARGER_BUFFER);
+            }
+            let borrowed: Vec<&str> = texts.iter().map(String::as_str).collect();
+            let vectors = engine_result(engine.embed_documents(&borrowed))?;
+            let written = std::slice::from_raw_parts_mut(out, *out_len);
+            written
+                .chunks_exact_mut(DIM)
+                .zip(&vectors)
+                .for_each(|(row, vector)| row.copy_from_slice(vector));
+            Ok(())
+        }))
+    })
+}
+
 /// Inserts or replaces `id`. A null `vector` leaves its vector untouched,
 /// otherwise it must hold `dim` (1024) f32. A null `text` leaves the keyword
 /// document untouched; otherwise `text` (the embedder template) and `blob`
