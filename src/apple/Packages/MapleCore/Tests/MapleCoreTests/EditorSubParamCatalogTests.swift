@@ -17,31 +17,7 @@ import XCTest
 @MainActor
 final class EditorSubParamCatalogTests: XCTestCase {
 
-    /// Run `body` with the Deep denoise patent gate (#5381) set to `enabled`.
-    private func withDeepDenoise(_ enabled: Bool, _ body: () -> Void) {
-        UserDefaults.standard.set(enabled, forKey: DeepDenoiseFlag.defaultsKey)
-        defer { UserDefaults.standard.removeObject(forKey: DeepDenoiseFlag.defaultsKey) }
-        body()
-    }
-
-    func testDeepDenoiseIsHiddenUntilItsPatentGateOpens() {
-        // #5213 decision 9: deep denoise is not exposed in shipping builds.
-        UserDefaults.standard.removeObject(forKey: DeepDenoiseFlag.defaultsKey)
-        XCTAssertFalse(DeepDenoiseFlag.isEnabled)
-        XCTAssertEqual(Tool.noise.subParams.map(\.id), ["luminance", "color", "prefilter"])
-        // A Release build compiles the gate shut whatever the default says.
-        #if DEBUG
-            withDeepDenoise(true) { XCTAssertTrue(DeepDenoiseFlag.isEnabled) }
-        #else
-            withDeepDenoise(true) { XCTAssertFalse(DeepDenoiseFlag.isEnabled) }
-        #endif
-    }
-
     func testNoiseDeclaresLuminanceColorDeepPrefilter() {
-        withDeepDenoise(true) { assertNoiseCatalog() }
-    }
-
-    private func assertNoiseCatalog() {
         // #1153 — Deep (BM3D, §3.2) and Prefilter (§3.1) joined the Noise
         // pill. Order follows spec §10.0.
         let subs = Tool.noise.subParams
@@ -57,10 +33,6 @@ final class EditorSubParamCatalogTests: XCTestCase {
     }
 
     func testOnlyDecodeProductNoiseTiersCommitOnRelease() {
-        withDeepDenoise(true) { assertDecodeProductTiersCommitOnRelease() }
-    }
-
-    private func assertDecodeProductTiersCommitOnRelease() {
         // The decode-product pairs defer their write; every other sub-param
         // on every tool stays on the per-tick path. Lens Corrections joined
         // this set at #2231 — moving any of the three scales re-runs the
