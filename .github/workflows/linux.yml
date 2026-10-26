@@ -32,6 +32,10 @@ concurrency:
   group: linux-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
+defaults:
+  run:
+    shell: bash
+
 jobs:
   support-matrix:
     runs-on: ubuntu-24.04
@@ -46,7 +50,9 @@ jobs:
         run: python3 src/linux/packaging/support_matrix.py
       - id: matrix
         name: Container smoke jobs claimed by the matrix
-        run: echo "smoke=$(python3 src/linux/packaging/support_matrix.py --ci-matrix)" >> "$GITHUB_OUTPUT"
+        run: |
+          smoke=$(python3 src/linux/packaging/support_matrix.py --ci-matrix)
+          echo "smoke=$smoke" >> "$GITHUB_OUTPUT"
 
   native-build-and-test:
     runs-on: ubuntu-24.04
@@ -94,7 +100,8 @@ jobs:
           python3 src/linux/packaging/package.py deb --output-dir "$RUNNER_TEMP/maple-packages"
           python3 src/linux/packaging/package.py appimage \
             --runtime "$RUNNER_TEMP/runtime-x86_64" --output-dir "$RUNNER_TEMP/maple-packages"
-          cd "$RUNNER_TEMP/maple-packages" && sha256sum -c ./*.sha256
+          cd "$RUNNER_TEMP/maple-packages"
+          sha256sum -c ./*.sha256
       - name: Launch extracted release outside checkout
         run: |
           dpkg-deb -x "$RUNNER_TEMP"/maple-packages/maple_*.deb "$RUNNER_TEMP/maple-unpacked"
@@ -131,7 +138,9 @@ jobs:
           name: maple-linux-packages
           path: packages
       - name: Verify package checksums
-        run: cd packages && sha256sum -c ./*.sha256
+        run: |
+          cd packages
+          sha256sum -c ./*.sha256
       - name: Install, launch, update and remove in a clean container
         run: |
           case '${{ matrix.package }}' in
