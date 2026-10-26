@@ -27,7 +27,10 @@ import {
 import { child as childLogger } from '../log.ts';
 import { answerRemoteSearch } from '../search/remote-search.ts';
 import { ondemandPreviews } from '../indexer/ondemand-preview.ts';
-import { isPreviewStageRenderMessage } from '../indexer/preview-priority-protocol.ts';
+import {
+  isPreviewPriorityReadyMessage,
+  isPreviewStageRenderMessage,
+} from '../indexer/preview-priority-protocol.ts';
 import {
   ChildProcessWorker,
   childScriptPath,
@@ -90,6 +93,10 @@ function spawn(workerEntry: string): void {
         invalidateLibraryRoots({ localOnly: true });
         return;
       }
+      if (isPreviewPriorityReadyMessage(event.data)) {
+        ondemandPreviews().attachWorker((message) => worker.postMessage(message));
+        return;
+      }
       if (isPreviewStageRenderMessage(event.data)) {
         ondemandPreviews().onStageRender(event.data);
         return;
@@ -111,7 +118,6 @@ function spawn(workerEntry: string): void {
       if (!stopped) setTimeout(() => spawn(workerEntry), delayMs);
     });
     child = worker;
-    ondemandPreviews().attachWorker((message) => worker.postMessage(message));
     log.info('worker process spawned');
   } catch (err) {
     log.error({ err }, 'failed to spawn worker process');

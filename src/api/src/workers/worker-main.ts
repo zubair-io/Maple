@@ -20,6 +20,7 @@ import { installRemoteInProcessSearch } from '../search/remote-search.ts';
 import { installWorkerPreviewPriority } from './background-preview-gate.ts';
 
 installChildHardening('worker');
+installWorkerPreviewPriority();
 // An uncaught exception or unhandled rejection flushes telemetry before the
 // process exits (#2196). Installed before anything else runs so an early
 // boot failure is covered too; a native abort is beyond any hook and is
@@ -62,7 +63,6 @@ async function main(): Promise<void> {
   }
   installWorkerLibraryRootsSync();
   installRemoteInProcessSearch();
-  installWorkerPreviewPriority();
   await startWorkers();
   log.info('worker tier started');
   const shutdown = async () => {

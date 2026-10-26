@@ -5,10 +5,9 @@
  * A viewer waiting on a preview must not queue behind the background `preview`
  * stage's backlog, so this path has:
  *
- * - **Its own small cap**, independent of the stage's concurrency. It is a
- *   constant derived from the CPU count rather than a setting: it only bounds
- *   how many renders a burst of cache misses may run at once, and the stage
- *   yielding (below) is what actually buys the latency.
+ * - **Its own cap**, independent of the stage's concurrency: as many renders
+ *   as this process's FFI pool can run. Not a setting — it only bounds a burst
+ *   of cache misses, and the stage yielding (below) is what buys the latency.
  * - **Priority over the stage.** While any on-demand render is pending, the
  *   worker child is told so over IPC and its stage stops admitting new renders
  *   (`workers/background-preview-gate.ts`). Its in-flight renders finish, so
@@ -21,22 +20,22 @@
  *   started always finishes and writes its file: the stage needs it anyway.
  */
 
-import { availableParallelism } from 'node:os';
+import { ffiPool } from '../ffi/ffi-pool.ts';
 import { generatePreview, isPreviewCacheFresh } from './previewer.ts';
 import type {
   PreviewInteractiveMessage,
   PreviewStageRenderMessage,
 } from './preview-priority-protocol.ts';
 
-/** A quarter of the cores, clamped to 2–4: enough for a burst of misses
- * without letting interactive renders become a backlog of their own. */
-export const ONDEMAND_PREVIEW_CONCURRENCY = Math.min(
-  4,
-  Math.max(2, Math.floor(availableParallelism() / 4)),
-);
+/** As many renders as this process's FFI pool can execute at once. Admitting
+ * more would only queue them inside the pool, past the disconnect check. */
+export function ondemandPreviewCapacity(): number {
+  return Math.max(1, ffiPool().poolSize());
+}
 
 /** Upper bound on waiting for a stage render whose `end` message never
- * arrives; the request then renders the preview itself. */
+ * arrives (a wedged render, a lost message); the request then renders the
+ * preview itself and the stale entry is dropped. */
 const STAGE_RENDER_WAIT_MS = 60_000;
 
 type WorkerSender = (message: PreviewInteractiveMessage) => void;
@@ -47,11 +46,16 @@ interface PendingRender {
   promise: Promise<void>;
 }
 
+interface StageRender {
+  renders: number;
+  waiters: Array<() => void>;
+}
+
 class OndemandPreviewRenderer {
   private running = 0;
   private readonly slotWaiters: Array<() => void> = [];
   private readonly pending = new Map<string, PendingRender>();
-  private readonly stageRenders = new Map<string, Array<() => void>>();
+  private readonly stageRenders = new Map<string, StageRender>();
   private sender: WorkerSender | null = null;
   private announcedActive = false;
 
@@ -64,21 +68,18 @@ class OndemandPreviewRenderer {
       existing.signals.push(signal ?? null);
       return existing.promise;
     }
-    const entry: PendingRender = {
-      signals: [signal ?? null],
-      promise: Promise.resolve(),
-    };
-    entry.promise = this.renderOnce(entry, absPath, previewPath).finally(() => {
+    const signals = [signal ?? null];
+    const promise = this.renderOnce(signals, absPath, previewPath).finally(() => {
       this.pending.delete(previewPath);
       this.announce();
     });
-    this.pending.set(previewPath, entry);
+    this.pending.set(previewPath, { signals, promise });
     this.announce();
-    return entry.promise;
+    return promise;
   }
 
   private async renderOnce(
-    entry: PendingRender,
+    signals: ReadonlyArray<AbortSignal | null>,
     absPath: string,
     previewPath: string,
   ): Promise<void> {
@@ -86,7 +87,7 @@ class OndemandPreviewRenderer {
     if (await isPreviewCacheFresh(previewPath, absPath)) return;
     await this.acquireSlot();
     try {
-      if (entry.signals.every((signal) => signal?.aborted === true)) return;
+      if (signals.every((s) => s?.aborted === true)) return;
       await generatePreview(absPath, previewPath);
     } finally {
       this.releaseSlot();
@@ -94,7 +95,7 @@ class OndemandPreviewRenderer {
   }
 
   private async acquireSlot(): Promise<void> {
-    if (this.running < ONDEMAND_PREVIEW_CONCURRENCY) {
+    if (this.running < ondemandPreviewCapacity()) {
       this.running++;
       return;
     }
@@ -102,37 +103,43 @@ class OndemandPreviewRenderer {
   }
 
   private releaseSlot(): void {
-    const next = this.slotWaiters.shift();
+    const next = this.running <= ondemandPreviewCapacity() ? this.slotWaiters.shift() : undefined;
     if (next) next();
     else this.running--;
   }
 
   private stageRenderSettled(previewPath: string): Promise<void> {
-    const waiters = this.stageRenders.get(previewPath);
-    if (!waiters) return Promise.resolve();
+    const stageRender = this.stageRenders.get(previewPath);
+    if (!stageRender) return Promise.resolve();
     const { promise, resolve } = Promise.withResolvers<void>();
     const settle = (): void => {
       clearTimeout(timer);
       resolve();
     };
-    const timer = setTimeout(settle, STAGE_RENDER_WAIT_MS);
-    waiters.push(settle);
+    const timer = setTimeout(() => {
+      if (this.stageRenders.get(previewPath) === stageRender) this.stageRenders.delete(previewPath);
+      settle();
+    }, STAGE_RENDER_WAIT_MS);
+    stageRender.waiters.push(settle);
     return promise;
   }
 
-  /** A `preview-stage-render` message from the worker child. */
   onStageRender(message: PreviewStageRenderMessage): void {
+    const current = this.stageRenders.get(message.previewPath);
     if (message.phase === 'start') {
-      if (!this.stageRenders.has(message.previewPath))
-        this.stageRenders.set(message.previewPath, []);
+      if (current) current.renders++;
+      else this.stageRenders.set(message.previewPath, { renders: 1, waiters: [] });
       return;
     }
-    const waiters = this.stageRenders.get(message.previewPath) ?? [];
+    if (!current) return;
+    current.renders--;
+    if (current.renders > 0) return;
     this.stageRenders.delete(message.previewPath);
-    for (const wake of waiters) wake();
+    for (const wake of current.waiters) wake();
   }
 
-  /** The worker child (re)spawned: tell it the current state straight away. */
+  /** The worker child is listening (it reports ready once its handler is
+   * installed): tell it the current state. */
   attachWorker(sender: WorkerSender): void {
     this.sender = sender;
     this.announcedActive = this.pending.size > 0;
@@ -142,7 +149,7 @@ class OndemandPreviewRenderer {
   /** The worker child died or was stopped: no stage render will report `end`. */
   detachWorker(): void {
     this.sender = null;
-    const waiters = [...this.stageRenders.values()].flat();
+    const waiters = [...this.stageRenders.values()].flatMap((r) => r.waiters);
     this.stageRenders.clear();
     for (const wake of waiters) wake();
   }
@@ -165,7 +172,6 @@ class OndemandPreviewRenderer {
 
 let renderer: OndemandPreviewRenderer | null = null;
 
-/** Process-wide renderer. Lazily constructed on first call. */
 export function ondemandPreviews(): OndemandPreviewRenderer {
   if (!renderer) renderer = new OndemandPreviewRenderer();
   return renderer;
@@ -175,5 +181,3 @@ export function ondemandPreviews(): OndemandPreviewRenderer {
 export function _resetOndemandPreviewsForTests(): void {
   renderer = null;
 }
-
-export type { OndemandPreviewRenderer };
