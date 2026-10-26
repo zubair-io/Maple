@@ -157,10 +157,13 @@ public protocol PanoStitching: AnyObject, Sendable {
     ///   - alignment: A preview's solved alignment. Reused when it still
     ///     matches the inputs and geometry options, so matching is skipped;
     ///     otherwise the stitch re-solves and reports `.stale`.
+    ///   - maxCanvasPixels: Output canvas pixel cap; a larger canvas is
+    ///     shrunk uniformly to fit. `nil` keeps the core's default cap.
     func stitch(
         assets: [AssetRef],
         options: PanoOptions,
         alignment: PanoAlignment?,
+        maxCanvasPixels: Int?,
         progress: @escaping @MainActor (PanoStage, Double) -> Void
     ) async throws -> PanoResult
 

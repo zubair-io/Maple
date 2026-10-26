@@ -26,6 +26,7 @@ private final class SynchronousMockStitcher: PanoStitching {
         assets: [AssetRef],
         options: PanoOptions,
         alignment: PanoAlignment?,
+        maxCanvasPixels: Int?,
         progress: @escaping @MainActor (PanoStage, Double) -> Void
     ) async throws -> PanoResult {
         cancelledFlag = false
@@ -212,6 +213,7 @@ private final class CancellableSpyStitcher: PanoStitching {
         assets: [AssetRef],
         options: PanoOptions,
         alignment: PanoAlignment?,
+        maxCanvasPixels: Int?,
         progress: @escaping @MainActor (PanoStage, Double) -> Void
     ) async throws -> PanoResult {
         // Yield once so this Task is properly "started" in the cooperative

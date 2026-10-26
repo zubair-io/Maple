@@ -145,6 +145,7 @@ struct RustPanoStitcherErrorPathTests {
                 assets: [AssetRef(url: a), AssetRef(url: b)],
                 options: .default,
                 alignment: nil,
+                maxCanvasPixels: nil,
                 progress: { _, _ in }
             )
             Issue.record("Placeholder frames cannot stitch")
@@ -177,6 +178,7 @@ struct RustPanoStitcherErrorPathTests {
                 assets: [bytesAsset, fileAsset],
                 options: .default,
                 alignment: nil,
+                maxCanvasPixels: nil,
                 progress: { _, _ in }
             )
             Issue.record("Expected throw but stitch succeeded")
@@ -285,6 +287,7 @@ struct RustPanoStitcherE2ETests {
             assets: assets,
             options: .default,
             alignment: preview.alignment,
+            maxCanvasPixels: nil,
             progress: { stage, _ in
                 if stagesObserved.last != stage { stagesObserved.append(stage) }
                 if stage == .solving, solvingReachedAfter == nil { solvingReachedAfter = clock.now - stitchStart }

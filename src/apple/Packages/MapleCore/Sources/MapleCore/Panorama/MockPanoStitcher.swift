@@ -46,6 +46,7 @@ public final class MockPanoStitcher: PanoStitching {
         assets: [AssetRef],
         options: PanoOptions,
         alignment: PanoAlignment?,
+        maxCanvasPixels: Int?,
         progress: @escaping @MainActor (PanoStage, Double) -> Void
     ) async throws -> PanoResult {
         cancelledFlag = false

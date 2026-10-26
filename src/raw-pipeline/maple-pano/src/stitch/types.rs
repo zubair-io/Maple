@@ -17,6 +17,9 @@ use super::focal_bootstrap::FocalSeedSource;
 
 // ─── Input options ───────────────────────────────────────────────────────────
 
+/// The default output canvas pixel cap (256 MP).
+pub const DEFAULT_MAX_CANVAS_PX: usize = 256_000_000;
+
 /// All tunable parameters for a single stitch run. Callers construct this
 /// with `StitchOptions::default()` and override what they need.
 #[derive(Clone)]
@@ -108,7 +111,7 @@ impl Default for StitchOptions {
             // addresses, so 1600 costs ~no memory vs 1280. Callers that
             // accept the matcher-quality tradeoff can still lower it.
             proxy_long_edge: 1600,
-            max_canvas_px: 256_000_000,
+            max_canvas_px: DEFAULT_MAX_CANVAS_PX,
             canvas_tile_rows: None,
             use_coreml: false,
             seam_strategy: crate::seam::SeamStrategy::Voronoi,

@@ -96,6 +96,19 @@ unsafe fn required_path(fn_name: &str, arg: &str, ptr: *const c_char) -> Result<
     })
 }
 
+/// Sizes a preview reports about the full stitch it previews.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct MaplePanoPreviewSizes {
+    /// Estimated full-stitch canvas width under the preview's options and
+    /// the default canvas cap.
+    pub full_width: u32,
+    /// Estimated full-stitch canvas height.
+    pub full_height: u32,
+    /// Pixel count of the largest input frame at full resolution.
+    pub largest_frame_px: u64,
+}
+
 /// Build a quick low-resolution panorama preview.
 ///
 /// `raw_paths`/`count` — as `maple_pano_stitch` (≥ 2 UTF-8 paths).
@@ -105,6 +118,10 @@ unsafe fn required_path(fn_name: &str, arg: &str, ptr: *const c_char) -> Result<
 ///   `maple_pano_stitch_aligned` wrote earlier. Reused when it still matches.
 /// `alignment_out_path` — optional (null = don't write); receives the
 ///   solved (or reused) alignment JSON to hand to `maple_pano_stitch_aligned`.
+/// `out_sizes` — optional (null = don't report); receives what the full
+///   stitch will hold (see [`MaplePanoPreviewSizes`]) so the caller can size
+///   its memory budget and pick a `max_canvas_px` for
+///   `maple_pano_stitch_aligned`. Written only when the return is ≥ 0.
 /// Remaining arguments (including `engine`) as `maple_pano_stitch`. Progress stage 3
 /// (refinement) is reported complete immediately — the preview skips it.
 ///
@@ -123,6 +140,7 @@ pub unsafe extern "C" fn maple_pano_preview(
     out_preview_png_path: *const c_char,
     alignment_in_path: *const c_char,
     alignment_out_path: *const c_char,
+    out_sizes: *mut MaplePanoPreviewSizes,
     retention: MaplePanoRetention,
     local_align: MaplePanoLocalAlign,
     strategy: MaplePanoStrategy,
@@ -152,8 +170,10 @@ pub unsafe extern "C" fn maple_pano_preview(
 
     #[cfg(any(target_os = "macos", target_os = "ios"))]
     {
-        with_large_stack(move || {
-            apple::run_preview(
+        let full = std::sync::Arc::new(std::sync::OnceLock::new());
+        let worker_full = std::sync::Arc::clone(&full);
+        let rc = with_large_stack(move || {
+            let (rc, estimate) = apple::run_preview(
                 paths,
                 out_png,
                 alignment_in,
@@ -161,8 +181,16 @@ pub unsafe extern "C" fn maple_pano_preview(
                 super::pano_apple::stitch_options(retention, local_align, strategy, engine),
                 cb,
                 send_cancel,
-            )
-        })
+            );
+            if let Some(sizes) = estimate {
+                let _ = worker_full.set(sizes);
+            }
+            rc
+        });
+        if let (Some(&sizes), false) = (full.get(), out_sizes.is_null()) {
+            *out_sizes = sizes;
+        }
+        rc
     }
 
     #[cfg(not(any(target_os = "macos", target_os = "ios")))]
@@ -172,6 +200,7 @@ pub unsafe extern "C" fn maple_pano_preview(
             out_png,
             alignment_in,
             alignment_out,
+            out_sizes,
             retention,
             local_align,
             strategy,
@@ -192,8 +221,11 @@ pub unsafe extern "C" fn maple_pano_preview(
 /// `maple_pano_stitch`). When the file matches the inputs and geometry
 /// options, decode-to-proxy, feature extraction, matching and graph
 /// verification are skipped; when it is stale or unreadable the stitch
-/// re-solves and returns 1. All other arguments and codes as
-/// `maple_pano_stitch`.
+/// re-solves and returns 1.
+/// `max_canvas_px` — the output canvas pixel cap; a canvas larger than this
+///   is shrunk uniformly to fit. 0 = the default cap (256 MP). A smaller cap
+///   lowers the composite's memory, not decode or refinement's.
+/// All other arguments and codes as `maple_pano_stitch`.
 ///
 /// # Safety
 ///
@@ -206,6 +238,7 @@ pub unsafe extern "C" fn maple_pano_stitch_aligned(
     count: usize,
     out_png_path: *const c_char,
     alignment_in_path: *const c_char,
+    max_canvas_px: u64,
     retention: MaplePanoRetention,
     local_align: MaplePanoLocalAlign,
     strategy: MaplePanoStrategy,
@@ -239,7 +272,10 @@ pub unsafe extern "C" fn maple_pano_stitch_aligned(
                 paths,
                 out_png,
                 alignment_in,
-                super::pano_apple::stitch_options(retention, local_align, strategy, engine),
+                with_canvas_cap(
+                    super::pano_apple::stitch_options(retention, local_align, strategy, engine),
+                    max_canvas_px,
+                ),
                 cb,
                 send_cancel,
             )
@@ -252,6 +288,7 @@ pub unsafe extern "C" fn maple_pano_stitch_aligned(
             paths,
             out_png,
             alignment_in,
+            max_canvas_px,
             retention,
             local_align,
             strategy,
@@ -263,6 +300,21 @@ pub unsafe extern "C" fn maple_pano_stitch_aligned(
             "{NAME}: not supported on this platform (pano is Apple-only)"
         ));
         -3
+    }
+}
+
+/// `opts` with its canvas cap replaced by `max_canvas_px` (0 keeps it).
+#[cfg_attr(not(any(target_os = "macos", target_os = "ios")), allow(dead_code))]
+fn with_canvas_cap(
+    opts: maple_pano::stitch::StitchOptions,
+    max_canvas_px: u64,
+) -> maple_pano::stitch::StitchOptions {
+    match usize::try_from(max_canvas_px) {
+        Ok(0) | Err(_) => opts,
+        Ok(cap) => maple_pano::stitch::StitchOptions {
+            max_canvas_px: cap,
+            ..opts
+        },
     }
 }
 
@@ -291,7 +343,7 @@ mod apple {
         opts: StitchOptions,
         cb: SendProgressCallback,
         send_cancel: SendCancelPtr,
-    ) -> i32 {
+    ) -> (i32, Option<super::MaplePanoPreviewSizes>) {
         let inputs: Vec<PathBuf> = input_paths.iter().map(PathBuf::from).collect();
         let (offered, unreadable) = read_alignment(alignment_in.as_deref());
         let result = preview(
@@ -303,7 +355,7 @@ mod apple {
         );
         let pv = match result {
             Ok(pv) => pv,
-            Err(e) => return error_rc(NAME, e),
+            Err(e) => return (error_rc(NAME, e), None),
         };
         let written = write_frame_png(
             Path::new(&out_png),
@@ -323,10 +375,17 @@ mod apple {
             })
         });
         match written {
-            Ok(()) => reuse_rc(NAME, &pv.reuse, unreadable),
+            Ok(()) => (
+                reuse_rc(NAME, &pv.reuse, unreadable),
+                Some(super::MaplePanoPreviewSizes {
+                    full_width: pv.full_canvas_estimate.0,
+                    full_height: pv.full_canvas_estimate.1,
+                    largest_frame_px: pv.largest_frame_px,
+                }),
+            ),
             Err(msg) => {
                 set_last_error(format!("{NAME}: {msg}"));
-                -7
+                (-7, None)
             }
         }
     }

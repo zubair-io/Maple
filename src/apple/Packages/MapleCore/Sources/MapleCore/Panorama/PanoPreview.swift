@@ -40,10 +40,19 @@ public struct PanoPreview: @unchecked Sendable {
     public let image: CGImage
     public let alignment: PanoAlignment
     public let alignmentOutcome: PanoAlignmentOutcome
+    /// What the full stitch of these frames will hold; `nil` when the
+    /// stitcher cannot say (the mock).
+    public let stitchSizes: PanoStitchSizes?
 
-    public init(image: CGImage, alignment: PanoAlignment, alignmentOutcome: PanoAlignmentOutcome) {
+    public init(
+        image: CGImage,
+        alignment: PanoAlignment,
+        alignmentOutcome: PanoAlignmentOutcome,
+        stitchSizes: PanoStitchSizes? = nil
+    ) {
         self.image = image
         self.alignment = alignment
         self.alignmentOutcome = alignmentOutcome
+        self.stitchSizes = stitchSizes
     }
 }

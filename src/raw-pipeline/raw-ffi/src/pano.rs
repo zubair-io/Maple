@@ -366,4 +366,4 @@ mod pano_apple;
 // Quick preview + alignment-reusing stitch entries (#4578).
 #[path = "pano_preview.rs"]
 mod pano_preview;
-pub use pano_preview::{maple_pano_preview, maple_pano_stitch_aligned};
+pub use pano_preview::{maple_pano_preview, maple_pano_stitch_aligned, MaplePanoPreviewSizes};

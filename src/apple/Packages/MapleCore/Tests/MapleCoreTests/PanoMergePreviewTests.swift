@@ -273,7 +273,7 @@ final class PanoMergePreviewTests: XCTestCase {
 /// Instant stitcher that records what the session offers it. A preview
 /// started while `holdPreviews` is set suspends until it is cleared or the
 /// preview's task is cancelled.
-private final class RecordingStitcher: PanoStitching, @unchecked Sendable {
+final class RecordingStitcher: PanoStitching, @unchecked Sendable {
     struct PreviewCall {
         let options: PanoOptions
         let alignment: PanoAlignment?
@@ -282,6 +282,8 @@ private final class RecordingStitcher: PanoStitching, @unchecked Sendable {
     @MainActor var previewCalls: [PreviewCall] = []
     @MainActor var stitchAlignments: [PanoAlignment?] = []
     @MainActor var stitchOptions: [PanoOptions] = []
+    @MainActor var stitchCaps: [Int?] = []
+    @MainActor var previewSizes: PanoStitchSizes?
     @MainActor var cancelledPreviews = 0
     @MainActor var holdPreviews = false
     @MainActor var lastProgress: (@MainActor (PanoStage, Double) -> Void)?
@@ -314,12 +316,16 @@ private final class RecordingStitcher: PanoStitching, @unchecked Sendable {
                 throw CancellationError()
             }
         }
-        await MainActor.run { progress(.compositing, 1.0) }
+        let sizes = await MainActor.run {
+            progress(.compositing, 1.0)
+            return previewSizes
+        }
         let solved = Self.alignment(for: options)
         return PanoPreview(
             image: Self.image,
             alignment: solved,
-            alignmentOutcome: alignment == nil ? .solved : (alignment == solved ? .reused : .stale(reason: "test"))
+            alignmentOutcome: alignment == nil ? .solved : (alignment == solved ? .reused : .stale(reason: "test")),
+            stitchSizes: sizes
         )
     }
 
@@ -327,11 +333,13 @@ private final class RecordingStitcher: PanoStitching, @unchecked Sendable {
         assets: [AssetRef],
         options: PanoOptions,
         alignment: PanoAlignment?,
+        maxCanvasPixels: Int?,
         progress: @escaping @MainActor (PanoStage, Double) -> Void
     ) async throws -> PanoResult {
         await MainActor.run {
             stitchAlignments.append(alignment)
             stitchOptions.append(options)
+            stitchCaps.append(maxCanvasPixels)
         }
         return PanoResult(
             outputURL: FileManager.default.temporaryDirectory.appendingPathComponent("recorded.png"),
