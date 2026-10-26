@@ -56,7 +56,7 @@ struct FloatingImageHeader<Center: View, Trailing: View>: View {
 }
 
 /// System Liquid Glass follows accessibility settings; older OSes use material.
-private struct PhotoHeaderGlass: ViewModifier {
+struct PhotoHeaderGlass: ViewModifier {
   func body(content: Content) -> some View {
     if #available(iOS 26.0, macOS 26.0, *) {
       content.glassEffect(.regular, in: .capsule)

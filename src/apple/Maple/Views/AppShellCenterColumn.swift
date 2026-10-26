@@ -152,6 +152,8 @@ struct AppShellCenterColumn: View {
   /// macOS Export recipes from the BrowseGrid multi-select action bar
   /// (#5435). nil hides the button.
   var onExportRecipes: (() -> Void)? = nil
+  /// iPad Browse's floating header (#5435); nil keeps the navigation bar.
+  var browseHeader: BrowseHeaderModel? = nil
   /// Delete key / "Move to Trash" context-menu item on BrowseGrid (#2653).
   /// nil disables both.
   var onTrashAssets: (([AssetRef.ID]) -> Void)? = nil
@@ -324,6 +326,7 @@ struct AppShellCenterColumn: View {
               onEditMetadata: onEditMetadata,
               onBatchRename: onBatchRename,
               onExportRecipes: onExportRecipes,
+              header: browseHeader,
               onTrashAssets: onTrashAssets,
               clipboard: clipboard
             )
