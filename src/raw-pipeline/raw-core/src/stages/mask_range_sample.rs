@@ -26,9 +26,12 @@
 use crate::color::oklab::rec2020_to_oklab;
 use crate::image::{ColorSpace, Image, RawImage};
 use crate::pipeline::{develop_scene_linear_from_raw_with_quality, RenderQuality};
+use crate::stages::local_adjustments::range;
 use crate::stages::white_balance_sample::neighbourhood_mean;
-use crate::types::RangeRefinement;
+use crate::types::{RangeRefinement, SKIN_TONE_RANGE};
 use crate::xmp::AdjustmentModel;
+
+const MIN_DEFAULT_SKIN_COVERAGE_WEIGHT: f32 = 0.005;
 
 /// Below this Oklab chroma the hue is the neutral axis's noise, not a colour.
 /// Twice the smallest chroma floor the seed can write (`0.01`), so a colour
@@ -201,6 +204,110 @@ impl RangeRefinement {
             feather,
         }
     }
+}
+
+fn signed_circular_delta_deg(a: f32, b: f32) -> f32 {
+    let raw = (a - b) % 360.0;
+    if raw > 180.0 {
+        raw - 360.0
+    } else if raw <= -180.0 {
+        raw + 360.0
+    } else {
+        raw
+    }
+}
+
+/// Evaluate [`SKIN_TONE_RANGE`] across `mask_bytes` on the pre-`local_adjustments`
+/// scene-linear Rec.2020 `RGBAf` buffer (`width * height * 4` floats). Returns
+/// `None` when the default `55° ± 25°` skin-tone range already covers the
+/// masked skin pixels, or `Some(RangeSeed)` anchored on the masked skin median
+/// when the default range is effectively inert (#5317).
+pub fn seed_skin_mask_range_if_default_inert(
+    rgba_rec2020: &[f32],
+    width: usize,
+    height: usize,
+    mask_bytes: &[u8],
+) -> Option<RangeSeed> {
+    let pixel_count = width.checked_mul(height)?;
+    if width == 0
+        || height == 0
+        || mask_bytes.len() != pixel_count
+        || rgba_rec2020.len() != pixel_count.checked_mul(4)?
+    {
+        return None;
+    }
+
+    let step = (width.min(height) / 256).max(1);
+    let mut default_weight_sum = 0.0_f32;
+    let mut hues = Vec::new();
+    let mut chromas = Vec::new();
+    let mut lightnesses = Vec::new();
+    let mut sum_sin = 0.0_f32;
+    let mut sum_cos = 0.0_f32;
+
+    for y in (0..height).step_by(step) {
+        let row_offset = y * width;
+        for x in (0..width).step_by(step) {
+            let idx = row_offset + x;
+            if mask_bytes[idx] < 128 {
+                continue;
+            }
+            let base = idx * 4;
+            let rgb = [
+                rgba_rec2020[base],
+                rgba_rec2020[base + 1],
+                rgba_rec2020[base + 2],
+            ];
+            let lab = rec2020_to_oklab(rgb);
+            let (l, a, b) = (lab[0], lab[1], lab[2]);
+            let chroma = (a * a + b * b).sqrt();
+            if !(l.is_finite()
+                && chroma.is_finite()
+                && (0.08..=0.98).contains(&l)
+                && chroma >= 0.015)
+            {
+                continue;
+            }
+            let hue_deg = b.atan2(a).to_degrees();
+            if !(-55.0..=95.0).contains(&hue_deg) {
+                continue;
+            }
+            default_weight_sum += range::weight(&SKIN_TONE_RANGE, rgb);
+            hues.push(hue_deg);
+            chromas.push(chroma);
+            lightnesses.push(l);
+            let rad = hue_deg.to_radians();
+            sum_sin += rad.sin();
+            sum_cos += rad.cos();
+        }
+    }
+
+    if hues.is_empty() {
+        return None;
+    }
+    if default_weight_sum / (hues.len() as f32) >= MIN_DEFAULT_SKIN_COVERAGE_WEIGHT {
+        return None;
+    }
+
+    let mean_hue = sum_sin.atan2(sum_cos).to_degrees();
+    let mut deltas: Vec<f32> = hues
+        .iter()
+        .map(|&h| signed_circular_delta_deg(h, mean_hue))
+        .collect();
+    deltas.sort_by(f32::total_cmp);
+    chromas.sort_by(f32::total_cmp);
+    lightnesses.sort_by(f32::total_cmp);
+
+    let median_hue = signed_circular_delta_deg(mean_hue + deltas[deltas.len() / 2], 0.0);
+    let sample = RangeSample {
+        hue_deg: median_hue,
+        chroma: chromas[chromas.len() / 2],
+        l: lightnesses[lightnesses.len() / 2],
+    };
+    let mut seed = RangeSeed::from_sample(&sample);
+    seed.l_min = seed.l_min.min(0.15);
+    seed.l_max = seed.l_max.max(0.95);
+    Some(seed)
 }
 
 #[cfg(test)]

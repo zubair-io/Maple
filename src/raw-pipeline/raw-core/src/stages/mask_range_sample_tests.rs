@@ -189,3 +189,30 @@ fn stage_input_model_strips_only_the_stack_and_its_downstream() {
     assert_eq!(probe.nr_luminance, 0.0);
     assert_eq!(probe.nr_color, 0.0);
 }
+
+#[test]
+fn skin_mask_seed_keeps_default_when_skin_tone_range_covers_mask() {
+    let rgb = rgb_of(0.55, 0.06, 52.0);
+    let mut rgba = Vec::with_capacity(64 * 4);
+    for _ in 0..64 {
+        rgba.extend_from_slice(&[rgb[0], rgb[1], rgb[2], 1.0]);
+    }
+    let mask = vec![255_u8; 64];
+    assert_eq!(
+        seed_skin_mask_range_if_default_inert(&rgba, 8, 8, &mask),
+        None
+    );
+}
+
+#[test]
+fn skin_mask_seed_adapts_when_default_skin_tone_range_is_inert() {
+    let rgb = rgb_of(0.45, 0.05, -17.0);
+    let mut rgba = Vec::with_capacity(64 * 4);
+    for _ in 0..64 {
+        rgba.extend_from_slice(&[rgb[0], rgb[1], rgb[2], 1.0]);
+    }
+    let mask = vec![255_u8; 64];
+    let seed = seed_skin_mask_range_if_default_inert(&rgba, 8, 8, &mask).unwrap();
+    let adapted = SKIN_TONE_RANGE.with_seed(&seed);
+    assert_eq!(range::weight(&adapted, rgb), 1.0);
+}
