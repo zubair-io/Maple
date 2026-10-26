@@ -1,7 +1,7 @@
 import type { ByteSource } from './byte-source.ts';
 
 /** One ISO-BMFF box header. `size` 0 is the open-ended "runs to the end" form. */
-export interface BoxHeader {
+interface BoxHeader {
   type: string;
   size: number;
   headerSize: number;

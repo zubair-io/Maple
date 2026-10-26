@@ -6,13 +6,17 @@ import { startsWithFtyp } from './iso-bmff.ts';
 import { readJpegXmp } from './jpeg-xmp.ts';
 import { detectMicroVideo } from './micro-video.ts';
 import { detectSamsungSef } from './samsung-sef.ts';
-import { still, type MotionClip, type MotionDetection, type StillKind } from './types.ts';
+import {
+  still,
+  type MotionClip,
+  type MotionDetection,
+  type RecordedMotionClip,
+  type StillKind,
+} from './types.ts';
 import { parseMotionXmp } from './xmp-fields.ts';
 
-export type { MotionClip, MotionDetection, MotionVideoMime } from './types.ts';
-
 /** A detection against one file, carrying the size the verified range belongs to. */
-export type FileMotionDetection = { motion: MotionClip; sourceSize: number } | { still: string };
+export type FileMotionDetection = { motion: RecordedMotionClip } | { still: string };
 
 async function stillKind(source: ByteSource): Promise<StillKind | null> {
   const head = await source.read(0, 8);
@@ -26,7 +30,7 @@ async function stillKind(source: ByteSource): Promise<StillKind | null> {
  * then a Samsung SEF `MotionPhoto_Data` record, then legacy Pixel
  * `MicroVideoOffset`. Every path ends in an `ftyp` check at the computed offset.
  */
-export async function detectInSource(source: ByteSource): Promise<MotionDetection> {
+async function detectInSource(source: ByteSource): Promise<MotionDetection> {
   const kind = await stillKind(source);
   if (!kind) return still('not a JPEG or HEIF still');
   const packet = kind === 'jpeg' ? await readJpegXmp(source) : await readHeifXmp(source);
@@ -59,7 +63,9 @@ export async function detectMotionPhoto(
         after.size === before.size && after.mtimeMs === before.mtimeMs && after.ino === before.ino,
     );
     if (!unchanged) throw new SourceChangedError(absPath);
-    return 'motion' in detection ? { ...detection, sourceSize: before.size } : detection;
+    return 'motion' in detection
+      ? { motion: { ...detection.motion, sourceSize: before.size } }
+      : detection;
   } finally {
     await handle.close();
   }

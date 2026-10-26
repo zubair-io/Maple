@@ -161,6 +161,50 @@ describe('Motion Photo 1.0 (Pixel JPEG)', () => {
   });
 });
 
+describe('Motion Photo 1.0 directory shapes', () => {
+  test('promotes the clip of an Ultra HDR file that also carries a gain map', async () => {
+    const clip = mp4('ultra-hdr');
+    const gainMap = Buffer.concat([Buffer.from([0xff, 0xd8]), Buffer.alloc(300, 7)]);
+    const xmp = containerXmp({ MotionPhoto: '1', MotionPhotoVersion: '1' }, [
+      { mime: 'image/jpeg', semantic: 'Primary', length: 0, padding: 0 },
+      { mime: 'image/jpeg', semantic: 'GainMap', length: gainMap.length, padding: 0 },
+      { mime: 'video/mp4', semantic: 'MotionPhoto', length: clip.length, padding: 0 },
+    ]);
+    const file = Buffer.concat([jpeg(xmp), gainMap, clip]);
+    expect(await clipBytes('uhdr.jpg', await detect('uhdr.jpg', file))).toBe(
+      clip.toString('latin1'),
+    );
+  });
+
+  test('reads fields written as elements rather than attributes', async () => {
+    const clip = mp4('elements');
+    const item = (mime: string, semantic: string, length?: number) =>
+      `<rdf:li rdf:parseType="Resource"><Container:Item rdf:parseType="Resource"><Item:Mime>${mime}</Item:Mime><Item:Semantic>${semantic}</Item:Semantic>${length === undefined ? '' : `<Item:Length>${length}</Item:Length>`}</Container:Item></rdf:li>`;
+    const xmp = `<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+<rdf:Description rdf:about="" xmlns:GCamera="http://ns.google.com/photos/1.0/camera/" xmlns:Container="http://ns.google.com/photos/1.0/container/" xmlns:Item="http://ns.google.com/photos/1.0/container/item/">
+<GCamera:MotionPhoto>1</GCamera:MotionPhoto><GCamera:MotionPhotoVersion>1</GCamera:MotionPhotoVersion>
+<Container:Directory><rdf:Seq>${item('image/jpeg', 'Primary')}${item('video/mp4', 'MotionPhoto', clip.length)}</rdf:Seq></Container:Directory>
+</rdf:Description></rdf:RDF></x:xmpmeta>`;
+    const file = Buffer.concat([jpeg(xmp), clip]);
+    expect(await clipBytes('elements.jpg', await detect('elements.jpg', file))).toBe(
+      clip.toString('latin1'),
+    );
+  });
+
+  test('a field declared twice makes the packet untrusted', async () => {
+    const xmp = containerXmp({ MotionPhoto: '1', MotionPhotoVersion: '1' }, [
+      { mime: 'image/jpeg', semantic: 'Primary' },
+      { mime: 'video/mp4', semantic: 'MotionPhoto', length: mp4().length },
+    ]).replace(
+      '<Container:Directory>',
+      '<GCamera:MotionPhoto>1</GCamera:MotionPhoto><Container:Directory>',
+    );
+    expect(await detect('twice.jpg', Buffer.concat([jpeg(xmp), mp4()]))).toEqual({
+      still: 'no Motion Photo metadata',
+    });
+  });
+});
+
 describe('Samsung SEF (JPEG)', () => {
   const stillRecord = {
     type: IMAGE_UTC_DATA,
@@ -206,8 +250,8 @@ describe('Samsung SEF (JPEG)', () => {
         start: prefix.length + recordHeader,
         length: clip.length,
         mime: 'video/mp4',
+        sourceSize: file.length,
       },
-      sourceSize: file.length,
     });
   });
 
@@ -244,6 +288,18 @@ describe('Samsung HEIC (mpvd + sefd)', () => {
     const mpvd = box('mpvd', clip);
     const result = await detect('offset.heic', Buffer.concat([heic(xmp, 'file'), mpvd]));
     expect(await clipBytes('offset.heic', result)).toBe(clip.toString('latin1'));
+  });
+
+  test('rejects an mpvd box whose size disagrees with Item:Length', async () => {
+    const clip = mp4();
+    const xmp = containerXmp({ MotionPhoto: '1', MotionPhotoVersion: '1' }, [
+      { mime: 'image/heic', semantic: 'Primary', padding: 8 },
+      { mime: 'video/mp4', semantic: 'MotionPhoto', length: clip.length + 20 },
+    ]);
+    const file = Buffer.concat([heic(xmp), box('mpvd', clip), Buffer.alloc(20, 9)]);
+    expect(await detect('tail.heic', file)).toEqual({
+      still: 'bytes after mpvd are not one sefd box',
+    });
   });
 
   test('rejects a HEIC clip without its mpvd box', async () => {

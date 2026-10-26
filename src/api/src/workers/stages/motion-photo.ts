@@ -39,12 +39,7 @@ export async function motionPhotoHandler(image: ImageDoc, ctx: StageContext): Pr
     ctx.log.debug({ assetId: id, reason: detection.still }, 'not a motion photo');
     return { patch: motionPhotoStatements(id, null) };
   }
-  return {
-    patch: motionPhotoStatements(id, {
-      ...detection.motion,
-      sourceSize: detection.sourceSize,
-    }),
-  };
+  return { patch: motionPhotoStatements(id, detection.motion) };
 }
 
 const motionPhotoStage = defineStage({

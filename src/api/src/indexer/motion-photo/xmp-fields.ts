@@ -3,26 +3,21 @@ import { SaxesParser, type SaxesAttributeNS, type SaxesTagNS } from 'saxes';
 const CAMERA_NS = 'http://ns.google.com/photos/1.0/camera/';
 const CONTAINER_NS = 'http://ns.google.com/photos/1.0/container/';
 const ITEM_NS = 'http://ns.google.com/photos/1.0/container/item/';
-const CAMERA_FIELDS = new Set([
+const CAMERA_FIELD_NAMES = [
   'MotionPhoto',
   'MotionPhotoVersion',
   'MotionPhotoPresentationTimestampUs',
   'MicroVideo',
   'MicroVideoVersion',
   'MicroVideoOffset',
-]);
-const ITEM_FIELDS = new Set(['Mime', 'Semantic', 'Length', 'Padding']);
+] as const;
+const ITEM_FIELD_NAMES = ['Mime', 'Semantic', 'Length', 'Padding'] as const;
+const CAMERA_FIELDS: ReadonlySet<string> = new Set(CAMERA_FIELD_NAMES);
+const ITEM_FIELDS: ReadonlySet<string> = new Set(ITEM_FIELD_NAMES);
 const MAX_ITEMS = 64;
 
-export type CameraField =
-  | 'MotionPhoto'
-  | 'MotionPhotoVersion'
-  | 'MotionPhotoPresentationTimestampUs'
-  | 'MicroVideo'
-  | 'MicroVideoVersion'
-  | 'MicroVideoOffset';
-
-export type ItemField = 'Mime' | 'Semantic' | 'Length' | 'Padding';
+type CameraField = (typeof CAMERA_FIELD_NAMES)[number];
+export type ItemField = (typeof ITEM_FIELD_NAMES)[number];
 
 /** The Google camera and Container vocabulary of one XMP packet, as raw strings. */
 export interface MotionXmp {
@@ -43,6 +38,19 @@ class MalformedXmp extends Error {}
 function assign<K>(map: Map<K, string>, key: K, value: string): void {
   if (map.has(key)) throw new MalformedXmp(`duplicate ${String(key)}`);
   map.set(key, value);
+}
+
+function collectFields<K extends string>(
+  tag: SaxesTagNS,
+  uri: string,
+  fields: ReadonlySet<string>,
+  into: Map<K, string>,
+): void {
+  for (const attribute of Object.values(tag.attributes) as SaxesAttributeNS[]) {
+    if (attribute.uri === uri && fields.has(attribute.local)) {
+      assign(into, attribute.local as K, attribute.value);
+    }
+  }
 }
 
 function withoutTrailingNuls(text: string): string {
@@ -72,11 +80,7 @@ export function parseMotionXmp(xmp: string): MotionXmp | null {
     const parent = stack.at(-1);
     if (parent) parent.hasChildren = true;
     const depth = stack.length;
-    for (const attribute of Object.values(tag.attributes) as SaxesAttributeNS[]) {
-      if (attribute.uri === CAMERA_NS && CAMERA_FIELDS.has(attribute.local)) {
-        assign(camera, attribute.local as CameraField, attribute.value);
-      }
-    }
+    collectFields(tag, CAMERA_NS, CAMERA_FIELDS, camera);
     if (tag.uri === CONTAINER_NS && tag.local === 'Directory') {
       state.directories += 1;
       state.directoryDepth = depth;
@@ -84,11 +88,7 @@ export function parseMotionXmp(xmp: string): MotionXmp | null {
     if (tag.uri === CONTAINER_NS && tag.local === 'Item' && state.directoryDepth >= 0) {
       if (items.length >= MAX_ITEMS) throw new MalformedXmp('too many items');
       const item = new Map<ItemField, string>();
-      for (const attribute of Object.values(tag.attributes) as SaxesAttributeNS[]) {
-        if (attribute.uri === ITEM_NS && ITEM_FIELDS.has(attribute.local)) {
-          assign(item, attribute.local as ItemField, attribute.value);
-        }
-      }
+      collectFields(tag, ITEM_NS, ITEM_FIELDS, item);
       items.push(item);
       state.itemDepth = depth;
     }

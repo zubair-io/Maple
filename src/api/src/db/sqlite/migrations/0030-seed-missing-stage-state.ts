@@ -1,6 +1,6 @@
 import type { Migration, MigrationDb } from '../migrate.ts';
 
-const STAGES_AT_0030 = [
+export const STAGES_AT_0030 = [
   'exif',
   'thumb',
   'preview',
