@@ -4,6 +4,7 @@
 //! or the `synth-grey` example.
 
 pub mod canon_dcp;
+pub mod capture_seam;
 pub mod colorchecker;
 pub mod creative;
 pub mod fixtures;
