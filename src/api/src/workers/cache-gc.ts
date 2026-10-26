@@ -8,7 +8,7 @@
  *
  *   - `thumbs` is `<filename>.avif` (#4793): a file is live iff its stem is
  *     a live filename in THIS exact directory. This is also the name the pano
- *     stitcher pre-seeds (`maple-pano/src/stitch/io.rs::write_display_sidecars`,
+ *     stitcher pre-seeds (`maple-pano/src/stitch/sidecars.rs::SidecarDownscaler`,
  *     #1365) and every client reads.
  *   - `previews` is path-keyed (`<filename>.<suffix>`, any of `.avif`/`.jpg`/
  *     `.json`): a file is orphaned when its filename isn't a live location

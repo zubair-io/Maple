@@ -4,8 +4,8 @@
 use crate::ingest::PlanarImage;
 
 /// Develop the scene-linear Rec.2020 composite into a DISPLAY-ENCODED sRGB
-/// 16-bit packed-RGB buffer (row-major, R/G/B interleaved) — ready to hand
-/// straight to `write_frame_png` as a finished, color-managed panorama (#1335).
+/// 16-bit packed-RGB buffer (row-major, R/G/B interleaved) — the finished,
+/// color-managed look of the panorama (#1335).
 ///
 /// The stitched composite lives in the working space — scene-linear Rec.2020.
 /// Written raw (the old `srgb=false` path) it re-opened cold, desaturated and
@@ -20,43 +20,13 @@ use crate::ingest::PlanarImage;
 /// OETF**, then quantizes to 16-bit. The result reads correctly in Maple and in
 /// any viewer that assumes sRGB, consistent with how Maple develops RAWs.
 ///
-/// Returns the packed 16-bit buffer directly rather than a `PlanarImage`: the
-/// output is display-encoded sRGB, which would violate `PlanarImage`'s
-/// scene-linear-Rec.2020 invariant, and quantizing straight from the
-/// interleaved buffer avoids re-planarizing a second full-frame copy (peak RSS
-/// matters on the 100MP+ pano, notably on iPad via the Apple FFI). The single
-/// interleaved `raw_core::Image` copy is required by raw-core's view-tail API,
-/// which operates on interleaved `[f32; 3]`.
+/// Returns the packed 16-bit buffer rather than a `PlanarImage`: the output is
+/// display-encoded sRGB, which would violate `PlanarImage`'s
+/// scene-linear-Rec.2020 invariant. Holds the whole developed image, so it is
+/// for the small preview; the full stitch saves through
+/// [`super::save::write_display_png`] a block at a time (#5451).
 pub fn develop_for_display(img: &PlanarImage) -> Vec<u16> {
-    let n = img.pixel_count();
-
-    // Interleave the planar scene-linear data into a raw_core::Image (the view
-    // tail operates on interleaved [f32; 3]). NO clamp: AgX is a scene-referred
-    // tone map and needs the extended highlight range (clamping to [0,1] first
-    // would blow out highlights the curve should roll).
-    let mut scene = raw_core::Image::new(
-        img.width(),
-        img.height(),
-        raw_core::ColorSpace::SceneLinearRec2020,
-    );
-    for (px, i) in scene.pixels.iter_mut().zip(0..n) {
-        *px = [img.r[i], img.g[i], img.b[i]];
-    }
-
-    // View tail, in raw-core's RAW-render order.
-    raw_core::view::agx::apply(&mut scene, 0.0, 0.0);
-    raw_core::view::encode::rec2020_to_srgb(&mut scene);
-    raw_core::view::encode::srgb_gamma_encode(&mut scene);
-
-    // Quantize directly from the interleaved buffer (the sRGB OETF is already
-    // applied; clamp guards any out-of-[0,1] residue from the gamut map).
-    let mut data = Vec::with_capacity(n * 3);
-    for px in &scene.pixels {
-        for &v in &px[..3] {
-            data.push((v.clamp(0.0, 1.0) * 65535.0).round() as u16);
-        }
-    }
-    data
+    super::save::develop_rows_for_display(img, 0..img.height())
 }
 
 /// Interleave a planar image into the ALIKED detector's packed-RGB f32 layout.
@@ -95,187 +65,10 @@ fn srgb_encode(v: f32) -> f32 {
     }
 }
 
-/// Write the pano-injection pre-seed `.maple/` display derivatives for the
-/// pano at `png_path`, downscaled from the already-developed sRGB display
-/// buffer (interleaved RGB16, as returned by `develop_for_display`):
-///   • `.maple/thumbs/<basename>.avif` — 512px grid thumb on the canonical
-///     cross-platform `<filename>.avif` thumb contract (#4793);
-///   • `.maple/previews/<basename>.avif` — 1280px display preview on the
-///     canonical cross-platform `<filename>.avif` contract (#2009), read by
-///     `MapleSidecarPaths.previewURL`. `<basename>` is the pano's output
-///     filename incl. extension (e.g. `MyPano.png` → `MyPano.png.avif`).
-///
-/// Both tiers are AVIF now (the JPEG preview tier was retired in #2009). This
-/// pre-seed exists only to fill the gap before the pano is indexed through the
-/// standard pipeline (which writes the real `maple_id`-keyed derivatives) and
-/// the developed-preview tier next re-renders (#1365) — otherwise the injected
-/// pano's grid tile / Preview is a blank ghost until then. Both names are the
-/// ones every reader and `cache-gc.ts` already treat as live for the pano.
-/// Consumes `display` (moved into an `ImageBuffer` — no full-frame clone;
-/// peak RSS matters on a 100MP+ pano). Non-fatal to the caller: a stitch has
-/// already succeeded by the time this runs, so callers log + ignore `Err`.
-pub fn write_display_sidecars(
-    display: Vec<u16>,
-    width: u32,
-    height: u32,
-    png_path: &std::path::Path,
-) -> Result<(), String> {
-    use image::{imageops::FilterType, DynamicImage, ImageBuffer, Rgb};
-
-    let basename = png_path
-        .file_name()
-        .and_then(|s| s.to_str())
-        .ok_or_else(|| format!("bad pano path: {png_path:?}"))?;
-
-    let src = ImageBuffer::<Rgb<u16>, _>::from_raw(width, height, display)
-        .ok_or_else(|| "display buffer length != width*height*3".to_string())?;
-
-    // (subdir, target long edge, AVIF quality). Both tiers use the canonical
-    // `<filename>.avif` name (#2009, #4793).
-    let filename = format!("{basename}.avif");
-    let variants = [("thumbs", 512u32, 55u8), ("previews", 1280u32, 70u8)];
-
-    for (subdir, target, quality) in variants {
-        let (tw, th) = fit_long_edge(width, height, target);
-        let resized: ImageBuffer<Rgb<u16>, Vec<u16>> = if (tw, th) == (width, height) {
-            src.clone() // only when the pano is already ≤ target (tiny) — cheap
-        } else {
-            image::imageops::resize(&src, tw, th, FilterType::Triangle)
-        };
-        let rgb8 = DynamicImage::ImageRgb16(resized).into_rgb8().into_raw();
-        let encoded = raw_core::avif::encode(tw, th, &rgb8, quality).map_err(|e| e.to_string())?;
-
-        let dir = png_path
-            .parent()
-            .unwrap_or_else(|| std::path::Path::new("."))
-            .join(".maple")
-            .join(subdir);
-        std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-        std::fs::write(dir.join(&filename), encoded).map_err(|e| e.to_string())?;
-    }
-    Ok(())
-}
-
-/// Fit `(width, height)` to a max long edge, preserving aspect, never upscaling.
-fn fit_long_edge(width: u32, height: u32, target: u32) -> (u32, u32) {
-    let long = width.max(height);
-    if long <= target {
-        return (width, height);
-    }
-    let scale = target as f64 / long as f64;
-    let w = ((width as f64 * scale).round() as u32).max(1);
-    let h = ((height as f64 * scale).round() as u32).max(1);
-    (w, h)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::ingest::ValidityMask;
-
-    /// Read the encoded width/height straight out of an AVIF file's `ispe`
-    /// box, without a full AV1 decode — this crate only enables the `image`
-    /// crate's `avif` (encode) feature, deliberately not `avif-native`
-    /// (decode, which pulls in `dav1d` via a C toolchain build). Mirrors
-    /// `raw-ffi`'s `thumbnail_tests::avif_dimensions` test helper.
-    fn avif_dimensions(bytes: &[u8]) -> Option<(u32, u32)> {
-        fn find_box(data: &[u8], want: &[u8; 4]) -> Option<(usize, usize)> {
-            let mut i = 0;
-            while i + 8 <= data.len() {
-                let size = u32::from_be_bytes(data[i..i + 4].try_into().ok()?) as usize;
-                let kind = &data[i + 4..i + 8];
-                if size < 8 || i + size > data.len() {
-                    return None;
-                }
-                if kind == want {
-                    return Some((i + 8, size - 8));
-                }
-                i += size;
-            }
-            None
-        }
-
-        let (meta_start, meta_len) = find_box(bytes, b"meta")?;
-        let meta_body = bytes.get(meta_start + 4..meta_start + meta_len)?;
-        let (iprp_start, iprp_len) = find_box(meta_body, b"iprp")?;
-        let iprp_body = meta_body.get(iprp_start..iprp_start + iprp_len)?;
-        let (ipco_start, ipco_len) = find_box(iprp_body, b"ipco")?;
-        let ipco_body = iprp_body.get(ipco_start..ipco_start + ipco_len)?;
-        let (ispe_start, _) = find_box(ipco_body, b"ispe")?;
-        let w = u32::from_be_bytes(
-            ipco_body
-                .get(ispe_start + 4..ispe_start + 8)?
-                .try_into()
-                .ok()?,
-        );
-        let h = u32::from_be_bytes(
-            ipco_body
-                .get(ispe_start + 8..ispe_start + 12)?
-                .try_into()
-                .ok()?,
-        );
-        Some((w, h))
-    }
-
-    #[test]
-    fn write_display_sidecars_writes_canonical_thumb_and_preview() {
-        // 400x200 scene-linear mid-grey pano: thumb downsizes (long edge 256),
-        // preview stays native (400 < 1280 → no upscale).
-        let (w, h) = (800u32, 400u32);
-        let n = (w * h) as usize;
-        let pano = PlanarImage::from_planes(
-            w,
-            h,
-            vec![0.18_f32; n],
-            vec![0.18_f32; n],
-            vec![0.18_f32; n],
-            ValidityMask::new_filled(w, h, true),
-        );
-        let display = develop_for_display(&pano);
-
-        // PID + per-process atomic counter so concurrent / repeated test runs
-        // can't collide on the temp dir (matches render.rs::unique_tmp_png).
-        let dir = {
-            use std::sync::atomic::{AtomicU64, Ordering};
-            static COUNTER: AtomicU64 = AtomicU64::new(0);
-            let n = COUNTER.fetch_add(1, Ordering::Relaxed);
-            std::env::temp_dir().join(format!(
-                "maple_pano_sidecar_test_{pid}_{n}",
-                pid = std::process::id()
-            ))
-        };
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        let png_path = dir.join("panorama-test.png");
-
-        write_display_sidecars(display, w, h, &png_path).unwrap();
-
-        let thumb = dir.join(".maple/thumbs").join("panorama-test.png.avif");
-        // #2009 — preview is the canonical `<filename>.avif`, NOT the old
-        // hashed `<key>_1600.jpg`, so Apple's read path finds it.
-        let preview = dir.join(".maple/previews").join("panorama-test.png.avif");
-        assert!(thumb.exists(), "thumb missing: {thumb:?}");
-        assert!(preview.exists(), "preview missing: {preview:?}");
-
-        let thumb_bytes = std::fs::read(&thumb).unwrap();
-        assert_eq!(&thumb_bytes[4..8], b"ftyp", "missing AVIF ftyp box");
-        let (tw, th) = avif_dimensions(&thumb_bytes).expect("thumb ispe box present");
-        assert_eq!(tw.max(th), 512, "thumb long edge");
-
-        // Preview is AVIF too now; this crate only enables AVIF *encode*, so
-        // read dims from the `ispe` box rather than a full decode. 400 < 1280,
-        // so it stays native (no upscale).
-        let preview_bytes = std::fs::read(&preview).unwrap();
-        assert_eq!(
-            &preview_bytes[4..8],
-            b"ftyp",
-            "preview missing AVIF ftyp box"
-        );
-        let (pw, ph) = avif_dimensions(&preview_bytes).expect("preview ispe box present");
-        assert_eq!((pw, ph), (800, 400), "preview must not upscale");
-
-        let _ = std::fs::remove_dir_all(&dir);
-    }
 
     /// `develop_for_display` must tone-map (AgX) and display-encode (sRGB) the
     /// scene-linear composite — not pass it through. Three grey scene-linear
