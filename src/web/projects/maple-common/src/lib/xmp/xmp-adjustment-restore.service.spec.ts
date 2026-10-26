@@ -511,4 +511,27 @@ describe('XmpAdjustmentRestoreService (#2406)', () => {
       edited: true,
     });
   });
+
+  it('preserves a selected sibling workflow variant when batch metadata writes the primary sidecar', async () => {
+    hydrateAndFocus();
+    await flushAsync();
+    expect(api.getXmp).toHaveBeenCalledTimes(1);
+
+    const absPath = store.absPathFor(ASSET_ID)!;
+    store.workflowVariants.bind(ASSET_ID, absPath, 'v-sibling');
+
+    const restore = TestBed.inject(XmpAdjustmentRestoreService);
+    restore.applyBatchMetadata(
+      [{ address: ASSET_ID, metadata: { rating: 5, keywords: ['primary-only'] } }],
+      [{ address: ASSET_ID, ok: true }],
+    );
+    await flushAsync();
+
+    expect(api.getXmp).toHaveBeenCalledTimes(1);
+    expect(store.findAsset(ASSET_ID)).toMatchObject({
+      rating: 3,
+      keywords: ['existing-keyword'],
+    });
+    expect(store.cullingPatchFor(ASSET_ID)).toEqual({});
+  });
 });
