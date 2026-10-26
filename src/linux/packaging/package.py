@@ -78,7 +78,9 @@ def stage_usr(binary: Path, root: Path) -> None:
 
 
 def shlib_depends(binary: Path, work: Path) -> str:
-    (work / "debian/control").write_text("Source: maple\n\nPackage: maple\n")
+    (work / "debian/control").write_text(
+        "Source: maple\n\nPackage: maple\nArchitecture: any\n"
+    )
     result = subprocess.run(
         ["dpkg-shlibdeps", "-O", f"-e{binary.relative_to(work)}"],
         cwd=work,
@@ -87,13 +89,18 @@ def shlib_depends(binary: Path, work: Path) -> str:
     )
     if result.returncode != 0:
         raise RuntimeError(f"dpkg-shlibdeps failed:\n{result.stderr}")
-    output = result.stdout
     prefix = "shlibs:Depends="
-    return next(
-        line.removeprefix(prefix)
-        for line in output.splitlines()
-        if line.startswith(prefix)
+    depends = next(
+        (
+            line.removeprefix(prefix)
+            for line in result.stdout.splitlines()
+            if line.startswith(prefix)
+        ),
+        None,
     )
+    if depends is None:
+        raise RuntimeError(f"dpkg-shlibdeps found no library dependencies for {binary}")
+    return depends
 
 
 def build_deb(binary: Path, output_dir: Path) -> Path:
@@ -115,6 +122,7 @@ def build_deb(binary: Path, output_dir: Path) -> Path:
         )
         control = root / "DEBIAN/control"
         control.parent.mkdir(mode=0o755)
+        control.parent.chmod(0o755)
         control.write_text(
             "\n".join(
                 [
