@@ -9,15 +9,18 @@
 //
 // Installed as the session delegate. Async `URLSession.data(for:)` never
 // calls a session delegate's `didCompleteWithError`, so a finished request
-// is recognised by its task state when asked, not by a completion callback.
+// is recognised by its task state instead. Finished entries are dropped on
+// every delegate callback as well as when asked, and tasks are held weakly,
+// so the table stays bounded by the requests actually in flight even when
+// nothing ever asks (macOS, or an iOS background backup).
 
 import Foundation
 import os
 
 public final class UploadTransferMonitor: NSObject, URLSessionTaskDelegate, Sendable {
   private struct Transfer {
-    let task: URLSessionTask
-    var lastBytesSentAt: Date
+    weak var task: URLSessionTask?
+    let lastBytesSentAt: Date
   }
 
   private let transfers = OSAllocatedUnfairLock<[Int: Transfer]>(initialState: [:])
@@ -32,17 +35,19 @@ public final class UploadTransferMonitor: NSObject, URLSessionTaskDelegate, Send
   /// moment it is created, so its first report isn't mistaken for a stall.
   public func secondsSinceBytesSent(at date: Date) -> TimeInterval? {
     transfers.withLock { transfers in
-      transfers = transfers.filter { Self.isInFlight($0.value.task) }
+      transfers = Self.inFlight(transfers)
       return transfers.values.map(\.lastBytesSentAt).max().map { date.timeIntervalSince($0) }
     }
+  }
+
+  var trackedTransferCount: Int {
+    transfers.withLock { $0.count }
   }
 
   public func urlSession(_ session: URLSession, didCreateTask task: URLSessionTask) {
     guard Self.carriesBody(task) else { return }
     let createdAt = now()
-    transfers.withLock {
-      $0[task.taskIdentifier] = Transfer(task: task, lastBytesSentAt: createdAt)
-    }
+    record(task, at: createdAt)
   }
 
   public func urlSession(
@@ -51,7 +56,18 @@ public final class UploadTransferMonitor: NSObject, URLSessionTaskDelegate, Send
   ) {
     guard bytesSent > 0 else { return }
     let sentAt = now()
-    transfers.withLock { $0[task.taskIdentifier] = Transfer(task: task, lastBytesSentAt: sentAt) }
+    record(task, at: sentAt)
+  }
+
+  private func record(_ task: URLSessionTask, at date: Date) {
+    transfers.withLock { transfers in
+      transfers = Self.inFlight(transfers)
+      transfers[task.taskIdentifier] = Transfer(task: task, lastBytesSentAt: date)
+    }
+  }
+
+  private static func inFlight(_ transfers: [Int: Transfer]) -> [Int: Transfer] {
+    transfers.filter { $0.value.task.map(isInFlight) ?? false }
   }
 
   private static func carriesBody(_ task: URLSessionTask) -> Bool {
