@@ -16,7 +16,7 @@ use raw_core::stages::mask_range_sample::{
     sample_mask_range, seed_skin_mask_range_if_default_inert, RangeSampleError, RangeSeed,
 };
 
-use crate::error::{set_last_error, with_large_stack};
+use crate::error::{catch_panic_rc, set_last_error, with_large_stack};
 use crate::model::{load_xmp_model_owned, LoadModel};
 use crate::white_balance_sample::display_point_to_sensor;
 
@@ -142,34 +142,36 @@ pub unsafe extern "C" fn maple_seed_skin_mask_range_if_default_inert(
     mask_len: usize,
     out: *mut MapleRangeSeed,
 ) -> i32 {
-    if rgba_ptr.is_null() || mask_ptr.is_null() || out.is_null() {
-        return 2;
-    }
-    let Some(pixel_count) = width.checked_mul(height) else {
-        return 2;
-    };
-    let Some(float_count) = pixel_count.checked_mul(4) else {
-        return 2;
-    };
-    if pixel_count == 0 || mask_len != pixel_count {
-        return 2;
-    }
-    let rgba = unsafe { std::slice::from_raw_parts(rgba_ptr, float_count) };
-    let mask = unsafe { std::slice::from_raw_parts(mask_ptr, mask_len) };
-    match seed_skin_mask_range_if_default_inert(rgba, width, height, mask) {
-        Some(seed) => {
-            unsafe {
-                *out = MapleRangeSeed {
-                    hue_deg: seed.hue_deg,
-                    chroma_min: seed.chroma_min,
-                    l_min: seed.l_min,
-                    l_max: seed.l_max,
-                };
-            }
-            0
+    catch_panic_rc("maple_seed_skin_mask_range_if_default_inert", || {
+        if rgba_ptr.is_null() || mask_ptr.is_null() || out.is_null() {
+            return 2;
         }
-        None => 1,
-    }
+        let Some(pixel_count) = width.checked_mul(height) else {
+            return 2;
+        };
+        let Some(float_count) = pixel_count.checked_mul(4) else {
+            return 2;
+        };
+        if pixel_count == 0 || mask_len != pixel_count {
+            return 2;
+        }
+        let rgba = unsafe { std::slice::from_raw_parts(rgba_ptr, float_count) };
+        let mask = unsafe { std::slice::from_raw_parts(mask_ptr, mask_len) };
+        match seed_skin_mask_range_if_default_inert(rgba, width, height, mask) {
+            Some(seed) => {
+                unsafe {
+                    *out = MapleRangeSeed {
+                        hue_deg: seed.hue_deg,
+                        chroma_min: seed.chroma_min,
+                        l_min: seed.l_min,
+                        l_max: seed.l_max,
+                    };
+                }
+                0
+            }
+            None => 1,
+        }
+    })
 }
 
 #[cfg(test)]
