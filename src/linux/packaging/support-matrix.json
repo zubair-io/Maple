@@ -1,5 +1,4 @@
 {
-  "schema_version": 1,
   "distributions": {
     "ubuntu-24.04": { "name": "Ubuntu 24.04 LTS", "container": "ubuntu:24.04" }
   },
@@ -17,7 +16,7 @@
   },
   "statuses": {
     "qualified": "Installed, launched and showing photo pixels on physical hardware; evidence linked.",
-    "ci-smoke": "Installed, launched, updated and removed in a clean container by every Linux CI run, on Mesa llvmpipe software Vulkan. Proves startup and a committed window buffer, not photo pixels, desktop shell behaviour or GPU performance.",
+    "ci-smoke": "Installed, launched, opened through Open With, updated (.deb from an older version; AppImage through its installed installer) and removed in a clean container by every Linux CI run, on Mesa llvmpipe software Vulkan. Proves startup and a committed window buffer, not photo pixels, desktop shell behaviour or GPU performance.",
     "untested": "Not verified; no support claim is made."
   },
   "rows": [

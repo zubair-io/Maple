@@ -158,6 +158,9 @@ def build_appimage(binary: Path, runtime: Path, output_dir: Path) -> Path:
         shutil.copyfile(ICON, app_dir / f"{APP_ID}.png")
         (app_dir / ".DirIcon").symlink_to(f"{APP_ID}.png")
         (app_dir / "AppRun").symlink_to("usr/bin/maple-linux")
+        installer = app_dir / "install-maple-appimage.sh"
+        shutil.copyfile(LINUX / "packaging/install-maple-appimage.sh", installer)
+        installer.chmod(0o755)
         image = work / "payload.squashfs"
         subprocess.run(
             [

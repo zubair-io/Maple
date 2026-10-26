@@ -35,19 +35,19 @@ desktop=$data_home/applications/$app_id.desktop
 icon=$data_home/icons/hicolor/512x512/apps/$app_id.png
 mime=$data_home/mime/packages/$app_id.xml
 
+mkdir -p -- "$install_root"
+exec 9>"$install_root/.maple-appimage.lock"
+if ! flock -n 9; then
+	echo "Another Maple installation or removal is running; retry when it finishes." >&2
+	exit 1
+fi
+
 if [[ $operation == uninstall && ! -e $target && ! -L $target ]]; then
 	echo "Maple's AppImage is not installed in $target"
 	exit 0
 fi
 if [[ -L $target || (-e $target && ! -f $target/$marker) ]]; then
 	echo "Refusing to change $target: it was not created by this installer." >&2
-	exit 1
-fi
-
-mkdir -p -- "$install_root"
-exec 9>"$install_root/.maple-appimage.lock"
-if ! flock -n 9; then
-	echo "Another Maple installation or removal is running; retry when it finishes." >&2
 	exit 1
 fi
 
@@ -116,7 +116,34 @@ if [[ $(uname -s) != Linux || $(uname -m) != x86_64 ]]; then
 fi
 
 work=$(mktemp -d "$install_root/.maple-appimage.XXXXXXXX")
-trap 'rm -rf -- "$work"' EXIT
+integration=("$icon" "$mime" "$desktop")
+swapped=0
+committed=0
+# Until every file is published, a failure or interrupt restores the previous
+# application and integration files.
+cleanup() {
+	local status=$? index
+	trap - EXIT
+	if [[ $swapped -eq 1 && $committed -eq 0 ]]; then
+		for index in "${!integration[@]}"; do
+			if [[ -e $work/integration-$index || -L $work/integration-$index ]]; then
+				mv -fT -- "$work/integration-$index" "${integration[index]}"
+			else
+				rm -f -- "${integration[index]}"
+			fi
+		done
+		rm -rf -- "$target"
+		if [[ -e $work/previous ]]; then
+			mv -- "$work/previous" "$target"
+		fi
+		echo "Installation failed; the previous state was restored." >&2
+	fi
+	rm -rf -- "$work"
+	exit "$status"
+}
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 cp -- "$appimage" "$work/Maple.AppImage"
 chmod u+x -- "$work/Maple.AppImage"
 if ! (cd -- "$work" && ./Maple.AppImage --appimage-extract >/dev/null); then
@@ -125,7 +152,7 @@ if ! (cd -- "$work" && ./Maple.AppImage --appimage-extract >/dev/null); then
 fi
 extracted=$work/squashfs-root
 binary=$target/usr/bin/maple-linux
-for required in usr/bin/maple-linux "usr/share/applications/$app_id.desktop" \
+for required in install-maple-appimage.sh usr/bin/maple-linux "usr/share/applications/$app_id.desktop" \
 	"usr/share/icons/hicolor/512x512/apps/$app_id.png" "usr/share/mime/packages/$app_id.xml"; do
 	if [[ ! -f $extracted/$required || -L $extracted/$required ]]; then
 		echo "The AppImage is missing $required" >&2
@@ -140,23 +167,23 @@ while IFS= read -r line; do
 	*) printf '%s\n' "$line" ;;
 	esac
 done <"$extracted/usr/share/applications/$app_id.desktop" >"$extracted/$marker.desktop"
-cp -- "${BASH_SOURCE[0]}" "$extracted/install-maple-appimage.sh"
 chmod 755 -- "$extracted/install-maple-appimage.sh"
 : >"$extracted/$marker"
 
+for index in "${!integration[@]}"; do
+	if [[ -e ${integration[index]} || -L ${integration[index]} ]]; then
+		cp -a -- "${integration[index]}" "$work/integration-$index"
+	fi
+done
 if [[ -e $target ]]; then
 	mv -- "$target" "$work/previous"
 fi
-if ! mv -- "$extracted" "$target"; then
-	if [[ -e $work/previous ]]; then
-		mv -- "$work/previous" "$target"
-	fi
-	echo "Could not place Maple in $target; the previous installation was kept." >&2
-	exit 1
-fi
+swapped=1
+mv -- "$extracted" "$target"
 publish "$target/usr/share/icons/hicolor/512x512/apps/$app_id.png" "$icon"
 publish "$target/usr/share/mime/packages/$app_id.xml" "$mime"
 publish "$target/$marker.desktop" "$desktop"
+committed=1
 refresh
 echo "Installed Maple in $target"
 echo "Open Maple from your application menu, or use Open With on a photo."

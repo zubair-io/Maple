@@ -63,15 +63,18 @@ Cloud credentials require a working Secret Service provider such as GNOME Keyrin
 
 ## Diagnostics
 
-`maple-linux --diagnose` (or `Maple-<version>-x86_64.AppImage --diagnose`)
-prints an installation report without opening a window and without network
-access. It reports the GPU adapter Maple would use and whether it is Vulkan,
-which display session is reachable (Wayland first, then a local X11 socket;
-remote X11 displays are not probed), the runtime libraries that session loads,
-and whether the desktop portal file chooser (or the zenity fallback) is
-available for the folder picker. Environment values and photo paths are never
-printed. It exits 1 when it finds a problem that stops Maple from working, and
-0 otherwise; software rendering and the zenity fallback are reported as notes.
+`maple-linux --diagnose` (for the AppImage installation,
+`~/.local/opt/maple-appimage/usr/bin/maple-linux --diagnose`) prints an
+installation report without opening a window and without network access. It
+reports the GPU adapter Maple would use and whether it is Vulkan, the display
+session Maple will use and whether it is reachable (as in winit, a set
+`WAYLAND_DISPLAY` means Wayland with no X11 fallback; remote X11 displays are
+not probed), the runtime libraries that session loads, and whether the desktop
+portal file chooser (or the zenity fallback) is available for the folder
+picker. It never starts the portal; an installed but inactive portal is reported
+as activatable. Environment values and photo paths are never printed. It exits 1
+when it finds a problem that stops Maple from working, and 0 otherwise; software
+rendering and the zenity fallback are reported as notes.
 
 ## Support matrix
 
@@ -102,7 +105,7 @@ pixels in a screenshot.
 | Ubuntu 24.04 LTS | AppImage | KDE Plasma X11               | Intel, AMD, NVIDIA       | untested |
 
 - **qualified**: Installed, launched and showing photo pixels on physical hardware; evidence linked.
-- **ci-smoke**: Installed, launched, updated and removed in a clean container by every Linux CI run, on Mesa llvmpipe software Vulkan. Proves startup and a committed window buffer, not photo pixels, desktop shell behaviour or GPU performance.
+- **ci-smoke**: Installed, launched, opened through Open With, updated (.deb from an older version; AppImage through its installed installer) and removed in a clean container by every Linux CI run, on Mesa llvmpipe software Vulkan. Proves startup and a committed window buffer, not photo pixels, desktop shell behaviour or GPU performance.
 - **untested**: Not verified; no support claim is made.
 
 <!-- support-matrix:end -->
@@ -130,8 +133,10 @@ desktop class, then under headless Weston with the AT-SPI check below.
 Each package then runs `packaging/install_smoke.py` in a clean `ubuntu:24.04`
 container: install, `--diagnose` (before and after the runtime libraries are
 present), file associations, X11 and Wayland launch of the installed executable,
-an **Open With** launch through the installed desktop entry, update, and
-removal of the application and its desktop integration.
+an **Open With** launch through the installed desktop entry, an update (the
+`.deb` from a relabelled older version; the AppImage through its installed
+installer), and removal of the application and its desktop integration,
+including keeping a desktop entry the user edited.
 
 Run the launch checks locally on X11 with `python3 src/linux/packaging/smoke.py /path/to/maple-linux`.
 On a live Wayland desktop, run `python3 src/linux/packaging/wayland_smoke.py /path/to/maple-linux`.
