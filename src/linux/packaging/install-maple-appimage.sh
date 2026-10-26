@@ -23,8 +23,8 @@ fi
 home=${HOME:?HOME is required}
 data_home=${XDG_DATA_HOME:-$home/.local/share}
 for location in "$home" "$data_home"; do
-	if [[ $location != /* || $location == *$'\n'* || $location == *$'\r'* ]]; then
-		echo "HOME and XDG_DATA_HOME must be absolute paths without line breaks." >&2
+	if [[ $location != /* || $location == *[$'\n\r\t']* ]]; then
+		echo "HOME and XDG_DATA_HOME must be absolute paths without line breaks or tabs." >&2
 		exit 2
 	fi
 done
@@ -182,7 +182,7 @@ done
 while IFS= read -r line; do
 	case $line in
 	Exec=*) printf 'Exec=%s %%f\n' "$(quote_exec "$binary")" ;;
-	TryExec=*) ;;
+	TryExec=*) printf 'TryExec=%s\n' "${binary//\\/\\\\}" ;;
 	*) printf '%s\n' "$line" ;;
 	esac
 done <"$extracted/usr/share/applications/$app_id.desktop" >"$extracted/$marker.desktop"

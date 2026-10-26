@@ -126,6 +126,16 @@ def check_removed(paths: list[Path], data_dir: Path, env: dict) -> None:
         raise RuntimeError("Removal left Maple registered for DNG")
 
 
+def check_try_exec(desktop: Path, binary: Path) -> None:
+    lines = [
+        line.removeprefix("TryExec=")
+        for line in desktop.read_text().splitlines()
+        if line.startswith("TryExec=")
+    ]
+    if lines != [str(binary)] or not os.access(binary, os.X_OK):
+        raise RuntimeError(f"TryExec {lines} does not name the installed {binary}")
+
+
 def launch(binary: Path, sessions: list[str], env: dict) -> None:
     if "x11" in sessions:
         run(
@@ -324,12 +334,14 @@ def smoke_appimage(package: Path, sessions: list[str]) -> None:
     apt("install", "--no-install-recommends", *APPIMAGE_RUNTIME, *TEST_TOOLS)
     expect_problems(binary, env, set())
     check_associations(data_dir, env)
+    check_try_exec(data_dir / f"applications/{APP_ID}.desktop", binary)
     launch(binary, sessions, env)
     open_with(data_dir / f"applications/{APP_ID}.desktop", binary, env)
     installed_installer = str(target / "install-maple-appimage.sh")
     run("bash", installed_installer, str(package), env=env)
     check_associations(data_dir, env)
     desktop = data_dir / f"applications/{APP_ID}.desktop"
+    check_try_exec(desktop, binary)
     check_blocked_destination(installed_installer, package, desktop, target, env)
     check_rollback(
         installed_installer,
