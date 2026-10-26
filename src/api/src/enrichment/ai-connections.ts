@@ -20,6 +20,7 @@ export interface AiConnectionsConfig {
   connections: AiConnection[];
   assignments: Record<string, AiAssignment>;
 }
+const GENERATED_SEARCH = 'generated-search';
 const AI_WORKERS = [
   {
     id: 'describe',
@@ -36,7 +37,7 @@ const AI_WORKERS = [
     providers: ['ollama', 'openai', 'anthropic', 'gemini'],
   },
   {
-    id: 'generated-search',
+    id: GENERATED_SEARCH,
     name: 'Generated search',
     detail: 'Curated search collections · Ollama or OpenAI-compatible text generation',
     multiple: false,
@@ -141,8 +142,23 @@ function connectionError(c: AiConnection): string | null {
   if (!['ollama', 'openai', 'anthropic', 'gemini'].includes(c.provider)) return 'Unknown provider.';
   if (!validConcurrency(c.concurrency)) return 'Connection concurrency must be between 1 and 100.';
   const urlError = connectionUrlError(c);
-  if (urlError || c.provider === 'ollama') return urlError;
+  if (urlError || c.provider === 'ollama' || keyOptional(c)) return urlError;
   return c.api_key?.trim() ? null : `${c.name} needs an API key.`;
+}
+
+/** A self-hosted OpenAI-compatible server (Strata, vLLM, llama.cpp) often runs without auth. */
+function keyOptional(c: AiConnection): boolean {
+  return c.provider === 'openai' && c.url.trim().length > 0;
+}
+
+/** Only generated search sends a keyless OpenAI-compatible request; the vision clients need one. */
+function missingKeyError(
+  connections: AiConnection[],
+  worker: (typeof AI_WORKERS)[number],
+): string | null {
+  if (worker.id === GENERATED_SEARCH) return null;
+  const keyless = connections.find((c) => keyOptional(c) && !c.api_key?.trim());
+  return keyless ? `${worker.name} needs an API key on ${keyless.name}.` : null;
 }
 
 function poolError(
@@ -161,7 +177,7 @@ function poolError(
     return `${worker.name} has duplicate endpoints.`;
   if (connections.reduce((n, c) => n + c.concurrency, 0) > 100)
     return `${worker.name} total concurrency must not exceed 100.`;
-  return null;
+  return missingKeyError(connections, worker);
 }
 
 function assignmentError(

@@ -12,7 +12,7 @@
  * (#2172) — so both are tolerated.
  */
 
-import { openAiBaseUrl } from '../../enrichment/describe-providers/openai.ts';
+import { allowsEnvOpenAiKey, openAiBaseUrl } from '../../enrichment/describe-providers/openai.ts';
 import { stripFences } from '../../enrichment/describe-providers/parse-vision-json-errors.ts';
 import type { FetchLike, JsonClient } from './json-client.ts';
 
@@ -57,14 +57,20 @@ export function createOpenAiJsonClient(
   fetchImpl: FetchLike = fetch,
 ): JsonClient {
   const key = apiKey?.trim();
-  if (!key) throw new Error('generated search: the OpenAI connection has no API key');
+  if (!key && allowsEnvOpenAiKey(baseUrl)) {
+    throw new Error('generated search: the OpenAI connection has no API key');
+  }
   const url = `${openAiBaseUrl(baseUrl)}/chat/completions`;
+  const headers = {
+    'content-type': 'application/json',
+    ...(key ? { authorization: `Bearer ${key}` } : {}),
+  };
 
   return {
     async generateJson(prompt: string, schema: unknown): Promise<unknown> {
       const res = await fetchImpl(url, {
         method: 'POST',
-        headers: { 'content-type': 'application/json', authorization: `Bearer ${key}` },
+        headers,
         body: JSON.stringify({
           model,
           messages: [{ role: 'user', content: prompt }],

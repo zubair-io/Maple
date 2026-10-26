@@ -61,8 +61,23 @@ describe('createOpenAiJsonClient', () => {
     expect(urls).toEqual(['https://api.openai.com/v1/chat/completions']);
   });
 
-  it('refuses to build a client without a key', () => {
-    expect(() => createOpenAiJsonClient('http://s/v1', ' ', 'm')).toThrow('has no API key');
+  it('refuses to build a client for OpenAI itself without a key', () => {
+    expect(() => createOpenAiJsonClient('', ' ', 'm')).toThrow('has no API key');
+  });
+
+  it('calls a keyless OpenAI-compatible server without an authorization header', async () => {
+    const headers: Array<Record<string, string>> = [];
+    const client = createOpenAiJsonClient(
+      'http://strata:8080/v1',
+      null,
+      'qwen',
+      async (_, init) => {
+        headers.push(init.headers as Record<string, string>);
+        return chatResponse('{}');
+      },
+    );
+    await client.generateJson('p', {});
+    expect(headers).toEqual([{ 'content-type': 'application/json' }]);
   });
 
   it('reports the server error text and output-limit truncation', async () => {

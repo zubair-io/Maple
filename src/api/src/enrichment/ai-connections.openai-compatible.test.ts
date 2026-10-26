@@ -52,6 +52,24 @@ describe('OpenAI-compatible connections', () => {
     expect(validateAiConnections(config)).toBeNull();
   });
 
+  it('may run without a key for generated search, never for the vision workers', () => {
+    const config = strataConfig();
+    config.connections[1]!.api_key = null;
+    config.assignments.describe = { connection_ids: ['ollama-1'], model: 'qwen2.5-vl' };
+    config.assignments['video-describe'] = { connection_ids: ['ollama-1'], model: 'qwen2.5-vl' };
+    config.assignments['generated-search'] = { connection_ids: ['strata'], model: 'qwen' };
+    expect(validateAiConnections(config)).toBeNull();
+
+    config.assignments.describe = { connection_ids: ['strata'], model: 'qwen2.5-vl' };
+    expect(validateAiConnections(config)).toBe('Describe needs an API key on Strata.');
+  });
+
+  it('still need a key to reach OpenAI itself', () => {
+    const config = strataConfig('');
+    config.connections[1]!.api_key = null;
+    expect(validateAiConnections(config)).toBe('Strata needs an API key.');
+  });
+
   it('no longer accept a semantic-search assignment: it runs on the bundled model', () => {
     const config = strataConfig();
     config.assignments['semantic-search'] = { connection_ids: ['strata'], model: 'bge-m3' };
