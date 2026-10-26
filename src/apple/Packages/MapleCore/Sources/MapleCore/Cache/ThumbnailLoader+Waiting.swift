@@ -44,8 +44,8 @@ extension ThumbnailLoader {
     activeProducers.remove(id)
     if let task = inFlight[key], taskProducerIDs[task] == id {
       inFlight.removeValue(forKey: key)
-      taskProducerIDs.removeValue(forKey: task)
     }
+    taskProducerIDs = taskProducerIDs.filter { $0.value != id }
   }
 
   private func endActiveProducer(_ id: UUID, key: String) async {
@@ -64,6 +64,7 @@ extension ThumbnailLoader {
     thumbnailWaiters.removeValue(forKey: task)
     if cancelled, !isProducerActive(task) {
       task.cancel()
+      taskProducerIDs.removeValue(forKey: task)
     }
   }
 
