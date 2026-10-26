@@ -76,13 +76,14 @@ impl CaptureRefineStages {
 }
 
 impl CaptureBase {
-    /// Develop the base from the profile-ready camera buffer.
+    /// Develop the base from the profile-ready camera buffer, recording the
+    /// frame's Whites anchor and EXIF orientation for every refine of it.
     pub(crate) fn develop(
         camera: Image,
         creative: CreativeStage,
         (loaded, developed): (&AdjustmentModel, &AdjustmentModel),
-        chain: Chain,
-        cancel: CancelToken<'_>,
+        (orientation, whites_anchor_ev): (ExifOrientation, f32),
+        (chain, cancel): (Chain, CancelToken<'_>),
     ) -> Result<Self> {
         let image = capture_prefix(
             camera,
@@ -93,9 +94,12 @@ impl CaptureBase {
             cancel,
         )?;
         Ok(Self {
-            image,
+            image: Image {
+                whites_anchor_ev: Some(whites_anchor_ev),
+                ..image
+            },
             creative,
-            orientation: ExifOrientation::default(),
+            orientation,
             loaded: loaded.clone(),
             developed: developed.clone(),
         })
@@ -145,11 +149,10 @@ impl CaptureBase {
                 self.image.height
             )));
         }
-        let mut image = self.image.empty_in_space(ColorSpace::SceneLinearRec2020);
-        for (dst, src) in image.pixels.iter_mut().zip(rgba.chunks_exact(4)) {
-            *dst = [src[0], src[1], src[2]];
-        }
-        Ok(image)
+        Ok(Image {
+            pixels: rgba.chunks_exact(4).map(|p| [p[0], p[1], p[2]]).collect(),
+            ..self.image.empty_in_space(ColorSpace::SceneLinearRec2020)
+        })
     }
 
     /// The creative stage for `capture`, a refine of this base at `model`,

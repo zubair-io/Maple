@@ -141,22 +141,6 @@ final class CaptureRefineTests: XCTestCase {
     XCTAssertFalse(resized === redeveloped, "a decode at another size re-develops")
   }
 
-  func testTheIPhoneClampOnlyAppliesWhileARefinableStageIsEngaged() async {
-    let target = CGSize(width: 1206, height: 2400)
-    let plain = await CaptureRefineBudget.clampedDecodeTarget(
-      model: AdjustmentModel(), isRaw: true, target: target)
-    XCTAssertEqual(plain, target)
-    let clamped = await CaptureRefineBudget.clampedDecodeTarget(
-      model: denoised, isRaw: true, target: target)
-    #if os(iOS)
-      if await UIDevice.current.userInterfaceIdiom == .phone {
-        XCTAssertEqual(clamped?.height ?? 0, 1536, accuracy: 0.5)
-        return
-      }
-    #endif
-    XCTAssertEqual(clamped, target)
-  }
-
   @MainActor
   func testTheDriverReplacesASameSizeReDecodeInPlace() async throws {
     let (w, h) = (32, 24)

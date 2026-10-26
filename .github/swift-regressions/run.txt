@@ -436,3 +436,7 @@ SidecarStemRuleTests
 # Joined sidecar bytes are rechecked before restore and SMB relocation publish/delete.
 RestoreJoinedSidecarTests
 SMBRelocateJoinedSidecarTests
+
+# Capture refine budget (#5381): the per-device refine edge and iPhone clamp,
+# pure policy with no GPU or fixture.
+CaptureRefineBudgetTests

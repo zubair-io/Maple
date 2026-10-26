@@ -713,8 +713,8 @@ public struct PipelineRenderer: Sendable {
 
   // MARK: Private helpers — scene-linear sized
 
-  /// The sized decode keeps its refine base (#5381) so a later chroma
-  /// prefilter, deep denoise or capture-sharpening edit refines on the GPU.
+  /// Within the device's refine budget the sized decode keeps its refine
+  /// base (#5381), so a later capture-stage edit refines on the GPU.
   private static func _renderSceneLinearSized(
     rawCStr: UnsafePointer<CChar>,
     xmpCStr: UnsafePointer<CChar>?,
@@ -722,7 +722,7 @@ public struct PipelineRenderer: Sendable {
     maxLongEdge: UInt32,
     cancel: CancelFlag?
   ) throws -> MapleSceneLinearImageData {
-    try renderCaptureBase(
+    try renderCaptureSized(
       rawCStr: rawCStr, xmpCStr: xmpCStr, quality: quality, maxLongEdge: maxLongEdge,
       cancel: cancel)
   }
@@ -736,7 +736,7 @@ public struct PipelineRenderer: Sendable {
     maxLongEdge: UInt32,
     cancel: CancelFlag?
   ) throws -> MapleSceneLinearImageData {
-    try renderCaptureBase(
+    try renderCaptureSized(
       ptr: ptr, len: len, hintCStr: hintCStr, xmpCStr: xmpCStr, quality: quality,
       maxLongEdge: maxLongEdge, cancel: cancel)
   }

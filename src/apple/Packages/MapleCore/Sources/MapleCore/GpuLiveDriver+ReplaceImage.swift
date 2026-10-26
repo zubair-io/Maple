@@ -30,13 +30,22 @@ extension GpuLiveDriver {
       let uploaded = uploadedIdentity, uploaded.crop == identity.crop,
       inputShape == self.inputShape
     else { return false }
-    let revision = sessionRevision
+    let checked = sessionRevision
     guard await s.accepts(width: width, height: height, exports: exports) else { return false }
-    guard revision == sessionRevision, session === s else { throw CancellationError() }
+    guard checked == sessionRevision, session === s else { throw CancellationError() }
+    // Claim the session as a reopen does (#3360): an older replace or open
+    // still reading back fails its revision check instead of landing last.
+    sessionRevision &+= 1
+    let revision = sessionRevision
     inFlightCancel?.requestCancel()
+    let readback = Task.detached(priority: .userInitiated) { try pixels() }
     let data: [Float]
     do {
-      data = try await Task.detached(priority: .userInitiated) { try pixels() }.value
+      data = try await withTaskCancellationHandler {
+        try await readback.value
+      } onCancel: {
+        readback.cancel()
+      }
     } catch is CancellationError {
       throw CancellationError()
     } catch {
