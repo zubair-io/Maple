@@ -32,6 +32,8 @@ import { ApiFolder } from '../api/bun-api-backend.service';
 import { MapleFolderHandle } from '../folder-access/folder-access.types';
 import { MapleIndex } from '../maple-cache/maple-cache.types';
 import { rekeyAssetId } from './library-store-rename';
+import { applyBatchMetadataToStore } from './library-store-batch-metadata';
+import type { BatchApplyMetadata } from '../batch-metadata/batch-metadata.types';
 import { AssetDimensionBatcher } from './library-store-dimensions';
 import { LensCorrectionCapabilities } from './library-store-lens-corrections';
 import { LibraryWorkflowVariants } from './library-workflow-variants';
@@ -333,6 +335,14 @@ export class LibraryStore {
     return merged;
   }
 
+  applyBatchMetadata(id: AssetId, meta: BatchApplyMetadata): void {
+    applyBatchMetadataToStore(
+      { assets: this.assets, sessionCullingPatches: this._sessionCullingPatches },
+      id,
+      meta,
+    );
+  }
+
   /**
    * Apply a sidecar-parsed adjustment model for `id` unless the user already
    * edited it this session. Carries a decode-time As-Shot WB seed through
@@ -411,23 +421,7 @@ export class LibraryStore {
     return this.apiAssetIds.get(assetId);
   }
 
-  /**
-   * Resolve the registered library that owns the current Self-Hosted
-   * selection (picked by `selectedSourceId`). Walks `registeredFolders` for
-   * the longest path-prefix match. Returns null when nothing is selected,
-   * the user is on Hosted, or the path doesn't fall under any library.
-   */
-  /**
-   * Resolve the registered library that owns the current Self-Hosted selection.
-   *
-   * After M2 the `selectedSourceId` is a `slug:relPath` MapleAddress string.
-   * We match by slug: `ApiFolder.slug` (from M1's server response) or fall
-   * back to `ApiFolder.id` when the server is pre-M1 and no slug was returned.
-   *
-   * Legacy `fs:<absPath>` ids (stored in older localStorage sessions) are
-   * handled with a path-prefix walk for backward compat, but no new ids are
-   * created in that format.
-   */
+  /** Resolve the registered library that owns `selectedSourceId` (`slug:relPath` or legacy `fs:<absPath>`). */
   currentRegisteredFolder(selectedSourceId: string): ApiFolder | null {
     if (this.backend !== 'self-hosted') return null;
     if (!selectedSourceId) return null;

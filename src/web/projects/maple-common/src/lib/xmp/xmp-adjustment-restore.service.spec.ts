@@ -22,6 +22,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
 import { LibraryStateService } from '../state/library-state.service';
 import { LibraryStore } from '../state/library-store.service';
+import { LIBRARY_SOURCE, type FolderListing } from '../addressing/library-source';
 import { BunApiBackendService } from '../api/bun-api-backend.service';
 import type { ApiFolder } from '../api/bun-api-backend.service';
 import { LIBRARY_BACKEND } from '../api/library-backend.token';
@@ -421,5 +422,93 @@ describe('XmpAdjustmentRestoreService (#2406)', () => {
     expect(saveState.phase()).toBe('saved');
     expect(saveState.error()).toBeNull();
     expect(saveState.hasUnsavedChanges()).toBe(false);
+  });
+
+  it('refreshes culling and keywords in Preview after a batch metadata apply (#5295)', async () => {
+    store.registeredFolders.set([LIBRARY]);
+    state.hydrateSelfHostedFsAsset(ASSET_ID);
+    state.hydrateSelfHostedFsAsset(NON_FOCUSED_ASSET_ID);
+
+    // Selecting both assets in Browse focuses them in turn and caches their pre-batch sidecars.
+    state.selectAsset(ASSET_ID);
+    TestBed.tick();
+    await flushAsync();
+    state.selectAsset(NON_FOCUSED_ASSET_ID);
+    TestBed.tick();
+    await flushAsync();
+    expect(api.getXmp).toHaveBeenCalledTimes(2);
+
+    // Server batch metadata write updates rating + keywords on both assets.
+    const batchSidecar = SIDECAR_XML.replace('xmp:Rating="3"', 'xmp:Rating="4"').replace(
+      '<rdf:li>existing-keyword</rdf:li>',
+      '<rdf:li>batchqa</rdf:li>',
+    );
+    api.getXmpResult = of(batchSidecar);
+    const restore = TestBed.inject(XmpAdjustmentRestoreService);
+    restore.applyBatchMetadata(
+      [
+        { address: ASSET_ID, metadata: { rating: 4, keywords: ['batchqa'], title: 'Batch QA' } },
+        {
+          address: NON_FOCUSED_ASSET_ID,
+          metadata: { rating: 4, keywords: ['batchqa'], title: 'Batch QA' },
+        },
+      ],
+      [
+        { address: ASSET_ID, ok: true },
+        { address: NON_FOCUSED_ASSET_ID, ok: true },
+      ],
+    );
+    await flushAsync();
+
+    // Currently-focused asset re-reads its sidecar immediately; both assets reflect 4★ + keywords.
+    expect(api.getXmp).toHaveBeenCalledTimes(3);
+    expect(store.findAsset(NON_FOCUSED_ASSET_ID)).toMatchObject({
+      rating: 4,
+      keywords: ['batchqa'],
+      title: 'Batch QA',
+      edited: true,
+    });
+    expect(store.findAsset(ASSET_ID)).toMatchObject({
+      rating: 4,
+      keywords: ['batchqa'],
+      title: 'Batch QA',
+      edited: true,
+    });
+
+    // Opening Preview on the other batch-edited asset re-fetches its updated sidecar.
+    state.selectAsset(ASSET_ID);
+    TestBed.tick();
+    await flushAsync();
+    expect(api.getXmp).toHaveBeenCalledTimes(4);
+    expect(store.findAsset(ASSET_ID)).toMatchObject({
+      rating: 4,
+      keywords: ['batchqa'],
+    });
+
+    // A subsequent folder refresh (which omits keywords in ImageEntry) preserves keywords and session culling.
+    const librarySource = TestBed.inject(LIBRARY_SOURCE);
+    vi.spyOn(librarySource, 'listFolder').mockResolvedValue({
+      address: 'photos:raws',
+      parent: 'photos:',
+      folders: [],
+      images: [
+        { address: ASSET_ID, name: 'test_0004.fff', mapleId: 'm1', indexed: true, rating: 0 },
+        {
+          address: NON_FOCUSED_ASSET_ID,
+          name: 'test_0008.RAF',
+          mapleId: 'm2',
+          indexed: true,
+          rating: 0,
+        },
+      ],
+    } satisfies FolderListing);
+    store.assets.update((list) => list.map((a) => ({ ...a, folderId: 'photos:raws' })));
+    state.openSelfHostedSubfolder('raws', 'photos:raws');
+    await flushAsync();
+    expect(store.findAsset(ASSET_ID)).toMatchObject({
+      rating: 4,
+      keywords: ['batchqa'],
+      edited: true,
+    });
   });
 });
