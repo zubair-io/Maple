@@ -223,6 +223,11 @@ struct MapleApp: App {
         // it now instead of waiting for the next launch (#2851).
         Task { await Self.startBackupIfAuthorized() }
       }
+      #if os(iOS)
+        .onChange(of: scenePhase, initial: true) { _, phase in
+          BackupScreenSaverController.shared.setActive(phase == .active)
+        }
+      #endif
       .onChange(of: scenePhase) { _, newPhase in
         if newPhase == .background {
           BGTaskRegistration.schedule()

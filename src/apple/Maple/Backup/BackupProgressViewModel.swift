@@ -169,6 +169,10 @@ public final class BackupProgressViewModel {
   /// on engine concurrency.
   public private(set) var inFlight: [InFlight] = []
 
+  /// When a photo was last read, sent or finished this run — the backup
+  /// screen saver's "still uploading" signal (#5457).
+  public private(set) var lastUploadActivity: Date?
+
   /// Last 10 successfully uploaded tasks, newest first.
   public private(set) var recentCompleted: [Completed] = []
 
@@ -386,6 +390,12 @@ public final class BackupProgressViewModel {
   func apply(_ event: BackupQueueEvent) {
     issues.apply(event)
     switch event {
+    case .started, .preparing, .progress, .completed:
+      lastUploadActivity = Date()
+    default:
+      break
+    }
+    switch event {
     case .drained: break
     case .enqueued(let task):
       libraryPhotoIDs?.insert(task.id.phassetLocalId)
@@ -416,8 +426,8 @@ public final class BackupProgressViewModel {
       if libraryPhotoIDs?.contains(id.phassetLocalId) == true {
         backedUpPhotoIDs.insert(id.phassetLocalId)
       }
-      guard completedPhotoIDs.insert(id.phassetLocalId).inserted else { return }
       inFlight.removeAll { $0.id == id }
+      guard completedPhotoIDs.insert(id.phassetLocalId).inserted else { return }
       totalCompleted += 1
       recentCompleted.insert(Completed(id: id, mapleId: mapleId), at: 0)
       if recentCompleted.count > 10 {
