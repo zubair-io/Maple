@@ -1,3 +1,7 @@
+import XCTest
+
+@testable import Maple
+
 #if os(iOS)
   import UIKit
   import XCTest
@@ -70,3 +74,14 @@
     }
   }
 #endif
+
+@MainActor
+final class EditorTextHistoryTests: XCTestCase {
+  func testEditorHistoryNotificationBumpsRevision() async {
+    let history = EditorTextHistory()
+    let initial = history.revision
+    NotificationCenter.default.post(name: .mapleEditorHistoryDidChange, object: nil)
+    await Task.yield()
+    XCTAssertGreaterThan(history.revision, initial)
+  }
+}

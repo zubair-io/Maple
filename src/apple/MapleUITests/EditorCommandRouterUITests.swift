@@ -32,7 +32,12 @@ import XCTest
       assertValue(adjusted, on: slider)
       app.typeKey("z", modifierFlags: .command)
       assertValue(initial, on: slider)
+      XCTAssertTrue(app.menuBars.menuBarItems["Edit"].menuItems["Redo"].isEnabled)
       app.typeKey("z", modifierFlags: [.command, .shift])
+      assertValue(adjusted, on: slider)
+      app.menuBars.menuBarItems["Edit"].menuItems["Redo"].click()
+      assertValue(shifted, on: slider)
+      app.typeKey("z", modifierFlags: .command)
       assertValue(adjusted, on: slider)
 
       let zoom = app.buttons["canvas-zoom-indicator"]
