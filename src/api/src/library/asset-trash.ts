@@ -47,6 +47,11 @@ import {
 } from '../cloud-backup/lifecycle.ts';
 import type { FileInfo, FolderWithId } from '../db/schema.ts';
 import { child as childLogger } from '../log.ts';
+import {
+  resolveRestoreSource,
+  restoreDestinationRefusal,
+  type RestoreRefusal,
+} from './restore-source.ts';
 
 const log = childLogger('library/asset-trash');
 
@@ -270,15 +275,11 @@ export interface RestoreAssetOptions {
    * Defaults to the asset's recorded `original_path`. */
   targetRelativePath?: string;
   /**
-   * Explicit fileinfo entry identifying WHICH trashed location to restore
-   * — same rationale as `TrashAssetOptions.entry`. `activeFileInfo`'s
-   * live/not-missing-tagged selection can't distinguish the trashed entry
-   * from an untouched entry in a different library (a trashed entry's OWN
-   * `deleted_at`/`missing_since` stay null — only the doc's top-level
-   * `deleted_at` differs), so the folder-restore orchestrator
-   * (`library/folder-trash.ts`) always passes this explicitly. Also
-   * bypasses the cross-library guard, since the caller already knows the
-   * asset's restore-relevant library.
+   * The trashed location the folder-restore orchestrator
+   * (`library/folder-trash.ts`) matched. It must be the copy inside
+   * `.maple/trash/`, or the restore is refused (#5405). Without it the
+   * restore finds that copy itself. Also bypasses the cross-library guard,
+   * since the caller already knows the asset's restore-relevant library.
    */
   entry?: AssetLocationEntry;
 }
@@ -295,11 +296,8 @@ export type RestoreAssetOutcome =
     }
   | { kind: 'not-found' }
   | { kind: 'not-trashed' }
-  | { kind: 'no-location' }
-  | { kind: 'no-folder' }
   | { kind: 'cross-library'; assetFolderId: string }
-  | { kind: 'invalid'; error: string }
-  | { kind: 'error'; error: string };
+  | RestoreRefusal;
 
 type RestoreTargetResolution =
   | { kind: 'ok'; targetAbs: string }
@@ -427,49 +425,53 @@ export async function restoreAssetById(
     };
   }
 
-  // The ONE entry this call acts on — same rationale as `trashAssetById`.
-  const entrySpec = resolveEntrySpec(info.fileinfo, opts.entry);
-  if (!entrySpec) return { kind: 'no-location' };
+  // Only the copy the trash action moved into `.maple/trash/` ever moves back
+  // (#5405); an untouched copy elsewhere stays where it is.
+  const source = await resolveRestoreSource(info.fileinfo, opts.entry);
+  if ('kind' in source) return source;
+  const { location, libraryRoot, absPath: trashedAbsPath } = source;
+  const entrySpec: AssetLocationEntry = {
+    libraryId: location.library_id,
+    path: location.path,
+    filename: location.filename,
+  };
   const assetFolderId = entrySpec.libraryId;
 
-  const folder = await findFolderById(assetFolderId);
-  if (!folder) return { kind: 'no-folder' };
-  const trashedAbsPath = path.join(folder.path, entrySpec.path, entrySpec.filename);
-
   const targetResolution = resolveRestoreTarget(
-    folder.path,
+    libraryRoot,
     info.original_path,
     assetFolderId,
     opts,
   );
   if (targetResolution.kind !== 'ok') return targetResolution;
+  const destinationRefusal = await restoreDestinationRefusal(
+    libraryRoot,
+    targetResolution.targetAbs,
+  );
+  if (destinationRefusal) return destinationRefusal;
 
   const intent = await prepareLifecycle(
     id.toHexString(),
     'restore',
     assetFolderId.toHexString(),
-    path.relative(folder.path, trashedAbsPath).split(path.sep).join('/'),
+    path.relative(libraryRoot, trashedAbsPath).split(path.sep).join('/'),
   );
   const result = await runLifecycleMove(intent, () =>
     moveOutOfTrash(
       trashedAbsPath,
       targetResolution.targetAbs,
-      (target) => recordLifecycleTarget(intent, folder.path, trashedAbsPath, target),
+      (target) => recordLifecycleTarget(intent, libraryRoot, trashedAbsPath, target),
       () => fenceLifecycleMove(intent),
       async (target) => {
         const { size, mtimeMs } = await restatRestoredFile(target, info.size);
         await restoreFromTrash({
           id,
-          libraryRoot: folder.path,
+          libraryRoot,
           libraryId: assetFolderId,
           newAbsPath: target,
           size,
           mtimeMs,
-          source: {
-            libraryId: entrySpec.libraryId,
-            path: entrySpec.path,
-            filename: entrySpec.filename,
-          },
+          source: entrySpec,
           lifecycle: await lifecycleCommit(intent),
         });
       },
@@ -477,7 +479,7 @@ export async function restoreAssetById(
         restoreBackupDestinationOccupied(
           id,
           assetFolderId,
-          path.relative(folder.path, candidate).split(path.sep).join('/'),
+          path.relative(libraryRoot, candidate).split(path.sep).join('/'),
         ),
     ),
   );

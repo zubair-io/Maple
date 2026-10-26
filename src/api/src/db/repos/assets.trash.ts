@@ -43,6 +43,7 @@ import {
 } from '../../cloud-backup/trash-purge-admission.ts';
 import type { SqlStatement } from '../sqlite/protocol.ts';
 import { searchRearmStatements, relocateCacheRearmStatements } from './assets.stage-rearm.ts';
+import { canonicalOrdinalStatements } from './assets.trash-survivor.ts';
 import {
   sqliteDb,
   changesAt,
@@ -327,6 +328,9 @@ export async function restoreFromTrash(args: {
       params: [args.size, args.mtimeMs, hex],
     },
     ...moveTailStatements(hex, destination, args.source),
+    // A photo whose other copy stayed live has both copies live again (#5405);
+    // ordinal 0 must name one of them.
+    ...canonicalOrdinalStatements(hex),
     ...committedLifecycleStatements(
       hex,
       destination.libraryId,

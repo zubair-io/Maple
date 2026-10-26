@@ -63,13 +63,22 @@ function survivingCopy(
 }
 
 /** `fileinfo` is in ordinal order. Null when no live location is inside Trash
- * or its library is unregistered. */
+ * or its library is unregistered. With `named`, only that location qualifies:
+ * a restore or purge the caller pinned to one copy never acts on another. */
 export function resolveTrashedCopy(
   fileinfo: readonly FileInfo[] | undefined,
   libraries: ReadonlyMap<string, string>,
+  named?: { libraryId: ObjectId; path: string; filename: string },
 ): TrashedCopy | null {
   const live = (fileinfo ?? []).filter((entry) => !entry.deleted_at);
-  const trashed = live.find((entry) => isTrashRelPath(entry.path));
+  const trashed = live.find(
+    (entry) =>
+      isTrashRelPath(entry.path) &&
+      (!named ||
+        (entry.library_id.equals(named.libraryId) &&
+          entry.path === named.path &&
+          entry.filename === named.filename)),
+  );
   const libraryRoot = trashed ? libraries.get(trashed.library_id.toHexString()) : undefined;
   if (!trashed || !libraryRoot) return null;
   return {
@@ -129,8 +138,8 @@ async function realpathOrNull(target: string): Promise<string | null> {
 }
 
 /**
- * The canonical path to unlink for `target`: its real directory plus its own
- * name. Throws `OutsideTrashError` unless it lies inside
+ * The canonical path to unlink for `target`, and the jail a restore's source
+ * passes before it moves (#5405): its real directory plus its own name. Throws `OutsideTrashError` unless it lies inside
  * `<libraryRoot>/.maple/trash/`, both as written and with symlinked
  * directories followed, and with `.maple/trash` itself a real directory of
  * the real library root. Null means the directory holding it no longer
