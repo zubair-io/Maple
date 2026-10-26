@@ -99,28 +99,40 @@ pub fn run(args: &Args) -> Result<i32, Box<dyn std::error::Error>> {
 }
 
 fn collect_raws(paths: &[PathBuf]) -> std::io::Result<Vec<PathBuf>> {
-    let nested = paths
+    let mut found: Vec<PathBuf> = paths
         .iter()
-        .map(|path| walk(path))
-        .collect::<std::io::Result<Vec<_>>>()?;
-    let mut found: Vec<PathBuf> = nested.into_iter().flatten().collect();
+        .map(|path| Ok(walk(path, std::fs::metadata(path)?.is_dir())))
+        .collect::<std::io::Result<Vec<_>>>()?
+        .into_iter()
+        .flatten()
+        .collect();
     found.sort();
     Ok(found)
 }
 
-fn walk(path: &Path) -> std::io::Result<Vec<PathBuf>> {
-    let is_real_dir = std::fs::symlink_metadata(path)?.is_dir();
-    if !is_real_dir {
-        return Ok(if is_supported_raw(path) {
+/// Arguments follow symlinks; descent does not, so a link loop can't recurse.
+/// An unreadable folder is reported and skipped, like an unreadable file.
+fn walk(path: &Path, is_dir: bool) -> Vec<PathBuf> {
+    if !is_dir {
+        return if is_supported_raw(path) {
             vec![path.to_path_buf()]
         } else {
             Vec::new()
-        });
+        };
     }
-    std::fs::read_dir(path)?
-        .map(|entry| walk(&entry?.path()))
-        .collect::<std::io::Result<Vec<_>>>()
-        .map(|nested| nested.into_iter().flatten().collect())
+    match std::fs::read_dir(path) {
+        Ok(entries) => entries
+            .filter_map(Result::ok)
+            .flat_map(|entry| {
+                let is_dir = entry.file_type().is_ok_and(|t| t.is_dir());
+                walk(&entry.path(), is_dir)
+            })
+            .collect(),
+        Err(e) => {
+            eprintln!("skipped {}: {e}", path.display());
+            Vec::new()
+        }
+    }
 }
 
 fn camera(c: &PreviewCoverage) -> String {
@@ -193,7 +205,11 @@ fn print_markdown(rows: &[Row]) {
             c.format,
             c.sensor
                 .map_or("?".into(), |s| format!("{}×{}", s[0], s[1])),
-            c.color_space,
+            if c.winner(true).is_some() {
+                c.color_space
+            } else {
+                "—"
+            },
             describe(server, c.sensor),
             describe(c.winner(false), c.sensor),
             if others.is_empty() {
@@ -258,6 +274,16 @@ mod tests {
             ["full_image is 1500×1000"]
         );
         assert!(flags(&coverage(sensor, &[None, None, None])).is_empty());
+    }
+
+    #[test]
+    fn json_source_names_match_the_markdown_labels() {
+        PreviewSource::IN_PROCESS
+            .into_iter()
+            .chain([PreviewSource::Exiftool])
+            .for_each(|source| {
+                assert_eq!(serde_json::json!(source), source.label());
+            });
     }
 
     #[test]
