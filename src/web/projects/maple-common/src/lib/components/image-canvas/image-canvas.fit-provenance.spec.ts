@@ -17,7 +17,7 @@ const frame: DecodedImage = {
   rgb: new Uint8Array([12, 34, 56]),
   asShotTemperature: 5500,
   asShotTint: 0,
-  autoFit: true,
+  autoFit: 'applied',
 };
 function pending<T>() {
   let resolve!: (value: T) => void;
@@ -138,7 +138,7 @@ it('keeps cold-open dispatched Neutral intent when Auto is queued, without publi
     new Uint8Array([1]),
   );
   store.setAdjustment(ID, { profile: 'Auto' });
-  reply.resolve({ ...frame, autoFit: false });
+  reply.resolve({ ...frame, autoFit: 'unfitted' });
   await work;
   expect(caps.for(ID).autoFit).toBeUndefined();
   expect(host.lastRenderedXmp).toBe(serializer.serialize(opened));
@@ -156,11 +156,29 @@ it('accepts the matching reply and preserves it across a scalar edit', async () 
     new Uint8Array([1]),
     'dng',
   );
-  expect(caps.for(ID).autoFit).toBe(true);
+  expect(caps.for(ID).autoFit).toBe('applied');
   const revision = caps.autoFitRevisionFor(ID);
   store.setAdjustment(ID, { exposure: 1 });
   expect(caps.autoFitRevisionFor(ID)).toBe(revision);
-  expect(caps.for(ID).autoFit).toBe(true);
+  expect(caps.for(ID).autoFit).toBe('applied');
+});
+
+it('publishes a missing camera preview distinctly and keeps it across a scalar edit', async () => {
+  const { host, store, caps } = harness();
+  host.pipeline.decode.mockResolvedValue({ ...frame, autoFit: 'no-preview' });
+  await runRender2d(
+    host as unknown as Render2dHost,
+    '<owned/>',
+    1,
+    { maxLongEdge: 512, qualityPreview: true },
+    new Uint8Array([1]),
+    'dng',
+  );
+  expect(caps.for(ID).autoFit).toBe('no-preview');
+  store.setAdjustment(ID, { exposure: 1 });
+  expect(caps.for(ID).autoFit).toBe('no-preview');
+  store.setAdjustment(ID, { profile: 'Neutral' });
+  expect(caps.for(ID).autoFit).toBeUndefined();
 });
 
 it('keeps a stale full GPU reply from enabling scalar dispatch for a newly selected profile', async () => {
@@ -247,7 +265,7 @@ for (const route of ['rerender', 'cold open']) {
         expect(h.caps.for(ID).autoFit).toBeUndefined();
       } else {
         expect(h.host.imageBitmap()).toBe(h.bitmap);
-        expect(h.caps.for(ID).autoFit).toBe(outcome === 'revision' ? undefined : true);
+        expect(h.caps.for(ID).autoFit).toBe(outcome === 'revision' ? undefined : 'applied');
       }
     });
   }
@@ -256,7 +274,7 @@ for (const route of ['rerender', 'cold open']) {
       const h = await heldBitmap(route);
       if (completed) {
         h.host.imageBitmap.set(h.bitmap as never);
-        h.caps.seedProfile(ID, null, true, h.caps.autoFitRevisionFor(ID));
+        h.caps.seedProfile(ID, null, 'applied', h.caps.autoFitRevisionFor(ID));
       }
       vi.spyOn(console, 'error').mockImplementation(() => undefined);
       h.reject(new Error('actual bitmap conversion rejected'));
@@ -264,7 +282,7 @@ for (const route of ['rerender', 'cold open']) {
       expect(h.host.imageBitmap()).toBe(
         completed ? h.bitmap : route === 'cold open' ? null : h.previous,
       );
-      expect(h.caps.for(ID).autoFit).toBe(completed);
+      expect(h.caps.for(ID).autoFit).toBe(completed ? 'applied' : 'unfitted');
       expect(h.previous.close).toHaveBeenCalledTimes(route === 'cold open' && !completed ? 1 : 0);
       expect(h.bitmap.close).not.toHaveBeenCalled();
     });

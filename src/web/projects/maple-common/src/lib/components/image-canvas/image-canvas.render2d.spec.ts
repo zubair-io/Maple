@@ -196,12 +196,12 @@ describe('runRender2d — film-look LUT threading (#3171)', () => {
 
   it('publishes actual Auto outcomes and drops a stale render reply', async () => {
     const { host, decode } = harness(undefined);
-    decode.mockResolvedValue({ ...decoded, autoFit: true });
+    decode.mockResolvedValue({ ...decoded, autoFit: 'applied' });
     await runRender2d(host, '<auto />', 1, SIZING, new Uint8Array([1]), 'dng');
-    expect(host.state.seedLensProfile).toHaveBeenLastCalledWith(ASSET_ID, null, true, 0);
-    decode.mockResolvedValue({ ...decoded, autoFit: false });
+    expect(host.state.seedLensProfile).toHaveBeenLastCalledWith(ASSET_ID, null, 'applied', 0);
+    decode.mockResolvedValue({ ...decoded, autoFit: 'unfitted' });
     await runRender2d(host, '<auto />', 1, SIZING, new Uint8Array([1]), 'dng');
-    expect(host.state.seedLensProfile).toHaveBeenLastCalledWith(ASSET_ID, null, false, 0);
+    expect(host.state.seedLensProfile).toHaveBeenLastCalledWith(ASSET_ID, null, 'unfitted', 0);
     const calls = vi.mocked(host.state.seedLensProfile).mock.calls.length;
     await runRender2d(host, '<stale />', 0, SIZING, new Uint8Array([1]), 'dng');
     expect(vi.mocked(host.state.seedLensProfile).mock.calls).toHaveLength(calls);
@@ -261,7 +261,7 @@ describe('runRender2d — film-look LUT threading (#3171)', () => {
     vi.spyOn(console, 'error').mockImplementation(() => undefined);
     decode.mockRejectedValue(new Error('decode failed'));
     await coldOpen2d(host, ASSET_ID, 'broken.dng', 'dng', new Uint8Array([1]));
-    expect(capabilities.for(ASSET_ID).autoFit).toBe(false);
+    expect(capabilities.for(ASSET_ID).autoFit).toBe('unfitted');
     expect(publish).toHaveBeenCalledTimes(1);
     profile.set({ ...defaultAdjustmentModel(), profile: 'Neutral' });
     await coldOpen2d(host, ASSET_ID, 'broken.dng', 'dng', new Uint8Array([1]));

@@ -4,8 +4,9 @@ import { ProfileSectionComponent } from './profile-section.component';
 import { EditorStateService } from '../../editor/editor-state.service';
 import { LibraryStateService } from '../../state/library-state.service';
 import { defaultAdjustmentModel, type AdjustmentModel } from '../../models/adjustment-model';
+import type { AutoFitOutcome } from '../../raw-pipeline/auto-fit-outcome';
 
-function state(profile: AdjustmentModel['profile'], focused = true) {
+function state(profile: AdjustmentModel['profile'], focused = true, autoFit?: AutoFitOutcome) {
   return moduleMetadata({
     providers: [
       {
@@ -15,6 +16,7 @@ function state(profile: AdjustmentModel['profile'], focused = true) {
           return {
             focusedAssetId: signal(focused ? 'story-photo' : null),
             adjustmentFor: () => adjustment,
+            lensCorrectionsFor: () => ({ autoFit }),
             updateAdjustment: (_id: string, patch: Partial<AdjustmentModel>) =>
               adjustment.update((current) => ({ ...current, ...patch })),
           };
@@ -34,5 +36,7 @@ export default meta;
 type Story = StoryObj<ProfileSectionComponent>;
 
 export const Default: Story = { decorators: [state('Auto')] };
+export const Matched: Story = { decorators: [state('Auto', true, 'applied')] };
+export const NoCameraPreview: Story = { decorators: [state('Auto', true, 'no-preview')] };
 export const Neutral: Story = { decorators: [state('Neutral')] };
 export const Empty: Story = { decorators: [state('Auto', false)] };

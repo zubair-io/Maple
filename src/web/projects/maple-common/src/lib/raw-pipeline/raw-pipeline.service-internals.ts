@@ -1,3 +1,4 @@
+import type { AutoFitOutcome } from './auto-fit-outcome';
 import type { CameraSupport } from '../state/camera-support';
 import type { ImportedLensProfile, LensProfileResolution } from '../lens/lens-profile.types';
 import type { CompatibleLensProfile, LensProfileEvidence } from '../lens/lens-profile-choice.types';
@@ -49,7 +50,7 @@ export interface OpenedLiveSession {
   /** See `DecodeSuccess.lensProfile` (#3479). */
   lensProfile?: LensProfileResolution;
   /** Actual applied Auto artifacts; absent until evaluated or with Neutral. */
-  autoFit?: boolean;
+  autoFit?: AutoFitOutcome;
   colorSpace: string;
   /**
    * Downsampled RGB readback of the first presented frame, for the scopes (#1045).
@@ -72,7 +73,7 @@ export interface RenderedLiveSession {
   /** See `RenderSessionSuccess.lensProfile` (#3479). */
   lensProfile?: LensProfileResolution;
   /** Actual applied Auto artifacts; absent until evaluated or with Neutral. */
-  autoFit?: boolean;
+  autoFit?: AutoFitOutcome;
   // No `scopePixels` (#3397): the sample is broadcast out-of-band as
   // `scope-sample` and lands on `RawPipelineService.scopeSample`.
 }
