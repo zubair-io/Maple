@@ -9,8 +9,9 @@
 // jittered so the grid never reads as a grid. Purely random positions let
 // prints pile on top of each other; choosing an unoccupied slot spreads them
 // over the whole table instead. Slot positions are expressed in normalised
-// stage coordinates (-1...1 on each axis) so a print laid out before a
-// rotation still lands inside the rotated stage.
+// stage coordinates (-1...1 on each axis), and `offset(for:)` clamps them to
+// the current grid's reach, so a print laid out before a rotation still lands
+// inside the rotated stage.
 
 import CoreGraphics
 
@@ -94,8 +95,23 @@ public struct LightTableMetrics: Equatable, Sendable {
   }
 
   /// Offset from the stage centre, in points, for a normalised `anchor`.
+  /// A print keeps the anchor it was laid out with, and an outer column of a
+  /// wide grid sits further out than the outer column of a narrow one, so
+  /// after a rotation the anchor is clamped to the reach of this grid's
+  /// outermost jittered slot — the furthest a fresh print could land.
   public func offset(for anchor: CGPoint) -> CGSize {
-    CGSize(width: anchor.x * stageHalfWidth, height: anchor.y * stageHalfHeight)
+    CGSize(
+      width: Self.clamped(anchor.x, bands: columns, jitter: slotJitter, over: stageHalfWidth)
+        * stageHalfWidth,
+      height: Self.clamped(anchor.y, bands: rows, jitter: slotJitter, over: stageHalfHeight)
+        * stageHalfHeight)
+  }
+
+  private static func clamped(
+    _ value: CGFloat, bands: Int, jitter: CGFloat, over halfExtent: CGFloat
+  ) -> CGFloat {
+    let reach = 1 - 1 / CGFloat(bands) + (halfExtent > 0 ? jitter / halfExtent : 0)
+    return min(reach, max(-reach, value))
   }
 
   private static func normalisedJitter(_ jitter: CGFloat, over halfExtent: CGFloat) -> CGFloat {
