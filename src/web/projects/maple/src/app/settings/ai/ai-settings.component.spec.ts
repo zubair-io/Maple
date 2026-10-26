@@ -7,20 +7,23 @@ import { API_BASE_URL, type AiConnectionsResponse } from '@maple-common';
 import { AiSettingsComponent } from './ai-settings.component';
 
 const CONFIG: AiConnectionsResponse = {
-  embedder: {
-    url: '',
-    model: '',
-    default_url: 'http://gpu1:11434',
-    default_model: 'bge-m3',
-  },
   connections: [
     { id: 'gpu1', name: 'GPU one', provider: 'ollama', url: 'http://gpu1:11434', concurrency: 2 },
     { id: 'gpu2', name: 'GPU two', provider: 'ollama', url: 'http://gpu2:11434', concurrency: 1 },
     { id: 'cloud', name: 'Cloud', provider: 'openai', url: '', concurrency: 2, has_key: true },
+    {
+      id: 'strata',
+      name: 'Strata',
+      provider: 'openai',
+      url: 'http://strata:8080/v1',
+      concurrency: 2,
+      has_key: true,
+    },
+    { id: 'claude', name: 'Claude', provider: 'anthropic', url: '', concurrency: 2, has_key: true },
   ],
   assignments: {
     describe: { connection_ids: ['gpu1', 'gpu2'], model: 'vision' },
-    'semantic-search': { connection_ids: ['gpu1'], model: 'bge-m3' },
+    'generated-search': { connection_ids: ['gpu1'], model: 'gemma4:12b' },
   },
   available_workers: [
     {
@@ -31,11 +34,11 @@ const CONFIG: AiConnectionsResponse = {
       providers: ['ollama', 'openai'],
     },
     {
-      id: 'semantic-search',
-      name: 'Semantic search',
-      detail: 'Embeddings',
+      id: 'generated-search',
+      name: 'Generated search',
+      detail: 'Curated search collections',
       multiple: false,
-      providers: ['ollama'],
+      providers: ['ollama', 'openai'],
     },
   ],
 };
@@ -81,12 +84,12 @@ describe('AI connections and assignments', () => {
     expect(component.models()['gpu1']).toEqual(['new-model']);
   });
   it('renders all saved connections and independent worker models', () => {
-    expect(fixture.nativeElement.querySelectorAll('.connection-card')).toHaveLength(3);
+    expect(fixture.nativeElement.querySelectorAll('.connection-card')).toHaveLength(5);
     expect(component.config()?.assignments['describe']?.connection_ids).toEqual(['gpu1', 'gpu2']);
     expect(
-      fixture.nativeElement.querySelector('[aria-label="Model for Semantic search on GPU one"]')
+      fixture.nativeElement.querySelector('[aria-label="Model for Generated search on GPU one"]')
         .value,
-    ).toBe('bge-m3');
+    ).toBe('gemma4:12b');
     expect(fixture.nativeElement.querySelector('[aria-label="API key for Cloud"]').type).toBe(
       'password',
     );
@@ -103,7 +106,7 @@ describe('AI connections and assignments', () => {
   });
   it('can add another connection without replacing existing servers', () => {
     component.addConnection();
-    expect(component.config()?.connections).toHaveLength(4);
+    expect(component.config()?.connections).toHaveLength(6);
     component.save();
     const request = http.expectOne('/api/ai/connections/');
     expect(request.request.body.connections.slice(0, 2)).toEqual(CONFIG.connections.slice(0, 2));
@@ -112,12 +115,65 @@ describe('AI connections and assignments', () => {
   });
   it('blocks removal while assigned, then removes an unused connection', () => {
     component.removeConnection('gpu2');
-    expect(component.config()?.connections).toHaveLength(3);
+    expect(component.config()?.connections).toHaveLength(5);
     component.toggleConnection('describe', 'gpu2', false);
     component.removeConnection('gpu2');
-    expect(component.config()?.connections).toHaveLength(2);
+    expect(component.config()?.connections).toHaveLength(4);
   });
-  it('changing a vision assignment does not alter semantic search', () => {
+  it('lets generated search pick any Ollama or OpenAI-compatible connection and its model', () => {
+    component.setWorkerOpen('generated-search', true);
+    http.expectOne('/api/ai/connections/probe').flush({ models: ['gemma4:12b'] });
+    fixture.detectChanges();
+    const card = fixture.nativeElement.querySelector('#generated-search');
+    const choices = [...card.querySelectorAll('mui-checkbox')].map((box: Element) =>
+      box.textContent?.trim(),
+    );
+    expect(choices).toEqual([
+      'GPU one (ollama)',
+      'GPU two (ollama)',
+      'Cloud (openai)',
+      'Strata (openai)',
+    ]);
+
+    component.toggleConnection('generated-search', 'strata', true);
+    const probe = http.expectOne('/api/ai/connections/probe');
+    expect(probe.request.body).toEqual({
+      connection: CONFIG.connections[3],
+      models: true,
+    });
+    probe.flush({ models: ['qwen3-32b', 'gemma-3-27b'] });
+    fixture.detectChanges();
+    expect(component.config()?.assignments['generated-search']?.connection_ids).toEqual([
+      'strata',
+    ]);
+    expect(component.modelChoices('generated-search', CONFIG.connections[3]!)).toEqual([
+      { value: '', label: 'Select a model' },
+      { value: 'qwen3-32b', label: 'qwen3-32b' },
+      { value: 'gemma-3-27b', label: 'gemma-3-27b' },
+    ]);
+    component.chooseModel('generated-search', 'strata', 'qwen3-32b');
+
+    component.save();
+    const request = http.expectOne('/api/ai/connections/');
+    expect(request.request.body.assignments['generated-search']).toEqual({
+      connection_ids: ['strata'],
+      model: 'qwen3-32b',
+      connection_models: { strata: 'qwen3-32b' },
+    });
+    expect(request.request.body).not.toHaveProperty('embedder');
+    request.flush(component.config());
+  });
+  it('offers no embedding connection: semantic search runs on the server', () => {
+    expect(fixture.nativeElement.querySelector('[aria-label="Embedding endpoint URL"]')).toBeNull();
+    expect(fixture.nativeElement.querySelector('#semantic-search')).toBeNull();
+    expect(fixture.nativeElement.querySelector('#search-engine-title').textContent).toBe(
+      'Semantic search',
+    );
+    expect(fixture.nativeElement.textContent).toContain(
+      'Runs on this server’s CPU with the bundled bge-m3 model',
+    );
+  });
+  it('changing a vision assignment does not alter generated search', () => {
     component.toggleConnection('describe', 'cloud', true);
     http.expectOne('/api/ai/connections/probe').flush({ models: ['gpt-4o'], source: 'live' });
     expect(component.connectionModel('describe', 'cloud')).toBe('');
@@ -127,8 +183,8 @@ describe('AI connections and assignments', () => {
       'gpu2',
       'cloud',
     ]);
-    expect(component.config()?.assignments['semantic-search']).toEqual(
-      CONFIG.assignments['semantic-search'],
+    expect(component.config()?.assignments['generated-search']).toEqual(
+      CONFIG.assignments['generated-search'],
     );
   });
   it('changing a connection provider removes stale assignments and model', () => {
@@ -138,7 +194,7 @@ describe('AI connections and assignments', () => {
       model: 'vision',
       connection_models: { gpu2: 'vision' },
     });
-    expect(component.config()?.assignments['semantic-search']).toEqual({
+    expect(component.config()?.assignments['generated-search']).toEqual({
       connection_ids: [],
       model: '',
       connection_models: {},
@@ -177,15 +233,5 @@ describe('AI connections and assignments', () => {
     expect(component.error()).toBe('Unknown connection');
     expect(component.dirty()).toBe(true);
     expect(component.config()?.assignments['describe']?.model).toBe('new-vision');
-  });
-  it('saves the embedding overrides and shows the semantic defaults as placeholders', () => {
-    const url = fixture.nativeElement.querySelector('[aria-label="Embedding endpoint URL"]');
-    expect(url.placeholder).toBe('http://gpu1:11434');
-    component.setEmbedder('model', 'qwen3-embedding');
-    expect(component.dirty()).toBe(true);
-    component.save();
-    const request = http.expectOne('/api/ai/connections/');
-    expect(request.request.body.embedder).toEqual({ url: '', model: 'qwen3-embedding' });
-    request.flush(component.config());
   });
 });

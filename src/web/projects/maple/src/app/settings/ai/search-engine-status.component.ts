@@ -40,10 +40,8 @@ export function engineStatusLine(view: SearchEngineView | null): string | null {
           : '',
         '.',
       ].join('');
-    case 'incompatible-embedder':
-      return `Not usable: ${status.error ?? 'the embedding model is not bge-m3'}. Searches use the keyword index.`;
     case 'empty':
-      return `No search vectors tagged ${modelIdentity(status)} yet — resume the embed stage on Settings → Workers. Searches use the keyword index until then.`;
+      return `No search vectors tagged ${modelIdentity(status)} yet — the embed stage on Settings → Workers builds them. Searches use the keyword index until then.`;
     case 'failed':
       return `Could not start: ${status.error ?? 'unknown error'}. Searches use the keyword index until it does.`;
     case 'stopped':

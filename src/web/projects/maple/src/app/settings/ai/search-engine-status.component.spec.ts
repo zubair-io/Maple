@@ -86,9 +86,6 @@ describe('engineStatusLine', () => {
       'keyword index still building',
     );
     expect(
-      engineStatusLine(view({ phase: 'incompatible-embedder', error: 'the embed stage uses "x"' })),
-    ).toBe('Not usable: the embed stage uses "x". Searches use the keyword index.');
-    expect(
       engineStatusLine(
         view({
           phase: 'empty',

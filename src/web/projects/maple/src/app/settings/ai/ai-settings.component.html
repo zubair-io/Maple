@@ -140,7 +140,8 @@
           <p>
             Choose connections and a model for each. Vision workers rotate through the selected
             connections, respecting each connection’s concurrency limit. Each photo runs on one
-            connection.
+            connection. Generated search writes its collections with one Ollama or
+            OpenAI-compatible connection, such as Strata.
           </p>
           <div class="assignments">
             @for (w of cfg.available_workers; track w.id) {
@@ -211,31 +212,6 @@
                 }
               </mui-settings-row>
             }
-          </div>
-        </section>
-        <section aria-labelledby="embedder-title">
-          <h2 id="embedder-title">Search vectors</h2>
-          <p>
-            The embed stage turns each photo’s caption, people, place, transcript and text into a
-            search vector. Leave a field blank to follow the Semantic search assignment above; an
-            endpoint entered here must be an Ollama server. Changing the model re-embeds the whole
-            library.
-          </p>
-          <div class="fields">
-            <label class="wide"
-              >Embedding endpoint URL<mui-input
-                ariaLabel="Embedding endpoint URL"
-                [value]="cfg.embedder.url"
-                [placeholder]="cfg.embedder.default_url"
-                (valueChange)="setEmbedder('url', $event)"
-            /></label>
-            <label
-              >Embedding model<mui-input
-                ariaLabel="Embedding model"
-                [value]="cfg.embedder.model"
-                [placeholder]="cfg.embedder.default_model"
-                (valueChange)="setEmbedder('model', $event)"
-            /></label>
           </div>
         </section>
       </fieldset>

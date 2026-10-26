@@ -1,8 +1,10 @@
 <section aria-labelledby="search-engine-title">
-  <h2 id="search-engine-title">Search engine</h2>
+  <h2 id="search-engine-title">Semantic search</h2>
   <p>
-    Searches are ranked on this server from the search vectors above and a keyword index. First use
-    downloads ~2.2 GB to {{ view()?.modelCacheDir ?? 'the data directory' }}.
+    Runs on this server’s CPU with the bundled bge-m3 model, so it needs no connection. The same
+    model turns each photo’s caption, people, place, transcript and text into a search vector and
+    ranks every search. First use downloads ~2.2 GB to
+    {{ view()?.modelCacheDir ?? 'the data directory' }}.
   </p>
   @if (statusLine(); as line) {
     <p role="status">{{ line }}</p>
