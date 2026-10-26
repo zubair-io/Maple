@@ -35,6 +35,7 @@
     <Compile Include="..\Maple.WinUI\Services\Pano\PanoPreviewSession.cs" Link="Services\PanoPreviewSession.cs" />
     <Content Include="Fixtures\defringe.dng" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="..\..\..\test-fixtures\batch-transfer\source.dng" Link="Fixtures\source.dng" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\..\apple\MapleUITests\Fixtures\synthetic\grey-l018-rggb.dng" Link="Fixtures\grey-l018-rggb.dng" CopyToOutputDirectory="PreserveNewest" />
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.3.2" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
     <PackageReference Include="xunit" Version="2.9.2" />
@@ -257,6 +258,7 @@
     <Compile Include="..\Maple.WinUI\Services\RenderEngine.Haze.cs" LinkBase="Services" />
     <Compile Include="..\Maple.WinUI\Services\NativeDetailHazeCache.cs" LinkBase="Services" />
     <Compile Include="..\Maple.WinUI\Services\RenderEngine.ProfileReuse.cs" LinkBase="Services" />
+    <Compile Include="..\Maple.WinUI\Services\AutoProfileStatus.cs" LinkBase="Services" />
     <Compile Include="..\Maple.WinUI\Services\RenderEngine.Raster.cs" LinkBase="Services" />
     <Compile Include="..\Maple.WinUI\Services\CaptureCreative.cs" LinkBase="Services" />
     <Compile Include="..\Maple.WinUI\Services\NativeDetailDecoder.cs" LinkBase="Services" />

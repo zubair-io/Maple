@@ -58,6 +58,9 @@ namespace Maple.WinUI.Services
         public int DisplayLutN { get; set; }
         internal ProfileSourceGeneration? ProfileSource { get; set; }
         internal ProfileFitContext? ProfileFit { get; set; }
+        /// <summary>What the Auto fit achieved for this decode (#5458); null
+        /// when Auto was not requested (Neutral, raster).</summary>
+        public AutoProfileOutcome? AutoProfileOutcome { get; set; }
     }
 
     /// <summary>
@@ -152,10 +155,15 @@ namespace Maple.WinUI.Services
                             RefineDecodeQuality.Preview);
                         if (CanReuseAutoProfile(reuseAutoProfileFrom, source, fit))
                             ReuseAutoProfile(decoded, reuseAutoProfileFrom!);
-                        else if (FitAutoProfile(decoded, rawPath, tempXmpPath, fit))
+                        else
                         {
-                            decoded.ProfileSource = source;
-                            decoded.ProfileFit = fit;
+                            var fitRc = FitAutoProfile(decoded, rawPath, tempXmpPath, fit);
+                            decoded.AutoProfileOutcome = AutoProfileStatus.Classify(fitRc);
+                            if (fitRc is 0 or 1 or RawFfi.MapleAutoFitNoPreview)
+                            {
+                                decoded.ProfileSource = source;
+                                decoded.ProfileFit = fit;
+                            }
                         }
                         if (!source.StillCurrent(rawPath))
                         {
@@ -165,7 +173,7 @@ namespace Maple.WinUI.Services
                     }
                     DiagLog.Write(
                         $"[decode] {System.IO.Path.GetFileName(rawPath)} quality={quality} ae_gain={decoded.AeGain:0.###} " +
-                        $"curve={(decoded.ProfileCurve != null ? "yes" : "no")} " +
+                        $"auto={decoded.AutoProfileOutcome?.ToString() ?? "off"} curve={(decoded.ProfileCurve != null ? "yes" : "no")} " +
                         $"residual_n={decoded.ResidualLutSize} displayLut={(decoded.DisplayLut != null ? "yes" : "no")}");
                     return decoded;
                 }
@@ -221,6 +229,7 @@ namespace Maple.WinUI.Services
             decoded.DisplayLutN = from.DisplayLutN;
             decoded.ProfileSource = from.ProfileSource;
             decoded.ProfileFit = from.ProfileFit;
+            decoded.AutoProfileOutcome = from.AutoProfileOutcome;
         }
 
         /// <summary>
@@ -359,9 +368,10 @@ namespace Maple.WinUI.Services
         /// render cap, then source-revalidated after decode before reuse.
         /// The separate curve + residual artifacts serve
         /// the GPU live chain, and the composed display-domain LUT for the CPU
-        /// fallback. rc 1 = no tail applies (plain AgX), but still qualifies
-        /// source and fit ownership for reuse.</summary>
-        private static bool FitAutoProfile(DecodedImage decoded, string rawPath, string xmpPath, ProfileFitContext fit)
+        /// fallback. Returns the fit's return code: rc 1 (no tail) and
+        /// <see cref="RawFfi.MapleAutoFitNoPreview"/> render plain AgX but
+        /// still qualify source and fit ownership for reuse.</summary>
+        private static int FitAutoProfile(DecodedImage decoded, string rawPath, string xmpPath, ProfileFitContext fit)
         {
             const int curveLen = 220;                 // MAPLE_PROFILE_CURVE_FLAT_LEN
             const int lutCapacityEdge = 33;
@@ -391,9 +401,9 @@ namespace Maple.WinUI.Services
             }
             if (rc != 0)
             {
-                if (rc != 1)
+                if (rc is not (1 or RawFfi.MapleAutoFitNoPreview))
                     DiagLog.Write($"[profile] gpu fit rc={rc}: {RawFfi.LastError()}");
-                return rc == 1;
+                return rc;
             }
             if (curvePresent != 0)
                 decoded.ProfileCurve = curve;
@@ -435,7 +445,7 @@ namespace Maple.WinUI.Services
                     throw new InvalidOperationException($"Auto Profile composition failed (rc={lutRc}): {reason}");
                 }
             }
-            return true;
+            return 0;
         }
 
         /// <summary>Shared-core 3D-LUT application over display-encoded RGB —
@@ -508,6 +518,7 @@ namespace Maple.WinUI.Services
                 DisplayLutN = src.DisplayLutN,
                 ProfileSource = src.ProfileSource,
                 ProfileFit = src.ProfileFit,
+                AutoProfileOutcome = src.AutoProfileOutcome,
             };
         }
     }

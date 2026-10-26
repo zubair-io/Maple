@@ -188,6 +188,11 @@ namespace Maple.WinUI.Native
         //     the GPU live chain, composed display LUT for the CPU fallback.
         //     The sized fit also keys native caching by render cap. ---
 
+        /// <summary>Fit return code for Auto with no extractable embedded
+        /// camera preview; out-params match rc 1 and the host renders Neutral
+        /// (raw-ffi auto_profile.rs MAPLE_AUTO_FIT_NO_PREVIEW, #5458).</summary>
+        public const int MapleAutoFitNoPreview = 10;
+
         [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
         public static extern int maple_gpu_fit_auto_profile_at_render_size(
             [MarshalAs(UnmanagedType.LPUTF8Str)] string rawPath,

@@ -193,6 +193,7 @@ namespace Maple.WinUI.ViewModels
                 Renderer.SetImage(null);
                 ReleaseBrushRasters();
             }
+            UpdateAutoProfileStatus(_autoProfileStatus.Begin(_decodeGeneration, keepOutcome: false));
         }
 
         private void OpenForEditing(PhotoItem photo)
@@ -297,6 +298,7 @@ namespace Maple.WinUI.ViewModels
             ResetLensProfileState();   // #3480 — EditSessionViewModel.LensProfile.cs
             RefreshLensProfileChoices(photo);   // #3568 — the profile dropdown's option list
             var generation = Interlocked.Increment(ref _decodeGeneration);
+            UpdateAutoProfileStatus(_autoProfileStatus.Begin(generation, keepOutcome: preserveCurrentBase));
             CancelActiveDecode();
             // Repair-only updates retain the last completed base so exposure and
             // other chain controls can render while the replacement decodes.
