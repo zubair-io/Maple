@@ -298,3 +298,29 @@ extension AutoProfileCanvasParityTests {
 
   }
 }
+
+extension EditSessionFilmLutSyncTests {
+  @MainActor
+  func testCommittedPreviewLessDngReportsNoPreview() async throws {
+    let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+      .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+      .deletingLastPathComponent()
+    let noPreview = root.appending(path: "MapleUITests/Fixtures/synthetic/grey-l018-rggb.dng")
+    let lut = AutoProfileLUT()
+    let cold = await lut.resolve(forRawAt: noPreview, profile: .auto, quality: .preview)
+    XCTAssertNil(cold.filter)
+    XCTAssertEqual(cold.status, .noPreview)
+    let cached = await lut.resolve(forRawAt: noPreview, profile: .auto, quality: .preview)
+    XCTAssertEqual(cached.status, .noPreview, "The negative cache keeps the actual outcome")
+    let gpu = try GpuLiveSession(pixels: [0.18, 0.18, 0.18, 1], width: 1, height: 1)
+    let gpuOutcome = await gpu.fitAutoProfile(rawPath: noPreview.path, quality: .preview)
+    XCTAssertEqual(gpuOutcome, .noPreview)
+    await gpu.close()
+    XCTAssertEqual(
+      AutoFitStatus.noPreview.description(profile: .auto),
+      "Auto unavailable: no camera preview — showing Neutral.")
+    XCTAssertEqual(
+      AutoFitStatus.noPreview.description(profile: .neutral), "Neutral uses a fixed base rendering."
+    )
+  }
+}

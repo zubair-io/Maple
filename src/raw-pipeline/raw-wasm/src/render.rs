@@ -144,9 +144,6 @@ impl MapleRender {
             .map(|support| support.to_json())
     }
 
-    /// Resolver facts for the imported LCP profile the model named, as JSON
-    /// (`crate::lens_profile::metadata`, #3479) — `None` when no profile is
-    /// selected or the named profile is not registered. Read once per reply.
     /// Actual outcome of this render's Auto fit, never an extraction prediction:
     /// `"applied"`, `"no-preview"` or `"unfitted"` (#5458); absent for Neutral.
     #[wasm_bindgen(getter)]
@@ -154,6 +151,9 @@ impl MapleRender {
         self.auto_fit.map(|outcome| outcome.as_str().to_owned())
     }
 
+    /// Resolver facts for the imported LCP profile the model named, as JSON
+    /// (`crate::lens_profile::metadata`, #3479) — `None` when no profile is
+    /// selected or the named profile is not registered. Read once per reply.
     #[wasm_bindgen(getter)]
     pub fn lens_profile_json(&self) -> Option<String> {
         self.lens_profile_json.clone()

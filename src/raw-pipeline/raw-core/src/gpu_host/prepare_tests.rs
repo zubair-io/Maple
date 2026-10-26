@@ -356,7 +356,7 @@ fn neutral_and_unavailable_auto_emit_absent_artifacts_with_truthful_status() {
         Some(AutoFitOutcome::NoPreview),
         Some(AutoFitOutcome::Unfitted),
     ] {
-        let (curve, size, lut, achieved) = flatten_profile_artifacts(Err(status));
+        let (curve, size, lut, achieved) = flatten_profile_artifacts(status.map(Err));
         assert!(curve.is_empty());
         assert_eq!(achieved, status);
         assert_eq!(size, 0);
@@ -370,7 +370,7 @@ fn residual_only_is_active_without_inventing_a_curve() {
     use crate::view::auto_profile;
     let residual = auto_profile::lut::ColorLut::identity(9);
     let expected = residual.data.clone();
-    let (curve, size, lut, achieved) = flatten_profile_artifacts(Ok((None, Some(residual))));
+    let (curve, size, lut, achieved) = flatten_profile_artifacts(Some(Ok((None, Some(residual)))));
     assert!(curve.is_empty());
     assert_eq!(size, 9);
     assert_eq!(lut, expected);
@@ -383,7 +383,7 @@ fn fitted_identity_curve_remains_present() {
     use crate::view::auto_profile;
     let identity = auto_profile::curve::ProfileCurve::identity();
     let expected = identity.to_flat();
-    let (curve, _, _, achieved) = flatten_profile_artifacts(Ok((Some(identity), None)));
+    let (curve, _, _, achieved) = flatten_profile_artifacts(Some(Ok((Some(identity), None))));
     assert_eq!(curve, expected);
     assert_eq!(achieved, Some(auto_profile::AutoFitOutcome::Applied));
 }

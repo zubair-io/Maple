@@ -1,7 +1,7 @@
 //! `maple-cli preview-coverage` — the Auto Profile embedded-preview audit
 //! (#5458). For every RAW under the given files/directories it reports which
 //! preview source wins with and without exiftool, every source's yield, the
-//! sensor size and the preview colour space, then a per-camera summary.
+//! RAW's size and the preview colour space, then a per-camera summary.
 //! Markdown by default (the committed `docs/auto-preview-coverage.md` table);
 //! `--json` prints one JSON object per RAW for further analysis.
 
@@ -15,13 +15,13 @@ use std::path::{Path, PathBuf};
 /// times larger.
 const MATERIAL_ALTERNATIVE_GAIN: f64 = 1.5;
 /// A winner is flagged when its long edge is below this fraction of the
-/// sensor's long edge.
+/// RAW's long edge.
 const MIN_SENSOR_FRACTION: f64 = 0.25;
 
 #[derive(clap::Args)]
 pub struct Args {
-    /// RAW files and/or directories (walked recursively; only extensions
-    /// rawler decodes are read).
+    /// RAW files and/or directories (walked recursively without following
+    /// directory symlinks; only extensions rawler decodes are read).
     #[arg(required = true)]
     paths: Vec<PathBuf>,
     /// Print one JSON object per RAW instead of the markdown tables.
@@ -29,18 +29,38 @@ pub struct Args {
     json: bool,
 }
 
-fn camera(c: &PreviewCoverage) -> String {
-    let name = format!("{} {}", c.make, c.model);
-    if name.trim().is_empty() {
-        "(no camera metadata)".into()
-    } else {
-        name.trim().to_string()
-    }
-}
-
 struct Row {
     file: String,
     coverage: PreviewCoverage,
+    flags: Vec<String>,
+}
+
+#[derive(Default)]
+struct Tally {
+    raws: usize,
+    no_preview_server: usize,
+    no_preview_sandbox: usize,
+    suspect: usize,
+}
+
+impl Tally {
+    fn add(self, row: &Row) -> Self {
+        Self {
+            raws: self.raws + 1,
+            no_preview_server: self.no_preview_server
+                + usize::from(row.coverage.winner(true).is_none()),
+            no_preview_sandbox: self.no_preview_sandbox
+                + usize::from(row.coverage.winner(false).is_none()),
+            suspect: self.suspect + usize::from(!row.flags.is_empty()),
+        }
+    }
+
+    fn line(&self, camera: &str) -> String {
+        format!(
+            "| {camera} | {} | {} | {} | {} |",
+            self.raws, self.no_preview_server, self.no_preview_sandbox, self.suspect
+        )
+    }
 }
 
 pub fn run(args: &Args) -> Result<i32, Box<dyn std::error::Error>> {
@@ -50,6 +70,7 @@ pub fn run(args: &Args) -> Result<i32, Box<dyn std::error::Error>> {
         .filter_map(|path| match preview_coverage(path) {
             Ok(coverage) => Some(Row {
                 file: path.display().to_string(),
+                flags: flags(&coverage),
                 coverage,
             }),
             Err(e) => {
@@ -59,12 +80,18 @@ pub fn run(args: &Args) -> Result<i32, Box<dyn std::error::Error>> {
         })
         .collect();
     if args.json {
-        for row in &rows {
+        rows.iter().for_each(|row| {
             println!(
                 "{}",
-                serde_json::json!({ "file": row.file, "coverage": row.coverage })
-            );
-        }
+                serde_json::json!({
+                    "file": row.file,
+                    "coverage": row.coverage,
+                    "winner_server": row.coverage.winner(true).map(|w| w.source),
+                    "winner_sandbox": row.coverage.winner(false).map(|w| w.source),
+                    "flags": row.flags,
+                })
+            )
+        });
     } else {
         print_markdown(&rows);
     }
@@ -72,23 +99,43 @@ pub fn run(args: &Args) -> Result<i32, Box<dyn std::error::Error>> {
 }
 
 fn collect_raws(paths: &[PathBuf]) -> std::io::Result<Vec<PathBuf>> {
-    let mut found = Vec::new();
-    for path in paths {
-        walk(path, &mut found)?;
-    }
+    let nested = paths
+        .iter()
+        .map(|path| walk(path))
+        .collect::<std::io::Result<Vec<_>>>()?;
+    let mut found: Vec<PathBuf> = nested.into_iter().flatten().collect();
     found.sort();
     Ok(found)
 }
 
-fn walk(path: &Path, found: &mut Vec<PathBuf>) -> std::io::Result<()> {
-    if path.is_dir() {
-        for entry in std::fs::read_dir(path)? {
-            walk(&entry?.path(), found)?;
-        }
-    } else if is_supported_raw(path) {
-        found.push(path.to_path_buf());
+fn walk(path: &Path) -> std::io::Result<Vec<PathBuf>> {
+    let is_real_dir = std::fs::symlink_metadata(path)?.is_dir();
+    if !is_real_dir {
+        return Ok(if is_supported_raw(path) {
+            vec![path.to_path_buf()]
+        } else {
+            Vec::new()
+        });
     }
-    Ok(())
+    std::fs::read_dir(path)?
+        .map(|entry| walk(&entry?.path()))
+        .collect::<std::io::Result<Vec<_>>>()
+        .map(|nested| nested.into_iter().flatten().collect())
+}
+
+fn camera(c: &PreviewCoverage) -> String {
+    let make = c.make.trim();
+    let model = c.model.trim();
+    let name = if make.is_empty() || model.starts_with(make) {
+        model.to_string()
+    } else {
+        format!("{make} {model}")
+    };
+    if name.is_empty() {
+        "(no camera metadata)".into()
+    } else {
+        name
+    }
 }
 
 fn long_edge(size: [u32; 2]) -> f64 {
@@ -128,7 +175,7 @@ fn flags(c: &PreviewCoverage) -> Vec<String> {
 fn print_markdown(rows: &[Row]) {
     println!("| File | Camera | Format | Sensor | Colour space | Winner (server) | Winner (sandbox/WASM) | Other sources | Flags |");
     println!("| --- | --- | --- | --- | --- | --- | --- | --- | --- |");
-    for row in rows {
+    rows.iter().for_each(|row| {
         let c = &row.coverage;
         let server = c.winner(true);
         let others: Vec<String> = c
@@ -154,32 +201,67 @@ fn print_markdown(rows: &[Row]) {
             } else {
                 others.join("; ")
             },
-            flags(c).join("; "),
+            row.flags.join("; "),
         );
-    }
-    let mut cameras: BTreeMap<String, [usize; 4]> = BTreeMap::new();
-    for row in rows {
-        let c = &row.coverage;
-        let tally = cameras.entry(camera(c)).or_default();
-        tally[0] += 1;
-        tally[1] += usize::from(c.winner(true).is_none());
-        tally[2] += usize::from(c.winner(false).is_none());
-        tally[3] += usize::from(!flags(c).is_empty());
-    }
+    });
+    let cameras = rows
+        .iter()
+        .fold(BTreeMap::<String, Tally>::new(), |mut cameras, row| {
+            let key = camera(&row.coverage);
+            let tally = cameras.remove(&key).unwrap_or_default().add(row);
+            cameras.insert(key, tally);
+            cameras
+        });
+    let all = rows.iter().fold(Tally::default(), Tally::add);
     println!();
     println!(
         "| Camera | RAWs | No preview (server) | No preview (sandbox/WASM) | Suspect winner |"
     );
     println!("| --- | --- | --- | --- | --- |");
-    for (camera, [n, none, sandbox_none, suspect]) in &cameras {
-        println!("| {camera} | {n} | {none} | {sandbox_none} | {suspect} |");
+    cameras
+        .iter()
+        .for_each(|(camera, tally)| println!("{}", tally.line(camera)));
+    println!("{}", all.line("**All**"));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use raw_core::view::auto_profile::PreviewSource;
+
+    fn coverage(sensor: [u32; 2], sizes: &[Option<[u32; 2]>]) -> PreviewCoverage {
+        PreviewCoverage {
+            make: "Maple".into(),
+            model: "Maple Test".into(),
+            format: "DNG".into(),
+            sensor: Some(sensor),
+            color_space: "sRGB",
+            sources: PreviewSource::IN_PROCESS
+                .into_iter()
+                .zip(sizes)
+                .map(|(source, &size)| SourceYield { source, size })
+                .collect(),
+        }
     }
-    let total = |i: usize| cameras.values().map(|t| t[i]).sum::<usize>();
-    println!(
-        "| **All** | {} | {} | {} | {} |",
-        total(0),
-        total(1),
-        total(2),
-        total(3)
-    );
+
+    #[test]
+    fn flags_follow_the_alternative_gain_and_sensor_floor() {
+        let sensor = [4000, 3000];
+        assert!(flags(&coverage(sensor, &[None, Some([1000, 750])])).is_empty());
+        assert_eq!(
+            flags(&coverage(sensor, &[None, Some([999, 750])])),
+            ["below sensor floor"]
+        );
+        assert!(flags(&coverage(sensor, &[Some([1000, 750]), Some([1499, 1000])])).is_empty());
+        assert_eq!(
+            flags(&coverage(sensor, &[Some([1000, 750]), Some([1500, 1000])])),
+            ["full_image is 1500×1000"]
+        );
+        assert!(flags(&coverage(sensor, &[None, None, None])).is_empty());
+    }
+
+    #[test]
+    fn camera_drops_a_make_the_model_repeats() {
+        assert_eq!(camera(&coverage([1, 1], &[])), "Maple Test");
+    }
 }

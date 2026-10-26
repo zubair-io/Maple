@@ -53,9 +53,10 @@ fn native_worker_publishes_resident_frames_and_saves_without_touching_raw() {
         _ => panic!("Profile change did not prepare a resident frame"),
     };
     assert!(!std::sync::Arc::ptr_eq(&second.view, &neutral.view));
-    assert!(
-        first.auto_fit.is_some(),
-        "an Auto frame carries its fit outcome"
+    assert_eq!(
+        first.auto_fit,
+        Some(raw_core::view::auto_profile::AutoFitOutcome::NoPreview),
+        "the preview-less fixture's Auto frame reports the missing camera preview"
     );
     assert_eq!(
         neutral.auto_fit, None,

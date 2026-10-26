@@ -74,28 +74,26 @@ pub fn fit_profile_artifacts_with_status(
     ext: &str,
     model: &AdjustmentModel,
 ) -> (Vec<f32>, usize, Vec<f32>, Option<AutoFitOutcome>) {
-    let fit = match model.profile {
-        // AMaZE develop/export quality (#4092): matches the quality used by
-        // browser CPU render/export and the live session prefix develop.
-        Profile::Auto => fit_auto_profile_from_raw(
+    // AMaZE develop/export quality (#4092): matches the quality used by
+    // browser CPU render/export and the live session prefix develop.
+    flatten_profile_artifacts((model.profile == Profile::Auto).then(|| {
+        fit_auto_profile_from_raw(
             raw_img,
             model,
             RenderQuality::Amaze,
             RawInput::Bytes { bytes: raw, ext },
         )
-        .map_err(Some),
-        _ => Err(None),
-    };
-    flatten_profile_artifacts(fit)
+    }))
 }
 
-/// Flatten a fit result; `Err(None)` stands for a non-Auto profile.
+/// Flatten an Auto fit result; `None` stands for a non-Auto profile.
 pub(crate) fn flatten_profile_artifacts(
-    fit: Result<FitArtifacts, Option<AutoFitOutcome>>,
+    fit: Option<Result<FitArtifacts, AutoFitOutcome>>,
 ) -> (Vec<f32>, usize, Vec<f32>, Option<AutoFitOutcome>) {
     let (auto_fit, (curve, lut)) = match fit {
-        Ok(pair) => (Some(AutoFitOutcome::Applied), pair),
-        Err(outcome) => (outcome, (None, None)),
+        None => (None, (None, None)),
+        Some(Ok(pair)) => (Some(AutoFitOutcome::Applied), pair),
+        Some(Err(outcome)) => (Some(outcome), (None, None)),
     };
     let profile_curve_flat = curve.map(|c| c.to_flat()).unwrap_or_default();
     let (residual_lut_size, residual_lut_data) = lut.map_or((0, Vec::new()), |l| (l.size, l.data));

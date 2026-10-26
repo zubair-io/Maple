@@ -92,4 +92,34 @@ fn synthetic_preview_less_dng_reports_no_preview_5458() {
         fit_auto_profile_from_raw(&raw, &auto, RenderQuality::Preview, source).err(),
         Some(AutoFitOutcome::NoPreview)
     );
+    let directory = tempfile::tempdir().expect("tempdir");
+    let on_disk = directory.path().join("grey.dng");
+    std::fs::write(&on_disk, &bytes).expect("write synthetic DNG");
+    assert_eq!(
+        render(Some(RawInput::Path(&on_disk))),
+        Some(AutoFitOutcome::NoPreview)
+    );
+    let unreadable = directory.path().join("missing.dng");
+    assert_eq!(
+        render(Some(RawInput::Path(&unreadable))),
+        Some(AutoFitOutcome::Unfitted),
+        "a source that cannot be opened is a read failure, not a missing preview"
+    );
+    assert_eq!(
+        fit_auto_profile_from_raw(
+            &raw,
+            &auto,
+            RenderQuality::Preview,
+            RawInput::Path(&unreadable)
+        )
+        .err(),
+        Some(AutoFitOutcome::Unfitted)
+    );
+    let wire = [
+        AutoFitOutcome::Applied,
+        AutoFitOutcome::NoPreview,
+        AutoFitOutcome::Unfitted,
+    ]
+    .map(AutoFitOutcome::as_str);
+    assert_eq!(wire, ["applied", "no-preview", "unfitted"]);
 }

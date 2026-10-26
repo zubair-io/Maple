@@ -43,13 +43,21 @@ fn accessible_thumbnail_opens_named_photo_without_modifying_original_or_sidecar(
         app.auto_fit,
         Some(raw_core::view::auto_profile::AutoFitOutcome::NoPreview)
     );
-    let status = super::inspector::AUTO_NO_PREVIEW_STATUS;
-    let nodes = frame(&mut app, &context, Vec::new());
-    assert!(
+    let status = "Auto unavailable: no camera preview — showing Neutral.";
+    assert_eq!(super::inspector::AUTO_NO_PREVIEW_STATUS, status);
+    let exposes_status = |nodes: &[(egui::accesskit::NodeId, egui::accesskit::Node)]| {
         nodes
             .iter()
-            .any(|(_, node)| node.label() == Some(status) || node.value() == Some(status)),
+            .any(|(_, node)| node.label() == Some(status) || node.value() == Some(status))
+    };
+    assert!(
+        exposes_status(&frame(&mut app, &context, Vec::new())),
         "the no-preview Auto status must be exposed to assistive technology"
+    );
+    app.document.as_mut().unwrap().model.profile = raw_core::types::adjustment::Profile::Neutral;
+    assert!(
+        !exposes_status(&frame(&mut app, &context, Vec::new())),
+        "Neutral never shows the Auto fallback status"
     );
     assert_eq!(app.selected.as_ref().unwrap().path, path);
     assert!(app.history.is_empty());
