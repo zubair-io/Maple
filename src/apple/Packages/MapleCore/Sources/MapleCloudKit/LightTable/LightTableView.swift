@@ -37,9 +37,8 @@ public struct LightTableView<PrintImage: View>: View {
   /// A plain (unstructured) `Task`, not a child of the `.task` that seeds the
   /// stage: it must outlive that closure, so `.onDisappear` cancels it.
   @State private var cycleTask: Task<Void, Never>?
-  /// The in-flight reload after a load error (tvOS Retry button, or the
-  /// phone/tablet retry timer), cancelled on disappear so a reload resolving
-  /// off-screen can't start a glide loop nothing will cancel.
+  /// The in-flight reload after a load error, cancelled on disappear so a
+  /// reload resolving off-screen can't start a glide loop nothing will cancel.
   @State private var retryTask: Task<Void, Never>?
   /// Ever-increasing stacking counter — see `StagePrint.z`.
   @State private var spawnSeq: Double = 0
@@ -121,9 +120,8 @@ public struct LightTableView<PrintImage: View>: View {
     }
     #if !os(tvOS)
       // A touch dismisses the screen saver before a button could take it, so
-      // retry on a timer instead. The timer is owned here, not by the error
-      // view: a reload swaps that view for the loading view, which would
-      // cancel a task attached to it mid-request.
+      // retry on a timer, owned here: a reload swaps out the error view, which
+      // would cancel a task attached to it mid-request.
       .onChange(of: isShowingError, initial: true) { _, showing in
         guard showing else { return }
         retryTask = Task {
