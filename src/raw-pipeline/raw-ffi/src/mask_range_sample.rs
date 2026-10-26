@@ -12,7 +12,9 @@
 
 use std::os::raw::c_char;
 
-use raw_core::stages::mask_range_sample::{sample_mask_range, RangeSampleError, RangeSeed};
+use raw_core::stages::mask_range_sample::{
+    sample_mask_range, seed_skin_mask_range_if_default_inert, RangeSampleError, RangeSeed,
+};
 
 use crate::error::{set_last_error, with_large_stack};
 use crate::model::{load_xmp_model_owned, LoadModel};
@@ -121,6 +123,55 @@ pub unsafe extern "C" fn maple_sample_mask_range_oriented(
     })
 }
 
+/// Evaluate whether the default skin-tone range (`55° ± 25°`) is inert over
+/// `mask_ptr` on the pre-`local_adjustments` scene-linear Rec.2020 `RGBAf`
+/// buffer (`width * height * 4` floats). Writes the adaptive `MapleRangeSeed`
+/// to `out` and returns `0` when adaptation is needed, `1` when the default
+/// skin-tone range should be kept unchanged, or `2` on invalid arguments.
+///
+/// # Safety
+/// `rgba_ptr` must point to `width * height * 4` `f32` values; `mask_ptr`
+/// must point to `mask_len` (`width * height`) `u8` values; `out` must point
+/// to writable storage for one `MapleRangeSeed`.
+#[no_mangle]
+pub unsafe extern "C" fn maple_seed_skin_mask_range_if_default_inert(
+    rgba_ptr: *const f32,
+    width: usize,
+    height: usize,
+    mask_ptr: *const u8,
+    mask_len: usize,
+    out: *mut MapleRangeSeed,
+) -> i32 {
+    if rgba_ptr.is_null() || mask_ptr.is_null() || out.is_null() {
+        return 2;
+    }
+    let Some(pixel_count) = width.checked_mul(height) else {
+        return 2;
+    };
+    let Some(float_count) = pixel_count.checked_mul(4) else {
+        return 2;
+    };
+    if pixel_count == 0 || mask_len != pixel_count {
+        return 2;
+    }
+    let rgba = unsafe { std::slice::from_raw_parts(rgba_ptr, float_count) };
+    let mask = unsafe { std::slice::from_raw_parts(mask_ptr, mask_len) };
+    match seed_skin_mask_range_if_default_inert(rgba, width, height, mask) {
+        Some(seed) => {
+            unsafe {
+                *out = MapleRangeSeed {
+                    hue_deg: seed.hue_deg,
+                    chroma_min: seed.chroma_min,
+                    l_min: seed.l_min,
+                    l_max: seed.l_max,
+                };
+            }
+            0
+        }
+        None => 1,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -184,5 +235,59 @@ mod tests {
         assert_eq!(code_for(&RangeSampleError::TooDark), 13);
         assert_eq!(code_for(&RangeSampleError::Neutral), 15);
         assert_eq!(code_for(&RangeSampleError::Develop("x".into())), 3);
+    }
+
+    #[test]
+    fn skin_mask_seed_ffi_validates_and_adapts() {
+        let mut o = out();
+        assert_eq!(
+            unsafe {
+                maple_seed_skin_mask_range_if_default_inert(
+                    std::ptr::null(),
+                    8,
+                    8,
+                    std::ptr::null(),
+                    64,
+                    &mut o,
+                )
+            },
+            2
+        );
+        let mask = [255_u8; 64];
+        let mut covered = Vec::with_capacity(64 * 4);
+        for _ in 0..64 {
+            covered.extend_from_slice(&[0.35_f32, 0.22, 0.14, 1.0]);
+        }
+        assert_eq!(
+            unsafe {
+                maple_seed_skin_mask_range_if_default_inert(
+                    covered.as_ptr(),
+                    8,
+                    8,
+                    mask.as_ptr(),
+                    mask.len(),
+                    &mut o,
+                )
+            },
+            1
+        );
+        let mut shifted = Vec::with_capacity(64 * 4);
+        for _ in 0..64 {
+            shifted.extend_from_slice(&[0.32_f32, 0.18, 0.24, 1.0]);
+        }
+        assert_eq!(
+            unsafe {
+                maple_seed_skin_mask_range_if_default_inert(
+                    shifted.as_ptr(),
+                    8,
+                    8,
+                    mask.as_ptr(),
+                    mask.len(),
+                    &mut o,
+                )
+            },
+            0
+        );
+        assert!(o.hue_deg < 0.0);
     }
 }
