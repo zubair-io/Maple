@@ -26,6 +26,8 @@ import {
 } from '../indexer/libraries.cache.ts';
 import { child as childLogger } from '../log.ts';
 import { answerRemoteSearch } from '../search/remote-search.ts';
+import { ondemandPreviews } from '../indexer/ondemand-preview.ts';
+import { isPreviewStageRenderMessage } from '../indexer/preview-priority-protocol.ts';
 import {
   ChildProcessWorker,
   childScriptPath,
@@ -72,6 +74,7 @@ export function stopWorkerSupervisor(): void {
   stopped = true;
   child?.terminate();
   child = null;
+  ondemandPreviews().detachWorker();
 }
 
 function spawn(workerEntry: string): void {
@@ -87,6 +90,10 @@ function spawn(workerEntry: string): void {
         invalidateLibraryRoots({ localOnly: true });
         return;
       }
+      if (isPreviewStageRenderMessage(event.data)) {
+        ondemandPreviews().onStageRender(event.data);
+        return;
+      }
       answerRemoteSearch(worker, event.data);
     });
     worker.addEventListener('error', (event) => {
@@ -100,9 +107,11 @@ function spawn(workerEntry: string): void {
         'worker process died — respawning',
       );
       child = null;
+      ondemandPreviews().detachWorker();
       if (!stopped) setTimeout(() => spawn(workerEntry), delayMs);
     });
     child = worker;
+    ondemandPreviews().attachWorker((message) => worker.postMessage(message));
     log.info('worker process spawned');
   } catch (err) {
     log.error({ err }, 'failed to spawn worker process');

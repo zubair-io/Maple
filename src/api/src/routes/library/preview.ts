@@ -9,7 +9,9 @@
  *
  * Uses `cachePathForAsset(asset, libs, 'previews', PREVIEW_CACHE_SUFFIX)` —
  * the same path as the `preview` stage — so the cache is shared between the
- * background stage and on-demand generation from this route.
+ * background stage and on-demand generation from this route. A miss renders
+ * through `ondemandPreviews()`, which takes priority over the stage, shares one
+ * render per path and skips a render whose requesters all disconnected (#5433).
  */
 
 import { Elysia } from 'elysia';
@@ -17,15 +19,11 @@ import { child as childLogger } from '../../log.ts';
 import { ifNoneMatchEqual } from '../../runtime/http-etag.ts';
 import { cachePathForAsset } from '../../fs/xmp.ts';
 import { loadLibraryRoots } from '../../indexer/libraries.cache.ts';
-import {
-  generatePreview,
-  PREVIEW_CACHE_SUFFIX,
-  isPreviewCacheFresh,
-} from '../../indexer/previewer.ts';
+import { PREVIEW_CACHE_SUFFIX, isPreviewCacheFresh } from '../../indexer/previewer.ts';
 import { assertDerivativeCacheDirectory } from '../../indexer/derivative-cache.ts';
 import { isUndecodableFilename } from '../../indexer/media-types.ts';
 import { isDecodableRasterExt, lowerExt } from '../fs-jail.ts';
-import { previewOndemandLimiter } from '../../indexer/preview-ondemand-limiter.ts';
+import { ondemandPreviews } from '../../indexer/ondemand-preview.ts';
 import {
   safeStat,
   derivativeDecoderUnavailable,
@@ -47,7 +45,7 @@ export const previewRoutes = new Elysia().get(
   // indexing-202, on-demand generate, ETag/304). The developed-vs-unedited
   // branch was removed in #2017 (one file per asset), which simplified this.
   // fallow-ignore-next-line complexity
-  async ({ params, headers, set }) => {
+  async ({ params, headers, set, request }) => {
     const slug = params.slug;
     const wildcard = (params as Record<string, string>)['*'] ?? '';
     const segments = parseWildcardSegments(wildcard);
@@ -105,7 +103,7 @@ export const previewRoutes = new Elysia().get(
           set.status = 503;
           return { error: unavailable };
         }
-        await previewOndemandLimiter().run(() => generatePreview(absPath, previewPath));
+        await ondemandPreviews().render(absPath, previewPath, request.signal);
         if (!(await isPreviewCacheFresh(previewPath, absPath))) {
           set.status = 500;
           return { error: 'Preview generation failed' };

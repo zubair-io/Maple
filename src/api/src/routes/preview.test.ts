@@ -199,8 +199,8 @@ describe('PUT /api/preview', () => {
  *
  * Stubbed via `spyOn` on the module namespace, NOT `mock.module` — #2032
  * proved a `mock.module` fake can leak past its restore on CI's (linux)
- * test-file collection order (that leak, in
- * `routes/library/preview-ondemand-limiter.test.ts`, was what deterministically
+ * test-file collection order (that leak, in the since-removed on-demand
+ * limiter route suite, was what deterministically
  * broke `workers/stages/preview.test.ts` on CI). `spyOn` patches the one
  * export in place and `mockRestore()` reverts it reliably for every importer.
  */
