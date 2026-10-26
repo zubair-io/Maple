@@ -42,7 +42,8 @@ import { formatAddress, parentAddress } from '../addressing/maple-address';
 import type { AssetId } from '../models/asset';
 import type { MuiToastVariant } from '../ui/toast/mui-toast.component';
 import type { TrashDeleteOutcome, TrashItem, TrashKeptOutcome } from './trash.types';
-import { folderAddressOf, keptCopiesNote, keptCopyMessage } from './trash-kept-copy';
+import { folderAddressOf, keptCopyMessage } from './trash-kept-copy';
+import { emptyTrashSummary, type EmptyTrashResult } from './trash-empty-summary';
 
 type ConfirmTarget = { kind: 'item'; item: TrashItem } | { kind: 'all' };
 
@@ -339,34 +340,14 @@ export class TrashPanelComponent implements OnInit {
    * So is a photo the server kept because another copy of it exists. */
   private async deleteAllPermanently(): Promise<void> {
     this.confirmBusy.set(true);
-    const targets = this.items();
     const hadMorePages = this.nextCursor() !== null;
-    let deleted = 0;
-    let failed = 0;
-    const restoredElsewhere: string[] = [];
-    const kept: Array<{ filename: string; outcome: TrashKeptOutcome }> = [];
-    for (const item of targets) {
-      try {
-        const outcome = await new Promise<TrashDeleteOutcome>((resolve, reject) => {
-          this.api.deleteAsset(item.assetId, 'purge').subscribe({
-            next: resolve,
-            error: reject,
-          });
-        });
-        if (outcome.kind === 'ok') {
-          deleted += 1;
-        } else if (outcome.kind === 'kept') {
-          kept.push({ filename: item.filename, outcome });
-        } else {
-          restoredElsewhere.push(item.filename);
-        }
-      } catch {
-        failed += 1;
-      }
+    const results: EmptyTrashResult[] = [];
+    for (const item of this.items()) {
+      results.push({ item, outcome: await this.purgeOne(item) });
     }
     this.confirmBusy.set(false);
     this.confirmTarget.set(null);
-    if (restoredElsewhere.length > 0) {
+    if (results.some((r) => r.outcome?.kind === 'conflict')) {
       // At least one item's state didn't match what this panel had
       // loaded — trust the server's re-fetch over the client's filtered
       // `items` array rather than guessing which other rows might also be
@@ -376,28 +357,22 @@ export class TrashPanelComponent implements OnInit {
       this.loadedLibraryId.set(null);
       this.loadFirstPageIfNeeded();
     }
-    const moreNote = hadMorePages
-      ? ' More items remain further back in Trash — reopen Empty Trash to continue.'
-      : '';
-    const restoredNote =
-      restoredElsewhere.length > 0
-        ? ` ${restoredElsewhere.length} were restored elsewhere and not deleted (${restoredElsewhere.join(', ')}).`
-        : '';
-    const keptNote = keptCopiesNote(
-      kept.map((entry) => entry.filename),
-      kept.some((entry) => entry.outcome.cleanupPending),
-    );
-    const deletedClause =
-      failed > 0
-        ? `Permanently deleted ${deleted} of ${targets.length} item(s) — ${failed} failed.`
-        : deleted === 0 && kept.length > 0
-          ? ''
-          : `Permanently deleted ${deleted} item(s).`;
-    const variant: MuiToastVariant =
-      failed > 0 ? 'warning' : kept.length + restoredElsewhere.length > 0 ? 'info' : 'success';
-    this.notify(`${deletedClause}${keptNote}${restoredNote}${moreNote}`.trim(), variant);
+    const summary = emptyTrashSummary(results, hadMorePages);
+    this.notify(summary.message, summary.variant);
     this.trash.notifyLibraryMutated(this.libraryId());
-    this.refreshVisibleFolderAfterKeep(kept.map((entry) => entry.outcome));
+    this.refreshVisibleFolderAfterKeep(
+      results.flatMap((r) => (r.outcome?.kind === 'kept' ? [r.outcome] : [])),
+    );
+  }
+
+  /** One Empty Trash purge; `null` when the call failed. */
+  private purgeOne(item: TrashItem): Promise<TrashDeleteOutcome | null> {
+    return new Promise((resolve) => {
+      this.api.deleteAsset(item.assetId, 'purge').subscribe({
+        next: resolve,
+        error: () => resolve(null),
+      });
+    });
   }
 
   dismissToast(): void {

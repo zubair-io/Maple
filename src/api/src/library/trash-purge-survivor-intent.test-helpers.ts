@@ -33,24 +33,20 @@ export const RAW = 'kept-raw-bytes';
 export const COMPANION = 'kept/IMG_E1.jpg';
 export const OLD = '2000-01-01T00:00:00.000Z';
 
-export async function twoCopyPhoto(kind: 'folder' | 'google-drive') {
-  const f = await recoveryFixture();
-  const library = path.join(f.root, 'library');
-  const mirror = path.join(f.root, 'mirror');
-  const mirrorOf = (target: string) => path.join(mirror, path.relative(library, target));
-  const backUp = async (target: string) => {
-    await mkdir(path.dirname(mirrorOf(target)), { recursive: true });
-    await copyFile(target, mirrorOf(target));
-  };
-  for (const dir of ['dupe', 'kept']) {
+type Kind = 'folder' | 'google-drive';
+type Fixture = Awaited<ReturnType<typeof recoveryFixture>>;
+const COPIES = ['dupe', 'kept'] as const;
+
+async function writeLibrary(library: string) {
+  for (const dir of COPIES) {
     await mkdir(path.join(library, dir), { recursive: true });
     await writeFile(path.join(library, dir, 'IMG_1.dng'), RAW);
     await writeFile(path.join(library, dir, 'IMG_1.xmp'), `<x:xmpmeta>${dir} edit</x:xmpmeta>`);
   }
   await writeFile(path.join(library, COMPANION), 'rendered-edit');
+}
 
-  const libraryId = insertFolder(f.live.db, { path: library });
-  invalidateLibraryRoots();
+function insertPhoto(f: Fixture, libraryId: string): string {
   const id = insertAsset(f.live.db);
   run(
     f.live.db,
@@ -59,7 +55,7 @@ export async function twoCopyPhoto(kind: 'folder' | 'google-drive') {
     COMPANION,
     id,
   );
-  for (const [ordinal, dir] of ['dupe', 'kept'].entries())
+  for (const [ordinal, dir] of COPIES.entries())
     insertLocation(f.live.db, {
       assetId: id,
       libraryId,
@@ -67,11 +63,15 @@ export async function twoCopyPhoto(kind: 'folder' | 'google-drive') {
       path: dir,
       filename: 'IMG_1.dng',
     });
+  return id;
+}
 
+/** The fake Drive behind a real Google Drive provider; removals can be made to fail. */
+function fakeDrive() {
   const store = googleStore();
-  let failRemovals = false;
+  const state = { failRemovals: false };
   const transport: GoogleFetch = async (url, init) => {
-    if (failRemovals && init?.method === 'DELETE') throw new Error('Drive is unreachable');
+    if (state.failRemovals && init?.method === 'DELETE') throw new Error('Drive is unreachable');
     return store.transport(url, init);
   };
   const engine = new BackupEngine(
@@ -79,6 +79,10 @@ export async function twoCopyPhoto(kind: 'folder' | 'google-drive') {
       new GoogleDriveProvider(destination.rootId!, async () => 'token', transport),
     backupEngine.repo,
   );
+  return { store, state, engine };
+}
+
+async function createDestination(f: Fixture, kind: Kind, libraryId: string, mirror: string) {
   const created = await backupEngine.repo.createDestination({
     libraryId,
     kind,
@@ -93,16 +97,44 @@ export async function twoCopyPhoto(kind: 'folder' | 'google-drive') {
       created.id,
     );
   }
-  const destination = (await backupEngine.repo.destination(created.id))!;
-  if (kind === 'google-drive') {
-    expect(await engine.backupAsset(id)).toBe(true);
-  } else {
-    for (const [ordinal, dir] of ['dupe', 'kept'].entries())
-      await backupEngine.repo.ensureEntry(destination.id, id, ordinal, `${dir}/IMG_1.dng`);
-    for (const dir of ['dupe', 'kept'])
-      for (const name of ['IMG_1.dng', 'IMG_1.xmp']) await backUp(path.join(library, dir, name));
-    await backUp(path.join(library, COMPANION));
-  }
+  return (await backupEngine.repo.destination(created.id))!;
+}
+
+function mirrorCopier(library: string, mirror: string) {
+  const mirrorOf = (target: string) => path.join(mirror, path.relative(library, target));
+  const backUp = async (target: string) => {
+    await mkdir(path.dirname(mirrorOf(target)), { recursive: true });
+    await copyFile(target, mirrorOf(target));
+  };
+  return { mirrorOf, backUp };
+}
+
+async function mirrorBothCopies(
+  library: string,
+  destinationId: string,
+  id: string,
+  backUp: (target: string) => Promise<void>,
+) {
+  for (const [ordinal, dir] of COPIES.entries())
+    await backupEngine.repo.ensureEntry(destinationId, id, ordinal, `${dir}/IMG_1.dng`);
+  for (const dir of COPIES)
+    for (const name of ['IMG_1.dng', 'IMG_1.xmp']) await backUp(path.join(library, dir, name));
+  await backUp(path.join(library, COMPANION));
+}
+
+export async function twoCopyPhoto(kind: Kind) {
+  const f = await recoveryFixture();
+  const library = path.join(f.root, 'library');
+  const mirror = path.join(f.root, 'mirror');
+  const { mirrorOf, backUp } = mirrorCopier(library, mirror);
+  await writeLibrary(library);
+  const libraryId = insertFolder(f.live.db, { path: library });
+  invalidateLibraryRoots();
+  const id = insertPhoto(f, libraryId);
+  const { store, state, engine } = fakeDrive();
+  const destination = await createDestination(f, kind, libraryId, mirror);
+  if (kind === 'google-drive') expect(await engine.backupAsset(id)).toBe(true);
+  else await mirrorBothCopies(library, destination.id, id, backUp);
 
   const trashed = await trashAssetById(new ObjectId(id), {
     entry: { libraryId: new ObjectId(libraryId), path: 'dupe', filename: 'IMG_1.dng' },
@@ -132,7 +164,7 @@ export async function twoCopyPhoto(kind: 'folder' | 'google-drive') {
     keptRaw: path.join(library, 'kept', 'IMG_1.dng'),
     keptEntryIds,
     failDriveRemovals(fail: boolean) {
-      failRemovals = fail;
+      state.failRemovals = fail;
     },
     setKeptMissing(missing: boolean) {
       run(
