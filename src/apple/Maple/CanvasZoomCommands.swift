@@ -17,6 +17,8 @@ extension FocusedValues {
 struct CanvasZoomCommands: Commands {
   @FocusedValue(\.canvasZoomController) private var controller
   @FocusedValue(\.editorCommandRouter) private var router
+  @FocusedValue(\.editorCanUndo) private var editorCanUndo
+  @FocusedValue(\.editorCanRedo) private var editorCanRedo
   @StateObject private var textHistory = EditorTextHistory()
 
   var body: some Commands {
@@ -45,12 +47,14 @@ struct CanvasZoomCommands: Commands {
         .keyboardShortcut("z", modifiers: .command)
         .disabled(
           textTarget.hasFocus
-            ? !(textTarget.undoManager?.canUndo ?? false) : !(router?.state.canUndo ?? false))
+            ? !(textTarget.undoManager?.canUndo ?? false)
+            : !(editorCanUndo ?? router?.state.canUndo ?? false))
       Button("Redo") { history(redo: true) }
         .keyboardShortcut("z", modifiers: [.command, .shift])
         .disabled(
           textTarget.hasFocus
-            ? !(textTarget.undoManager?.canRedo ?? false) : !(router?.state.canRedo ?? false))
+            ? !(textTarget.undoManager?.canRedo ?? false)
+            : !(editorCanRedo ?? router?.state.canRedo ?? false))
     }
   }
 
