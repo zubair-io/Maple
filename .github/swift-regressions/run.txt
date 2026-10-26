@@ -452,3 +452,4 @@ PreviewRefinementBackoffTests
 # geometry, no host services or fixtures.
 BackupScreenPolicyTests
 LightTableMetricsTests
+LightTableViewModelTests
