@@ -149,14 +149,25 @@ impl MapleApp {
                 },
                 Event::Folder(result) => {
                     self.busy = false;
+                    let launch_path = self.launch_photo.take();
                     match result {
                         Ok(folder) => {
                             self.status = format!("{} images", folder.photos.len());
                             self.error =
                                 (!folder.errors.is_empty()).then(|| folder.errors.join("\n"));
+                            let launch_photo = launch_path.and_then(|path| {
+                                folder
+                                    .photos
+                                    .iter()
+                                    .find(|photo| photo.path == path)
+                                    .cloned()
+                            });
                             self.folder = Some(folder);
                             self.listing += 1;
                             self.browse = true;
+                            if let Some(photo) = launch_photo {
+                                self.select(photo);
+                            }
                         }
                         Err(error) => self.error = Some(error),
                     }

@@ -15,54 +15,128 @@ cargo test --manifest-path src/linux/Cargo.toml
 cargo clippy --manifest-path src/linux/Cargo.toml --all-targets --no-deps -- -D warnings
 ```
 
-Build and package an installable archive:
+## Packages
+
+Maple for Linux is packaged as a native `.deb` for Ubuntu 24.04 and as an AppImage.
+Both are built by the Linux workflow on Ubuntu 24.04, so they need glibc 2.39
+or newer, and each artifact has a `.sha256` file beside it. Flatpak is not built;
+whether to publish one is an open product decision. Build them locally from a
+release executable (the `.deb` needs `dpkg-dev`, the AppImage `squashfs-tools`
+and the pinned [type2 runtime](https://github.com/AppImage/type2-runtime/releases/tag/20251108)):
 
 ```bash
-cargo build --locked --release --manifest-path src/linux/Cargo.toml
-python3 src/linux/packaging/package.py
-mkdir -p "$HOME/.local"
-tar -xzf maple-0.1.0-x86_64-linux.tar.gz -C "$HOME/.local"
+cargo build --locked --release --manifest-path src/linux/Cargo.toml --bin maple-linux
+python3 src/linux/packaging/package.py deb --output-dir dist
+python3 src/linux/packaging/package.py appimage --runtime runtime-x86_64 --output-dir dist
 ```
 
-The archive contains `bin/maple-linux`, the desktop entry and the canonical
-Maple icon. Film assets are embedded in the executable; running the package
-does not require the source checkout. The archive name uses the executable's
-ELF architecture, including aarch64 cross builds. Ensure `$HOME/.local/bin` is
-in the desktop session's PATH. `update-desktop-database ~/.local/share/applications`
-and `gtk-update-icon-cache ~/.local/share/icons/hicolor` can refresh desktop caches
-where those utilities are installed.
+Both packages install the same desktop integration: the
+`app.justmaple.aperture` desktop entry, the canonical Maple icon and file
+associations, so **Open With → Maple** works from a file manager. The associated
+MIME types are the formats the library opens (`FILE_FORMATS` in
+[`src/library.rs`](src/library.rs)). Five RAW types that shared-mime-info 2.4
+does not define (SRW, 3FR, MEF, ERF, FFF) are declared by Maple's own MIME
+package, `packaging/app.justmaple.aperture.xml`. The `desktop_integration`
+test fails if the desktop entry or the MIME package drifts from that table,
+and on Linux it also checks the system MIME database resolves every other type.
+Opening a photo launches Maple on its folder with that photo selected.
 
-Runtime requirements include a Vulkan driver, Wayland or X11, xkbcommon and a
-desktop portal for the native file picker. On Debian/Ubuntu, the X11 path also
-needs `libxkbcommon-x11-0` (which brings `libxcb-xkb1`), `libxcursor1`,
-`libxi6` and `libxrandr2`. Cloud credentials require
-a working Secret Service provider such as GNOME Keyring. The binary uses the
-build machine's libc baseline; build on the oldest supported distribution for
-a release. The ordinary development-host executable requires glibc 2.43, verified
-from its ELF requirements, and is not the Ubuntu 24.04 artifact. A separate
-fresh release built inside Ubuntu Base 24.04.5 requires glibc 2.39 and its
-unpacked package passes X11 startup inside that environment with Ubuntu's
-Mesa 25.2.8 / LLVM 20.1.2. All 93 native tests pass on that baseline: 41
-editor/library tests and 52 integration tests, with none ignored. These cover
-sidecar persistence, cloud journals, browsing, retained detail, export, resident
-GPU preview and compositor pixels. The host build also
-passes GNOME Wayland startup. The Ubuntu package also passes Wayland startup
-under an isolated Weston headless compositor with its baseline libraries;
-full distribution interaction qualification remains open. These checks do not qualify
-older distributions, camera color, physical-GPU performance, real-account cloud
-access or complete desktop accessibility. Remote CI must still run separately.
+- **`.deb`:** `sudo apt install ./maple_<version>_amd64.deb`. Installing a newer
+  `.deb` the same way updates it; `sudo apt purge maple` removes it, and the
+  system's desktop, MIME and icon caches refresh through dpkg triggers. The
+  package depends on the Vulkan, Wayland, X11 and xkbcommon libraries Maple
+  loads at runtime and recommends Mesa's Vulkan driver and
+  `xdg-desktop-portal`.
+- **AppImage:** run `packaging/install-maple-appimage.sh Maple-<version>-x86_64.AppImage`
+  as your normal user. It extracts the AppImage into `~/.local/opt/maple-appimage`
+  (no FUSE or root needed), installs the desktop entry, icon and MIME package
+  under `$XDG_DATA_HOME`, and refreshes the user's caches. Running it again with
+  a newer AppImage replaces the installation; `~/.local/opt/maple-appimage/install-maple-appimage.sh --uninstall`
+  removes it, keeping any integration file changed since installation. The
+  AppImage does not bundle graphics libraries; on Ubuntu 24.04 install
+  `libvulkan1 mesa-vulkan-drivers libwayland-client0 libxkbcommon0 libxkbcommon-x11-0 libx11-6 libx11-xcb1 libxcb1 libxcursor1 libxi6 libxrandr2`.
+
+Both formats use the same desktop file ID, so a per-user AppImage installation
+takes precedence over an installed `.deb` in menus and file associations.
+Photos and XMP sidecars are never touched by install, update or removal.
+Cloud credentials require a working Secret Service provider such as GNOME Keyring.
+
+## Diagnostics
+
+`maple-linux --diagnose` (or `Maple-<version>-x86_64.AppImage --diagnose`)
+prints an installation report without opening a window and without network
+access. It reports the GPU adapter Maple would use and whether it is Vulkan,
+which display session is reachable (Wayland first, then a local X11 socket;
+remote X11 displays are not probed), the runtime libraries that session loads,
+and whether the desktop portal file chooser (or the zenity fallback) is
+available for the folder picker. Environment values and photo paths are never
+printed. It exits 1 when it finds a problem that stops Maple from working, and
+0 otherwise; software rendering and the zenity fallback are reported as notes.
+
+## Support matrix
+
+[`packaging/support-matrix.json`](packaging/support-matrix.json) is the
+published support claim. The table below is generated from it by
+`python3 src/linux/packaging/support_matrix.py --write`, and the Linux workflow
+fails if they disagree. Every `ci-smoke` row is turned into a CI container job,
+so a row cannot claim automation that does not run. A `qualified` row requires
+an evidence link, and none exists yet: physical Intel, AMD and NVIDIA GPUs under
+GNOME and KDE, on Wayland and X11, still need qualification with visible photo
+pixels in a screenshot.
+
+<!-- support-matrix:start -->
+
+| Distribution     | Package  | Session                      | GPU                      | Status   |
+| ---------------- | -------- | ---------------------------- | ------------------------ | -------- |
+| Ubuntu 24.04 LTS | .deb     | X11 (Xvfb, no desktop shell) | Mesa llvmpipe (software) | ci-smoke |
+| Ubuntu 24.04 LTS | .deb     | Wayland (headless Weston)    | Mesa llvmpipe (software) | ci-smoke |
+| Ubuntu 24.04 LTS | AppImage | X11 (Xvfb, no desktop shell) | Mesa llvmpipe (software) | ci-smoke |
+| Ubuntu 24.04 LTS | AppImage | Wayland (headless Weston)    | Mesa llvmpipe (software) | ci-smoke |
+| Ubuntu 24.04 LTS | .deb     | GNOME Wayland                | Intel, AMD, NVIDIA       | untested |
+| Ubuntu 24.04 LTS | .deb     | GNOME X11                    | Intel, AMD, NVIDIA       | untested |
+| Ubuntu 24.04 LTS | .deb     | KDE Plasma Wayland           | Intel, AMD, NVIDIA       | untested |
+| Ubuntu 24.04 LTS | .deb     | KDE Plasma X11               | Intel, AMD, NVIDIA       | untested |
+| Ubuntu 24.04 LTS | AppImage | GNOME Wayland                | Intel, AMD, NVIDIA       | untested |
+| Ubuntu 24.04 LTS | AppImage | GNOME X11                    | Intel, AMD, NVIDIA       | untested |
+| Ubuntu 24.04 LTS | AppImage | KDE Plasma Wayland           | Intel, AMD, NVIDIA       | untested |
+| Ubuntu 24.04 LTS | AppImage | KDE Plasma X11               | Intel, AMD, NVIDIA       | untested |
+
+- **qualified**: Installed, launched and showing photo pixels on physical hardware; evidence linked.
+- **ci-smoke**: Installed, launched, updated and removed in a clean container by every Linux CI run, on Mesa llvmpipe software Vulkan. Proves startup and a committed window buffer, not photo pixels, desktop shell behaviour or GPU performance.
+- **untested**: Not verified; no support claim is made.
+
+<!-- support-matrix:end -->
+
+## Qualification and CI
+
+The ordinary development-host executable requires glibc 2.43, verified from its
+ELF requirements, and is not the Ubuntu 24.04 artifact. A separate fresh release
+built inside Ubuntu Base 24.04.5 requires glibc 2.39 and passes X11 startup
+inside that environment with Ubuntu's Mesa 25.2.8 / LLVM 20.1.2. All 93 native
+tests passed on that baseline at that checkpoint: 41 editor/library tests and
+52 integration tests, with none ignored. These cover sidecar persistence, cloud
+journals, browsing, retained detail, export, resident GPU preview and
+compositor pixels. The host build also passes GNOME Wayland startup. These
+checks do not qualify older distributions, camera color, physical-GPU
+performance, real-account cloud access or complete desktop accessibility.
 
 The Linux workflow builds all targets, runs native tests serially with a required
-Mesa Vulkan adapter, and assembles a release archive on Ubuntu 24.04. Its small
+Mesa Vulkan adapter, and builds the `.deb` and AppImage on Ubuntu 24.04. Its small
 committed fixtures check integration and correctness; they do not qualify the
 100MP hardware budget, a real cloud account or color-managed desktop output.
-The workflow also launches the unpacked archive under Xvfb and requires a live
-window with the launched PID, minimum dimensions and Maple's desktop class.
-Run that check locally on X11 with `python3 src/linux/packaging/smoke.py /path/to/unpacked/bin/maple-linux`.
-On a live Wayland desktop, run `python3 src/linux/packaging/wayland_smoke.py /path/to/unpacked/bin/maple-linux`.
+The workflow extracts the `.deb` outside the checkout and launches it under Xvfb,
+requiring a live window with the launched PID, minimum dimensions and Maple's
+desktop class, then under headless Weston with the AT-SPI check below.
+Each package then runs `packaging/install_smoke.py` in a clean `ubuntu:24.04`
+container: install, `--diagnose` (before and after the runtime libraries are
+present), file associations, X11 and Wayland launch of the installed executable,
+an **Open With** launch through the installed desktop entry, update, and
+removal of the application and its desktop integration.
+
+Run the launch checks locally on X11 with `python3 src/linux/packaging/smoke.py /path/to/maple-linux`.
+On a live Wayland desktop, run `python3 src/linux/packaging/wayland_smoke.py /path/to/maple-linux`.
 For an isolated headless Wayland check, install Weston and run
-`python3 src/linux/packaging/weston_smoke.py /path/to/unpacked/bin/maple-linux`.
-CI runs this check against the same unpacked release archive as the X11 check.
+`python3 src/linux/packaging/weston_smoke.py /path/to/maple-linux`.
 The Wayland check unsets DISPLAY, follows Maple's own xdg toplevel/surface chain,
 requires configuration acknowledgement and a committed non-null content buffer,
 and verifies continued process lifetime. Mesa query callbacks cannot satisfy it.
@@ -75,6 +149,8 @@ editing and Undo through the desktop accessibility bus, real XMP autosave, and
 unchanged originals. It temporarily enables accessibility, restores the prior
 setting and closes only its own process. Full screen-reader and keyboard
 interaction qualification remains open.
+
+## Editor
 
 The current shell opens local folders, discovers child folders, shows a
 virtualized thumbnail grid, opens a fitted preview, navigates a filmstrip and

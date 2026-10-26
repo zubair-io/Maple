@@ -1,0 +1,109 @@
+{
+  "schema_version": 1,
+  "distributions": {
+    "ubuntu-24.04": { "name": "Ubuntu 24.04 LTS", "container": "ubuntu:24.04" }
+  },
+  "packages": {
+    "deb": ".deb",
+    "appimage": "AppImage"
+  },
+  "sessions": {
+    "x11-xvfb": { "name": "X11 (Xvfb, no desktop shell)", "smoke": "x11" },
+    "wayland-weston": { "name": "Wayland (headless Weston)", "smoke": "wayland" },
+    "gnome-wayland": { "name": "GNOME Wayland" },
+    "gnome-x11": { "name": "GNOME X11" },
+    "kde-wayland": { "name": "KDE Plasma Wayland" },
+    "kde-x11": { "name": "KDE Plasma X11" }
+  },
+  "statuses": {
+    "qualified": "Installed, launched and showing photo pixels on physical hardware; evidence linked.",
+    "ci-smoke": "Installed, launched, updated and removed in a clean container by every Linux CI run, on Mesa llvmpipe software Vulkan. Proves startup and a committed window buffer, not photo pixels, desktop shell behaviour or GPU performance.",
+    "untested": "Not verified; no support claim is made."
+  },
+  "rows": [
+    {
+      "distribution": "ubuntu-24.04",
+      "package": "deb",
+      "session": "x11-xvfb",
+      "gpu": "Mesa llvmpipe (software)",
+      "status": "ci-smoke"
+    },
+    {
+      "distribution": "ubuntu-24.04",
+      "package": "deb",
+      "session": "wayland-weston",
+      "gpu": "Mesa llvmpipe (software)",
+      "status": "ci-smoke"
+    },
+    {
+      "distribution": "ubuntu-24.04",
+      "package": "appimage",
+      "session": "x11-xvfb",
+      "gpu": "Mesa llvmpipe (software)",
+      "status": "ci-smoke"
+    },
+    {
+      "distribution": "ubuntu-24.04",
+      "package": "appimage",
+      "session": "wayland-weston",
+      "gpu": "Mesa llvmpipe (software)",
+      "status": "ci-smoke"
+    },
+    {
+      "distribution": "ubuntu-24.04",
+      "package": "deb",
+      "session": "gnome-wayland",
+      "gpu": "Intel, AMD, NVIDIA",
+      "status": "untested"
+    },
+    {
+      "distribution": "ubuntu-24.04",
+      "package": "deb",
+      "session": "gnome-x11",
+      "gpu": "Intel, AMD, NVIDIA",
+      "status": "untested"
+    },
+    {
+      "distribution": "ubuntu-24.04",
+      "package": "deb",
+      "session": "kde-wayland",
+      "gpu": "Intel, AMD, NVIDIA",
+      "status": "untested"
+    },
+    {
+      "distribution": "ubuntu-24.04",
+      "package": "deb",
+      "session": "kde-x11",
+      "gpu": "Intel, AMD, NVIDIA",
+      "status": "untested"
+    },
+    {
+      "distribution": "ubuntu-24.04",
+      "package": "appimage",
+      "session": "gnome-wayland",
+      "gpu": "Intel, AMD, NVIDIA",
+      "status": "untested"
+    },
+    {
+      "distribution": "ubuntu-24.04",
+      "package": "appimage",
+      "session": "gnome-x11",
+      "gpu": "Intel, AMD, NVIDIA",
+      "status": "untested"
+    },
+    {
+      "distribution": "ubuntu-24.04",
+      "package": "appimage",
+      "session": "kde-wayland",
+      "gpu": "Intel, AMD, NVIDIA",
+      "status": "untested"
+    },
+    {
+      "distribution": "ubuntu-24.04",
+      "package": "appimage",
+      "session": "kde-x11",
+      "gpu": "Intel, AMD, NVIDIA",
+      "status": "untested"
+    }
+  ]
+}

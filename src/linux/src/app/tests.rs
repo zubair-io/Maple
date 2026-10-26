@@ -60,6 +60,18 @@ fn browse_preview_and_deferred_navigation_save_before_switching() {
 }
 
 #[test]
+fn launching_with_a_photo_path_opens_its_folder_and_that_photo() {
+    let (directory, path) = fixture();
+    std::fs::write(directory.path().join("other.jpg"), b"not opened").unwrap();
+    let mut app = MapleApp::from_context(egui::Context::default());
+    app.open_path(path.clone());
+    pump(&mut app, |app| app.texture.is_some());
+    assert_eq!(app.folder.as_ref().unwrap().photos.len(), 2);
+    assert_eq!(app.selected.as_ref().unwrap().path, path);
+    assert!(!app.browse);
+}
+
+#[test]
 fn failed_save_stops_navigation_and_retains_edited_document() {
     let (directory, path) = fixture();
     let mut app = MapleApp::from_context(egui::Context::default());
