@@ -91,9 +91,10 @@ publish() {
 	local source=$1 destination=$2 staged
 	mkdir -p -- "$(dirname -- "$destination")"
 	staged=$(mktemp "$(dirname -- "$destination")/.maple.XXXXXXXX")
-	cp -- "$source" "$staged"
-	chmod 644 -- "$staged"
-	mv -fT -- "$staged" "$destination"
+	cp -- "$source" "$staged" && chmod 644 -- "$staged" && mv -fT -- "$staged" "$destination" || {
+		rm -f -- "$staged"
+		return 1
+	}
 }
 
 if [[ $operation == uninstall ]]; then
@@ -111,33 +112,50 @@ if [[ $(uname -s) != Linux || $(uname -m) != x86_64 ]]; then
 	exit 1
 fi
 
-work=$(mktemp -d "$install_root/.maple-appimage.XXXXXXXX")
 integration=("$icon" "$mime" "$desktop")
+for destination in "${integration[@]}"; do
+	if [[ -d $destination && ! -L $destination ]]; then
+		echo "Refusing to replace the directory $destination" >&2
+		exit 1
+	fi
+done
+
+work=$(mktemp -d "$install_root/.maple-appimage.XXXXXXXX")
+extracted=$work/squashfs-root
 swapped=0
 committed=0
 # Until every file is published, a failure or interrupt restores the previous
-# application first, so a failed integration restore can never strand it.
+# application first, judged from what is on disk rather than from a flag that a
+# signal could leave stale, so a failed integration restore can never strand it.
 cleanup() {
 	local status=$? index unrestored=()
 	trap - EXIT
-	if [[ $swapped -eq 1 && $committed -eq 0 ]]; then
-		rm -rf -- "$target"
-		if [[ -e $work/previous ]] && ! mv -- "$work/previous" "$target"; then
+	trap '' INT TERM
+	set +e
+	if [[ $committed -eq 0 && ($swapped -eq 1 || -e $work/previous) ]]; then
+		if [[ ! -e $extracted ]] && ! rm -rf -- "$target"; then
+			echo "Could not remove the incomplete installation in $target" >&2
+			[[ -e $work/previous ]] && echo "The previous installation is kept in $work/previous" >&2
+			exit "$status"
+		fi
+		if [[ -e $work/previous ]] && ! mv -T -- "$work/previous" "$target"; then
 			echo "Could not restore the previous installation; it is kept in $work/previous" >&2
 			exit "$status"
 		fi
-		for index in "${!integration[@]}"; do
-			if [[ -e $work/integration-$index || -L $work/integration-$index ]]; then
-				mv -fT -- "$work/integration-$index" "${integration[index]}" ||
-					unrestored+=("${integration[index]}")
-			else
-				rm -f -- "${integration[index]}" || unrestored+=("${integration[index]}")
-			fi
-		done
+		if [[ $swapped -eq 1 ]]; then
+			for index in "${!integration[@]}"; do
+				if [[ -e $work/integration-$index || -L $work/integration-$index ]]; then
+					mv -fT -- "$work/integration-$index" "${integration[index]}" ||
+						unrestored+=("${integration[index]}")
+				else
+					rm -f -- "${integration[index]}" || unrestored+=("${integration[index]}")
+				fi
+			done
+		fi
 		if [[ ${#unrestored[@]} -eq 0 ]]; then
 			echo "Installation failed; the previous state was restored." >&2
 		else
-			echo "Installation failed; the previous application was restored, but not: ${unrestored[*]}" >&2
+			echo "Installation failed; the previous application was restored, but these files could not be: ${unrestored[*]}" >&2
 		fi
 	fi
 	rm -rf -- "$work"
@@ -152,7 +170,6 @@ if ! (cd -- "$work" && ./Maple.AppImage --appimage-extract >/dev/null); then
 	echo "Could not extract $appimage; download it again and check its .sha256 file." >&2
 	exit 1
 fi
-extracted=$work/squashfs-root
 binary=$target/usr/bin/maple-linux
 for required in install-maple-appimage.sh usr/bin/maple-linux "usr/share/applications/$app_id.desktop" \
 	"usr/share/icons/hicolor/512x512/apps/$app_id.png" "usr/share/mime/packages/$app_id.xml"; do
@@ -172,12 +189,6 @@ done <"$extracted/usr/share/applications/$app_id.desktop" >"$extracted/$marker.d
 chmod 755 -- "$extracted/install-maple-appimage.sh"
 : >"$extracted/$marker"
 
-for destination in "${integration[@]}"; do
-	if [[ -d $destination && ! -L $destination ]]; then
-		echo "Refusing to replace the directory $destination" >&2
-		exit 1
-	fi
-done
 for index in "${!integration[@]}"; do
 	if [[ -e ${integration[index]} || -L ${integration[index]} ]]; then
 		cp -a -- "${integration[index]}" "$work/integration-$index"

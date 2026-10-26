@@ -243,27 +243,71 @@ def smoke_deb(package: Path, sessions: list[str]) -> None:
     )
 
 
+def failed_update(installer: str, package: Path, env: dict, expected: str) -> None:
+    result = subprocess.run(
+        ["bash", installer, str(package)],
+        env=env,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    print(result.stdout, result.stderr, sep="", flush=True)
+    if result.returncode == 0:
+        raise RuntimeError("An update that should have failed succeeded")
+    if expected not in result.stderr:
+        raise RuntimeError(f"The failed update did not report: {expected}")
+
+
+def check_kept_install(target: Path, marker_inode: int) -> None:
+    if (target / ".maple-appimage-install").stat().st_ino != marker_inode:
+        raise RuntimeError("A failed update did not keep the existing installation")
+    if [path for path in target.parent.glob(".maple-appimage.*") if path.is_dir()]:
+        raise RuntimeError("A failed update left a working directory behind")
+
+
 def check_blocked_destination(
     installer: str, package: Path, desktop: Path, target: Path, env: dict
 ) -> None:
     entry = desktop.read_text()
-    marker = (target / ".maple-appimage-install").stat()
+    marker_inode = (target / ".maple-appimage-install").stat().st_ino
     desktop.unlink()
     desktop.mkdir()
     (desktop / "keep").write_text("user data\n")
-    result = subprocess.run(
-        ["bash", installer, str(package)], env=env, text=True, capture_output=True
-    )
-    if result.returncode == 0:
-        raise RuntimeError("Installer replaced a directory at the desktop-entry path")
+    failed_update(installer, package, env, "Refusing to replace the directory")
     if (desktop / "keep").read_text() != "user data\n":
         raise RuntimeError("Installer changed the directory it refused to replace")
-    if (target / ".maple-appimage-install").stat().st_ino != marker.st_ino:
-        raise RuntimeError("A refused update did not keep the existing installation")
-    if list(target.parent.glob(".maple-appimage.*/")):
-        raise RuntimeError("A refused update left a working directory behind")
+    check_kept_install(target, marker_inode)
     shutil.rmtree(desktop)
     desktop.write_text(entry)
+
+
+def check_rollback(
+    installer: str, package: Path, integration: list[Path], target: Path, env: dict
+) -> None:
+    originals = {path: path.read_bytes() for path in integration}
+    marked = {path: content + b"\n" for path, content in originals.items()}
+    for path, content in marked.items():
+        path.write_bytes(content)
+    marker_inode = (target / ".maple-appimage-install").stat().st_ino
+    shims = Path(tempfile.mkdtemp(prefix="maple-shims-"))
+    chmod = shims / "chmod"
+    chmod.write_text(
+        "#!/bin/sh\n"
+        'for last; do :; done\n'
+        'case $last in */applications/.maple.*) exit 1 ;; esac\n'
+        'exec /usr/bin/chmod "$@"\n'
+    )
+    chmod.chmod(0o755)
+    failing = env | {"PATH": f"{shims}:{env.get('PATH', os.defpath)}"}
+    failed_update(installer, package, failing, "the previous state was restored")
+    check_kept_install(target, marker_inode)
+    if [path for path, content in marked.items() if path.read_bytes() != content]:
+        raise RuntimeError("A rolled-back update did not restore integration files")
+    if list(integration[-1].parent.glob(".maple.*")):
+        raise RuntimeError("A rolled-back update left a staged file behind")
+    shutil.rmtree(shims)
+    for path, content in originals.items():
+        path.write_bytes(content)
 
 
 def smoke_appimage(package: Path, sessions: list[str]) -> None:
@@ -287,6 +331,17 @@ def smoke_appimage(package: Path, sessions: list[str]) -> None:
     check_associations(data_dir, env)
     desktop = data_dir / f"applications/{APP_ID}.desktop"
     check_blocked_destination(installed_installer, package, desktop, target, env)
+    check_rollback(
+        installed_installer,
+        package,
+        [
+            data_dir / f"icons/hicolor/512x512/apps/{APP_ID}.png",
+            data_dir / f"mime/packages/{APP_ID}.xml",
+            desktop,
+        ],
+        target,
+        env,
+    )
     edited = desktop.read_text() + "X-Edited-By-User=true\n"
     desktop.write_text(edited)
     run("bash", installed_installer, "--uninstall", env=env)
