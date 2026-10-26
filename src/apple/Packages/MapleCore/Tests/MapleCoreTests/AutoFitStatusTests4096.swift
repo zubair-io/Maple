@@ -310,12 +310,14 @@ extension EditSessionFilmLutSyncTests {
     let cold = await lut.resolve(forRawAt: noPreview, profile: .auto, quality: .preview)
     XCTAssertNil(cold.filter)
     XCTAssertEqual(cold.status, .noPreview)
+    let fits = await lut.fitCount
     let cached = await lut.resolve(forRawAt: noPreview, profile: .auto, quality: .preview)
     XCTAssertEqual(cached.status, .noPreview, "The negative cache keeps the actual outcome")
-    let gpu = try GpuLiveSession(pixels: [0.18, 0.18, 0.18, 1], width: 1, height: 1)
-    let gpuOutcome = await gpu.fitAutoProfile(rawPath: noPreview.path, quality: .preview)
-    XCTAssertEqual(gpuOutcome, .noPreview)
-    await gpu.close()
+    let fitsAfterHit = await lut.fitCount
+    XCTAssertEqual(fitsAfterHit, fits, "A no-preview result stays negatively cached")
+    let missing = noPreview.deletingLastPathComponent().appendingPathComponent("missing.dng")
+    let unreadable = await lut.resolve(forRawAt: missing, profile: .auto, quality: .preview)
+    XCTAssertEqual(unreadable.status, .unavailable, "A read failure is not a missing preview")
     XCTAssertEqual(
       AutoFitStatus.noPreview.description(profile: .auto),
       "Auto unavailable: no camera preview — showing Neutral.")

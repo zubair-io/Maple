@@ -30,7 +30,7 @@ cargo run --release --bin maple-cli -- preview-coverage <RAW or folder>...   # M
 cargo run --release --bin maple-cli -- preview-coverage --json <folder>      # One JSON record per RAW
 ```
 
-**What it reads.** Folders are walked recursively. Directory symlinks are not followed, and only extensions the RAW decoder supports are read. A file that can't be opened prints `skipped …` to stderr and is left out. The command still exits 0. Nothing is written next to the photos.
+**What it reads.** Folders are walked recursively. A path you pass is followed even if it is a symlink, but symlinked folders inside it are not, so a link loop cannot recurse. Only extensions the RAW decoder supports are read. A file or folder that cannot be opened prints `skipped …` to stderr and is left out, and the command still exits 0. **Colour space** is the embedded preview's and shows `—` when there is no preview. Nothing is written next to the photos.
 
 **JSON output.** Each record contains:
 
@@ -56,7 +56,7 @@ The audit covers the 20 colour fixtures in `test-fixtures/raws/`: `test_0000` to
 | File          | Camera                | Format | Sensor     | Colour space | Winner (server)                | Winner (sandbox/WASM)          | Other sources                                          | Flags              |
 | ------------- | --------------------- | ------ | ---------- | ------------ | ------------------------------ | ------------------------------ | ------------------------------------------------------ | ------------------ |
 | test_0000.DNG | Hasselblad L3D-100c   | DNG    | 12288×8192 | sRGB         | full_image 960×640 (0.08)      | full_image 960×640 (0.08)      | dng_thumbnail 180×120 (0.01); exiftool 960×640 (0.08)  | below sensor floor |
-| test_0001.RAW | Panasonic DMC-LX2     | RW2    | 4224×2376  | sRGB         | none                           | none                           | —                                                      |                    |
+| test_0001.RAW | Panasonic DMC-LX2     | RW2    | 4224×2376  | —            | none                           | none                           | —                                                      |                    |
 | test_0002.dng | Hasselblad H2D-39     | DNG    | 7216×5412  | sRGB         | dng_thumbnail 721×541 (0.10)   | dng_thumbnail 721×541 (0.10)   | —                                                      | below sensor floor |
 | test_0003.CR2 | Canon EOS 5DS R       | CR2    | 5792×8688  | Adobe RGB    | full_image 8688×5792 (1.00)    | full_image 8688×5792 (1.00)    | exiftool 8688×5792 (1.00)                              |                    |
 | test_0004.fff | Hasselblad H5D-40     | TFR    | 7304×5478  | sRGB         | full_image 1217×913 (0.17)     | full_image 1217×913 (0.17)     | —                                                      | below sensor floor |
@@ -72,9 +72,9 @@ The audit covers the 20 colour fixtures in `test-fixtures/raws/`: `test_0000` to
 | test_0014.NEF | Nikon D850            | NEF    | 8256×5504  | sRGB         | full_image 8256×5504 (1.00)    | full_image 8256×5504 (1.00)    | exiftool 640×424 (0.08)                                |                    |
 | test_0015.dng | Google Pixel 6 Pro    | DNG    | 4064×3056  | sRGB         | dng_thumbnail 680×512 (0.17)   | dng_thumbnail 680×512 (0.17)   | exiftool 680×512 (0.17)                                | below sensor floor |
 | test_0017.dng | Leica M10             | DNG    | 5976×3984  | sRGB         | full_image 5952×3968 (1.00)    | full_image 5952×3968 (1.00)    | exiftool 1440×960 (0.24)                               |                    |
-| test_0018.dng | (no camera metadata)  | DNG    | 848×560    | sRGB         | none                           | none                           | —                                                      |                    |
-| test_0019.dng | (no camera metadata)  | DNG    | 848×560    | sRGB         | none                           | none                           | —                                                      |                    |
-| test_0020.dng | (no camera metadata)  | DNG    | 3584×2688  | sRGB         | none                           | none                           | —                                                      |                    |
+| test_0018.dng | (no camera metadata)  | DNG    | 848×560    | —            | none                           | none                           | —                                                      |                    |
+| test_0019.dng | (no camera metadata)  | DNG    | 848×560    | —            | none                           | none                           | —                                                      |                    |
+| test_0020.dng | (no camera metadata)  | DNG    | 3584×2688  | —            | none                           | none                           | —                                                      |                    |
 
 | Camera                | RAWs | No preview (server) | No preview (sandbox/WASM) | Suspect winner |
 | --------------------- | ---- | ------------------- | ------------------------- | -------------- |

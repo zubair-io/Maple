@@ -150,22 +150,25 @@ fn downsample_preview_for_fit(
     preview
 }
 
-/// Extract the embedded preview (+ color space) for `raw_source` — ONE
-/// extraction shared by the curve fit, the residual fit, and the render
-/// path's will-it-fit probe (#1085 perf companion: pre-fix the cold Auto
-/// render extracted + JPEG-decoded the preview three times).
 /// The outcome of an Auto fit that produced no artifacts. `NoPreview` only
 /// when the source opened and yielded nothing; an unreadable path is a read
 /// failure, not a missing preview.
-pub(super) fn unapplied_outcome(raw_source: &RawInput<'_>, preview_found: bool) -> AutoFitOutcome {
+pub(super) fn unapplied_outcome(
+    raw_source: &RawInput<'_>,
+    fit_input_available: bool,
+) -> AutoFitOutcome {
     let unreadable = matches!(raw_source, RawInput::Path(p) if std::fs::File::open(p).is_err());
-    if preview_found || unreadable {
+    if fit_input_available || unreadable {
         AutoFitOutcome::Unfitted
     } else {
         AutoFitOutcome::NoPreview
     }
 }
 
+/// Extract the embedded preview (+ color space) for `raw_source` — ONE
+/// extraction shared by the curve fit, the residual fit, and the render
+/// path's will-it-fit probe (#1085 perf companion: pre-fix the cold Auto
+/// render extracted + JPEG-decoded the preview three times).
 fn extract_preview_for_fit(raw_source: &RawInput<'_>) -> Option<ExtractedPreview> {
     match raw_source {
         RawInput::Path(p) => auto_profile::preview::extract_for_fit(p),
