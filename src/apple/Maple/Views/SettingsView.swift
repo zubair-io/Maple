@@ -296,6 +296,7 @@ struct GeneralSettingsTab: View {
   // Default mirrors `AmazeFlag.isEnabled` (ON since #940) so the toggle
   // reads correctly before the key is ever written.
   @AppStorage(AmazeFlag.defaultsKey) private var useAmaze: Bool = true
+  @AppStorage(DeepDenoiseFlag.defaultsKey) private var deepDenoise = false
   // Canvas colorspace (#1338) — default mirrors `CanvasColorSpace.current`
   // (P3 if the display reports the gamut, sRGB otherwise) so the picker
   // reads correctly before the key is ever written, same pattern as
@@ -317,6 +318,19 @@ struct GeneralSettingsTab: View {
           }
         }
         .accessibilityIdentifier("general.settings.useAmazeDemosaic")
+        #if DEBUG
+          Toggle(isOn: $deepDenoise) {
+            VStack(alignment: .leading, spacing: 2) {
+              Text("Deep denoise (internal)")
+              Text(
+                "Shows the Noise tool's Deep control. Debug builds only until its patent review clears."
+              )
+              .font(.caption)
+              .foregroundStyle(.secondary)
+            }
+          }
+          .accessibilityIdentifier("general.settings.deepDenoise")
+        #endif
         VStack(alignment: .leading, spacing: 6) {
           // Sanitizing binding (Copilot review on #3192): the raw
           // Int in @AppStorage could in principle hold a value

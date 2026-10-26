@@ -29,7 +29,12 @@ final class EditorSubParamCatalogTests: XCTestCase {
         UserDefaults.standard.removeObject(forKey: DeepDenoiseFlag.defaultsKey)
         XCTAssertFalse(DeepDenoiseFlag.isEnabled)
         XCTAssertEqual(Tool.noise.subParams.map(\.id), ["luminance", "color", "prefilter"])
-        withDeepDenoise(true) { XCTAssertTrue(DeepDenoiseFlag.isEnabled) }
+        // A Release build compiles the gate shut whatever the default says.
+        #if DEBUG
+            withDeepDenoise(true) { XCTAssertTrue(DeepDenoiseFlag.isEnabled) }
+        #else
+            withDeepDenoise(true) { XCTAssertFalse(DeepDenoiseFlag.isEnabled) }
+        #endif
     }
 
     func testNoiseDeclaresLuminanceColorDeepPrefilter() {
