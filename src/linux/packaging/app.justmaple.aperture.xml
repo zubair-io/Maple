@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mime-info xmlns="http://www.freedesktop.org/standards/shared-mime-info">
+  <mime-type type="image/x-samsung-srw">
+    <comment>Samsung SRW raw image</comment>
+    <sub-class-of type="image/x-dcraw"/>
+    <glob pattern="*.srw"/>
+  </mime-type>
+  <mime-type type="image/x-hasselblad-3fr">
+    <comment>Hasselblad 3FR raw image</comment>
+    <sub-class-of type="image/x-dcraw"/>
+    <glob pattern="*.3fr"/>
+  </mime-type>
+  <mime-type type="image/x-mamiya-mef">
+    <comment>Mamiya MEF raw image</comment>
+    <sub-class-of type="image/x-dcraw"/>
+    <glob pattern="*.mef"/>
+  </mime-type>
+  <mime-type type="image/x-epson-erf">
+    <comment>Epson ERF raw image</comment>
+    <sub-class-of type="image/x-dcraw"/>
+    <glob pattern="*.erf"/>
+  </mime-type>
+  <mime-type type="image/x-hasselblad-fff">
+    <comment>Hasselblad FFF raw image</comment>
+    <sub-class-of type="image/x-dcraw"/>
+    <glob pattern="*.fff"/>
+  </mime-type>
+</mime-info>

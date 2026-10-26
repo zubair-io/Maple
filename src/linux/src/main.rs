@@ -1,4 +1,13 @@
 fn main() -> eframe::Result {
+    let launch = std::env::args_os().nth(1);
+    if launch.as_deref() == Some(std::ffi::OsStr::new("--diagnose")) {
+        let findings = maple_linux::diagnose::run();
+        print!("{}", maple_linux::diagnose::render(&findings));
+        let problem = findings
+            .iter()
+            .any(|finding| finding.status == maple_linux::diagnose::Status::Problem);
+        std::process::exit(i32::from(problem));
+    }
     let gpu = raw_gpu::GpuContext::new_blocking()
         .map_err(|error| eframe::Error::AppCreation(error.into()))?;
     let setup = eframe::egui_wgpu::WgpuSetup::Existing {
@@ -25,8 +34,8 @@ fn main() -> eframe::Result {
         options,
         Box::new(move |cc| {
             let mut app = maple_linux::app::MapleApp::with_gpu(cc, gpu);
-            if let Some(folder) = std::env::args_os().nth(1) {
-                app.open_folder(folder.into());
+            if let Some(path) = launch {
+                app.open_path(path.into());
             }
             Ok(Box::new(app))
         }),

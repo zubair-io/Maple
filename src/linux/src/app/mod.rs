@@ -47,6 +47,7 @@ pub struct MapleApp {
     thumbnail_order: std::collections::VecDeque<PathBuf>,
     folder: Option<Folder>,
     selected: Option<Photo>,
+    launch_photo: Option<PathBuf>,
     document: Option<SidecarDocument>,
     white_balance: Option<crate::white_balance::WhiteBalance>,
     texture: Option<egui::TextureHandle>,
@@ -125,6 +126,7 @@ impl MapleApp {
             thumbnail_epoch: 0,
             folder: None,
             selected: None,
+            launch_photo: None,
             document: None,
             white_balance: None,
             texture: None,
@@ -174,6 +176,19 @@ impl MapleApp {
 
     pub fn open_folder(&mut self, path: PathBuf) {
         self.navigate(Navigation::Folder(path));
+    }
+
+    /// Launch argument from the command line or a file manager's "Open with".
+    pub fn open_path(&mut self, path: PathBuf) {
+        let path = std::path::absolute(&path).unwrap_or(path);
+        match path.parent().filter(|_| path.is_file()) {
+            Some(folder) => {
+                let folder = folder.to_path_buf();
+                self.launch_photo = Some(path);
+                self.open_folder(folder);
+            }
+            None => self.open_folder(path),
+        }
     }
 
     pub fn select(&mut self, photo: Photo) {

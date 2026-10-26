@@ -26,6 +26,8 @@ getrandom = "0.3"
 keyring = { version = "3.6", features = ["sync-secret-service", "crypto-rust", "vendored"] }
 webbrowser = "1"
 dirs = "6"
+libc = "0.2"
+zbus = { version = "5.19", default-features = false, features = ["async-io", "blocking-api"] }
 
 [dev-dependencies]
 raw-core = { path = "../raw-pipeline/raw-core", features = ["test-support"] }
