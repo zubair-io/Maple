@@ -19,6 +19,7 @@ import {
   type InProcessRanker,
 } from './search-pool.ts';
 import type { FusedSearchHit } from './search-engine-ffi.ts';
+import { pendingReplies } from './ipc-replies.ts';
 import { RANKED_WINDOW_MAX } from '../db/repos/search.ranked.ts';
 import { MAX_TEXT_QUERY_LENGTH } from '../db/repos/search.where.ts';
 import { child as childLogger } from '../log.ts';
@@ -66,29 +67,17 @@ export function remoteInProcessSearch(
   send: (message: SearchRankRequest) => void,
   timeoutMs: number = REMOTE_TIMEOUT_MS,
 ): RemoteInProcessSearch {
-  const waiting = new Map<number, (hits: FusedSearchHit[] | null) => void>();
-  const sequence = { next: 1 };
+  const replies = pendingReplies<FusedSearchHit[] | null>();
   return {
-    async search(query, k) {
-      const id = sequence.next++;
-      const reply = new Promise<FusedSearchHit[] | null>((resolve) => waiting.set(id, resolve));
-      const clock: { timer?: ReturnType<typeof setTimeout> } = {};
-      const expiry = new Promise<null>((resolve) => {
-        clock.timer = setTimeout(() => resolve(null), timeoutMs);
-        clock.timer.unref?.();
-      });
-      try {
-        send({ type: 'search-rank', id, query, k });
-        return await Promise.race([reply, expiry]);
-      } catch {
-        return null;
-      } finally {
-        clearTimeout(clock.timer);
-        waiting.delete(id);
-      }
+    search(query, k) {
+      return replies.request(
+        (id) => send({ type: 'search-rank', id, query, k }),
+        timeoutMs,
+        () => null,
+      );
     },
     receive(message) {
-      if (isReply(message)) waiting.get(message.id)?.(message.hits ?? null);
+      if (isReply(message)) replies.settle(message.id, message.hits ?? null);
     },
   };
 }

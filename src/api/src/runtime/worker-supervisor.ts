@@ -25,8 +25,7 @@ import {
   onInvalidateLibraryRoots,
 } from '../indexer/libraries.cache.ts';
 import { child as childLogger } from '../log.ts';
-import { answerRemoteSearch } from '../search/remote-search.ts';
-import { answerRemoteEmbed } from '../search/remote-embed.ts';
+import { answerSearchChildRequest } from '../search/remote-embed.ts';
 import { ondemandPreviews } from '../indexer/ondemand-preview.ts';
 import {
   isPreviewPriorityReadyMessage,
@@ -102,8 +101,7 @@ function spawn(workerEntry: string): void {
         ondemandPreviews().onStageRender(event.data);
         return;
       }
-      if (answerRemoteSearch(worker, event.data)) return;
-      answerRemoteEmbed(worker, event.data);
+      answerSearchChildRequest(worker, event.data);
     });
     worker.addEventListener('error', (event) => {
       const uptimeMs = Date.now() - spawnedAt;
