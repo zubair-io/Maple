@@ -78,15 +78,16 @@ def stage_usr(binary: Path, root: Path) -> None:
 
 
 def shlib_depends(binary: Path, work: Path) -> str:
-    (work / "debian").mkdir()
     (work / "debian/control").write_text("Source: maple\n\nPackage: maple\n")
-    output = subprocess.run(
-        ["dpkg-shlibdeps", "-O", f"-e{binary}"],
+    result = subprocess.run(
+        ["dpkg-shlibdeps", "-O", f"-e{binary.relative_to(work)}"],
         cwd=work,
-        check=True,
         capture_output=True,
         text=True,
-    ).stdout
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"dpkg-shlibdeps failed:\n{result.stderr}")
+    output = result.stdout
     prefix = "shlibs:Depends="
     return next(
         line.removeprefix(prefix)
@@ -102,7 +103,7 @@ def build_deb(binary: Path, output_dir: Path) -> Path:
         raise FileExistsError(output)
     with tempfile.TemporaryDirectory(prefix="maple-deb-") as directory:
         work = Path(directory)
-        root = work / "root"
+        root = work / "debian/maple"
         stage_usr(binary, root)
         installed_kib = sum(
             -(-path.stat().st_size // 1024)

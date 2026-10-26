@@ -243,6 +243,29 @@ def smoke_deb(package: Path, sessions: list[str]) -> None:
     )
 
 
+def check_blocked_destination(
+    installer: str, package: Path, desktop: Path, target: Path, env: dict
+) -> None:
+    entry = desktop.read_text()
+    marker = (target / ".maple-appimage-install").stat()
+    desktop.unlink()
+    desktop.mkdir()
+    (desktop / "keep").write_text("user data\n")
+    result = subprocess.run(
+        ["bash", installer, str(package)], env=env, text=True, capture_output=True
+    )
+    if result.returncode == 0:
+        raise RuntimeError("Installer replaced a directory at the desktop-entry path")
+    if (desktop / "keep").read_text() != "user data\n":
+        raise RuntimeError("Installer changed the directory it refused to replace")
+    if (target / ".maple-appimage-install").stat().st_ino != marker.st_ino:
+        raise RuntimeError("A refused update did not keep the existing installation")
+    if list(target.parent.glob(".maple-appimage.*/")):
+        raise RuntimeError("A refused update left a working directory behind")
+    shutil.rmtree(desktop)
+    desktop.write_text(entry)
+
+
 def smoke_appimage(package: Path, sessions: list[str]) -> None:
     home = Path(tempfile.mkdtemp(prefix="maple home "))
     env = {
@@ -263,6 +286,7 @@ def smoke_appimage(package: Path, sessions: list[str]) -> None:
     run("bash", installed_installer, str(package), env=env)
     check_associations(data_dir, env)
     desktop = data_dir / f"applications/{APP_ID}.desktop"
+    check_blocked_destination(installed_installer, package, desktop, target, env)
     edited = desktop.read_text() + "X-Edited-By-User=true\n"
     desktop.write_text(edited)
     run("bash", installed_installer, "--uninstall", env=env)
