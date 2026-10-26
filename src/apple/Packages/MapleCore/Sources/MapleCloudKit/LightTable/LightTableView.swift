@@ -37,8 +37,9 @@ public struct LightTableView<PrintImage: View>: View {
   /// A plain (unstructured) `Task`, not a child of the `.task` that seeds the
   /// stage: it must outlive that closure, so `.onDisappear` cancels it.
   @State private var cycleTask: Task<Void, Never>?
-  /// The in-flight reload after a load error, cancelled on disappear so a
-  /// reload resolving off-screen can't start a glide loop nothing will cancel.
+  /// The pending reload while the table has nothing to show (a load error, or
+  /// a library a running backup is still filling), cancelled on disappear so
+  /// a reload resolving off-screen can't start a glide loop nothing will cancel.
   @State private var retryTask: Task<Void, Never>?
   /// Ever-increasing stacking counter — see `StagePrint.z`.
   @State private var spawnSeq: Double = 0
@@ -81,7 +82,7 @@ public struct LightTableView<PrintImage: View>: View {
   /// drift rather than a slow load.
   private static var fillInterval: Duration { .seconds(0.55) }
   private static var reducedMotionSpawnInterval: Duration { .seconds(6) }
-  private static var errorRetryDelay: Duration { .seconds(30) }
+  private static var emptyReloadDelay: Duration { .seconds(20) }
 
   /// Maple TV keeps its original motion; phone and tablet honour Reduce
   /// Motion with a cross-fade and a slower cadence.
@@ -120,13 +121,17 @@ public struct LightTableView<PrintImage: View>: View {
     }
     #if !os(tvOS)
       // A touch dismisses the screen saver before a button could take it, so
-      // retry on a timer, owned here: a reload swaps out the error view, which
-      // would cancel a task attached to it mid-request.
-      .onChange(of: isShowingError, initial: true) { _, showing in
-        guard showing else { return }
+      // reload on a timer while there is nothing to show — after an error, or
+      // while a backup is still filling an empty library. Owned here: a
+      // reload swaps the error/empty view out, which would cancel a task
+      // attached to it mid-request. Each reload flips `isLoading`, re-arming
+      // this until photos arrive and `reload()` starts the cycle.
+      .onChange(of: isAwaitingContent, initial: true) { _, awaiting in
+        guard awaiting else { return }
+        retryTask?.cancel()
         retryTask = Task {
-          try? await Task.sleep(for: Self.errorRetryDelay)
-          guard !Task.isCancelled, isShowingError else { return }
+          try? await Task.sleep(for: Self.emptyReloadDelay)
+          guard !Task.isCancelled, isAwaitingContent else { return }
           await reload()
         }
       }
@@ -145,8 +150,8 @@ public struct LightTableView<PrintImage: View>: View {
     fixedMetrics ?? stageSize.map(LightTableMetrics.fitting)
   }
 
-  private var isShowingError: Bool {
-    viewModel.loadError != nil && stage.isEmpty
+  private var isAwaitingContent: Bool {
+    viewModel.isAwaitingContent && stage.isEmpty
   }
 
   @ViewBuilder
@@ -336,64 +341,5 @@ public struct LightTableView<PrintImage: View>: View {
     stopCycle()
     stage = []
     startCycle()
-  }
-}
-
-/// Transition modifier for a print's "leaf fall": a horizontal slide (`dx`,
-/// additive to the settled offset) plus a small 3D tilt that resolves to flat
-/// (`.settled`) as the print lands. Used for both the fall-in and slide-off.
-private struct PrintFall: ViewModifier {
-  let dx: CGFloat
-  let x: Double
-  let y: Double
-  let z: Double
-
-  static let settled = PrintFall(dx: 0, x: 0, y: 0, z: 0)
-
-  func body(content: Content) -> some View {
-    content
-      .rotation3DEffect(.degrees(x), axis: (x: 1, y: 0, z: 0), perspective: 0.6)
-      .rotation3DEffect(.degrees(y), axis: (x: 0, y: 1, z: 0), perspective: 0.6)
-      .rotationEffect(.degrees(z))
-      .offset(x: dx)
-  }
-}
-
-/// One scattered "print" — a photo on a white mat with a layered drop
-/// shadow. Reads `\.isFocused` from the focusable modifier applied just
-/// outside it, raising itself with an accent ring when focused (tvOS).
-private struct LightTablePrintCard<Content: View>: View {
-  let imageSize: CGFloat
-  let matPadding: CGFloat
-  let accent: Color
-  @ViewBuilder let content: Content
-
-  @Environment(\.isFocused) private var isFocused
-
-  private var shadowScale: CGFloat { imageSize / LightTableMetrics.television.imageSize }
-
-  var body: some View {
-    content
-      .frame(width: imageSize, height: imageSize)
-      .padding(matPadding)
-      .background(Color.white)
-      .clipShape(RoundedRectangle(cornerRadius: 6))
-      .overlay(
-        RoundedRectangle(cornerRadius: 6)
-          .stroke(accent, lineWidth: isFocused ? 6 : 0)
-      )
-      // A soft, wide ambient shadow plus a tighter key shadow, so the print
-      // reads as a physical card lifted off the table. Tuned on Maple TV's
-      // 300 pt prints and scaled with the print on smaller screens.
-      .shadow(
-        color: .black.opacity(isFocused ? 0.32 : 0.20),
-        radius: (isFocused ? 44 : 22) * shadowScale, x: 0, y: (isFocused ? 26 : 13) * shadowScale
-      )
-      .shadow(
-        color: .black.opacity(isFocused ? 0.24 : 0.16),
-        radius: (isFocused ? 9 : 4) * shadowScale, x: 0, y: (isFocused ? 6 : 2) * shadowScale
-      )
-      .scaleEffect(isFocused ? 1.14 : 1.0)
-      .animation(.easeOut(duration: 0.25), value: isFocused)
   }
 }

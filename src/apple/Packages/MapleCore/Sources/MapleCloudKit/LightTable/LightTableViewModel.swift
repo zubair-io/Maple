@@ -51,6 +51,11 @@ public final class LightTableViewModel {
   /// zero matches never sets this.
   public private(set) var loadError: Error?
 
+  /// A finished load left nothing to show, whether it failed or the library
+  /// is simply still empty — e.g. a first backup whose uploads only become
+  /// assets once their final chunk lands. Worth loading again later.
+  public var isAwaitingContent: Bool { pool.isEmpty && !isLoading }
+
   // MARK: - Dependencies
 
   public let libraryID: String
