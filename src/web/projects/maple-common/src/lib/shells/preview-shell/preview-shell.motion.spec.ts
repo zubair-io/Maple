@@ -65,4 +65,28 @@ describe('Full image Motion Photo playback (#5447)', () => {
     fixture.detectChanges();
     expect(fixture.nativeElement.querySelector('[data-testid="motion-clip-player"]')).toBeNull();
   });
+
+  it('returns to the still when the clip fails to load', async () => {
+    stubHead(true);
+    const { fixture } = setupFixture({ videoAccess: ACCESS });
+    await settled(fixture);
+    motionButton(fixture.nativeElement)!.click();
+    fixture.detectChanges();
+    fixture.nativeElement
+      .querySelector('[data-testid="motion-clip-player"]')
+      .dispatchEvent(new Event('error'));
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('[data-testid="motion-clip-player"]')).toBeNull();
+    expect(motionButton(fixture.nativeElement)!.getAttribute('aria-pressed')).toBe('false');
+  });
+
+  it('never probes in a build without tokenized media URLs', async () => {
+    const fetchMock = stubHead(true);
+    const { fixture } = setupFixture({});
+    await settled(fixture);
+    expect(fetchMock).not.toHaveBeenCalledWith(expect.stringContaining('/motion/'), {
+      method: 'HEAD',
+    });
+    expect(motionButton(fixture.nativeElement)).toBeUndefined();
+  });
 });

@@ -69,12 +69,21 @@
       (pointerdown)="onImagePointerDown($event)"
     >
       @if (motion.src(); as clip) {
-        <maple-motion-clip-player
+        <video
+          class="h-full w-full bg-black object-contain"
+          data-testid="motion-clip-player"
           [src]="clip"
           [poster]="previewUrl() ?? thumbUrl()"
-          label="Motion Photo clip"
-          (finished)="motion.stop()"
-        />
+          autoplay
+          controls
+          playsinline
+          preload="auto"
+          aria-label="Motion Photo clip"
+          (ended)="motion.stop()"
+          (error)="motion.stop()"
+          (pointerdown)="$event.stopPropagation()"
+          (pointerup)="$event.stopPropagation()"
+        ></video>
       } @else if (videoUrl(); as video) {
         <video
           class="h-full w-full bg-black object-contain"
