@@ -83,6 +83,8 @@ struct BrowseGrid: View {
   /// Fired when the user taps "Batch Rename…" from the selection bar
   /// (#2641). `nil` hides the button.
   var onBatchRename: (() -> Void)? = nil
+  /// macOS Export recipes for the checked selection (#5435). `nil` hides the button.
+  var onExportRecipes: (() -> Void)? = nil
   /// Delete key / "Move to Trash" context-menu item (#2653). Fires with
   /// the currently-active selection (multi-select checked set, or just
   /// the focused single asset). `nil` disables both the Delete-key
@@ -255,6 +257,7 @@ struct BrowseGrid: View {
           onMerge: onMergePanorama,
           onEditMetadata: onEditMetadata,
           onBatchRename: onBatchRename,
+          onExportRecipes: onExportRecipes,
           onPasteAdjustments: clipboard != nil ? { pasteAdjustments() } : nil,
           onCopyAdjustments: clipboard != nil ? { copyAdjustments() } : nil,
           onSyncSettings: clipboard != nil ? { syncSettings() } : nil,

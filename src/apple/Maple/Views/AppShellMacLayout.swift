@@ -109,6 +109,8 @@ struct AppShellMacLayout<SidebarContent: View, ToolbarContentT: ToolbarContent>:
   /// #2641: called when the user taps "Batch Rename…" from BrowseGrid
   /// (forwarded from AppShellCenterColumn → BrowseGrid → PanoSelectionBar).
   var onBatchRename: (() -> Void)? = nil
+  /// #5435: macOS "Export with Recipe…" from the BrowseGrid selection bar.
+  var onExportRecipes: (() -> Void)? = nil
   /// #2653: Delete key / "Move to Trash" context-menu item, forwarded
   /// through to BrowseGrid.
   var onTrashAssets: (([AssetRef.ID]) -> Void)? = nil
@@ -241,6 +243,7 @@ struct AppShellMacLayout<SidebarContent: View, ToolbarContentT: ToolbarContent>:
       onMergePanorama: onMergePanorama,
       onEditMetadata: onEditMetadata,
       onBatchRename: onBatchRename,
+      onExportRecipes: onExportRecipes,
       onTrashAssets: onTrashAssets,
       clipboard: clipboard
     )

@@ -5,7 +5,7 @@ import XCTest
 #if os(macOS)
   /// Uses the existing staged-fixture launch path and real native folder picker (#4113).
   final class NativeExportRecipeUITests: XCTestCase {
-    func testRecipeSheetReturnsKeyboardFocusToBrowseTrigger() throws {
+    func testRecipeSheetReturnsKeyboardFocusToSettingsTrigger() throws {
       continueAfterFailure = false
       let fixture = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
         .appending(path: "Fixtures/layout/rgb-gradient.png")
@@ -16,10 +16,15 @@ import XCTest
       app.launch()
       defer { app.terminate() }
 
-      let trigger = app.buttons["browse-export-recipes"]
+      XCTAssertTrue(app.buttons["multi-select-toggle"].waitForExistence(timeout: 30))
+      XCTAssertFalse(
+        app.buttons["browse-export-recipes"].exists, "Export recipes left the window toolbar")
+      app.typeKey(",", modifierFlags: .command)
+      let trigger = app.buttons["general.settings.exportRecipes"]
       let done = app.buttons["native-recipe-close"]
-      XCTAssertTrue(trigger.waitForExistence(timeout: 30))
+      XCTAssertTrue(trigger.waitForExistence(timeout: 10))
       trigger.click()
+      XCTAssertTrue(app.staticTexts["native-recipe-no-selection"].waitForExistence(timeout: 10))
       XCTAssertTrue(done.waitForExistence(timeout: 10))
       let disappeared = NSPredicate(format: "exists == false")
       app.typeKey(XCUIKeyboardKey.escape, modifierFlags: [])
@@ -63,7 +68,7 @@ import XCTest
       XCTAssertEqual(XCTWaiter.wait(for: [selectionMode], timeout: 5), .completed)
       app.buttons["Select all images"].click()
       XCTAssertTrue(app.staticTexts["2 images selected"].exists)
-      app.buttons["browse-export-recipes"].click()
+      app.buttons["pano-selection-bar-export-recipes"].click()
       let captured = app.staticTexts[
         "2 photos; captured edits and sequence numbers stay fixed during retry."]
       XCTAssertTrue(captured.waitForExistence(timeout: 10))
