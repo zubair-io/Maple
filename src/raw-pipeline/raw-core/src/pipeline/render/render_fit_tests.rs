@@ -1,5 +1,6 @@
 //! Real render-size calibration parity and cache provenance (#4132).
 use super::*;
+use crate::view::auto_profile::apply_pipeline::auto1_enabled_by_env;
 use crate::view::auto_profile::cache;
 
 #[test]
@@ -34,18 +35,24 @@ fn render_cap_fit_matches_native_renderer_and_ignores_edits() {
         )
         .expect("embedded JPEG fit");
         assert!(
-            actual.0.is_some() && actual.1.is_some(),
-            "both real fit stages required"
-        );
-        assert!(
-            cache::get(&identity).is_none(),
+            cache::get(&identity).is_none() && cache::get_lut(&identity).is_none(),
             "render fit cannot poison standalone"
         );
         let key = identity
             .clone()
             .with_origin(render_fit_origin(raw.width.max(raw.height), Some(edge)));
-        assert_eq!(actual.0, cache::get(&key));
+        let cached_curve = cache::get(&key);
+        assert!(
+            cached_curve.is_some() && actual.1.is_some(),
+            "both real fit stages required"
+        );
+        // Auto 2 caches its curve stage as a marker that render contexts omit (#5000).
+        let rendered_curve = auto1_enabled_by_env()
+            .then(|| cached_curve.clone())
+            .flatten();
+        assert_eq!(actual.0, rendered_curve);
         assert_eq!(actual.1, cache::get_lut(&key));
+        let cached_fit = (cached_curve, cache::get_lut(&key));
         assert_eq!(
             actual,
             fit_auto_profile_from_raw_at_cap(
@@ -65,7 +72,7 @@ fn render_cap_fit_matches_native_renderer_and_ignores_edits() {
                 "other cap remains independent"
             );
             assert_ne!(
-                actual, previous_fit,
+                cached_fit, previous_fit,
                 "fixture must distinguish cap artifacts"
             );
         }
@@ -80,16 +87,16 @@ fn render_cap_fit_matches_native_renderer_and_ignores_edits() {
         )
         .expect("cold native render");
         assert_eq!(
-            actual.0,
+            cached_fit.0,
             cache::get(&key),
             "cold native curve must match host fit"
         );
         assert_eq!(
-            actual.1,
+            cached_fit.1,
             cache::get_lut(&key),
             "cold native residual must match host fit"
         );
-        prior = Some((key, actual));
+        prior = Some((key, cached_fit));
     }
     assert!(fit_auto_profile_from_raw_at_cap(
         &raw,
