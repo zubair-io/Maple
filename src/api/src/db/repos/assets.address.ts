@@ -83,6 +83,34 @@ export async function findAssetAtAddress(
   };
 }
 
+/** The verified clip range the `motion-photo` stage recorded for a still. */
+export interface AddressedMotionClip {
+  start: number;
+  length: number;
+  mime: 'video/mp4' | 'video/quicktime';
+  sourceSize: number;
+}
+
+/** The embedded clip of the live asset at an address, or `null` for a plain still. */
+export async function findMotionClipAtAddress(
+  libraryId: ObjectId,
+  relPath: string,
+  filename: string,
+  dbOverride?: SqliteDb,
+): Promise<AddressedMotionClip | null> {
+  const rows = await sqliteDb(dbOverride).read<AddressedMotionClip>(
+    `SELECT a.motion_video_start AS start, a.motion_video_length AS length,
+            a.motion_video_mime AS mime, a.motion_source_size AS sourceSize
+       FROM asset_locations l
+       JOIN assets a ON a.id = l.asset_id
+      WHERE ${ADDRESS_WHERE} AND ${LIVE_ENTRY} AND a.deleted_at IS NULL
+        AND a.motion_video_length IS NOT NULL
+      LIMIT 1`,
+    [libraryId.toHexString(), relPath, filename],
+  );
+  return rows[0] ?? null;
+}
+
 /**
  * The id of the asset holding a live entry at an address, or `null`.
  *
@@ -201,6 +229,7 @@ export interface DirectoryAsset {
   size: number;
   mtime: number;
   exif: AssetExif | null;
+  motion_photo: boolean;
 }
 
 /**
@@ -219,19 +248,27 @@ export async function listDirectoryAssets(
   dbOverride?: SqliteDb,
 ): Promise<DirectoryAsset[]> {
   const rows = await sqliteDb(dbOverride).read<
-    Omit<DirectoryAsset, 'exif'> & { exif: string | null }
+    Omit<DirectoryAsset, 'exif' | 'motion_photo'> & {
+      exif: string | null;
+      motion_photo: number;
+    }
   >(
     `SELECT a.id AS id, l.filename AS filename, a.maple_id AS maple_id,
             a.captured_at AS captured_at,
             json_extract(a.exif, '$.width') AS width,
             json_extract(a.exif, '$.height') AS height,
-            a.size AS size, a.mtime AS mtime, a.exif AS exif
+            a.size AS size, a.mtime AS mtime, a.exif AS exif,
+            a.motion_video_length IS NOT NULL AS motion_photo
        FROM asset_locations l
        JOIN assets a ON a.id = l.asset_id
       WHERE l.library_id = ? AND l.path = ? AND ${LIVE_ENTRY} AND a.deleted_at IS NULL`,
     [libraryId.toHexString(), relPath],
   );
-  return rows.map((row) => ({ ...row, exif: parseJson<AssetExif | null>(row.exif, null) }));
+  return rows.map((row) => ({
+    ...row,
+    exif: parseJson<AssetExif | null>(row.exif, null),
+    motion_photo: row.motion_photo === 1,
+  }));
 }
 
 /** Soft-deleted rows reserve their old names until relocation/discover has

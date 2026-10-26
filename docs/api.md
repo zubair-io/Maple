@@ -149,6 +149,12 @@ Both derived tiers are path-keyed rather than content- or id-keyed, so a client 
 
 `fs/mirrored.ts` is a drop-in replacement for `node:fs/promises` with identical signatures. Modules that import it instead of the real thing get every durable write, move, and delete under a mirrored library root replicated to that library's configured backup roots. The primary operation runs and throws exactly as before; replication is _scheduled_, never awaited, so a slow or offline backup can't stall an edit. Temp files are skipped — the codebase writes `<final>.tmp.<pid>` then renames, so only the committed result replicates. Failures land in `mirror_queue` for the mirror copy worker to retry, and reads fail over to a mirror only when the primary volume is unreachable (`fs/mirror-read.ts`).
 
+### Motion Photo clips
+
+An Android Motion Photo is a JPEG or HEIC still with a short MP4 appended inside the same file (#5447). The `motion-photo` stage records where that clip sits — start, length, content type, and the original's size at verification — and `GET /api/motion/:slug/*` serves exactly those bytes straight out of the original, so the clip is never extracted to disk and the original is only read. The folder listing marks such stills with `isMotionPhoto: true`.
+
+The route treats the clip as a file of its own: `Range: bytes=0-99` means the clip's first hundred bytes, and `Content-Range` totals are the clip's length, which is what a `<video>` element or AVPlayer expects. Like `/api/video`, it authenticates with `?token=` because media elements cannot send an Authorization header, and it stays open to members without file access, since it is address-based. Before streaming it re-checks that the original still has the recorded size and that an ISO-BMFF `ftyp` still opens the range; an edit the stage has not yet re-indexed answers 404 instead of streaming whatever bytes now sit there. `HEAD` gives the same answer without a body, which is how clients decide whether to show the motion control in Full image.
+
 ## Native decoding
 
 `src/api/native/libraw_ffi.{dylib,so}` is the conventional build output for the Rust core (`raw-ffi`), loaded through `bun:ffi`. The API’s availability gate and actual loader use Maple’s shared resolver, including the existing `MAPLE_NATIVE_LIB` override, Cargo release outputs, installed platform packages, and runtime locations. The gate checks file presence without loading native code. Build the conventional API output with:

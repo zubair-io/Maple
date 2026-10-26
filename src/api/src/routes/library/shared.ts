@@ -254,7 +254,7 @@ export function isStreamedFilePath(path: string): boolean {
   // `libraryRoutes` (prefix `/api`), so it serves `/api/image/...` — an earlier
   // draft guessed `/api/library/image/` and silently never matched (Copilot
   // review on #2383).
-  return path.startsWith('/api/video/') || path.startsWith('/api/image/');
+  return ['/api/video/', '/api/image/', '/api/motion/'].some((prefix) => path.startsWith(prefix));
 }
 
 /** Serve a regular file with the single-range contract required by media players. */
@@ -264,6 +264,21 @@ export function streamFileRange(
   size: number,
   rangeHeader?: string,
 ): Response {
+  return streamFileSlice(absPath, contentType, { start: 0, length: size }, rangeHeader);
+}
+
+/**
+ * Serve `length` bytes of a file starting at `start` as if they were a whole
+ * file of their own: `Range` offsets and `Content-Range` totals are relative to
+ * the slice, so a media player sees an embedded clip as a standalone resource.
+ */
+export function streamFileSlice(
+  absPath: string,
+  contentType: string,
+  slice: { start: number; length: number },
+  rangeHeader?: string,
+): Response {
+  const size = slice.length;
   const common = {
     ...STREAMED_FILE_HEADERS,
     'Content-Type': contentType,
@@ -271,8 +286,9 @@ export function streamFileRange(
     'Cache-Control': 'private, max-age=0, must-revalidate',
     'Referrer-Policy': 'no-referrer',
   };
+  const file = Bun.file(absPath);
   if (!rangeHeader) {
-    return new Response(Bun.file(absPath), {
+    return new Response(file.slice(slice.start, slice.start + size), {
       status: 200,
       headers: { ...common, 'Content-Length': String(size) },
     });
@@ -285,7 +301,7 @@ export function streamFileRange(
     });
   }
   const length = range.end - range.start + 1;
-  return new Response(Bun.file(absPath).slice(range.start, range.end + 1), {
+  return new Response(file.slice(slice.start + range.start, slice.start + range.end + 1), {
     status: 206,
     headers: {
       ...common,

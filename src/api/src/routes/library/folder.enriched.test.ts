@@ -32,6 +32,7 @@ interface Entry {
   isVideo?: boolean;
   isStub?: boolean;
   isAudio?: boolean;
+  isMotionPhoto?: boolean;
 }
 interface Listing {
   address: string;
@@ -200,6 +201,21 @@ describe('unified enriched folder listing #4001', () => {
     expect(body.images.find((entry) => entry.name === 'clip.MOV')?.isVideo).toBe(true);
     expect(body.images.find((entry) => entry.name === 'sound.wav')?.isAudio).toBe(true);
     expect(body.images.find((entry) => entry.name === 'design.afphoto')?.isStub).toBe(true);
+  });
+  test('flags only indexed stills with a recorded motion clip as Motion Photos (#5447)', async () => {
+    const motion = seed('PXL_1.MP.jpg');
+    seed('plain.jpg');
+    run(
+      live.db,
+      `UPDATE assets SET motion_video_start = 10, motion_video_length = 20,
+              motion_video_mime = 'video/mp4', motion_source_size = 30 WHERE id = ?`,
+      motion,
+    );
+    const body = await listing();
+    expect(body.images.find((entry) => entry.name === 'PXL_1.MP.jpg')?.isMotionPhoto).toBe(true);
+    expect(body.images.find((entry) => entry.name === 'plain.jpg')).not.toHaveProperty(
+      'isMotionPhoto',
+    );
   });
   test('pairs canonical, conflict and full-name video XMP across pages', async () => {
     const photo = seed('photo.dng');
