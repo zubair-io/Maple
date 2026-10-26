@@ -28,39 +28,37 @@ function toCullingPatch(meta: BatchApplyMetadata): Partial<XmpCulling> {
   };
 }
 
+function setOrDelete<K extends keyof Asset>(
+  next: Asset,
+  key: K,
+  value: Asset[K] | null | undefined,
+): void {
+  if (value === undefined) return;
+  if (value === null) delete next[key];
+  else next[key] = value;
+}
+
+function applyGpsPatch(next: Asset, meta: BatchApplyMetadata): void {
+  if (meta.gpsLatitude === undefined && meta.gpsLongitude === undefined) return;
+  if (meta.gpsLatitude === null || meta.gpsLongitude === null) {
+    delete next.gps;
+  } else if (meta.gpsLatitude !== undefined && meta.gpsLongitude !== undefined) {
+    next.gps = { lat: meta.gpsLatitude, lon: meta.gpsLongitude };
+  }
+}
+
 function applyMetadataToAsset(
   asset: Asset,
   meta: BatchApplyMetadata,
   cullingPatch: Partial<XmpCulling>,
 ): Asset {
   const next: Asset = { ...asset, ...cullingPatch, edited: true };
-  if (meta.hidden !== undefined) {
-    if (meta.hidden === null) delete next.hidden;
-    else next.hidden = meta.hidden;
-  }
-  if (meta.title !== undefined) {
-    if (meta.title === null) delete next.title;
-    else next.title = meta.title;
-  }
-  if (meta.city !== undefined) {
-    if (meta.city === null) delete next.city;
-    else next.city = meta.city;
-  }
-  if (meta.state !== undefined) {
-    if (meta.state === null) delete next.region;
-    else next.region = meta.state;
-  }
-  if (meta.country !== undefined) {
-    if (meta.country === null) delete next.country;
-    else next.country = meta.country;
-  }
-  if (meta.gpsLatitude !== undefined || meta.gpsLongitude !== undefined) {
-    if (meta.gpsLatitude === null || meta.gpsLongitude === null) {
-      delete next.gps;
-    } else if (meta.gpsLatitude != null && meta.gpsLongitude != null) {
-      next.gps = { lat: meta.gpsLatitude, lon: meta.gpsLongitude };
-    }
-  }
+  setOrDelete(next, 'hidden', meta.hidden);
+  setOrDelete(next, 'title', meta.title);
+  setOrDelete(next, 'city', meta.city);
+  setOrDelete(next, 'region', meta.state);
+  setOrDelete(next, 'country', meta.country);
+  applyGpsPatch(next, meta);
   return next;
 }
 

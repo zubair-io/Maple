@@ -176,21 +176,15 @@ describe('XmpAdjustmentRestoreService batch metadata sync (#5295)', () => {
         const existingXml = await fs.readFile(sidecarPathFor(rawPath), 'utf8');
         const parsed = parser.parseAdjustmentModel(existingXml);
         const culling = parser.parseCulling(existingXml);
+        const keywords = patch.keywords === null ? [] : (patch.keywords ?? culling.keywords ?? []);
         const nextCulling = {
-          rating: patch.rating !== undefined ? (patch.rating ?? 0) : culling.rating,
-          flag: patch.flag !== undefined ? (patch.flag ?? 'unflagged') : culling.flag,
-          colorLabel: patch.colorLabel !== undefined ? patch.colorLabel : culling.colorLabel,
-          keywords:
-            patch.keywords !== undefined
-              ? patch.keywords
-                ? [...patch.keywords]
-                : []
-              : culling.keywords,
+          ...culling,
+          ...(patch.rating !== undefined ? { rating: patch.rating ?? 0 } : {}),
+          keywords: [...keywords],
         };
         const nextMetadata = {
           ...parsed.metadata,
           ...(patch.title !== undefined ? { title: patch.title } : {}),
-          ...(patch.city !== undefined ? { city: patch.city } : {}),
         };
         const updatedXml = serializer.serialize(
           { ...defaultAdjustmentModel(), ...parsed.model },
