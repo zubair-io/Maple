@@ -152,9 +152,11 @@ final class ExportPanelVM {
   ) async {
     let stem = sanitizedStem(for: asset)
     let ext = format.fileExtension
-    let resolved = await BlockingWork.run {
-      Self.uniqueOutputFileName(stem: stem, ext: ext, in: directory)
-    }
+    guard
+      let resolved = try? await BlockingWork.run({
+        Self.uniqueOutputFileName(stem: stem, ext: ext, in: directory)
+      })
+    else { return }
     if sanitizedStem(for: asset) == stem, format.fileExtension == ext {
       resolvedOutputFileName = resolved
     }
