@@ -46,14 +46,17 @@ extension EditSessionFilmLutSyncTests {
     XCTAssertEqual(session.autoFitStatus, .pending, "An old revision cannot settle the current fit")
     session.settleAutoFitFailure(assetID: current, profile: .auto, revision: currentRevision)
     XCTAssertEqual(session.autoFitStatus, .unavailable)
-    session.publishAutoFit(true, assetID: current, profile: .auto, revision: currentRevision)
+    session.publishAutoFit(.active, assetID: current, profile: .auto, revision: currentRevision)
     XCTAssertEqual(session.autoFitStatus, .active, "A successful later fit may update the outcome")
     session.settleAutoFitFailure(assetID: current, profile: .auto, revision: currentRevision)
     XCTAssertEqual(session.autoFitStatus, .active)
-    session.publishAutoFit(false, assetID: current, profile: .auto, revision: currentRevision)
+    session.publishAutoFit(.noPreview, assetID: current, profile: .auto, revision: currentRevision)
     XCTAssertEqual(
-      session.autoFitStatus, .unavailable, "An actual later fit result remains authoritative")
+      session.autoFitStatus, .noPreview, "An actual later fit result remains authoritative")
     session.settleAutoFitFailure(assetID: current, profile: .auto, revision: currentRevision)
+    XCTAssertEqual(session.autoFitStatus, .noPreview, "A render failure cannot erase no-preview")
+    session.publishAutoFit(
+      .unavailable, assetID: current, profile: .auto, revision: currentRevision)
     XCTAssertEqual(session.autoFitStatus, .unavailable)
     session.isHydratingInitialState = true
     session.model.profile = .neutral
@@ -77,20 +80,22 @@ extension EditSessionFilmLutSyncTests {
     XCTAssertEqual(session.autoFitStatus, .pending)
     let first = session.asset.id
     let revision = session.autoFitRevision
-    session.publishAutoFit(true, assetID: first, profile: .auto, revision: revision)
+    session.publishAutoFit(.active, assetID: first, profile: .auto, revision: revision)
     XCTAssertEqual(session.autoFitStatus, .active)
     session.model.profile = .neutral
     XCTAssertEqual(
       session.autoFitStatus.description(profile: .neutral),
       "Neutral uses a fixed base rendering.")
     session.model.profile = .auto
-    session.publishAutoFit(true, assetID: first, profile: .auto, revision: revision)
+    session.publishAutoFit(.active, assetID: first, profile: .auto, revision: revision)
     XCTAssertEqual(
       session.autoFitStatus, .pending, "Auto → Neutral → Auto invalidates an old reply")
-    session.publishAutoFit(false, assetID: first, profile: .auto, revision: session.autoFitRevision)
-    XCTAssertEqual(session.autoFitStatus, .unavailable)
+    session.publishAutoFit(
+      .noPreview, assetID: first, profile: .auto, revision: session.autoFitRevision)
+    XCTAssertEqual(session.autoFitStatus, .noPreview)
     session.asset = AssetRef(url: dir.appendingPathComponent("second.dng"))
-    session.publishAutoFit(true, assetID: first, profile: .auto, revision: session.autoFitRevision)
+    session.publishAutoFit(
+      .active, assetID: first, profile: .auto, revision: session.autoFitRevision)
     XCTAssertEqual(session.autoFitStatus, .pending)
     _ = await session.latestRenderSchedule?.value
     await session.renderActor.awaitCurrentRenderIfInFlight()
@@ -107,6 +112,12 @@ extension EditSessionFilmLutSyncTests {
     XCTAssertEqual(
       AutoFitStatus.active.description(profile: .auto),
       "Color and contrast matched to this image’s embedded camera preview.")
+    XCTAssertEqual(
+      AutoFitStatus.noPreview.description(profile: .auto),
+      "Auto unavailable: no camera preview — showing Neutral.")
+    XCTAssertEqual(
+      AutoFitStatus.noPreview.description(profile: .neutral),
+      "Neutral uses a fixed base rendering.")
   }
 
 }
@@ -186,21 +197,32 @@ extension AutoProfileCanvasParityTests {
       throw XCTSkip("Physical Auto-fit coverage requires test_0006.DNG and test_0018.dng")
     }
     let lut = AutoProfileLUT()
-    let active = await lut.filter(forRawAt: physical, profile: .auto, quality: .preview)
-    XCTAssertNotNil(active)
-    let unavailable = await lut.filter(forRawAt: noPreview, profile: .auto, quality: .preview)
-    XCTAssertNil(unavailable)
-    let physicalAbsent = await lut.filter(
-      forRawAt: physicalUnavailable, profile: .auto, quality: .preview)
-    XCTAssertNil(physicalAbsent)
+    let active = await lut.resolve(forRawAt: physical, profile: .auto, quality: .preview)
+    XCTAssertNotNil(active.filter)
+    XCTAssertEqual(active.status, .active)
+    for source in [noPreview, physicalUnavailable] {
+      let cold = await lut.resolve(forRawAt: source, profile: .auto, quality: .preview)
+      XCTAssertNil(cold.filter)
+      XCTAssertEqual(cold.status, .noPreview, "\(source.lastPathComponent) has no camera preview")
+      let fits = await lut.fitCount
+      let cached = await lut.resolve(forRawAt: source, profile: .auto, quality: .preview)
+      XCTAssertEqual(cached.status, .noPreview, "The negative cache keeps the actual outcome")
+      let fitsAfterHit = await lut.fitCount
+      XCTAssertEqual(fitsAfterHit, fits, "A no-preview result stays negatively cached")
+    }
+    let missing = noPreview.deletingLastPathComponent().appendingPathComponent("missing.dng")
+    let unreadable = await lut.resolve(forRawAt: missing, profile: .auto, quality: .preview)
+    XCTAssertEqual(unreadable.status, .unavailable, "A read failure is not a missing preview")
     let gpu = try GpuLiveSession(pixels: [0.18, 0.18, 0.18, 1], width: 1, height: 1)
     let gpuActive = await gpu.fitAutoProfile(rawPath: physical.path, quality: .preview)
-    XCTAssertTrue(gpuActive)
-    let gpuUnavailable = await gpu.fitAutoProfile(rawPath: noPreview.path, quality: .preview)
-    XCTAssertFalse(gpuUnavailable)
-    let gpuPhysicalAbsent = await gpu.fitAutoProfile(
+    XCTAssertEqual(gpuActive, .active)
+    let gpuNoPreview = await gpu.fitAutoProfile(rawPath: noPreview.path, quality: .preview)
+    XCTAssertEqual(gpuNoPreview, .noPreview)
+    let gpuPhysicalNoPreview = await gpu.fitAutoProfile(
       rawPath: physicalUnavailable.path, quality: .preview)
-    XCTAssertFalse(gpuPhysicalAbsent)
+    XCTAssertEqual(gpuPhysicalNoPreview, .noPreview)
+    let gpuUnreadable = await gpu.fitAutoProfile(rawPath: missing.path, quality: .preview)
+    XCTAssertEqual(gpuUnreadable, .unavailable, "A read failure is not a missing preview")
     await gpu.close()
     let driver = GpuLiveDriver()
     try await driver.open(
@@ -213,7 +235,8 @@ extension AutoProfileCanvasParityTests {
       rawPath: physical.path, model: .default, quality: .preview)
     let outcomes = await [first, second]
     XCTAssertEqual(
-      outcomes, [true, true], "Concurrent renders must join the same fit, including its outcome")
+      outcomes, [.active, .active],
+      "Concurrent renders must join the same fit, including its outcome")
     await driver.closeSession()
     try await driver.open(
       width: 1, height: 1,
@@ -222,14 +245,15 @@ extension AutoProfileCanvasParityTests {
     let reopenedOutcome = await driver.fitAutoProfileIfNeeded(
       rawPath: noPreview.path, model: .default, quality: .preview)
     XCTAssertEqual(
-      reopenedOutcome, false, "A reopened GPU session must not reuse the previous image’s status")
+      reopenedOutcome, .noPreview,
+      "A reopened GPU session must not reuse the previous image’s status")
     await driver.closeSession()
     let staged = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     try FileManager.default.createDirectory(at: staged, withIntermediateDirectories: true)
     defer { try? FileManager.default.removeItem(at: staged) }
     for (source, expected) in [
-      (physical, AutoFitStatus.active), (noPreview, .unavailable),
-      (physicalUnavailable, .unavailable),
+      (physical, AutoFitStatus.active), (noPreview, .noPreview),
+      (physicalUnavailable, .noPreview),
     ] {
       let url = staged.appendingPathComponent(source.lastPathComponent)
       try FileManager.default.copyItem(at: source, to: url)
@@ -239,6 +263,11 @@ extension AutoProfileCanvasParityTests {
       XCTAssertNotNil(session.renderedPreview)
       XCTAssertEqual(
         session.autoFitStatus, expected, "Actual CPU frame publication carries the fit outcome")
+      XCTAssertEqual(
+        session.autoFitStatus.description(profile: .auto),
+        expected == .noPreview
+          ? "Auto unavailable: no camera preview — showing Neutral."
+          : "Color and contrast matched to this image’s embedded camera preview.")
       let renderedModel = session.model
       let renderedRevision = session.autoFitRevision
       let frame = session.renderedPreview

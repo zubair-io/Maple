@@ -290,7 +290,7 @@ final class PartialWhiteBalanceTests: XCTestCase {
     XCTAssertNotNil(session.partialWhiteBalanceImportError)
     XCTAssertNotNil(session.model.partialWhiteBalance)
     session.publishAutoFit(
-      true, assetID: session.asset.id, profile: .auto, revision: session.autoFitRevision)
+      .active, assetID: session.asset.id, profile: .auto, revision: session.autoFitRevision)
     await session.decodeAndRender(targetSize: nil, phase: .fast)
     XCTAssertEqual(session.autoFitStatus, .active, "A WB failure cannot overwrite an achieved fit")
     session.resetAutoFitStatus()

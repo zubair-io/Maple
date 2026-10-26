@@ -247,7 +247,7 @@ extension EditSession {
       }
     }
 
-    let achievedAutoFit: Bool?
+    let autoFitOutcome: AutoFitStatus?
     // Cloud RAWs need the same fit as local files. The session stages
     // their bytes once for the path-only FFI (#3357).
     if resolvedIsRaw, m.profile == .auto,
@@ -256,10 +256,10 @@ extension EditSession {
       let scope = asset.scopeParentURL ?? url.deletingLastPathComponent()
       let accessing = scope.startAccessingSecurityScopedResource()
       defer { if accessing { scope.stopAccessingSecurityScopedResource() } }
-      achievedAutoFit = await driver.fitAutoProfileIfNeeded(
+      autoFitOutcome = await driver.fitAutoProfileIfNeeded(
         rawPath: url.path, model: m, quality: .preview)
     } else {
-      achievedAutoFit = false
+      autoFitOutcome = .unavailable
     }
 
     // Film look (epic #2683, Task 10): resolve + push BEFORE this present,
@@ -397,9 +397,9 @@ extension EditSession {
     // pixels. Do not wake histograms or claim that a stale frame is ready.
     guard didPresent, !Task.isCancelled else { return true }
     if let gen, gen != (await renderActor.currentGeneration()) { return true }
-    if let achievedAutoFit {
+    if let autoFitOutcome {
       publishAutoFit(
-        achievedAutoFit, assetID: fitAssetID, profile: m.profile, revision: fitRevision)
+        autoFitOutcome, assetID: fitAssetID, profile: m.profile, revision: fitRevision)
     }
     editSessionLogger.notice("GPU-TRACE present OK gen=\(gen ?? 0)")
     lastPublishedRenderGeneration = gen

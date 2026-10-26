@@ -34,6 +34,8 @@ struct ProfilePicker: View {
         Text(autoFitStatus.description(profile: selection))
           .font(.caption)
           .foregroundStyle(MapleTokens.textMuted)
+          .accessibilityLabel("Profile status")
+          .accessibilityValue(autoFitStatus.description(profile: selection))
           .accessibilityIdentifier("profile-auto-fit-status")
       }
     }
