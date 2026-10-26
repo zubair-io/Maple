@@ -327,6 +327,7 @@ pub fn seed_skin_mask_range_if_default_inert(
     seed.l_max = seed.l_max.max(0.95);
     let adapted_range = SKIN_TONE_RANGE.with_seed(&seed);
 
+    let mut target_mask_count = 0_usize;
     let mut target_default_weight_sum = 0.0_f32;
     let mut target_adapted_weight_sum = 0.0_f32;
     for y in (0..height).step_by(step) {
@@ -336,6 +337,7 @@ pub fn seed_skin_mask_range_if_default_inert(
             if target_mask_bytes[idx] < 128 {
                 continue;
             }
+            target_mask_count += 1;
             let base = idx * 4;
             let rgb = [
                 rgba_rec2020[base],
@@ -346,7 +348,11 @@ pub fn seed_skin_mask_range_if_default_inert(
             target_adapted_weight_sum += range::weight(&adapted_range, rgb);
         }
     }
-    if target_adapted_weight_sum <= target_default_weight_sum {
+    if target_mask_count == 0
+        || target_default_weight_sum / (target_mask_count as f32)
+            >= MIN_DEFAULT_SKIN_COVERAGE_WEIGHT
+        || target_adapted_weight_sum <= target_default_weight_sum
+    {
         return None;
     }
     Some(seed)
