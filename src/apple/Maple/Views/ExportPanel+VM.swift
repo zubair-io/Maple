@@ -106,7 +106,7 @@ final class ExportPanelVM {
     }
   }
 
-  func outputFileName(for asset: AssetRef) -> String {
+  func outputFileName(for asset: AssetRef, in directory: URL? = nil) -> String {
     // PhotoKit uses its slash-bearing localIdentifier as the display name
     // until the original filename is looked up. Keep that identity in the
     // name, but never let it create subdirectories in the staging location.
@@ -114,7 +114,19 @@ final class ExportPanelVM {
       .components(separatedBy: CharacterSet(charactersIn: "/\\:"))
       .joined(separator: "_")
       .trimmingCharacters(in: .whitespacesAndNewlines)
-    return "\(safeName.isEmpty ? "Untitled" : safeName).\(format.fileExtension)"
+    let stem = safeName.isEmpty ? "Untitled" : safeName
+    let ext = format.fileExtension
+    let baseName = "\(stem).\(ext)"
+    guard let directory else { return baseName }
+    var suffix = 1
+    var candidate = baseName
+    while FileManager.default.fileExists(
+      atPath: directory.appendingPathComponent(candidate).path
+    ) {
+      suffix += 1
+      candidate = "\(stem)-\(suffix).\(ext)"
+    }
+    return candidate
   }
 
   // MARK: - Resolution & Dimensions
@@ -242,6 +254,18 @@ final class ExportPanelVM {
     isExporting = false
   }
 
+  /// Clears `stagedFile` when the share sheet closes. If the user dismissed
+  /// the share sheet without completing an activity, removes the unshared
+  /// temporary file so it neither wastes disk space nor consumes the base
+  /// filename for the next export (#5281).
+  func finishSharing(completed: Bool) {
+    guard let file = stagedFile else { return }
+    stagedFile = nil
+    if !completed {
+      try? FileManager.default.removeItem(at: file.url)
+    }
+  }
+
   // MARK: - Internals
 
   private func startAttempt() -> Int {
@@ -266,7 +290,9 @@ final class ExportPanelVM {
       try guardLive(gen)
       let data = try await encodeOffPool(image)
       try guardLive(gen)
-      let url = directory.appendingPathComponent(outputFileName(for: session.asset))
+      let url = directory.appendingPathComponent(
+        outputFileName(for: session.asset, in: directory)
+      )
       try await publish(data, to: url, gen: gen)
       finish(gen, with: nil)
     } catch {
