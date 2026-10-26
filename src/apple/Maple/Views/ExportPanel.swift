@@ -62,8 +62,15 @@ struct ExportPanel: View {
         }
 
         Section("Output") {
-          Text("File: \(vm.outputFileName(for: session.asset))")
+          #if os(macOS)
+            Text("File: \(vm.outputFileName(for: session.asset))")
+              .foregroundStyle(.secondary)
+          #else
+            Text(
+              "File: \(vm.outputFileName(for: session.asset, in: FileManager.default.temporaryDirectory))"
+            )
             .foregroundStyle(.secondary)
+          #endif
           Text(vm.outputDimensionsDescription(for: session))
             .foregroundStyle(.secondary)
         }
@@ -128,7 +135,7 @@ struct ExportPanel: View {
     #else
       .sheet(item: $vm.stagedFile) { file in
         ExportShareSheet(fileURL: file.url) { completed in
-          vm.stagedFile = nil
+          vm.finishSharing(completed: completed)
           if completed { dismiss() }
         }
         .presentationDetents([.medium, .large])

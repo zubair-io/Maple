@@ -393,4 +393,48 @@ final class ExportPanelVMTests: XCTestCase {
     await vm.stageForSharing(session: session, in: directory)
     XCTAssertEqual(renderedSizeOption, .full)
   }
+
+  func testRepeatedExportsStageUniqueFileNamesWithoutOverwritingPriorExport() async throws {
+    let firstBytes = Data([0xFF, 0xD8, 0x01])
+    let secondBytes = Data([0xFF, 0xD8, 0x02])
+    var call = 0
+    let image = stubImage
+    let vm = ExportPanelVM(
+      render: { _ in image },
+      encode: { _, _ in
+        call += 1
+        return call == 1 ? firstBytes : secondBytes
+      }
+    )
+    let session = EditSession.preview(displayName: "ED7AC36B-A150/L0/001")
+
+    await vm.stageForSharing(session: session, in: directory)
+    let firstURL = try XCTUnwrap(vm.stagedFile?.url)
+    XCTAssertEqual(firstURL.lastPathComponent, "ED7AC36B-A150_L0_001.jpg")
+    vm.finishSharing(completed: true)
+
+    XCTAssertEqual(
+      vm.outputFileName(for: session.asset, in: directory),
+      "ED7AC36B-A150_L0_001-2.jpg"
+    )
+    await vm.stageForSharing(session: session, in: directory)
+    let secondURL = try XCTUnwrap(vm.stagedFile?.url)
+    XCTAssertEqual(secondURL.lastPathComponent, "ED7AC36B-A150_L0_001-2.jpg")
+    XCTAssertEqual(try Data(contentsOf: firstURL), firstBytes)
+    XCTAssertEqual(try Data(contentsOf: secondURL), secondBytes)
+  }
+
+  func testCancelledShareSheetRemovesUnsharedStagedFileAndReusesBaseName() async throws {
+    let image = stubImage
+    let vm = ExportPanelVM(render: { _ in image }, encode: { _, _ in Data([0x01]) })
+    let session = EditSession.preview(displayName: "DSC_0200.dng")
+
+    await vm.stageForSharing(session: session, in: directory)
+    let firstURL = try XCTUnwrap(vm.stagedFile?.url)
+    XCTAssertEqual(firstURL.lastPathComponent, "DSC_0200.dng.jpg")
+    vm.finishSharing(completed: false)
+
+    XCTAssertFalse(FileManager.default.fileExists(atPath: firstURL.path))
+    XCTAssertEqual(vm.outputFileName(for: session.asset, in: directory), "DSC_0200.dng.jpg")
+  }
 }
