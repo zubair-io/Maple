@@ -320,6 +320,12 @@ describe('restoreFromTrash', () => {
     // The discover watcher saw the file land back and indexed it as a new asset.
     const transientId = insertAsset(db);
     insertLocation(db, { assetId: transientId, libraryId, path: 'photos', filename: 'IMG_1.dng' });
+    run(
+      db,
+      `UPDATE assets SET sha1_head = 'same-head', size = 4096 WHERE id IN (?, ?)`,
+      transientId,
+      assetId,
+    );
 
     await restoreFromTrash({
       id: oid(assetId),

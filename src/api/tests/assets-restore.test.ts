@@ -61,7 +61,7 @@ let folderId: string;
  */
 async function trashedAsset(
   filename: string,
-  opts?: { mapleId?: string; description?: string },
+  opts?: { mapleId?: string; description?: string; sha1Head?: string },
 ): Promise<{ assetId: string; originalPath: string; trashPath: string }> {
   const originalPath = path.join(ROOT, '2024', filename);
   const trashPath = path.join(ROOT, TRASH_REL, filename);
@@ -75,6 +75,7 @@ async function trashedAsset(
     deletedAt: new Date().toISOString(),
     originalPath,
     mapleId: opts?.mapleId ?? null,
+    sha1Head: opts?.sha1Head,
   });
   if (opts?.description !== undefined) {
     insertDetail(live.db, assetId, { description: opts.description });
@@ -227,16 +228,19 @@ describe('POST /api/assets/:id/restore', () => {
   // Cat A4-restore: watcher race — if the discover watcher beat the
   // route handler and inserted a fresh asset at the restored address, the
   // repoint would collide with `asset_locations_lib_path_name`. The
-  // restore drops the watcher's transient row inside the same
-  // transaction.
+  // restore drops the watcher's transient row — the same bytes by hash and
+  // size, with nothing of its own — inside the same transaction (#5425).
   test('restore wins over a watcher-inserted ghost row at the same address', async () => {
     const { app } = await import('../src/index.ts');
-    const { assetId, originalPath } = await trashedAsset('IMG_WATCHER.ARW');
+    const { assetId, originalPath } = await trashedAsset('IMG_WATCHER.ARW', {
+      sha1Head: 'watcher-head',
+    });
     const ghostId = seedRouteAsset(live.db, {
       libraryId: folderId,
       path: '2024',
       filename: 'IMG_WATCHER.ARW',
-      size: 99,
+      size: 3,
+      sha1Head: 'watcher-head',
     });
 
     const res = await app.handle(restoreReq(assetId, {}));

@@ -8,11 +8,8 @@ import {
 } from '../sqlite/test-sqlite.test-helpers.ts';
 import { BackupRepository } from '../../cloud-backup/repository.ts';
 import { mergeIntoSurvivor } from './assets.merge.ts';
-import {
-  markSoftDeleted,
-  restoreFromTrash,
-  restoreBackupDestinationOccupied,
-} from './assets.trash.ts';
+import { markSoftDeleted, restoreFromTrash } from './assets.trash.ts';
+import { restoreDestinationClaimed } from './assets.restore-destination.ts';
 
 async function fixture() {
   const live = await createLiveTestDatabase();
@@ -196,6 +193,10 @@ function restoreFixture(f: Awaited<ReturnType<typeof fixture>>) {
     path: '',
     filename: 'photo.dng',
   });
+  // The watcher indexed the restored bytes themselves (#5425).
+  f.live.db
+    .query(`UPDATE assets SET sha1_head = 'photo-head', size = 4096 WHERE id IN (?, ?)`)
+    .run(canonical, transient);
   return {
     canonical,
     transient,
@@ -250,7 +251,7 @@ test('restore blocks a watcher duplicate with backup history before changing eit
       ...restore.args,
       source: { ...restore.args.source, filename: 'no-longer-there.dng' },
     }),
-  ).rejects.toThrow('unfinished backup obligations');
+  ).rejects.toThrow('claimed by another photo');
   expect(f.live.db.query('SELECT * FROM assets').all()).toEqual(assets);
   expect(f.live.db.query('SELECT * FROM asset_locations').all()).toEqual(locations);
   expect(f.live.db.query('SELECT * FROM backup_entries').all()).toEqual(histories);
@@ -268,13 +269,17 @@ test('restore sees watcher backup admission immediately before its transaction a
     },
   };
   await expect(restoreFromTrash({ ...restore.args, dbOverride: racedDb })).rejects.toThrow(
-    'unfinished backup obligations',
+    'claimed by another photo',
   );
   expect(
     f.live.db.query('SELECT deleted_at FROM assets WHERE id=?').get(restore.canonical),
   ).toEqual({ deleted_at: '2026-10-01T00:00:00Z' });
-  // A separately unbacked duplicate can be reconciled normally; no physical bytes are purged.
+  // A separately unbacked duplicate of the same content can be reconciled
+  // normally; no physical bytes are purged.
   const other = insertAsset(f.live.db);
+  f.live.db
+    .query(`UPDATE assets SET sha1_head = 'photo-head', size = 4096 WHERE id = ?`)
+    .run(other);
   insertLocation(f.live.db, {
     assetId: other,
     libraryId: f.libraryId,
@@ -294,23 +299,25 @@ test('restore can select a free alternate path while retaining a DB-only watcher
   const history = await entry(f, restore.transient, 0);
   const watcher = f.live.db.query('SELECT * FROM assets WHERE id=?').get(restore.transient);
   expect(
-    await restoreBackupDestinationOccupied(restore.args.id, restore.args.libraryId, 'photo.dng'),
+    await restoreDestinationClaimed(restore.args.id, restore.args.libraryId, 'photo.dng', 4096),
   ).toBe(true);
   expect(
-    await restoreBackupDestinationOccupied(
+    await restoreDestinationClaimed(
       new ObjectId(restore.transient),
       restore.args.libraryId,
       'photo.dng',
+      4096,
     ),
   ).toBe(false);
   expect(
-    await restoreBackupDestinationOccupied(restore.args.id, restore.args.libraryId, 'photo_1.dng'),
+    await restoreDestinationClaimed(restore.args.id, restore.args.libraryId, 'photo_1.dng', 4096),
   ).toBe(false);
   expect(
-    await restoreBackupDestinationOccupied(
+    await restoreDestinationClaimed(
       restore.args.id,
       restore.args.libraryId,
       'subfolder/photo.dng',
+      4096,
     ),
   ).toBe(false);
   await restoreFromTrash({ ...restore.args, newAbsPath: '/photos/photo_1.dng' });

@@ -166,9 +166,9 @@ test('failed Trash DB commit reverts published files, retains the whole source p
 
 test('restore late backed watcher collision retains Trash pair, then retries a DB-only occupied name with a suffix', async () => {
   const f = await fixture(true);
-  const occupied = assetsRepo.restoreBackupDestinationOccupied;
+  const occupied = assetsRepo.restoreDestinationClaimed;
   const watcherId = insertAsset(f.live.db);
-  const spy = spyOn(assetsRepo, 'restoreBackupDestinationOccupied');
+  const spy = spyOn(assetsRepo, 'restoreDestinationClaimed');
   try {
     let inserted = false;
     spy.mockImplementation(async (...args) => {
