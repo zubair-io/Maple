@@ -68,10 +68,10 @@ public struct AssetRef: Identifiable, Sendable, Equatable, Hashable {
   public typealias OriginalFileWriter = @Sendable (URL) async throws -> Void
 
   /// On-demand DISPLAY-PREVIEW fetch for sourceless assets — the 1280 px
-  /// tier, not the full RAW `BytesProvider` returns. Optional result
-  /// because a backend may legitimately have no preview for an asset
-  /// (`ImageSource.preview(for:)` is `Data?` for exactly that reason).
-  public typealias DisplayPreviewProvider = @Sendable () async throws -> Data?
+  /// tier, not the full RAW `BytesProvider` returns. Classified rather than
+  /// `Data?` (#5432) so a Preview page can retry an "indexing" or transient
+  /// answer and stop on "not found" (`ImageSource.previewOutcome(for:)`).
+  public typealias DisplayPreviewProvider = @Sendable () async -> PreviewFetchOutcome
 
   public let id: UUID
   /// Filesystem URL of the RAW file. `nil` for PhotoKit / self-hosted

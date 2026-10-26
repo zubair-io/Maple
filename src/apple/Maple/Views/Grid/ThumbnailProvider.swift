@@ -190,10 +190,21 @@ actor ThumbnailProvider {
   ///     returns the cached 512 px grid thumb.)
   ///   - PhotoKit: `PHImageManager` high-quality request at `maxDimension`.
   func preview(for source: ThumbnailSource, maxDimension: CGFloat = 2_048) async -> Data? {
+    await previewOutcome(for: source, maxDimension: maxDimension).data
+  }
+
+  /// The display tier, classified (#5432) so the Preview page can retry an
+  /// "indexing" or transient answer and stop on "not found".
+  func previewOutcome(for source: ThumbnailSource, maxDimension: CGFloat = 2_048) async
+    -> PreviewFetchOutcome
+  {
     switch source.resolvedBackend() {
     case .thumbnailLoader(let ref, let box):
       if ref.primaryURL != nil {
-        return await ThumbnailLoader.shared.loadDisplayPreview(for: ref)
+        guard let data = await ThumbnailLoader.shared.loadDisplayPreview(for: ref) else {
+          return .notFound(reason: "no local display preview")
+        }
+        return .data(data)
       }
       // The asset's OWN preview resolver, when it has one, is
       // authoritative in both directions (#2385) — exactly as
@@ -205,24 +216,31 @@ actor ThumbnailProvider {
       // server — the request is host-specific and 404s there, which is
       // what left a cross-server sibling stuck at its grid thumbnail.
       if let displayPreviewProvider = ref.displayPreviewProvider {
-        return try? await displayPreviewProvider()
+        return await displayPreviewProvider()
       }
-      guard let imageSource = box?.source else { return nil }
+      guard let imageSource = box?.source else { return .notFound(reason: "no source") }
       let imageRef = ImageRef(
         id: ref.stableID ?? ref.id.uuidString,
         displayName: ref.displayName,
         url: nil,
         scopeParentURL: ref.scopeParentURL
       )
-      return try? await imageSource.preview(for: imageRef)
+      return await imageSource.previewOutcome(for: imageRef)
     case .cloudThumb(let absPath, let host):
-      guard let client = resolvedThumbClient(for: host) else { return nil }
-      return try? await client.preview(absPath: absPath)
+      guard let client = resolvedThumbClient(for: host) else {
+        return .notFound(reason: "no client for host")
+      }
+      return await client.previewOutcome(absPath: absPath)
     case .photoKit(let localID):
-      return await Self.fetchPhotoKitPreview(
-        localID: localID,
-        maxDimension: maxDimension
-      )
+      guard PHAsset.fetchAssets(withLocalIdentifiers: [localID], options: nil).count > 0 else {
+        return .notFound(reason: "photokit asset missing")
+      }
+      // With the asset present, nil is an iCloud download that failed or
+      // was throttled, so it is worth asking again.
+      guard
+        let data = await Self.fetchPhotoKitPreview(localID: localID, maxDimension: maxDimension)
+      else { return .transientFailure(reason: "photokit no image") }
+      return .data(data)
     }
   }
 

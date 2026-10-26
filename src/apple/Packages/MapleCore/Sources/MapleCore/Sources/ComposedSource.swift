@@ -53,6 +53,10 @@ public actor ComposedSource: ImageSource {
         try await metadata.preview(for: ref)
     }
 
+    public func previewOutcome(for ref: ImageRef) async -> PreviewFetchOutcome {
+        await metadata.previewOutcome(for: ref)
+    }
+
     public func rawBytes(for ref: ImageRef) async throws -> Data {
         try await bytes.rawBytes(for: ref)
     }

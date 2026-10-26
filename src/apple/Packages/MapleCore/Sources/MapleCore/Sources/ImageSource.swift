@@ -202,6 +202,12 @@ public protocol ImageSource: Actor {
   /// ~1600 px preview bytes (JPEG). Returns `nil` when not rendered yet.
   func preview(for ref: ImageRef) async throws -> Data?
 
+  /// The same tier, classified for a caller that retries (#5432). The
+  /// default maps `preview(for:)`: bytes, nil → not found, a throw →
+  /// transient. `CloudSource` overrides it to surface the server's 202
+  /// "indexing" + `Retry-After` reply.
+  func previewOutcome(for ref: ImageRef) async -> PreviewFetchOutcome
+
   /// Full RAW bytes for the Rust decode pipeline.
   func rawBytes(for ref: ImageRef) async throws -> Data
 
@@ -221,6 +227,15 @@ extension ImageSource {
   /// Default no-op — see the protocol requirement's doc comment. Only
   /// `SMBSource` overrides this today.
   public func writeThumb(_ data: Data, for ref: ImageRef) async {}
+
+  public func previewOutcome(for ref: ImageRef) async -> PreviewFetchOutcome {
+    do {
+      guard let data = try await preview(for: ref) else { return .notFound(reason: "no preview") }
+      return .data(data)
+    } catch {
+      return PreviewFetchOutcome.classify(error: error)
+    }
+  }
 }
 
 // MARK: - ImageSourceError

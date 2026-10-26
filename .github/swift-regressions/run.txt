@@ -443,3 +443,7 @@ CaptureRefineBudgetTests
 
 # A Cloud permanent delete that kept the photo through another copy (#5419).
 CloudTrashKeptCopyTests
+
+# Preview display-tier outcome + retry (#5432):
+PreviewFetchOutcomeTests
+PreviewRefinementBackoffTests

@@ -53,7 +53,7 @@ extension AppShell {
       stableID: id,
       captureDate: image.exif?.capturedAt.flatMap(parseTimelineISO8601),
       thumbnailProvenance: .cloud(server: server),
-      displayPreviewProvider: { try await source.preview(for: imageRef) },
+      displayPreviewProvider: { await source.previewOutcome(for: imageRef) },
       catalog: CatalogRef(
         serverID: server, folderID: folderID, absPath: image.path, address: nil),
       originalFileWriter: { try await source.writeOriginal(for: imageRef, to: $0) },
