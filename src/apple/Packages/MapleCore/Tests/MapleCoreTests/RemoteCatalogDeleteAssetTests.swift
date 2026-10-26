@@ -72,4 +72,35 @@ final class RemoteCatalogDeleteAssetTests: XCTestCase {
         XCTAssertEqual(observedPath, "/api/assets/\(id)")
         XCTAssertEqual(observedMethod, "DELETE")
     }
+
+    /// #5419 — a purge that kept the photo through another copy answers 200
+    /// `{state: "live", abs_path, cleanup}`; it must not read as a deletion.
+    func testPurgeThatKeptThePhotoReportsTheSurvivingCopy() async throws {
+        for (cleanup, pending) in [("done", false), ("pending", true)] {
+            let body = #"{"asset_id":"650a1b2c3d4e5f6071829304","state":"live","abs_path":"/lib/kept/IMG_1.dng","cleanup":"\#(cleanup)"}"#
+            let result = try await deleteAnswering(status: 200, body: Data(body.utf8), intent: .purge)
+            XCTAssertEqual(
+                result, .keptSurvivingCopy(absPath: "/lib/kept/IMG_1.dng", cleanupPending: pending))
+        }
+    }
+
+    func testBodylessSuccessIsStillAPlainDeletion() async throws {
+        let deleted = try await deleteAnswering(status: 204, body: Data(), intent: .purge)
+        XCTAssertEqual(deleted, .ok)
+    }
+
+    private func deleteAnswering(
+        status: Int, body: Data, intent: DeleteAssetIntent
+    ) async throws -> DeleteAssetResult {
+        let server = URL(string: "https://example.test")!
+        let session = URLSession.stubbedSequence { req in
+            XCTAssertEqual(req.url?.query, "intent=\(intent.rawValue)")
+            let resp = HTTPURLResponse(url: req.url!, statusCode: status,
+                                       httpVersion: "HTTP/1.1", headerFields: nil)!
+            return (body, resp)
+        }
+        let http = AuthenticatedHTTPClient.unauthenticated(server: server, urlSession: session)
+        return try await RemoteCatalog(http: http, server: server)
+            .deleteAsset(assetID: "650a1b2c3d4e5f6071829304", intent: intent)
+    }
 }

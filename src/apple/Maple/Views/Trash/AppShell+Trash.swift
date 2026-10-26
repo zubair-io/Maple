@@ -144,6 +144,9 @@ extension AppShell {
                 return .trashed(destination: .cloudTrash)
             case .stateMismatch:
                 return .failed("This photo is already in the Cloud trash.")
+            case .keptSurvivingCopy:
+                // Only a purge answers this; a trash intent never does.
+                return .failed("This photo is still in the library.")
             }
         } catch {
             return .failed(error.localizedDescription)
@@ -299,6 +302,10 @@ extension AppShell {
                 switch try await remote.deleteAsset(assetID: row.id, intent: .purge) {
                 case .ok:
                     return .succeeded
+                case .keptSurvivingCopy(let absPath, let cleanupPending):
+                    await refreshCloudGridShowingKeptCopy(at: absPath)
+                    return .kept(notice: CloudTrashKeptCopy.notice(
+                        filename: row.displayName, cleanupPending: cleanupPending))
                 case .stateMismatch:
                     return .stale(reason: "\"\(row.displayName)\" was restored elsewhere — it's no longer in the trash.")
                 }
@@ -306,6 +313,16 @@ extension AppShell {
                 return .failed(error.localizedDescription)
             }
         }
+    }
+
+    /// A kept photo shows again at its surviving copy (#5419): reload the
+    /// Cloud grid when the folder on screen is the one that now holds it.
+    private func refreshCloudGridShowingKeptCopy(at keptAbsPath: String?) async {
+        guard let source = browseVM.currentSource as? CloudSource else { return }
+        let folderPath = await source.currentPath
+        guard CloudTrashKeptCopy.folderShowsKeptCopy(folderPath: folderPath, keptAbsPath: keptAbsPath)
+        else { return }
+        await browseVM.retryLastLoad()
     }
 
     /// Tears down the SMB trash browser's throwaway connection when the

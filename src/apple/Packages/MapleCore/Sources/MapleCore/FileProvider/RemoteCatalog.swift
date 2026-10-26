@@ -253,14 +253,34 @@ public enum DeleteAssetIntent: String, Sendable {
 /// a live one) — `state` is the server's own read of that current state
 /// (`"trashed"` or `"live"`), for the caller to refresh against rather than
 /// silently retrying the original intent.
+///
+/// `.keptSurvivingCopy` answers a `.purge` of a photo that still has another
+/// copy outside Trash (#5403/#5419): only the trashed copy went, and the
+/// photo stays in the library at `absPath`. `cleanupPending` means removing
+/// the trashed copy's files is still being retried and will finish shortly.
 public enum DeleteAssetResult: Equatable, Sendable {
   case ok
+  case keptSurvivingCopy(absPath: String?, cleanupPending: Bool)
   case stateMismatch(state: String)
 }
 
 struct DeleteAssetConflictBody: Codable {
   let error: String
   let state: String
+}
+
+/// The 200 body of a purge that kept the photo; every other success is a
+/// bodyless 204.
+struct DeleteAssetKeptBody: Codable {
+  let state: String
+  let absPath: String?
+  let cleanup: String
+
+  enum CodingKeys: String, CodingKey {
+    case state
+    case absPath = "abs_path"
+    case cleanup
+  }
 }
 
 public struct MakeDirResponse: Codable, Equatable, Sendable {
@@ -1393,7 +1413,10 @@ public actor RemoteCatalog {
       return .stateMismatch(state: body?.state ?? "unknown")
     }
     try Self.check2xx(resp, data: data, url: req.url)
-    return .ok
+    guard status == 200, let kept = try? decoder.decode(DeleteAssetKeptBody.self, from: data),
+      kept.state == "live"
+    else { return .ok }
+    return .keptSurvivingCopy(absPath: kept.absPath, cleanupPending: kept.cleanup == "pending")
   }
 
   /// POST /api/assets/<id>/rename — same-folder single-asset rename

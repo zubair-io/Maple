@@ -2047,13 +2047,20 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
                 directory: self.forYouDeletionsDirectory
             )
             return nil
+        case .keptSurvivingCopy:
+            // Only a purge answers this; a trash intent never does.
+            return trashRefused(state: "live")
         case .stateMismatch(let state):
-            self.log.error("trash asset state mismatch: \(state, privacy: .public)")
-            return NSError(domain: NSFileProviderErrorDomain,
-                           code: NSFileProviderError.serverUnreachable.rawValue,
-                           userInfo: [NSLocalizedDescriptionKey:
-                               "Could not move the item to the Maple trash (server reports it is \(state))"])
+            return trashRefused(state: state)
         }
+    }
+
+    private func trashRefused(state: String) -> Error {
+        self.log.error("trash asset state mismatch: \(state, privacy: .public)")
+        return NSError(domain: NSFileProviderErrorDomain,
+                       code: NSFileProviderError.serverUnreachable.rawValue,
+                       userInfo: [NSLocalizedDescriptionKey:
+                           "Could not move the item to the Maple trash (server reports it is \(state))"])
     }
 
     // MARK: - Sidecar helpers

@@ -47,9 +47,13 @@ struct TrashBrowserRow: Identifiable, Equatable {
 /// (e.g. it was restored elsewhere between listing and this call) — the
 /// action did NOT proceed (never a silent purge of a live photo), and the
 /// row is removed from view since it no longer belongs in this trash list,
-/// with `reason` shown so the removal isn't unexplained.
+/// with `reason` shown so the removal isn't unexplained. `.kept` is a Cloud
+/// permanent delete that removed only the trashed copy because another copy
+/// of the photo exists (#5419): the row leaves Trash, the photo stays in the
+/// library, and `notice` says so.
 enum TrashRowActionOutcome {
     case succeeded
+    case kept(notice: String)
     case stale(reason: String)
     case failed(String)
 }
