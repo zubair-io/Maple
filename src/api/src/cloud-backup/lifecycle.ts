@@ -185,7 +185,13 @@ export async function preparePurge(assetId: string, repo = new BackupRepository(
     throw new Error('Asset changed or has a pending backup lifecycle; retry permanent deletion.');
 }
 
-/** A stale Trash listing cannot authorize erasure after restore, reaping or relocation. */
+/** How long a Trash purge holds its record while it erases files and the row. */
+const TRASH_PURGE_LEASE_MS = 10 * 60_000;
+
+/** A stale Trash listing cannot authorize erasure after restore, reaping or relocation.
+ * The record is leased while the caller finishes the purge, so a concurrent
+ * attempt that finds a surviving copy cannot retire it mid-purge (#5419);
+ * the caller releases the lease when it stops short. */
 export async function prepareTrashPurge(
   assetId: string,
   expected: TrashPurgeCandidate,
@@ -193,6 +199,17 @@ export async function prepareTrashPurge(
 ): Promise<boolean> {
   await inventoryFolderPurges(assetId, repo);
   return recordPurgeIntent(assetId, repo, { trash: expected });
+}
+
+/** A Trash purge that stopped before deleting the row no longer holds its record. */
+export async function releaseTrashPurge(
+  assetId: string,
+  repo = new BackupRepository(),
+): Promise<void> {
+  await repo.db.write(
+    `UPDATE backup_lifecycle SET lease_owner=NULL,lease_until=0 WHERE asset_id=? AND kind='purge'`,
+    [assetId],
+  );
 }
 
 /** An upload may discard a redundant RAW only while its sole Trash location
@@ -213,6 +230,7 @@ async function recordPurgeIntent(
 ): Promise<boolean> {
   const at = new Date().toISOString();
   const intentId = crypto.randomUUID();
+  const leaseUntil = candidate && 'trash' in candidate ? Date.now() + TRASH_PURGE_LEASE_MS : 0;
   const guard =
     candidate && 'replacement' in candidate
       ? {
@@ -230,11 +248,11 @@ async function recordPurgeIntent(
         : { sql: '', params: [] };
   const result = await repo.db.transaction([
     {
-      sql: `INSERT INTO backup_lifecycle(id,asset_id,kind,phase,created_at)
-        SELECT ?,a.id,'purge','applied',? FROM assets a WHERE a.id=? ${guard.sql}
+      sql: `INSERT INTO backup_lifecycle(id,asset_id,kind,phase,created_at,lease_owner,lease_until)
+        SELECT ?,a.id,'purge','applied',?,?,? FROM assets a WHERE a.id=? ${guard.sql}
         AND NOT EXISTS(SELECT 1 FROM backup_lifecycle WHERE asset_id=a.id
           AND (phase='prepared' OR lease_until>unixepoch('subsec')*1000))`,
-      params: [intentId, at, assetId, ...guard.params],
+      params: [intentId, at, leaseUntil ? intentId : null, leaseUntil, assetId, ...guard.params],
     },
     {
       sql: `INSERT INTO backup_purges(destination_id,entry_id,record)

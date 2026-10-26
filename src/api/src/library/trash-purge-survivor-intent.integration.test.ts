@@ -9,13 +9,13 @@
 
 import { expect, test } from 'bun:test';
 import * as path from 'node:path';
-import { chmod, readFile, stat } from '../fs/mirrored.ts';
+import { chmod, readFile, rm, stat } from '../fs/mirrored.ts';
 import { ObjectId } from '../db/object-id.ts';
 import { drainPurges } from '../cloud-backup/purge.ts';
 import { backupEngine } from '../cloud-backup/runtime.ts';
 import { hardDeleteAdmittedPurge } from '../db/repos/assets.trash.ts';
 import { runTrashGcOnce } from '../workers/trash-gc.ts';
-import { COMPANION, RAW, twoCopyPhoto } from './trash-purge-survivor-intent.test-helpers.ts';
+import { COMPANION, OLD, RAW, twoCopyPhoto } from './trash-purge-survivor-intent.test-helpers.ts';
 
 const gone = (target: string) =>
   stat(target).then(
@@ -183,6 +183,39 @@ test('an erasure already under way finishes, then frees the copy to be backed up
     expect(await f.engine.backupAsset(f.id)).toBe(true);
     const [fresh] = (await f.keptEntryIds()).filter((entryId) => entryId !== keptEntry);
     expect(entryOf(f, fresh!)).toEqual({ ordinal: 0, state: 'active' });
+  } finally {
+    await f.close();
+  }
+});
+
+test('a full purge still running holds its record, so no other attempt keeps the photo under it', async () => {
+  const f = await twoCopyPhoto('google-drive');
+  try {
+    f.setKeptMissing(true);
+    await f.recordWholePhotoPurge({ stopped: false });
+    f.setKeptMissing(false);
+
+    expect((await f.purgeRoute()).status).toBe(409);
+    expect(purgeIntents(f)).toEqual({ n: 1 });
+    expect(photoRow(f)).toEqual({ deleted_at: OLD, rating: 4, apple_rendered_path: COMPANION });
+  } finally {
+    await f.close();
+  }
+});
+
+test('companions an abandoned whole-photo purge already erased are cleared from the kept photo', async () => {
+  const f = await twoCopyPhoto('google-drive');
+  try {
+    f.setKeptMissing(true);
+    await f.recordWholePhotoPurge();
+    await rm(path.join(f.library, COMPANION));
+    f.setKeptMissing(false);
+
+    expect((await f.purgeRoute()).status).toBe(200);
+
+    expect(photoRow(f)).toEqual({ deleted_at: null, rating: 4, apple_rendered_path: null });
+    expect(await f.engine.backupAsset(f.id)).toBe(true);
+    expect(await readFile(f.keptRaw, 'utf8')).toBe(RAW);
   } finally {
     await f.close();
   }

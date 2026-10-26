@@ -22,7 +22,7 @@ import { BackupEngine } from '../cloud-backup/engine.ts';
 import { GoogleDriveProvider } from '../cloud-backup/google/provider.ts';
 import { googleStore } from '../cloud-backup/google/google-store.test-helpers.ts';
 import type { GoogleFetch } from '../cloud-backup/google/oauth.ts';
-import { prepareTrashPurge } from '../cloud-backup/lifecycle.ts';
+import { prepareTrashPurge, releaseTrashPurge } from '../cloud-backup/lifecycle.ts';
 import { capturedTrashPurge } from '../cloud-backup/trash-purge-admission.ts';
 import { findCoreInfoById } from '../db/repos/assets.repo.ts';
 import { trashRoutes } from '../routes/assets/trash.ts';
@@ -31,7 +31,7 @@ import { trashAssetById } from './asset-trash.ts';
 
 export const RAW = 'kept-raw-bytes';
 export const COMPANION = 'kept/IMG_E1.jpg';
-const OLD = '2000-01-01T00:00:00.000Z';
+export const OLD = '2000-01-01T00:00:00.000Z';
 
 export async function twoCopyPhoto(kind: 'folder' | 'google-drive') {
   const f = await recoveryFixture();
@@ -142,10 +142,12 @@ export async function twoCopyPhoto(kind: 'folder' | 'google-drive') {
         id,
       );
     },
-    /** What an earlier attempt that found no surviving copy recorded before it stopped. */
-    async recordWholePhotoPurge() {
+    /** What an earlier attempt that found no surviving copy recorded; `stopped`
+     * releases it as that attempt does when it fails short of the row delete. */
+    async recordWholePhotoPurge({ stopped = true } = {}) {
       const info = (await findCoreInfoById(new ObjectId(id)))!;
       expect(await prepareTrashPurge(id, capturedTrashPurge(info))).toBe(true);
+      if (stopped) await releaseTrashPurge(id);
     },
     purgeRoute() {
       return app.handle(
