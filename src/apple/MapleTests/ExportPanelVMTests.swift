@@ -413,6 +413,8 @@ final class ExportPanelVMTests: XCTestCase {
     XCTAssertEqual(firstURL.lastPathComponent, "ED7AC36B-A150_L0_001.jpg")
     vm.finishSharing(completed: true)
 
+    await vm.refreshOutputFileName(for: session.asset, in: directory)
+    XCTAssertEqual(vm.resolvedOutputFileName, "ED7AC36B-A150_L0_001-2.jpg")
     XCTAssertEqual(
       vm.outputFileName(for: session.asset, in: directory),
       "ED7AC36B-A150_L0_001-2.jpg"

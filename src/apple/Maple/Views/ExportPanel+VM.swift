@@ -61,6 +61,9 @@ final class ExportPanelVM {
   /// Non-nil once `stageForSharing` has written the file; the panel binds
   /// its share sheet to it and clears it when the sheet goes away.
   var stagedFile: StagedExportFile?
+  /// Resolved output filename cached off the main thread for the iOS/iPadOS
+  /// Output section so SwiftUI `body` never performs synchronous disk I/O.
+  private(set) var resolvedOutputFileName: String?
 
   private let render: Renderer
   private let encode: Encoder
@@ -106,16 +109,11 @@ final class ExportPanelVM {
     }
   }
 
-  func outputFileName(for asset: AssetRef, in directory: URL? = nil) -> String {
-    // PhotoKit uses its slash-bearing localIdentifier as the display name
-    // until the original filename is looked up. Keep that identity in the
-    // name, but never let it create subdirectories in the staging location.
-    let safeName = asset.displayName
-      .components(separatedBy: CharacterSet(charactersIn: "/\\:"))
-      .joined(separator: "_")
-      .trimmingCharacters(in: .whitespacesAndNewlines)
-    let stem = safeName.isEmpty ? "Untitled" : safeName
-    let ext = format.fileExtension
+  nonisolated static func uniqueOutputFileName(
+    stem: String,
+    ext: String,
+    in directory: URL? = nil
+  ) -> String {
     let baseName = "\(stem).\(ext)"
     guard let directory else { return baseName }
     var suffix = 1
@@ -127,6 +125,39 @@ final class ExportPanelVM {
       candidate = "\(stem)-\(suffix).\(ext)"
     }
     return candidate
+  }
+
+  private func sanitizedStem(for asset: AssetRef) -> String {
+    // PhotoKit uses its slash-bearing localIdentifier as the display name
+    // until the original filename is looked up. Keep that identity in the
+    // name, but never let it create subdirectories in the staging location.
+    let safeName = asset.displayName
+      .components(separatedBy: CharacterSet(charactersIn: "/\\:"))
+      .joined(separator: "_")
+      .trimmingCharacters(in: .whitespacesAndNewlines)
+    return safeName.isEmpty ? "Untitled" : safeName
+  }
+
+  func outputFileName(for asset: AssetRef, in directory: URL? = nil) -> String {
+    Self.uniqueOutputFileName(
+      stem: sanitizedStem(for: asset),
+      ext: format.fileExtension,
+      in: directory
+    )
+  }
+
+  func refreshOutputFileName(
+    for asset: AssetRef,
+    in directory: URL = FileManager.default.temporaryDirectory
+  ) async {
+    let stem = sanitizedStem(for: asset)
+    let ext = format.fileExtension
+    let resolved = await BlockingWork.run {
+      Self.uniqueOutputFileName(stem: stem, ext: ext, in: directory)
+    }
+    if sanitizedStem(for: asset) == stem, format.fileExtension == ext {
+      resolvedOutputFileName = resolved
+    }
   }
 
   // MARK: - Resolution & Dimensions
@@ -290,10 +321,9 @@ final class ExportPanelVM {
       try guardLive(gen)
       let data = try await encodeOffPool(image)
       try guardLive(gen)
-      let url = directory.appendingPathComponent(
-        outputFileName(for: session.asset, in: directory)
-      )
-      try await publish(data, to: url, gen: gen)
+      let stem = sanitizedStem(for: session.asset)
+      let ext = format.fileExtension
+      try await publish(data, stem: stem, ext: ext, in: directory, gen: gen)
       finish(gen, with: nil)
     } catch {
       finish(gen, with: error)
@@ -321,9 +351,20 @@ final class ExportPanelVM {
   /// attempt goes stale in the window between the two. Without that, a
   /// Cancel landing just after the write orphans up to a gigabyte in the
   /// temp directory that nothing ever comes back for (PR #3455 review).
-  private func publish(_ data: Data, to url: URL, gen: Int) async throws {
+  private func publish(
+    _ data: Data,
+    stem: String,
+    ext: String,
+    in directory: URL,
+    gen: Int
+  ) async throws {
     let writeFile = self.writeFile
-    try await BlockingWork.run { try writeFile(data, url) }
+    let url = try await BlockingWork.run {
+      let fileName = Self.uniqueOutputFileName(stem: stem, ext: ext, in: directory)
+      let targetURL = directory.appendingPathComponent(fileName)
+      try writeFile(data, targetURL)
+      return targetURL
+    }
     do {
       try guardLive(gen)
     } catch {
@@ -334,6 +375,7 @@ final class ExportPanelVM {
       }
       throw error
     }
+    resolvedOutputFileName = url.lastPathComponent
     stagedFile = StagedExportFile(url: url)
   }
 }
