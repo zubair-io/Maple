@@ -147,12 +147,19 @@ export class XmpAdjustmentRestoreService {
     const focused = this.selection.focusedAssetId();
     for (const entry of entries) {
       if (!succeeded.has(entry.address)) continue;
+      if (!this._isPrimaryVariantActive(entry.address)) continue;
       this.store.applyBatchMetadata(entry.address, entry.metadata);
       this.invalidateForAsset(entry.address);
       if (focused === entry.address) {
         void this.restoreForAsset(entry.address);
       }
     }
+  }
+
+  private _isPrimaryVariantActive(id: AssetId): boolean {
+    const absPath = this.store.absPathFor(id);
+    if (!absPath) return true;
+    return this.store.workflowVariants.variantFor(id, absPath) === PRIMARY_VARIANT_ID;
   }
 
   /** Self-Hosted `slug:relPath` assets not yet attempted this session. */
