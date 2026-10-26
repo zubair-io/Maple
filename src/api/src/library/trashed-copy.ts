@@ -18,13 +18,14 @@ import type { AppleCompanionSlot } from '../db/apple-companions.ts';
 import type { ObjectId } from '../db/object-id.ts';
 import type { AssetDoc, FileInfo } from '../db/schema.ts';
 import type { FileStamp } from '../db/repos/local-purge.repo.ts';
+import type { LocationSource } from '../db/repos/assets.trash.ts';
 import { assetLibraryPath, isLiveFileInfo } from '../indexer/images.repo.ts';
 import { resolvePurgeCompanions } from './purge-rendered-companion.ts';
 
 const TRASH_SEGMENTS = ['.maple', 'trash'] as const;
 const TRASH_REL_DIR = TRASH_SEGMENTS.join('/');
 
-function isTrashRelPath(relDir: string): boolean {
+export function isTrashRelPath(relDir: string): boolean {
   return relDir === TRASH_REL_DIR || relDir.startsWith(`${TRASH_REL_DIR}/`);
 }
 
@@ -68,7 +69,7 @@ function survivingCopy(
 export function resolveTrashedCopy(
   fileinfo: readonly FileInfo[] | undefined,
   libraries: ReadonlyMap<string, string>,
-  named?: { libraryId: ObjectId; path: string; filename: string },
+  named?: LocationSource,
 ): TrashedCopy | null {
   const live = (fileinfo ?? []).filter((entry) => !entry.deleted_at);
   const trashed = live.find(
@@ -139,10 +140,11 @@ async function realpathOrNull(target: string): Promise<string | null> {
 
 /**
  * The canonical path to unlink for `target`, and the jail a restore's source
- * passes before it moves (#5405): its real directory plus its own name. Throws `OutsideTrashError` unless it lies inside
- * `<libraryRoot>/.maple/trash/`, both as written and with symlinked
- * directories followed, and with `.maple/trash` itself a real directory of
- * the real library root. Null means the directory holding it no longer
+ * passes before it moves and again before it is removed (#5405): its real
+ * directory plus its own name. Throws
+ * `OutsideTrashError` unless it lies inside `<libraryRoot>/.maple/trash/`,
+ * both as written and with symlinked directories followed, and with
+ * `.maple/trash` itself a real directory of the real library root. Null means the directory holding it no longer
  * exists. An unreachable library root throws, so the caller retries rather
  * than mistaking an unmounted volume for a removed file. The last component
  * is never followed, so a symlink there loses only the link.

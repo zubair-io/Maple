@@ -8,7 +8,7 @@
 import { expect, test } from 'bun:test';
 import { Elysia } from 'elysia';
 import * as path from 'node:path';
-import { copyFile, mkdir, readFile, rename, stat, writeFile } from '../fs/mirrored.ts';
+import { copyFile, mkdir, readFile, rename, rm, stat, symlink, writeFile } from '../fs/mirrored.ts';
 import { ObjectId } from '../db/object-id.ts';
 import { recoveryFixture } from '../cloud-backup/restore.test-helpers.ts';
 import {
@@ -257,6 +257,44 @@ test('a restore while the library is unreachable answers 503 and moves nothing',
     await expectStillTrashed(f, keptBefore);
   } finally {
     if (await exists(offline)) await rename(offline, f.library);
+    await f.close();
+  }
+});
+
+test('a trashed entry that is a symlink to the other copy is refused', async () => {
+  const f = await fixture(['kept', 'dupe'], 1);
+  try {
+    const keptBefore = await snapshot(f, 'kept');
+    await rm(f.trashedRaw);
+    await symlink(path.join(f.library, 'kept', 'IMG_1.dng'), f.trashedRaw);
+
+    const response = await f.restore();
+
+    expect(response.status).toBe(404);
+    expect(await snapshot(f, 'kept')).toEqual(keptBefore);
+    expect(await exists(path.join(f.library, 'dupe', 'IMG_1.dng'))).toBe(false);
+    expect(f.deletedAt()).not.toBeNull();
+  } finally {
+    await f.close();
+  }
+});
+
+test('a restore through a symlinked folder that leaves the library is refused', async () => {
+  const f = await fixture(['kept', 'dupe'], 1);
+  const outside = path.join(f.root, 'outside');
+  try {
+    const keptBefore = await snapshot(f, 'kept');
+    await mkdir(outside);
+    await rm(path.join(f.library, 'dupe'), { recursive: true, force: true });
+    await symlink(outside, path.join(f.library, 'dupe'));
+
+    const response = await f.restore();
+
+    expect(response.status).toBe(400);
+    await rm(path.join(f.library, 'dupe'));
+    await expectStillTrashed(f, keptBefore);
+    expect(await exists(path.join(outside, 'IMG_1.dng'))).toBe(false);
+  } finally {
     await f.close();
   }
 });
