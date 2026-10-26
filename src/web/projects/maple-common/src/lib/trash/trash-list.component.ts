@@ -12,6 +12,7 @@ import { ChangeDetectionStrategy, Component, input, output } from '@angular/core
 import { TrashItemRowComponent } from './trash-item-row.component';
 import { TrashStatusBannerComponent } from './trash-status-banner.component';
 import type { AssetId } from '../models/asset';
+import type { MuiToastVariant } from '../ui/toast/mui-toast.component';
 import type { TrashItem } from './trash.types';
 
 @Component({
@@ -32,6 +33,7 @@ export class TrashListComponent {
   readonly loadError = input<string | null>(null);
   readonly nextCursor = input<string | null>(null);
   readonly toast = input<string | null>(null);
+  readonly toastVariant = input<MuiToastVariant>('info');
 
   readonly restore = output<TrashItem>();
   readonly deletePermanently = output<TrashItem>();

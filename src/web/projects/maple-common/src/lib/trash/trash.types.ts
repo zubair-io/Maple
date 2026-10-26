@@ -74,7 +74,19 @@ export interface TrashBatchSummary {
  * it). */
 export type TrashDeleteOutcome =
   | { kind: 'ok' }
+  | TrashKeptOutcome
   | { kind: 'conflict'; state: 'trashed' | 'live' | null };
+
+/** An `intent: 'purge'` that removed only the trashed copy: another copy of
+ * the photo exists outside Trash, so the server kept the photo there
+ * (`200 {state: 'live', abs_path, cleanup}`, #5403/#5419). `absPath` is the
+ * surviving copy the photo now lives at; `cleanupPending` means removing the
+ * trashed copy's files is still being retried and will finish shortly. */
+export interface TrashKeptOutcome {
+  kind: 'kept';
+  absPath: string | null;
+  cleanupPending: boolean;
+}
 
 /** One asset that did NOT end up trashed from a grid multi-select
  * (`TrashCapability.trashAssets`) — either a real failure, or a benign

@@ -40,7 +40,9 @@ import { errorMessage } from '../util/errors';
 import { LibraryStateService } from '../state/library-state.service';
 import { formatAddress, parentAddress } from '../addressing/maple-address';
 import type { AssetId } from '../models/asset';
-import type { TrashDeleteOutcome, TrashItem } from './trash.types';
+import type { MuiToastVariant } from '../ui/toast/mui-toast.component';
+import type { TrashDeleteOutcome, TrashItem, TrashKeptOutcome } from './trash.types';
+import { folderAddressOf, keptCopiesNote, keptCopyMessage } from './trash-kept-copy';
 
 type ConfirmTarget = { kind: 'item'; item: TrashItem } | { kind: 'all' };
 
@@ -71,6 +73,7 @@ export class TrashPanelComponent implements OnInit {
   readonly loading = signal(false);
   readonly loadError = signal<string | null>(null);
   readonly toast = signal<string | null>(null);
+  readonly toastVariant = signal<MuiToastVariant>('info');
 
   private readonly loadedLibraryId = signal<string | null>(null);
 
@@ -168,18 +171,34 @@ export class TrashPanelComponent implements OnInit {
    * `slug:relPath` addresses to compare — comparing against the raw server id
    * would never match. */
   private refreshVisibleFolderAfterRestore(originalRelativePaths: string[]): void {
-    const openId = this.libraryState.selectedSourceId();
-    if (!openId) return;
     const slug = this.libraryState.registeredFolders().find((f) => f.id === this.libraryId())?.slug;
     if (!slug) return;
-    const affected = new Set(
+    this.refreshVisibleFolderAmong(
       originalRelativePaths.map((relPath) =>
         formatAddress(parentAddress({ slug, relPath }) ?? { slug, relPath: '' }),
       ),
     );
-    if (affected.has(openId)) {
+  }
+
+  /** A kept photo shows again at its surviving copy, which can be in any
+   * library — refresh that folder when it is the one open. */
+  private refreshVisibleFolderAfterKeep(kept: readonly TrashKeptOutcome[]): void {
+    const folders = this.libraryState.registeredFolders();
+    this.refreshVisibleFolderAmong(
+      kept.flatMap((outcome) => folderAddressOf(outcome.absPath, folders) ?? []),
+    );
+  }
+
+  private refreshVisibleFolderAmong(folderAddresses: readonly string[]): void {
+    const openId = this.libraryState.selectedSourceId();
+    if (openId && folderAddresses.includes(openId)) {
       this.libraryState.refreshFolderListing(openId);
     }
+  }
+
+  private notify(message: string, variant: MuiToastVariant): void {
+    this.toastVariant.set(variant);
+    this.toast.set(message);
   }
 
   onRestoreItem(item: TrashItem): void {
@@ -189,17 +208,18 @@ export class TrashPanelComponent implements OnInit {
       next: (result) => {
         this.busyKey.set(null);
         this.items.set(this.items().filter((i) => i.assetId !== item.assetId));
-        this.toast.set(
+        this.notify(
           result.renamedTo
             ? `Restored as "${result.renamedTo}" — "${item.filename}" already existed at the destination.`
             : `Restored "${item.filename}".`,
+          'success',
         );
         this.trash.notifyLibraryMutated(this.libraryId());
         this.refreshVisibleFolderAfterRestore([item.originalRelativePath]);
       },
       error: (err: unknown) => {
         this.busyKey.set(null);
-        this.toast.set(`Couldn't restore "${item.filename}": ${errorMessage(err)}`);
+        this.notify(`Couldn't restore "${item.filename}": ${errorMessage(err)}`, 'error');
       },
     });
   }
@@ -215,17 +235,18 @@ export class TrashPanelComponent implements OnInit {
           .filter((i) => succeededIds.has(i.assetId))
           .map((i) => i.originalRelativePath);
         this.items.set(this.items().filter((i) => !succeededIds.has(i.assetId)));
-        this.toast.set(
+        this.notify(
           summary.failed > 0
             ? `Restored ${summary.succeeded} of ${summary.total} item(s) — ${summary.failed} failed.`
             : `Restored ${summary.succeeded} item(s).`,
+          summary.failed > 0 ? 'warning' : 'success',
         );
         this.trash.notifyLibraryMutated(this.libraryId());
         this.refreshVisibleFolderAfterRestore(succeededPaths);
       },
       error: (err: unknown) => {
         this.busyKey.set(null);
-        this.toast.set(`Restore All failed: ${errorMessage(err)}`);
+        this.notify(`Restore All failed: ${errorMessage(err)}`, 'error');
       },
     });
   }
@@ -283,11 +304,18 @@ export class TrashPanelComponent implements OnInit {
         this.confirmTarget.set(null);
         if (outcome.kind === 'ok') {
           this.items.set(this.items().filter((i) => i.assetId !== item.assetId));
-          this.toast.set(`Permanently deleted "${item.filename}".`);
+          this.notify(`Permanently deleted "${item.filename}".`, 'success');
           this.trash.notifyLibraryMutated(this.libraryId());
           return;
         }
-        this.toast.set(`"${item.filename}" was restored elsewhere — not deleted.`);
+        if (outcome.kind === 'kept') {
+          this.items.set(this.items().filter((i) => i.assetId !== item.assetId));
+          this.notify(keptCopyMessage(item.filename, outcome.cleanupPending), 'info');
+          this.trash.notifyLibraryMutated(this.libraryId());
+          this.refreshVisibleFolderAfterKeep([outcome]);
+          return;
+        }
+        this.notify(`"${item.filename}" was restored elsewhere — not deleted.`, 'info');
         this.refreshListingAfterConflict();
         this.trash.notifyLibraryMutated(this.libraryId());
       },
@@ -307,7 +335,8 @@ export class TrashPanelComponent implements OnInit {
    *
    * Each call passes `intent: 'purge'` (#2749); a per-item `state: 'live'`
    * 409 (restored elsewhere since this list loaded) is tallied separately
-   * from a real failure and reported by name, not folded into "failed". */
+   * from a real failure and reported by name, not folded into "failed".
+   * So is a photo the server kept because another copy of it exists. */
   private async deleteAllPermanently(): Promise<void> {
     this.confirmBusy.set(true);
     const targets = this.items();
@@ -315,6 +344,7 @@ export class TrashPanelComponent implements OnInit {
     let deleted = 0;
     let failed = 0;
     const restoredElsewhere: string[] = [];
+    const kept: Array<{ filename: string; outcome: TrashKeptOutcome }> = [];
     for (const item of targets) {
       try {
         const outcome = await new Promise<TrashDeleteOutcome>((resolve, reject) => {
@@ -325,6 +355,8 @@ export class TrashPanelComponent implements OnInit {
         });
         if (outcome.kind === 'ok') {
           deleted += 1;
+        } else if (outcome.kind === 'kept') {
+          kept.push({ filename: item.filename, outcome });
         } else {
           restoredElsewhere.push(item.filename);
         }
@@ -351,12 +383,18 @@ export class TrashPanelComponent implements OnInit {
       restoredElsewhere.length > 0
         ? ` ${restoredElsewhere.length} were restored elsewhere and not deleted (${restoredElsewhere.join(', ')}).`
         : '';
-    this.toast.set(
+    const keptNote = keptCopiesNote(
+      kept.map((entry) => entry.filename),
+      kept.some((entry) => entry.outcome.cleanupPending),
+    );
+    this.notify(
       failed > 0
-        ? `Permanently deleted ${deleted} of ${targets.length} item(s) — ${failed} failed.${restoredNote}${moreNote}`
-        : `Permanently deleted ${deleted} item(s).${restoredNote}${moreNote}`,
+        ? `Permanently deleted ${deleted} of ${targets.length} item(s) — ${failed} failed.${keptNote}${restoredNote}${moreNote}`
+        : `Permanently deleted ${deleted} item(s).${keptNote}${restoredNote}${moreNote}`,
+      failed > 0 ? 'warning' : kept.length + restoredElsewhere.length > 0 ? 'info' : 'success',
     );
     this.trash.notifyLibraryMutated(this.libraryId());
+    this.refreshVisibleFolderAfterKeep(kept.map((entry) => entry.outcome));
   }
 
   dismissToast(): void {
