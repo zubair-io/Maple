@@ -246,4 +246,21 @@ fn skin_mask_seed_uses_face_evidence_instead_of_clothing_majority() {
         seed_skin_mask_range_if_default_inert(&rgba, 10, 10, &body_mask, &[0_u8; 100]),
         None
     );
+
+    let covered_body_skin_rgb = rgb_of(0.55, 0.06, 55.0);
+    let mut mixed_rgba = Vec::with_capacity(100 * 4);
+    for i in 0..100 {
+        let rgb = if i < 20 {
+            skin_rgb
+        } else if i < 40 {
+            covered_body_skin_rgb
+        } else {
+            skin_rgb
+        };
+        mixed_rgba.extend_from_slice(&[rgb[0], rgb[1], rgb[2], 1.0]);
+    }
+    assert_eq!(
+        seed_skin_mask_range_if_default_inert(&mixed_rgba, 10, 10, &body_mask, &face_mask),
+        None
+    );
 }
