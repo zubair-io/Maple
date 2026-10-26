@@ -52,12 +52,8 @@ import type { AssetCoreInfo, AssetDetailDto, AssetListItemDto } from '../assets.
 export type { AssetCoreInfo, AssetDetailDto, AssetListItemDto };
 export type { SqliteDb } from './db-handle.ts';
 export { requeueEnrichmentStage, setHasXmp, setPlaceOverride } from './assets.mutations.ts';
-export {
-  hardDelete,
-  markSoftDeleted,
-  restoreFromTrash,
-  restoreBackupDestinationOccupied,
-} from './assets.trash.ts';
+export { hardDelete, markSoftDeleted, restoreFromTrash } from './assets.trash.ts';
+export { restoreDestinationClaimed } from './assets.restore-destination.ts';
 
 /**
  * Parse a hex string into an ObjectId, or `null` when it is malformed, so a

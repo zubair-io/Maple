@@ -45,6 +45,10 @@ import type { SqlStatement } from '../sqlite/protocol.ts';
 import { searchRearmStatements, relocateCacheRearmStatements } from './assets.stage-rearm.ts';
 import { canonicalOrdinalStatements } from './assets.trash-survivor.ts';
 import {
+  clearRestoreDestinationStatements,
+  explainRestoreFailure,
+} from './assets.restore-destination.ts';
+import {
   sqliteDb,
   changesAt,
   matchedOne,
@@ -274,16 +278,15 @@ export async function deleteReapedWithoutActiveBackup(
 }
 
 /**
- * Restore: drop a watcher-inserted transient row at the destination, then
- * repoint the canonical asset at its new location.
+ * Restore: clear the destination address, then repoint the canonical asset at
+ * its new location.
  *
- * The watcher race is real and the ordering matters. Between the filesystem
- * move and this write, the discover watcher may have seen the file at its
- * restore location and inserted an asset for it. On Mongo the stale row is
- * deleted first out of tidiness; here it has to be, because
- * `asset_locations_lib_path_name` is UNIQUE and the repoint would otherwise
- * collide with it. Both steps share one transaction, so a failure cannot leave
- * the library with the transient row deleted and nothing put back.
+ * Between the filesystem move and this write, the discover watcher may have
+ * seen the file at its restore location and indexed it, and the photo may hold
+ * its own stale location there. `asset_locations_lib_path_name` is UNIQUE, so
+ * the address is cleared first — see `assets.restore-destination.ts` for which
+ * claims may go (#5425). Every step shares one transaction, so a failure
+ * cannot leave a claim removed and nothing put back.
  */
 export async function restoreFromTrash(args: {
   id: ObjectId;
@@ -304,63 +307,32 @@ export async function restoreFromTrash(args: {
   const destination = resolveDestination('restoreFromTrash', args);
   const hex = args.id.toHexString();
   const guard = lifecycleCommitGuard(args.lifecycle);
-  const results = await db.transaction([
-    ...guard,
-    // A watcher duplicate with an unfinished backup cannot be discarded. Keep
-    // this guard inside the write transaction so late backup admission is seen,
-    // and reject before changing either asset, even if the source no longer matches.
-    {
-      sql: `CREATE TEMP TRIGGER maple_restore_backup_guard BEFORE DELETE ON main.assets
-        WHEN EXISTS (SELECT 1 FROM backup_entries WHERE asset_id=OLD.id AND state!='purged')
-        BEGIN SELECT RAISE(ABORT,'Watcher asset has unfinished backup obligations'); END`,
-    },
-    {
-      sql: `DELETE FROM assets
-             WHERE id <> ?
-               AND id IN (SELECT asset_id FROM asset_locations
-                           WHERE library_id = ? AND path = ? AND filename = ?)`,
-      params: [hex, destination.libraryId, destination.path, destination.filename],
-    },
-    {
-      sql: `UPDATE assets
-               SET size = ?, mtime = ?, deleted_at = NULL, original_path = NULL
-             WHERE id = ?`,
-      params: [args.size, args.mtimeMs, hex],
-    },
-    ...moveTailStatements(hex, destination, args.source),
-    // A photo whose other copy stayed live has both copies live again (#5405);
-    // ordinal 0 must name one of them.
-    ...canonicalOrdinalStatements(hex),
-    ...committedLifecycleStatements(
-      hex,
-      destination.libraryId,
-      args.source ? path.posix.join(args.source.path, args.source.filename) : '',
-      path.posix.join(destination.path, destination.filename),
-      'active',
-      args.lifecycle,
-    ),
-    { sql: `DROP TRIGGER maple_restore_backup_guard` },
-  ]);
-  return updateOutcome(matchedOne(changesAt(results, guard.length + 2)));
-}
-
-/** DB-only watcher claims with backup history occupy a restore candidate too. */
-export async function restoreBackupDestinationOccupied(
-  id: ObjectId,
-  libraryId: ObjectId,
-  relativePath: string,
-  dbOverride?: SqliteDb,
-): Promise<boolean> {
-  const [row] = await sqliteDb(dbOverride).read<{ occupied: number }>(
-    `SELECT EXISTS(SELECT 1 FROM asset_locations l WHERE l.asset_id<>?
-      AND l.library_id=? AND l.path=? AND l.filename=? AND EXISTS
-      (SELECT 1 FROM backup_entries e WHERE e.asset_id=l.asset_id AND e.state!='purged')) AS occupied`,
-    [
-      id.toHexString(),
-      libraryId.toHexString(),
-      path.posix.dirname(relativePath) === '.' ? '' : path.posix.dirname(relativePath),
-      path.posix.basename(relativePath),
-    ],
-  );
-  return row?.occupied === 1;
+  const clearing = clearRestoreDestinationStatements(hex, destination, args.size, args.source);
+  const results = await db
+    .transaction([
+      ...guard,
+      ...clearing,
+      {
+        sql: `UPDATE assets
+                 SET size = ?, mtime = ?, deleted_at = NULL, original_path = NULL
+               WHERE id = ?`,
+        params: [args.size, args.mtimeMs, hex],
+      },
+      ...moveTailStatements(hex, destination, args.source),
+      // A photo whose other copy stayed live has both copies live again (#5405),
+      // and a merged stale location may have held ordinal 0 (#5425).
+      ...canonicalOrdinalStatements(hex),
+      ...committedLifecycleStatements(
+        hex,
+        destination.libraryId,
+        args.source ? path.posix.join(args.source.path, args.source.filename) : '',
+        path.posix.join(destination.path, destination.filename),
+        'active',
+        args.lifecycle,
+      ),
+    ])
+    .catch(async (error: unknown) => {
+      throw await explainRestoreFailure(error, hex, destination, args.dbOverride);
+    });
+  return updateOutcome(matchedOne(changesAt(results, guard.length + clearing.length)));
 }

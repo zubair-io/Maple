@@ -35,7 +35,7 @@ import {
   findCoreInfoById,
   markSoftDeleted,
   restoreFromTrash,
-  restoreBackupDestinationOccupied,
+  restoreDestinationClaimed,
 } from '../db/repos/assets.repo.ts';
 import {
   prepareLifecycle,
@@ -449,6 +449,10 @@ export async function restoreAssetById(
     targetResolution.targetAbs,
   );
   if (destinationRefusal) return destinationRefusal;
+  const sourceSize = await stat(trashedAbsPath).then(
+    (st) => st.size,
+    () => info.size,
+  );
 
   const intent = await prepareLifecycle(
     id.toHexString(),
@@ -479,10 +483,11 @@ export async function restoreAssetById(
         });
       },
       (candidate) =>
-        restoreBackupDestinationOccupied(
+        restoreDestinationClaimed(
           id,
           assetFolderId,
           path.relative(libraryRoot, candidate).split(path.sep).join('/'),
+          sourceSize,
         ),
     ),
   );
