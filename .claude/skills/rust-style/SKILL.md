@@ -5,7 +5,7 @@ description: Maple's Rust style rules, adapted from the Google Rust Style Guide 
 
 # Rust style for Maple
 
-Maple's Rust follows the [Google Rust Style Guide](https://google.github.io/styleguide/rustguide.html), which itself defers to the official [Rust Style Guide](https://doc.rust-lang.org/nightly/style-guide/) and [Rust API Guidelines](https://rust-lang.github.io/api-guidelines/). The rules below are that guide filtered to what applies here, with the places where Maple's own invariants are stricter called out. Where this file and `docs/best-practices.md` § "Rust core" disagree, best-practices wins. The style rules apply to new and changed code; existing code comes into line when it is next touched.
+Maple's Rust follows the [Google Rust Style Guide](https://google.github.io/styleguide/rustguide.html), which itself defers to the official [Rust Style Guide](https://doc.rust-lang.org/nightly/style-guide/) and [Rust API Guidelines](https://rust-lang.github.io/api-guidelines/). The rules below are that guide filtered to what applies here, with the places where Maple's own invariants are stricter called out. Where this file and `docs/best-practices.md` § "Rust core" disagree, best-practices wins.
 
 Everything in `raw-core`, `raw-gpu`, and `maple-pano` is **library code**: API-design rules are binding. `maple-cli`, `codegen`, and the binding crates (`raw-ffi`, `raw-wasm`, `raw-napi`) are **application code**: the same rules are strong recommendations, and simplicity beats generality (CLAUDE.md principle 7, YAGNI).
 
