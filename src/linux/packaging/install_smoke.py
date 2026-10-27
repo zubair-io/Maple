@@ -21,7 +21,7 @@ PHOTO = (
 )
 TEST_TOOLS = ["xvfb", "xauth", "x11-utils", "weston"]
 APPIMAGE_RUNTIME = [*DEB_RUNTIME_DEPENDS, "mesa-vulkan-drivers"]
-FLATPAK_TOOLS = ["flatpak", "ostree"]
+FLATPAK_TOOLS = ["flatpak", "ostree", "dbus"]
 
 
 def run(*command: str, env: dict | None = None, cwd: Path | None = None) -> str:
@@ -64,7 +64,10 @@ def diagnose_problems(binary: Path, env: dict) -> set[str]:
     print(result.stdout, result.stderr, sep="", flush=True)
     problems = set(re.findall(r"^\[problem\] (\w+):", result.stdout, re.MULTILINE))
     if result.returncode != (1 if problems else 0):
-        raise RuntimeError(f"--diagnose exited {result.returncode} for {problems}")
+        raise RuntimeError(
+            f"--diagnose exited {result.returncode} for {problems}:\n"
+            f"{result.stdout}{result.stderr}"
+        )
     for private in [env.get("HOME", ""), str(PHOTO)]:
         if private and private in result.stdout:
             raise RuntimeError("--diagnose printed a private path")
@@ -436,6 +439,11 @@ def smoke_flatpak(package: Path, sessions: list[str]) -> None:
     }
     install = ["--noninteractive", "-y", "--bundle"]
     apt("install", "--no-install-recommends", *FLATPAK_TOOLS, *TEST_TOOLS)
+    # Ubuntu's flatpak run asks malcontent, over the system bus, whether
+    # parental controls allow the app; a desktop always has that bus.
+    run("dbus-uuidgen", "--ensure")
+    Path("/run/dbus").mkdir(exist_ok=True)
+    run("dbus-daemon", "--system", "--fork")
     flatpak("install", *install, str(package), env=env)
     ref = flatpak("info", "--show-ref", APP_ID, env=env).strip()
     files = Path(flatpak("info", "--show-location", APP_ID, env=env).strip()) / "files"

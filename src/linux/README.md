@@ -166,7 +166,9 @@ checks through `flatpak run` against its exported desktop entry and MIME
 package; its `--diagnose` also proves the sandbox finds a Vulkan adapter. Its
 update installs the bundle recommitted as a newer build, and removal also
 checks the app's data directory is gone. Its container runs privileged because
-bubblewrap needs mount and PID namespaces that Docker's defaults forbid.
+bubblewrap needs mount and PID namespaces that Docker's defaults forbid, and it
+starts a system D-Bus, which Ubuntu's `flatpak run` needs for its parental
+controls check.
 
 Run the launch checks locally on X11 with `python3 src/linux/packaging/smoke.py /path/to/maple-linux`.
 On a live Wayland desktop, run `python3 src/linux/packaging/wayland_smoke.py /path/to/maple-linux`.
