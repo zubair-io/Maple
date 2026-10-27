@@ -12,6 +12,7 @@ import { WorkflowXmpService } from './workflow-xmp.service';
 import { XmpParserService } from './xmp-parser.service';
 import { XmpSerializerService } from './xmp-serializer.service';
 import { HostedSidecarFreshnessService } from './hosted-sidecar-freshness.service';
+import { readSidecar } from './xmp-dom-utils';
 
 interface CapturedAction {
   readonly id: string;
@@ -79,7 +80,10 @@ export class HostedWorkflowWriterService {
     return navigator.locks.request('maple-workflow-variant:' + variantId, async () => {
       const current = await this.freshness.readCurrent(folder, name);
       this.freshness.assertUnchanged(folder, name, current, expectedDocument);
-      const workflow = await this.selectedRecord(current, variantId);
+      const workflow = await this.selectedRecord(
+        current === null ? null : readSidecar(current).xml,
+        variantId,
+      );
       const passthrough =
         current === null ? fallback : this.parser.parseAdjustmentModel(current).passthrough;
       const pending = this.actions.get(folder)?.get(name) ?? [];

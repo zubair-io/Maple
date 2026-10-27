@@ -210,6 +210,19 @@ describe('Hosted sidecar external-change protection', () => {
     expect(JSON.parse(workflow_read_xmp(final))).toBeNull();
   });
 
+  it('saves over a sidecar that repeats an attribute, writing it once', async () => {
+    const duplicated = `<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description xmlns:xmp="http://ns.adobe.com/xap/1.0/" xmlns:papp="http://ns.justmaple.app/photo/1.0/" papp:FilmLook="cinema_print" papp:FilmLook="cinema_print" xmp:Rating="1" /></rdf:RDF></x:xmpmeta>`;
+    await fs.writeFile(path(), duplicated);
+    store.replaceLoadedDocuments(folder, new Map([['photo.xmp', duplicated]]));
+    const model = { ...defaultAdjustmentModel(), filmLook: 'cinema_print' };
+    store.scheduleWrite('asset', folder, 'photo.dng', model, culling(2));
+    await store.flushAll();
+    const final = await fs.readFile(path(), 'utf8');
+    expect(final).toContain('xmp:Rating="2"');
+    expect(final.match(/papp:FilmLook="cinema_print"/g)).toHaveLength(1);
+    expect(new Uint8Array(await fs.readFile(join(root, 'photo.dng')))).toEqual(raw);
+  });
+
   it('saves a sidecar whose physical filename differs only by case', async () => {
     await fs.rename(path(), join(root, 'photo.XMP'));
     caseFold = true;
