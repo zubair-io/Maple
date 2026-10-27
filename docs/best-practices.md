@@ -277,6 +277,8 @@ A change behind `#if os(...)` must be built on every platform it touches. CI's o
 - **Every stage gets unit tests**, and the ACR-referenced perceptual harness is the integration gate. Roughly one test per public function and per failure mode — not per line.
 - **A stage change must land its GPU counterpart.** `cargo test -p raw-core` cannot see WGSL divergence; `raw-pipeline.yml` runs a separate `raw-gpu` job that validates the shaders with `naga` and checks raw-core ↔ GPU parity.
 
+Day-to-day style — imports, signatures, error types, traits, naming, `unsafe` — follows the [Google Rust Style Guide](https://google.github.io/styleguide/rustguide.html) as adapted in [`.claude/skills/rust-style/SKILL.md`](../.claude/skills/rust-style/SKILL.md). The rules above override it where they are stricter.
+
 Anything that exists in two languages is single-sourced. Color matrices, the adjustment schema, UI tokens, and the film catalog are all emitted by `src/raw-pipeline/codegen` through `tools/codegen.sh`, and `cross.yml`'s `codegen-drift` job regenerates them and fails on any diff. Change the Rust constant and run the generator; never hand-edit a generated file.
 
 ## Naming
@@ -328,4 +330,5 @@ Anything that exists in two languages is single-sourced. Color matrices, the adj
 - [caching](caching.md) — every cache, its key, and its invalidation rule
 - [testing](testing.md) — the full gate and harness inventory
 - [unified-component-catalog](unified-component-catalog.md) — the design-system inventory
+- [rust-style skill](../.claude/skills/rust-style/SKILL.md) — Rust style rules for people and agents
 - `CONTRIBUTING.md` — ticket, commit, and merge policy

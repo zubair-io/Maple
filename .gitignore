@@ -177,8 +177,9 @@ __screenshots__/
 .vscode/
 *.swp
 
-# Claude Code / agent tooling
-.claude/
+# Claude Code / agent tooling — everything local except the shared skills
+.claude/*
+!.claude/skills/
 .worktrees/
 
 # Playwright test output (src/web/e2e runs)
