@@ -123,3 +123,24 @@ fn synthetic_preview_less_dng_reports_no_preview_5458() {
     .map(AutoFitOutcome::as_str);
     assert_eq!(wire, ["applied", "no-preview", "unfitted"]);
 }
+
+/// A FIFO with no writer blocks on open, so any filesystem open here would hang.
+#[cfg(unix)]
+#[test]
+fn available_fit_input_never_opens_the_source_5458() {
+    let directory = tempfile::tempdir().expect("temp dir");
+    let fifo = directory.path().join("blocking.dng");
+    let made = std::process::Command::new("mkfifo")
+        .arg(&fifo)
+        .status()
+        .expect("mkfifo");
+    assert!(made.success());
+    let (sender, receiver) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let _ = sender.send(auto_fit::unapplied_outcome(&RawInput::Path(&fifo), true));
+    });
+    assert_eq!(
+        receiver.recv_timeout(std::time::Duration::from_secs(5)),
+        Ok(AutoFitOutcome::Unfitted)
+    );
+}
