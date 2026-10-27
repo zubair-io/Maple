@@ -157,8 +157,10 @@ pub(super) fn unapplied_outcome(
     raw_source: &RawInput<'_>,
     fit_input_available: bool,
 ) -> AutoFitOutcome {
-    let unreadable = matches!(raw_source, RawInput::Path(p) if std::fs::File::open(p).is_err());
-    if fit_input_available || unreadable {
+    // Short-circuit: the open is a syscall (an SMB round-trip) on the slider-tick path.
+    if fit_input_available
+        || matches!(raw_source, RawInput::Path(p) if std::fs::File::open(p).is_err())
+    {
         AutoFitOutcome::Unfitted
     } else {
         AutoFitOutcome::NoPreview
