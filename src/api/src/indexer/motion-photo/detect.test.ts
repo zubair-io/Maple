@@ -302,6 +302,18 @@ describe('Samsung HEIC (mpvd + sefd)', () => {
     });
   });
 
+  test('walks an iloc with tens of thousands of items without exhausting the stack', async () => {
+    const clip = mp4('many-items');
+    const xmp = containerXmp({ MotionPhoto: '1', MotionPhotoVersion: '1' }, [
+      { mime: 'image/heic', semantic: 'Primary', padding: 8 },
+      { mime: 'video/mp4', semantic: 'MotionPhoto', length: clip.length },
+    ]);
+    const file = Buffer.concat([heic(xmp, 'idat', 65_000), box('mpvd', clip)]);
+    expect(await clipBytes('items.heic', await detect('items.heic', file))).toBe(
+      clip.toString('latin1'),
+    );
+  });
+
   test('rejects a HEIC clip without its mpvd box', async () => {
     const clip = mp4();
     const xmp = containerXmp({ MotionPhoto: '1', MotionPhotoVersion: '1' }, [

@@ -138,8 +138,11 @@ export function sefTrailer(records: readonly SefRecordSpec[]): Buffer {
 export const MOTION_PHOTO_DATA = 0x0a30;
 export const IMAGE_UTC_DATA = 0x0001;
 
-/** A HEIC with its XMP as a `mime` item stored in `idat` (or at a file offset), plus an `mdat`. */
-export function heic(xmp: string, storage: 'idat' | 'file' = 'idat'): Buffer {
+/**
+ * A HEIC with its XMP as a `mime` item stored in `idat` (or at a file offset), plus an `mdat`.
+ * `decoyItems` empty `iloc` entries precede the XMP item's location.
+ */
+export function heic(xmp: string, storage: 'idat' | 'file' = 'idat', decoyItems = 0): Buffer {
   const ftyp = box(
     'ftyp',
     Buffer.from('heic', 'latin1'),
@@ -161,7 +164,10 @@ export function heic(xmp: string, storage: 'idat' | 'file' = 'idat'): Buffer {
       'iloc',
       1,
       Buffer.from([0x44, 0x00]),
-      u16be(1),
+      u16be(1 + decoyItems),
+      ...Array.from({ length: decoyItems }, () =>
+        Buffer.concat([u16be(3), u16be(0), u16be(0), u16be(0)]),
+      ),
       u16be(2),
       u16be(storage === 'idat' ? 1 : 0),
       u16be(0),

@@ -129,8 +129,7 @@ function findItemLocation(buf: Buffer, iloc: Span, itemId: number): ItemLocation
   const idWidth = version === 2 ? 4 : 2;
   const count = uintAt(buf, iloc.start + 6, idWidth);
   if (count === null) return null;
-  const visit = (offset: number, remaining: number): ItemLocation | null => {
-    if (remaining === 0) return null;
+  const entry = (offset: number) => {
     const id = uintAt(buf, offset, idWidth);
     const methodWidth = version === 0 ? 0 : 2;
     const method = version === 0 ? 0 : uintAt(buf, offset + idWidth, 2);
@@ -141,11 +140,20 @@ function findItemLocation(buf: Buffer, iloc: Span, itemId: number): ItemLocation
     if (id === null || method === null || dataReference === null) return null;
     if (base === null || extentCount === null) return null;
     const read = readExtents(buf, layout, baseAt + layout.baseWidth + 2, extentCount, base);
-    if (!read) return null;
-    if (id !== itemId) return visit(read.next, remaining - 1);
-    return dataReference === 0 ? { constructionMethod: method & 0xf, extents: read.extents } : null;
+    return read && { id, method, dataReference, ...read };
   };
-  return visit(iloc.start + 6 + idWidth, count);
+  // A loop, not recursion: the item count is untrusted and can run to 2^32.
+  for (let remaining = count, offset = iloc.start + 6 + idWidth; remaining > 0; remaining -= 1) {
+    const item = entry(offset);
+    if (!item) return null;
+    if (item.id === itemId) {
+      return item.dataReference === 0
+        ? { constructionMethod: item.method & 0xf, extents: item.extents }
+        : null;
+    }
+    offset = item.next;
+  }
+  return null;
 }
 
 async function findMetaBox(source: ByteSource): Promise<{ start: number; size: number } | null> {
