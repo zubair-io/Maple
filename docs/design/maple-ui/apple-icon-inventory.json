@@ -1671,6 +1671,12 @@
         "line": 246,
         "source": "Image(systemName: \"info.circle\")",
         "reason": "Approved native Photos-style header and system overflow menu (#4003): use SF Symbols with native Liquid Glass controls."
+      },
+      {
+        "file": "src/apple/Maple/Views/PreviewView.swift",
+        "line": 250,
+        "source": "Image(systemName: playsMotionClip ? \"stop.circle\" : \"play.circle\")",
+        "reason": "Motion Photo play/stop sits in the same approved native Photos-style header (#4003, #5447): SF Symbols with native Liquid Glass controls."
       }
     ]
   }
