@@ -55,9 +55,10 @@
   }
 
   /// The photo inside a Light Table print's mat. Fit, never cropped, so a
-  /// non-square photo sits on the white mat.
+  /// non-square photo sits on the mat.
   struct LightTablePrintPhoto: View {
     let image: UIImage?
+    @Environment(\.lightTablePalette) private var palette
 
     var body: some View {
       if let image {
@@ -65,7 +66,7 @@
           .resizable()
           .scaledToFit()
       } else {
-        LightTablePalette.paperBottom
+        palette.paperBottom
       }
     }
   }

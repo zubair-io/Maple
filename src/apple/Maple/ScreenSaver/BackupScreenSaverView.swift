@@ -41,6 +41,7 @@
       LightTableView(
         viewModel: source.viewModel,
         accent: MuiTokens.primary,
+        darkPalette: .maple,
         prefetch: { asset in await source.thumbs.prefetch(asset) },
         printImage: { asset in LightTablePrintPhoto(image: source.thumbs.image(for: asset)) }
       )
@@ -58,24 +59,32 @@
     }
   }
 
-  /// A small "still backing up" readout on a paper-tinted pill, so it reads
-  /// as part of the light table rather than app chrome laid over it.
+  extension LightTablePalette {
+    static let maple = LightTablePalette(
+      paperTop: MuiTokens.surface, paperBottom: MuiTokens.bg, ink: MuiTokens.textMain,
+      mat: MuiTokens.textMain)
+  }
+
+  /// A small "still backing up" readout on a material pill, so it reads as
+  /// part of the light table rather than app chrome laid over it.
   private struct BackupScreenSaverBadge: View {
     let progress: BackupProgressViewModel
+    @Environment(\.colorScheme) private var colorScheme
+
+    private var ink: Color { LightTablePalette.forScheme(colorScheme, dark: .maple).ink }
 
     var body: some View {
       HStack(spacing: MuiTokens.spacingSm) {
         MuiProgress(shape: .ring, size: .sm, value: progress.fractionDone * 100)
         Text("Backing up · \(progress.progressLabel)")
           .font(MuiTokens.TypeScale.font(.body))
-          .foregroundStyle(LightTablePalette.ink.opacity(0.75))
+          .foregroundStyle(ink.opacity(0.75))
           .lineLimit(1)
           .truncationMode(.middle)
       }
       .padding(.horizontal, MuiTokens.spacingMd)
       .padding(.vertical, MuiTokens.spacingSm)
       .background(.regularMaterial, in: Capsule())
-      .environment(\.colorScheme, .light)
       .padding(.horizontal, MuiTokens.spacingMd)
     }
   }
