@@ -302,16 +302,38 @@ describe('Samsung HEIC (mpvd + sefd)', () => {
     });
   });
 
-  test('walks an iloc with tens of thousands of items without exhausting the stack', async () => {
+  test('finds the XMP item behind hundreds of tile items', async () => {
+    const clip = mp4('tiled');
+    const xmp = containerXmp({ MotionPhoto: '1', MotionPhotoVersion: '1' }, [
+      { mime: 'image/heic', semantic: 'Primary', padding: 8 },
+      { mime: 'video/mp4', semantic: 'MotionPhoto', length: clip.length },
+    ]);
+    const file = Buffer.concat([heic(xmp, 'idat', { tiles: 300 }), box('mpvd', clip)]);
+    expect(await clipBytes('tiled.heic', await detect('tiled.heic', file))).toBe(
+      clip.toString('latin1'),
+    );
+  });
+
+  test('walks tens of thousands of items without exhausting the stack', async () => {
     const clip = mp4('many-items');
     const xmp = containerXmp({ MotionPhoto: '1', MotionPhotoVersion: '1' }, [
       { mime: 'image/heic', semantic: 'Primary', padding: 8 },
       { mime: 'video/mp4', semantic: 'MotionPhoto', length: clip.length },
     ]);
-    const file = Buffer.concat([heic(xmp, 'idat', 65_000), box('mpvd', clip)]);
+    const file = Buffer.concat([heic(xmp, 'idat', { extraLocations: 65_000 }), box('mpvd', clip)]);
     expect(await clipBytes('items.heic', await detect('items.heic', file))).toBe(
       clip.toString('latin1'),
     );
+  });
+
+  test('ignores a meta box over 1 MB', async () => {
+    const clip = mp4();
+    const xmp = containerXmp({ MotionPhoto: '1', MotionPhotoVersion: '1' }, [
+      { mime: 'image/heic', semantic: 'Primary', padding: 8 },
+      { mime: 'video/mp4', semantic: 'MotionPhoto', length: clip.length },
+    ]);
+    const file = Buffer.concat([heic(xmp, 'idat', { tiles: 60_000 }), box('mpvd', clip)]);
+    expect(await detect('huge-meta.heic', file)).toEqual({ still: 'no Motion Photo metadata' });
   });
 
   test('rejects a HEIC clip without its mpvd box', async () => {

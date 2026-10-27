@@ -140,9 +140,16 @@ export const IMAGE_UTC_DATA = 0x0001;
 
 /**
  * A HEIC with its XMP as a `mime` item stored in `idat` (or at a file offset), plus an `mdat`.
- * `decoyItems` empty `iloc` entries precede the XMP item's location.
+ * `tiles` image items (declared in `iinf` and located in `iloc`, as a grid image's tiles
+ * are) and `extraLocations` further `iloc` entries precede the XMP item.
  */
-export function heic(xmp: string, storage: 'idat' | 'file' = 'idat', decoyItems = 0): Buffer {
+export function heic(
+  xmp: string,
+  storage: 'idat' | 'file' = 'idat',
+  { tiles = 0, extraLocations = 0 } = {},
+): Buffer {
+  const tileIds = Array.from({ length: tiles }, (_, index) => 3 + index);
+  const locationIds = [...tileIds, ...Array.from({ length: extraLocations }, () => 1)];
   const ftyp = box(
     'ftyp',
     Buffer.from('heic', 'latin1'),
@@ -155,8 +162,9 @@ export function heic(xmp: string, storage: 'idat' | 'file' = 'idat', decoyItems 
   const iinf = fullBox(
     'iinf',
     0,
-    u16be(2),
+    u16be(2 + tiles),
     infe(1, 'hvc1', Buffer.from('\0', 'latin1')),
+    ...tileIds.map((id) => infe(id, 'hvc1', Buffer.from('\0', 'latin1'))),
     infe(2, 'mime', Buffer.from('XMP\0application/rdf+xml\0', 'latin1')),
   );
   const build = (xmpOffset: number) => {
@@ -164,10 +172,8 @@ export function heic(xmp: string, storage: 'idat' | 'file' = 'idat', decoyItems 
       'iloc',
       1,
       Buffer.from([0x44, 0x00]),
-      u16be(1 + decoyItems),
-      ...Array.from({ length: decoyItems }, () =>
-        Buffer.concat([u16be(3), u16be(0), u16be(0), u16be(0)]),
-      ),
+      u16be(1 + locationIds.length),
+      ...locationIds.map((id) => Buffer.concat([u16be(id), u16be(0), u16be(0), u16be(0)])),
       u16be(2),
       u16be(storage === 'idat' ? 1 : 0),
       u16be(0),

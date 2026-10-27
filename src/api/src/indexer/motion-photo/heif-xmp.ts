@@ -25,21 +25,22 @@ function uintAt(buf: Buffer, offset: number, width: number): number | null {
 }
 
 /** Child boxes of a buffer region; stops at the first malformed header. */
+// Uncapped: a tiled HEIC lists hundreds of items, and every box is at least 8 bytes.
 function childBoxes(buf: Buffer, start: number, end: number): Span[] {
-  const walk = (offset: number, found: Span[]): Span[] => {
-    if (end - offset < 8 || found.length >= 64) return found;
+  const found: Span[] = [];
+  for (let offset = start; end - offset >= 8; ) {
     const size = buf.readUInt32BE(offset);
     const headerSize = size === 1 ? 16 : 8;
     const total = size === 1 ? uintAt(buf, offset + 8, 8) : size === 0 ? end - offset : size;
     if (total === null || total < headerSize || total > end - offset) return found;
-    const box = {
+    found.push({
       type: buf.toString('latin1', offset + 4, offset + 8),
       start: offset + headerSize,
       end: offset + total,
-    };
-    return walk(offset + total, [...found, box]);
-  };
-  return walk(start, []);
+    });
+    offset += total;
+  }
+  return found;
 }
 
 function cString(buf: Buffer, offset: number, end: number): { value: string; next: number } | null {
