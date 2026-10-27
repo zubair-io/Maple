@@ -9,21 +9,68 @@ use crate::raster::RasterImage;
 use zune_jpeg::zune_core::bytestream::ZCursor;
 use zune_jpeg::zune_core::colorspace::ColorSpace;
 use zune_jpeg::zune_core::options::DecoderOptions;
+use zune_jpeg::ImageInfo;
 use zune_jpeg::JpegDecoder;
+
+fn jpeg_error(reason: String) -> Error {
+    Error::Decode {
+        path: "<memory>".into(),
+        reason,
+    }
+}
+
+/// zune-jpeg's 16384 px per-side default rejects ordinary stitched panoramas
+/// (#5474), so the per-side cap is lifted and the decode is bounded by the
+/// same pixel ceiling and allocation budget as every other bitmap format.
+/// Progressive files, and baseline files whose scans are not interleaved
+/// (which the frame header cannot reveal), hold one i16 coefficient per
+/// sample for the whole frame. That is charged for every component at full
+/// resolution padded to the largest 32 px MCU, the worst case before chroma
+/// subsampling, plus a fixed allowance for the per-MCU-row buffers.
+fn check_decode_budget(info: &ImageInfo) -> Result<()> {
+    const ROW_BUFFER_ALLOWANCE: u64 = 32 * 1024 * 1024;
+    let (width, height) = (u64::from(info.width), u64::from(info.height));
+    let pixels = width * height;
+    if pixels > u64::from(crate::raster::MAX_RASTER_PIXELS) {
+        return Err(jpeg_error(format!(
+            "jpeg dimensions {width}x{height} exceed the {} pixel limit",
+            crate::raster::MAX_RASTER_PIXELS
+        )));
+    }
+    let padded = width.div_ceil(32) * 32 * height.div_ceil(32) * 32;
+    let may_hold_coefficients = info.sof.is_progressive() || info.components > 1;
+    let coefficients = if may_hold_coefficients {
+        padded * u64::from(info.components) * 2
+    } else {
+        0
+    };
+    let needed = pixels * 3 + coefficients + ROW_BUFFER_ALLOWANCE;
+    if needed > crate::raster::MAX_BITMAP_DECODE_BYTES {
+        return Err(jpeg_error(format!(
+            "jpeg {width}x{height} needs {needed} bytes to decode, over the {} byte budget",
+            crate::raster::MAX_BITMAP_DECODE_BYTES
+        )));
+    }
+    Ok(())
+}
 
 pub(crate) fn decode_jpeg_lenient(bytes: &[u8]) -> Result<RasterImage> {
     let options = DecoderOptions::default()
         .set_strict_mode(false)
+        .set_max_width(usize::from(u16::MAX))
+        .set_max_height(usize::from(u16::MAX))
         .jpeg_set_out_colorspace(ColorSpace::RGB);
     let mut decoder = JpegDecoder::new_with_options(ZCursor::new(bytes), options);
-    let pixels = decoder.decode().map_err(|e| Error::Decode {
-        path: "<memory>".into(),
-        reason: format!("jpeg decode failed: {e}"),
-    })?;
-    let info = decoder.info().ok_or_else(|| Error::Decode {
-        path: "<memory>".into(),
-        reason: "jpeg decode produced no image info".into(),
-    })?;
+    decoder
+        .decode_headers()
+        .map_err(|e| jpeg_error(format!("jpeg decode failed: {e}")))?;
+    let info = decoder
+        .info()
+        .ok_or_else(|| jpeg_error("jpeg decode produced no image info".into()))?;
+    check_decode_budget(&info)?;
+    let pixels = decoder
+        .decode()
+        .map_err(|e| jpeg_error(format!("jpeg decode failed: {e}")))?;
     let (width, height) = (info.width as u32, info.height as u32);
     let expected = width as usize * height as usize * 3;
     if pixels.len() != expected {
@@ -84,6 +131,66 @@ mod tests {
     #[test]
     fn still_rejects_garbage() {
         assert!(decode_jpeg_lenient(b"\xFF\xD8garbage").is_err());
+    }
+
+    /// Rewrite the frame header's declared size, leaving the scan untouched.
+    fn with_declared_size(mut bytes: Vec<u8>, width: u16, height: u16) -> Vec<u8> {
+        let sof = bytes
+            .windows(2)
+            .position(|w| w[0] == 0xFF && matches!(w[1], 0xC0 | 0xC2))
+            .expect("SOF marker");
+        bytes[sof + 5..sof + 7].copy_from_slice(&height.to_be_bytes());
+        bytes[sof + 7..sof + 9].copy_from_slice(&width.to_be_bytes());
+        bytes
+    }
+
+    #[test]
+    fn decodes_a_panorama_wider_than_the_zune_default_limit() {
+        let (width, height) = (19_000u32, 16u32);
+        let rgb: Vec<u8> = (0..width * height)
+            .flat_map(|i| [((i % width) / 75) as u8, 128, 64])
+            .collect();
+        let bytes = crate::jpeg::encode(width, height, &rgb, 90).unwrap();
+        let img = decode_jpeg_lenient(&bytes).unwrap();
+        assert_eq!((img.width, img.height, img.channels), (width, height, 3));
+        assert_eq!(img.data.len(), (width * height * 3) as usize);
+    }
+
+    #[test]
+    fn rejects_a_declared_size_above_the_shared_pixel_ceiling() {
+        let bomb = with_declared_size(jpeg_fixture(), u16::MAX, u16::MAX);
+        let error = decode_jpeg_lenient(&bomb).unwrap_err().to_string();
+        assert!(error.contains("268000000 pixel limit"), "{error}");
+    }
+
+    #[test]
+    fn rejects_a_progressive_frame_whose_coefficients_exceed_the_byte_budget() {
+        use crate::raster_encode::EmbeddedMetadata;
+        use crate::raster_encode_jpeg::{encode_jpeg_opts, ChromaSubsampling, JpegOptions};
+
+        let options = JpegOptions {
+            quality: 80,
+            progressive: true,
+            chroma_subsampling: ChromaSubsampling::Yuv444,
+            optimise_coding: true,
+        };
+        let progressive =
+            encode_jpeg_opts(&photographic_64(), &options, &EmbeddedMetadata::default()).unwrap();
+        // 256 MP is under the pixel ceiling; its RGB output plus three i16
+        // coefficient planes is about 2.3 GB, over the 2 GiB budget.
+        let bomb = with_declared_size(progressive, 16_000, 16_000);
+        let error = decode_jpeg_lenient(&bomb).unwrap_err().to_string();
+        assert!(error.contains("byte budget"), "{error}");
+    }
+
+    /// A non-interleaved baseline file allocates the same full-frame
+    /// coefficient planes as a progressive one, but its frame header says
+    /// baseline, so the budget must charge them for it too.
+    #[test]
+    fn rejects_a_non_interleaved_baseline_frame_over_the_byte_budget() {
+        let bomb = with_declared_size(NONINTERLEAVED_FIXTURE.to_vec(), 16_000, 16_000);
+        let error = decode_jpeg_lenient(&bomb).unwrap_err().to_string();
+        assert!(error.contains("byte budget"), "{error}");
     }
 
     // ---- #3596: Maple's own default JPEG must decode ----
