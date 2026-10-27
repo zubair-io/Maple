@@ -17,20 +17,24 @@ cargo clippy --manifest-path src/linux/Cargo.toml --all-targets --no-deps -- -D 
 
 ## Packages
 
-Maple for Linux is packaged as a native `.deb` for Ubuntu 24.04 and as an AppImage.
-Both are built by the Linux workflow on Ubuntu 24.04, so they need glibc 2.39
-or newer, and each artifact has a `.sha256` file beside it. Flatpak is not built;
-whether to publish one is an open product decision. Build them locally from a
-release executable (the `.deb` needs `dpkg-dev`, the AppImage `squashfs-tools`
-and the pinned [type2 runtime](https://github.com/AppImage/type2-runtime/releases/tag/20251108)):
+Maple for Linux is packaged as a native `.deb` for Ubuntu 24.04, as an AppImage
+and as a single-file Flatpak bundle. All three are built by the Linux workflow
+from the same Ubuntu 24.04 release executable, and each artifact has a `.sha256`
+file beside it. The `.deb` and AppImage need glibc 2.39 or newer on the host; the
+Flatpak brings its own through the `org.freedesktop.Platform` 25.08 runtime. The
+Flatpak is a downloadable bundle, not a Flathub listing. Build them locally from
+a release executable (the `.deb` needs `dpkg-dev`, the AppImage `squashfs-tools`
+and the pinned [type2 runtime](https://github.com/AppImage/type2-runtime/releases/tag/20251108),
+the Flatpak `flatpak-builder`, which installs the runtime and SDK from Flathub):
 
 ```bash
 cargo build --locked --release --manifest-path src/linux/Cargo.toml --bin maple-linux
 python3 src/linux/packaging/package.py deb --output-dir dist
 python3 src/linux/packaging/package.py appimage --runtime runtime-x86_64 --output-dir dist
+python3 src/linux/packaging/package.py flatpak --output-dir dist
 ```
 
-Both packages install the same desktop integration: the
+All three packages install the same desktop integration: the
 `app.justmaple.aperture` desktop entry, the canonical Maple icon and file
 associations, so **Open With → Maple** works from a file manager. The associated
 MIME types are the formats the library opens (`FILE_FORMATS` in
@@ -55,9 +59,22 @@ Opening a photo launches Maple on its folder with that photo selected.
   removes it, keeping any integration file changed since installation. The
   AppImage does not bundle graphics libraries; on Ubuntu 24.04 install
   `libvulkan1 mesa-vulkan-drivers libwayland-client0 libxkbcommon0 libxkbcommon-x11-0 libx11-6 libx11-xcb1 libxcb1 libxcursor1 libxi6 libxrandr2`.
+- **Flatpak:** `flatpak install --user Maple-<version>-x86_64.flatpak`. The
+  bundle names Flathub as its runtime source, so the first install also
+  downloads `org.freedesktop.Platform` 25.08 and its Mesa/NVIDIA graphics
+  extension; nothing else is needed on the host. Run it from the menu or with
+  `flatpak run app.justmaple.aperture`. Installing a newer bundle the same way
+  updates it, and `flatpak uninstall --user --delete-data app.justmaple.aperture`
+  removes it. The manifest, [`packaging/app.justmaple.aperture.yml`](packaging/app.justmaple.aperture.yml),
+  repackages the release executable rather than rebuilding it and justifies
+  each sandbox permission. Maple reads and writes the home directory, `/media`,
+  `/run/media` and `/mnt`, because sidecars are written beside the originals
+  and the document portal cannot create them. Photos elsewhere, including
+  GVfs network shares under `/run/user`, are not reachable from the Flatpak.
 
-Both formats use the same desktop file ID, so a per-user AppImage installation
-takes precedence over an installed `.deb` in menus and file associations.
+All formats use the same desktop file ID, so a per-user AppImage or Flatpak
+installation takes precedence over an installed `.deb` in menus and file
+associations.
 Photos and XMP sidecars are never touched by install, update or removal.
 Cloud credentials require a working Secret Service provider such as GNOME Keyring.
 
@@ -74,7 +91,8 @@ portal file chooser (or the zenity fallback) is available for the folder
 picker. It never starts the portal; an installed but inactive portal is reported
 as activatable. Environment values and photo paths are never printed. It exits 1
 when it finds a problem that stops Maple from working, and 0 otherwise; software
-rendering and the zenity fallback are reported as notes.
+rendering and the zenity fallback are reported as notes. For the Flatpak, run
+`flatpak run app.justmaple.aperture --diagnose`; it reports from inside the sandbox.
 
 ## Support matrix
 
@@ -95,6 +113,8 @@ pixels in a screenshot.
 | Ubuntu 24.04 LTS | .deb     | Wayland (headless Weston)    | Mesa llvmpipe (software) | ci-smoke |
 | Ubuntu 24.04 LTS | AppImage | X11 (Xvfb, no desktop shell) | Mesa llvmpipe (software) | ci-smoke |
 | Ubuntu 24.04 LTS | AppImage | Wayland (headless Weston)    | Mesa llvmpipe (software) | ci-smoke |
+| Ubuntu 24.04 LTS | Flatpak  | X11 (Xvfb, no desktop shell) | Mesa llvmpipe (software) | ci-smoke |
+| Ubuntu 24.04 LTS | Flatpak  | Wayland (headless Weston)    | Mesa llvmpipe (software) | ci-smoke |
 | Ubuntu 24.04 LTS | .deb     | GNOME Wayland                | Intel, AMD, NVIDIA       | untested |
 | Ubuntu 24.04 LTS | .deb     | GNOME X11                    | Intel, AMD, NVIDIA       | untested |
 | Ubuntu 24.04 LTS | .deb     | KDE Plasma Wayland           | Intel, AMD, NVIDIA       | untested |
@@ -103,9 +123,13 @@ pixels in a screenshot.
 | Ubuntu 24.04 LTS | AppImage | GNOME X11                    | Intel, AMD, NVIDIA       | untested |
 | Ubuntu 24.04 LTS | AppImage | KDE Plasma Wayland           | Intel, AMD, NVIDIA       | untested |
 | Ubuntu 24.04 LTS | AppImage | KDE Plasma X11               | Intel, AMD, NVIDIA       | untested |
+| Ubuntu 24.04 LTS | Flatpak  | GNOME Wayland                | Intel, AMD, NVIDIA       | untested |
+| Ubuntu 24.04 LTS | Flatpak  | GNOME X11                    | Intel, AMD, NVIDIA       | untested |
+| Ubuntu 24.04 LTS | Flatpak  | KDE Plasma Wayland           | Intel, AMD, NVIDIA       | untested |
+| Ubuntu 24.04 LTS | Flatpak  | KDE Plasma X11               | Intel, AMD, NVIDIA       | untested |
 
 - **qualified**: Installed, launched and showing photo pixels on physical hardware; evidence linked.
-- **ci-smoke**: Installed, launched, opened through Open With, updated (.deb from an older version; AppImage through its installed installer) and removed in a clean container by every Linux CI run, on Mesa llvmpipe software Vulkan. Proves startup and a committed window buffer, not photo pixels, desktop shell behaviour or GPU performance.
+- **ci-smoke**: Installed, launched, opened through Open With, updated (.deb from an older version; AppImage through its installed installer; Flatpak by installing the bundle recommitted as a newer build) and removed in a clean container by every Linux CI run, on Mesa llvmpipe software Vulkan. Proves startup and a committed window buffer, not photo pixels, desktop shell behaviour or GPU performance.
 - **untested**: Not verified; no support claim is made.
 
 <!-- support-matrix:end -->
@@ -124,7 +148,8 @@ checks do not qualify older distributions, camera color, physical-GPU
 performance, real-account cloud access or complete desktop accessibility.
 
 The Linux workflow builds all targets, runs native tests serially with a required
-Mesa Vulkan adapter, and builds the `.deb` and AppImage on Ubuntu 24.04. Its small
+Mesa Vulkan adapter, and builds the `.deb`, AppImage and Flatpak bundle on
+Ubuntu 24.04. Its small
 committed fixtures check integration and correctness; they do not qualify the
 100MP hardware budget, a real cloud account or color-managed desktop output.
 The workflow extracts the `.deb` outside the checkout and launches it under Xvfb,
@@ -136,7 +161,12 @@ present), file associations, X11 and Wayland launch of the installed executable,
 an **Open With** launch through the installed desktop entry, an update (the
 `.deb` from a relabelled older version; the AppImage through its installed
 installer), and removal of the application and its desktop integration,
-including keeping a desktop entry the user edited.
+including keeping a desktop entry the user edited. The Flatpak runs the same
+checks through `flatpak run` against its exported desktop entry and MIME
+package; its `--diagnose` also proves the sandbox finds a Vulkan adapter. Its
+update installs the bundle recommitted as a newer build, and removal also
+checks the app's data directory is gone. Its container runs privileged because
+bubblewrap needs mount and PID namespaces that Docker's defaults forbid.
 
 Run the launch checks locally on X11 with `python3 src/linux/packaging/smoke.py /path/to/maple-linux`.
 On a live Wayland desktop, run `python3 src/linux/packaging/wayland_smoke.py /path/to/maple-linux`.

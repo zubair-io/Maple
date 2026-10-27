@@ -31,11 +31,19 @@ class SupportMatrixTest(unittest.TestCase):
 
     def test_unknown_values_and_duplicates_are_rejected(self) -> None:
         self.assert_rejected({"status": "supported"}, "Unknown status")
-        self.assert_rejected({"package": "flatpak"}, "Unknown package")
+        self.assert_rejected({"package": "snap"}, "Unknown package")
         matrix = copy.deepcopy(self.matrix)
         matrix["rows"].append(self.row(matrix, "ci-smoke"))
         with self.assertRaisesRegex(ValueError, "Duplicate"):
             support_matrix.validate(matrix)
+
+    def test_flatpak_rows_are_accepted_and_scheduled(self) -> None:
+        flatpak = [row for row in self.matrix["rows"] if row["package"] == "flatpak"]
+        self.assertIn("ci-smoke", {row["status"] for row in flatpak})
+        self.assertIn(
+            "flatpak",
+            {job["package"] for job in support_matrix.ci_smoke(self.matrix)},
+        )
 
     def test_a_stale_table_is_rewritten(self) -> None:
         readme = support_matrix.README.read_text()

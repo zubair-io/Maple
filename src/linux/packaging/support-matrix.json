@@ -4,11 +4,15 @@
   },
   "packages": {
     "deb": ".deb",
-    "appimage": "AppImage"
+    "appimage": "AppImage",
+    "flatpak": "Flatpak"
   },
   "sessions": {
     "x11-xvfb": { "name": "X11 (Xvfb, no desktop shell)", "smoke": "x11" },
-    "wayland-weston": { "name": "Wayland (headless Weston)", "smoke": "wayland" },
+    "wayland-weston": {
+      "name": "Wayland (headless Weston)",
+      "smoke": "wayland"
+    },
     "gnome-wayland": { "name": "GNOME Wayland" },
     "gnome-x11": { "name": "GNOME X11" },
     "kde-wayland": { "name": "KDE Plasma Wayland" },
@@ -16,7 +20,7 @@
   },
   "statuses": {
     "qualified": "Installed, launched and showing photo pixels on physical hardware; evidence linked.",
-    "ci-smoke": "Installed, launched, opened through Open With, updated (.deb from an older version; AppImage through its installed installer) and removed in a clean container by every Linux CI run, on Mesa llvmpipe software Vulkan. Proves startup and a committed window buffer, not photo pixels, desktop shell behaviour or GPU performance.",
+    "ci-smoke": "Installed, launched, opened through Open With, updated (.deb from an older version; AppImage through its installed installer; Flatpak by installing the bundle recommitted as a newer build) and removed in a clean container by every Linux CI run, on Mesa llvmpipe software Vulkan. Proves startup and a committed window buffer, not photo pixels, desktop shell behaviour or GPU performance.",
     "untested": "Not verified; no support claim is made."
   },
   "rows": [
@@ -44,6 +48,20 @@
     {
       "distribution": "ubuntu-24.04",
       "package": "appimage",
+      "session": "wayland-weston",
+      "gpu": "Mesa llvmpipe (software)",
+      "status": "ci-smoke"
+    },
+    {
+      "distribution": "ubuntu-24.04",
+      "package": "flatpak",
+      "session": "x11-xvfb",
+      "gpu": "Mesa llvmpipe (software)",
+      "status": "ci-smoke"
+    },
+    {
+      "distribution": "ubuntu-24.04",
+      "package": "flatpak",
       "session": "wayland-weston",
       "gpu": "Mesa llvmpipe (software)",
       "status": "ci-smoke"
@@ -100,6 +118,34 @@
     {
       "distribution": "ubuntu-24.04",
       "package": "appimage",
+      "session": "kde-x11",
+      "gpu": "Intel, AMD, NVIDIA",
+      "status": "untested"
+    },
+    {
+      "distribution": "ubuntu-24.04",
+      "package": "flatpak",
+      "session": "gnome-wayland",
+      "gpu": "Intel, AMD, NVIDIA",
+      "status": "untested"
+    },
+    {
+      "distribution": "ubuntu-24.04",
+      "package": "flatpak",
+      "session": "gnome-x11",
+      "gpu": "Intel, AMD, NVIDIA",
+      "status": "untested"
+    },
+    {
+      "distribution": "ubuntu-24.04",
+      "package": "flatpak",
+      "session": "kde-wayland",
+      "gpu": "Intel, AMD, NVIDIA",
+      "status": "untested"
+    },
+    {
+      "distribution": "ubuntu-24.04",
+      "package": "flatpak",
       "session": "kde-x11",
       "gpu": "Intel, AMD, NVIDIA",
       "status": "untested"

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build the Maple Linux .deb or AppImage from a release executable (#5449)."""
+"""Build the Maple Linux .deb, AppImage or Flatpak bundle from a release executable (#5449)."""
 
 import argparse
 import hashlib
@@ -34,6 +34,7 @@ DEB_RECOMMENDS = "mesa-vulkan-drivers | vulkan-icd, xdg-desktop-portal"
 APPIMAGE_RUNTIME_SHA256 = {
     "x86_64": "2fca8b443c92510f1483a883f60061ad09b46b978b2631c807cd873a47ec260d",
 }
+FLATHUB = "https://dl.flathub.org/repo/flathub.flatpakrepo"
 
 
 def binary_architecture(binary: Path) -> str:
@@ -192,9 +193,55 @@ def build_appimage(binary: Path, runtime: Path, output_dir: Path) -> Path:
     return output
 
 
+def build_flatpak(binary: Path, output_dir: Path) -> Path:
+    """Repackage the release executable; flatpak-builder only installs files."""
+    architecture = binary_architecture(binary)
+    output = output_dir / f"Maple-{version()}-{architecture}.flatpak"
+    if output.exists():
+        raise FileExistsError(output)
+    with tempfile.TemporaryDirectory(prefix="maple-flatpak-") as directory:
+        work = Path(directory)
+        source = work / "source"
+        stage_usr(binary, source / "usr")
+        for name in [f"{APP_ID}.yml", f"{APP_ID}.metainfo.xml"]:
+            shutil.copyfile(LINUX / "packaging" / name, source / name)
+        subprocess.run(
+            ["flatpak", "remote-add", "--user", "--if-not-exists", "flathub", FLATHUB],
+            check=True,
+        )
+        repo = work / "repo"
+        subprocess.run(
+            [
+                "flatpak-builder",
+                "--user",
+                "--install-deps-from=flathub",
+                "--disable-rofiles-fuse",
+                f"--arch={architecture}",
+                f"--state-dir={work / 'state'}",
+                f"--repo={repo}",
+                str(work / "build"),
+                str(source / f"{APP_ID}.yml"),
+            ],
+            check=True,
+        )
+        subprocess.run(
+            [
+                "flatpak",
+                "build-bundle",
+                f"--arch={architecture}",
+                f"--runtime-repo={FLATHUB}",
+                str(repo),
+                str(output),
+                APP_ID,
+            ],
+            check=True,
+        )
+    return output
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("format", choices=["deb", "appimage"])
+    parser.add_argument("format", choices=["deb", "appimage", "flatpak"])
     parser.add_argument(
         "--binary", type=Path, default=LINUX / "target/release/maple-linux"
     )
@@ -207,11 +254,14 @@ def main() -> None:
     if args.format == "appimage" and args.runtime is None:
         parser.error("appimage requires --runtime")
     output_dir = args.output_dir.resolve(strict=True)
-    artifact = (
-        build_deb(binary, output_dir)
-        if args.format == "deb"
-        else build_appimage(binary, args.runtime.resolve(strict=True), output_dir)
-    )
+    builders = {
+        "deb": lambda: build_deb(binary, output_dir),
+        "appimage": lambda: build_appimage(
+            binary, args.runtime.resolve(strict=True), output_dir
+        ),
+        "flatpak": lambda: build_flatpak(binary, output_dir),
+    }
+    artifact = builders[args.format]()
     checksum = artifact.with_name(f"{artifact.name}.sha256")
     with checksum.open("x") as record:
         record.write(f"{sha256(artifact)}  {artifact.name}\n")
