@@ -70,7 +70,7 @@
     >
       @if (motion.src(); as clip) {
         <video
-          class="h-full w-full bg-black object-contain"
+          class="absolute inset-0 z-10 h-full w-full bg-black object-contain"
           data-testid="motion-clip-player"
           [src]="clip"
           [poster]="previewUrl() ?? thumbUrl()"
@@ -84,7 +84,8 @@
           (pointerdown)="$event.stopPropagation()"
           (pointerup)="$event.stopPropagation()"
         ></video>
-      } @else if (videoUrl(); as video) {
+      }
+      @if (videoUrl(); as video) {
         <video
           class="h-full w-full bg-black object-contain"
           [src]="video"
