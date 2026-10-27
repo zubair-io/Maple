@@ -11,20 +11,17 @@
 // saver (#5457). Each platform supplies its own thumbnail pipeline through
 // `prefetch` (fully fetch + decode before a print appears, so it glides in
 // already rendered) and `printImage` (the photo inside the mat). On tvOS the
-// Siri Remote can move focus onto any print, which raises it.
+// Siri Remote can move focus onto any print, which raises it. The table
+// follows `\.colorScheme`: warm paper when light, the caller's `darkPalette`
+// when dark (see `LightTablePalette`).
 
 import SwiftUI
-
-public enum LightTablePalette {
-  public static let paperTop = Color(red: 0xfd / 255, green: 0xfc / 255, blue: 0xf9 / 255)
-  public static let paperBottom = Color(red: 0xe6 / 255, green: 0xe1 / 255, blue: 0xd5 / 255)
-  public static let ink = Color(red: 0x1c / 255, green: 0x19 / 255, blue: 0x17 / 255)
-}
 
 public struct LightTableView<PrintImage: View>: View {
   private let viewModel: LightTableViewModel
   private let fixedMetrics: LightTableMetrics?
   private let accent: Color
+  private let darkPalette: LightTablePalette
   private let prefetch: @MainActor (SearchAsset) async -> Void
   private let printImage: (SearchAsset) -> PrintImage
 
@@ -45,18 +42,21 @@ public struct LightTableView<PrintImage: View>: View {
   @State private var spawnSeq: Double = 0
   @FocusState private var focusedPrintID: UUID?
   @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
+  @Environment(\.colorScheme) private var colorScheme
 
   /// - Parameter metrics: fixed stage geometry, or nil to fit the container.
   public init(
     viewModel: LightTableViewModel,
     metrics: LightTableMetrics? = nil,
     accent: Color,
+    darkPalette: LightTablePalette,
     prefetch: @escaping @MainActor (SearchAsset) async -> Void,
     @ViewBuilder printImage: @escaping (SearchAsset) -> PrintImage
   ) {
     self.viewModel = viewModel
     self.fixedMetrics = metrics
     self.accent = accent
+    self.darkPalette = darkPalette
     self.prefetch = prefetch
     self.printImage = printImage
   }
@@ -99,10 +99,14 @@ public struct LightTableView<PrintImage: View>: View {
     .seconds(.random(in: 18...34))
   }
 
+  private var palette: LightTablePalette {
+    .forScheme(colorScheme, dark: darkPalette)
+  }
+
   public var body: some View {
     ZStack {
       LinearGradient(
-        colors: [LightTablePalette.paperTop, LightTablePalette.paperBottom],
+        colors: [palette.paperTop, palette.paperBottom],
         startPoint: .top, endPoint: .bottom
       )
       .ignoresSafeArea()
@@ -114,6 +118,7 @@ public struct LightTableView<PrintImage: View>: View {
       }
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity)
+    .environment(\.lightTablePalette, palette)
     .task {
       await viewModel.load()
       guard !Task.isCancelled else { return }
@@ -169,8 +174,8 @@ public struct LightTableView<PrintImage: View>: View {
 
   private var loadingView: some View {
     ProgressView("Loading the Light Table…")
-      .tint(LightTablePalette.ink)
-      .foregroundStyle(LightTablePalette.ink)
+      .tint(palette.ink)
+      .foregroundStyle(palette.ink)
       .frame(maxWidth: .infinity, maxHeight: .infinity)
       .accessibilityLabel("Loading the Light Table")
   }
@@ -183,10 +188,10 @@ public struct LightTableView<PrintImage: View>: View {
         .accessibilityHidden(true)
       Text("Couldn't load the Light Table")
         .font(.system(size: metrics.titleSize, weight: .semibold))
-        .foregroundStyle(LightTablePalette.ink)
+        .foregroundStyle(palette.ink)
       Text(error.localizedDescription)
         .font(.system(size: metrics.bodySize))
-        .foregroundStyle(LightTablePalette.ink.opacity(0.65))
+        .foregroundStyle(palette.ink.opacity(0.65))
         .multilineTextAlignment(.center)
         .frame(maxWidth: metrics.messageWidth)
       #if os(tvOS)
@@ -204,14 +209,14 @@ public struct LightTableView<PrintImage: View>: View {
     VStack(spacing: 16) {
       Image(systemName: "rectangle.grid.2x2")
         .font(.system(size: metrics.iconSize))
-        .foregroundStyle(LightTablePalette.ink.opacity(0.4))
+        .foregroundStyle(palette.ink.opacity(0.4))
         .accessibilityHidden(true)
       Text("Nothing to show yet")
         .font(.system(size: metrics.titleSize, weight: .semibold))
-        .foregroundStyle(LightTablePalette.ink)
+        .foregroundStyle(palette.ink)
       Text("Pick or rate some photos to fill the Light Table.")
         .font(.system(size: metrics.captionSize))
-        .foregroundStyle(LightTablePalette.ink.opacity(0.6))
+        .foregroundStyle(palette.ink.opacity(0.6))
         .multilineTextAlignment(.center)
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -223,7 +228,8 @@ public struct LightTableView<PrintImage: View>: View {
     ZStack {
       ForEach(stage) { print in
         LightTablePrintCard(
-          imageSize: metrics.imageSize, matPadding: metrics.matPadding, accent: accent
+          imageSize: metrics.imageSize, matPadding: metrics.matPadding, mat: palette.mat,
+          accent: accent
         ) {
           printImage(print.asset)
         }

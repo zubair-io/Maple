@@ -110,6 +110,7 @@
       }
       if decision.showScreenSaver {
         presentSaver()
+        saverWindow.map(Self.followSystemAppearance)
       } else {
         dismissSaver()
       }
@@ -157,11 +158,22 @@
       window.addGestureRecognizer(
         TouchActivityRecognizer { [weak self] in self?.dismissFromTouch() })
       window.alpha = 0
+      Self.followSystemAppearance(window)
       windowBeforeSaver = scene.keyWindow
       window.makeKeyAndVisible()
       saverWindow = window
       UIView.animate(withDuration: 0.6) { window.alpha = 1 }
       UIAccessibility.post(notification: .screenChanged, argument: nil)
+    }
+
+    /// The app forces its own windows dark, which this window would inherit;
+    /// the Light Table follows the device's Light/Dark setting instead, which
+    /// only the screen's traits still report. Re-read every tick, so a
+    /// switch while the screen saver shows reaches it within a second.
+    private static func followSystemAppearance(_ window: UIWindow) {
+      let style = window.windowScene?.screen.traitCollection.userInterfaceStyle ?? .unspecified
+      guard window.overrideUserInterfaceStyle != style else { return }
+      window.overrideUserInterfaceStyle = style
     }
 
     private var previewSettings: BackupSettings? {

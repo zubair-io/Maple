@@ -25,12 +25,13 @@ struct PrintFall: ViewModifier {
   }
 }
 
-/// One scattered "print" — a photo on a white mat with a layered drop
+/// One scattered "print" — a photo on a mat with a layered drop
 /// shadow. Reads `\.isFocused` from the focusable modifier applied just
 /// outside it, raising itself with an accent ring when focused (tvOS).
 struct LightTablePrintCard<Content: View>: View {
   let imageSize: CGFloat
   let matPadding: CGFloat
+  let mat: Color
   let accent: Color
   @ViewBuilder let content: Content
 
@@ -42,7 +43,7 @@ struct LightTablePrintCard<Content: View>: View {
     content
       .frame(width: imageSize, height: imageSize)
       .padding(matPadding)
-      .background(Color.white)
+      .background(mat)
       .clipShape(RoundedRectangle(cornerRadius: 6))
       .overlay(
         RoundedRectangle(cornerRadius: 6)
