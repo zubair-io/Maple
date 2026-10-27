@@ -163,39 +163,48 @@ def open_with(desktop: Path, binary: Path, env: dict) -> None:
         photo = Path(directory) / "grey.dng"
         shutil.copyfile(PHOTO, photo)
         server = subprocess.Popen(["Xvfb", ":71", "-screen", "0", "1280x800x24"])
-        launched = None
         try:
             deadline = time.monotonic() + 20
             while not Path("/tmp/.X11-unix/X71").is_socket():
                 if server.poll() is not None or time.monotonic() > deadline:
                     raise RuntimeError("Xvfb did not start")
                 time.sleep(0.1)
-            run(
-                "gio",
-                "launch",
-                str(desktop),
-                str(photo),
+            # Not run(): Maple inherits gio's stdout, so a captured pipe would
+            # never reach EOF while Maple is still running.
+            command = ["gio", "launch", str(desktop), str(photo)]
+            print("+", " ".join(command), flush=True)
+            subprocess.run(
+                command,
                 env={**headless(env), "DISPLAY": ":71"},
+                stdin=subprocess.DEVNULL,
+                check=True,
+                timeout=60,
             )
             deadline = time.monotonic() + 20
-            while launched is None and time.monotonic() < deadline:
-                launched = next(
-                    (
-                        process
-                        for process in Path("/proc").iterdir()
-                        if process.name.isdigit() and is_launch(process, binary, photo)
-                    ),
-                    None,
-                )
+            while not (launched := launches(binary, photo)):
+                if time.monotonic() > deadline:
+                    raise RuntimeError("Open With did not start Maple with the photo")
                 time.sleep(0.2)
-            if launched is None:
-                raise RuntimeError("Open With did not start Maple with the photo")
-            print(f"Open With started PID {launched.name} on the photo.")
+            print(f"Open With started PID {launched[0].name} on the photo.")
         finally:
-            if launched is not None:
-                subprocess.run(["kill", launched.name], check=False)
+            # A stray Maple would hold the step's stdout open, so it is killed
+            # even when the launch check failed part-way.
+            for process in launches(binary, photo):
+                subprocess.run(["kill", "-KILL", process.name], check=False)
             server.terminate()
-            server.wait(timeout=10)
+            try:
+                server.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                server.kill()
+                server.wait()
+
+
+def launches(binary: Path, photo: Path) -> list[Path]:
+    return [
+        process
+        for process in Path("/proc").iterdir()
+        if process.name.isdigit() and is_launch(process, binary, photo)
+    ]
 
 
 def is_launch(process: Path, binary: Path, photo: Path) -> bool:
