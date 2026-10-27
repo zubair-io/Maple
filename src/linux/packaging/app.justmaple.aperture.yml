@@ -1,0 +1,46 @@
+# Repackages the release maple-linux the Linux workflow already built and
+# tested (#5449); package.py stages it, with the desktop integration, beside this manifest.
+app-id: app.justmaple.aperture
+runtime: org.freedesktop.Platform
+runtime-version: "25.08"
+sdk: org.freedesktop.Sdk
+command: maple-linux
+finish-args:
+  - --socket=wayland
+  - --socket=fallback-x11
+  # X11 shared-memory buffers need the host IPC namespace.
+  - --share=ipc
+  # GPU device nodes for Vulkan; Mesa and NVIDIA drivers come from the
+  # org.freedesktop.Platform.GL extension.
+  - --device=dri
+  # Edits are XMP sidecars written beside each original, so Maple needs
+  # read-write access to the folders photos live in: the home directory and
+  # card readers, external drives and shares mounted under these paths. The document
+  # portal exposes only the files handed to Maple, so a new sidecar beside an
+  # opened photo could not be created through it. Originals are never written.
+  - --filesystem=home
+  - --filesystem=/media
+  - --filesystem=/run/media
+  - --filesystem=/mnt
+  # Cloud sync and sign-in reach the user's Maple server.
+  - --share=network
+  # Cloud credentials are stored in the Secret Service keyring. The keyring
+  # crate speaks the Secret Service D-Bus API directly, which the Secret portal
+  # does not serve, so this exposes the whole keyring service, not one item.
+  - --talk-name=org.freedesktop.secrets
+modules:
+  - name: maple
+    buildsystem: simple
+    build-options:
+      # The release executable is shipped as built, not re-stripped.
+      no-debuginfo: true
+      strip: false
+    build-commands:
+      - cp -a usr/. /app/
+      - install -Dm644 -t /app/share/metainfo app.justmaple.aperture.metainfo.xml
+    sources:
+      - type: dir
+        path: usr
+        dest: usr
+      - type: file
+        path: app.justmaple.aperture.metainfo.xml

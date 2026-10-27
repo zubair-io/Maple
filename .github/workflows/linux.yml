@@ -78,7 +78,8 @@ jobs:
             libxkbcommon-dev libxkbcommon-x11-0 libxcb-xkb1 \
             libxcursor1 libxi6 libxrandr2 xvfb xauth x11-utils weston \
             python3-dbus dbus-daemon at-spi2-core \
-            dpkg-dev squashfs-tools shared-mime-info
+            dpkg-dev squashfs-tools shared-mime-info \
+            flatpak flatpak-builder appstream
           install -d -m 700 "$XDG_RUNTIME_DIR"
       - name: Require and report a Vulkan adapter
         run: |
@@ -92,7 +93,9 @@ jobs:
         run: cargo test --locked --manifest-path src/linux/Cargo.toml --all-targets -- --test-threads=1
       - name: Build release application
         run: cargo build --locked --release --manifest-path src/linux/Cargo.toml --bin maple-linux
-      - name: Build .deb and AppImage
+      - name: Validate the AppStream metadata
+        run: appstreamcli validate --no-net src/linux/packaging/app.justmaple.aperture.metainfo.xml
+      - name: Build .deb, AppImage and Flatpak bundle
         run: |
           mkdir "$RUNNER_TEMP/maple-packages"
           curl -fsSL -o "$RUNNER_TEMP/runtime-x86_64" \
@@ -100,6 +103,7 @@ jobs:
           python3 src/linux/packaging/package.py deb --output-dir "$RUNNER_TEMP/maple-packages"
           python3 src/linux/packaging/package.py appimage \
             --runtime "$RUNNER_TEMP/runtime-x86_64" --output-dir "$RUNNER_TEMP/maple-packages"
+          python3 src/linux/packaging/package.py flatpak --output-dir "$RUNNER_TEMP/maple-packages"
           cd "$RUNNER_TEMP/maple-packages"
           sha256sum -c ./*.sha256
       - name: Launch extracted release outside checkout
@@ -121,7 +125,12 @@ jobs:
     needs: [support-matrix, native-build-and-test]
     runs-on: ubuntu-24.04
     timeout-minutes: 30
-    container: ${{ matrix.container }}
+    container:
+      image: ${{ matrix.container }}
+      # Flatpak's bubblewrap sandbox creates mount and PID namespaces, which
+      # Docker's default seccomp and capability set forbid. The container is
+      # disposable, so it runs privileged for the Flatpak rows only.
+      options: ${{ matrix.package == 'flatpak' && '--privileged' || '' }}
     strategy:
       fail-fast: false
       matrix:
@@ -146,6 +155,7 @@ jobs:
           case '${{ matrix.package }}' in
             deb) artifact=$(ls packages/*.deb) ;;
             appimage) artifact=$(ls packages/*.AppImage) ;;
+            flatpak) artifact=$(ls packages/*.flatpak) ;;
           esac
           python3 src/linux/packaging/install_smoke.py '${{ matrix.package }}' "$artifact" \
             --sessions '${{ matrix.sessions }}'

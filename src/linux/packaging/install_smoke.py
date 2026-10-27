@@ -21,6 +21,7 @@ PHOTO = (
 )
 TEST_TOOLS = ["xvfb", "xauth", "x11-utils", "weston"]
 APPIMAGE_RUNTIME = [*DEB_RUNTIME_DEPENDS, "mesa-vulkan-drivers"]
+FLATPAK_TOOLS = ["flatpak", "ostree"]
 
 
 def run(*command: str, env: dict | None = None, cwd: Path | None = None) -> str:
@@ -381,9 +382,98 @@ def smoke_appimage(package: Path, sessions: list[str]) -> None:
     )
 
 
+def newer_bundle(package: Path, ref: str, directory: Path) -> Path:
+    """The same build recommitted on top of itself, so installing it is an update."""
+    repo = directory / "repo"
+    run("ostree", f"--repo={repo}", "init", "--mode=archive")
+    run("flatpak", "build-import-bundle", str(repo), str(package))
+    run(
+        "flatpak",
+        "build-commit-from",
+        "--force",
+        f"--src-ref={ref}",
+        "--subject=Maple smoke update",
+        str(repo),
+        ref,
+    )
+    output = directory / "maple-newer.flatpak"
+    _, _, architecture, branch = ref.split("/")
+    run(
+        "flatpak",
+        "build-bundle",
+        f"--arch={architecture}",
+        str(repo),
+        str(output),
+        APP_ID,
+        branch,
+    )
+    return output
+
+
+def flatpak(command: str, *arguments: str, env: dict) -> str:
+    return run("flatpak", command, "--user", *arguments, env=env)
+
+
+def expect_sandbox_problems(launcher: Path, env: dict) -> None:
+    """Headless and without a session bus; the runtime has no zenity fallback."""
+    found = diagnose_problems(launcher, headless(env))
+    if found != {"session", "portal"}:
+        raise RuntimeError(f"--diagnose in the sandbox found {sorted(found)}")
+
+
+def smoke_flatpak(package: Path, sessions: list[str]) -> None:
+    home = Path.home()
+    exports = home / ".local/share/flatpak/exports/share"
+    # The sandbox has a private /tmp; photos the smokes open must live in home.
+    tempfile.tempdir = str(home / "maple-smoke-tmp")
+    Path(tempfile.tempdir).mkdir()
+    env = {
+        key: value for key, value in os.environ.items() if not key.startswith("XDG_")
+    } | {
+        "TMPDIR": tempfile.tempdir,
+        "XDG_RUNTIME_DIR": tempfile.mkdtemp(prefix="maple-runtime-"),
+        "XDG_DATA_DIRS": f"{exports}:/usr/local/share:/usr/share",
+    }
+    install = ["--noninteractive", "-y", "--bundle"]
+    apt("install", "--no-install-recommends", *FLATPAK_TOOLS, *TEST_TOOLS)
+    flatpak("install", *install, str(package), env=env)
+    ref = flatpak("info", "--show-ref", APP_ID, env=env).strip()
+    launcher = home / "maple-flatpak"
+    launcher.write_text(f'#!/bin/sh\nexec flatpak run --user {APP_ID} "$@"\n')
+    launcher.chmod(0o755)
+    expect_sandbox_problems(launcher, env)
+    desktop = exports / f"applications/{APP_ID}.desktop"
+    check_associations(exports, env)
+    launch(launcher, sessions, env)
+    # /proc reports a sandboxed executable at its path inside the sandbox.
+    open_with(desktop, Path("/app/bin/maple-linux"), env)
+    installed = flatpak("info", "--show-commit", APP_ID, env=env)
+    with tempfile.TemporaryDirectory(prefix="maple-flatpak-") as directory:
+        newer = newer_bundle(package, ref, Path(directory))
+        flatpak("install", *install, str(newer), env=env)
+    if flatpak("info", "--show-commit", APP_ID, env=env) == installed:
+        raise RuntimeError("Installing the newer bundle did not update Maple")
+    expect_sandbox_problems(launcher, env)
+    check_associations(exports, env)
+    flatpak("uninstall", "--noninteractive", "-y", "--delete-data", APP_ID, env=env)
+    if f"{APP_ID}-origin" in flatpak("remotes", env=env):
+        raise RuntimeError("Uninstall left the bundle's origin remote")
+    check_removed(
+        [
+            home / f".local/share/flatpak/app/{APP_ID}",
+            home / f".var/app/{APP_ID}",
+            desktop,
+            exports / f"icons/hicolor/512x512/apps/{APP_ID}.png",
+            exports / f"mime/packages/{APP_ID}.xml",
+        ],
+        exports,
+        env,
+    )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("format", choices=["deb", "appimage"])
+    parser.add_argument("format", choices=["deb", "appimage", "flatpak"])
     parser.add_argument("package", type=Path)
     parser.add_argument("--sessions", default="x11,wayland")
     args = parser.parse_args()
@@ -392,7 +482,8 @@ def main() -> None:
         raise SystemExit("Run this only as root in a disposable container")
     sessions = args.sessions.split(",")
     package = args.package.resolve(strict=True)
-    (smoke_deb if args.format == "deb" else smoke_appimage)(package, sessions)
+    smokes = {"deb": smoke_deb, "appimage": smoke_appimage, "flatpak": smoke_flatpak}
+    smokes[args.format](package, sessions)
     print(f"{args.format} install, launch, update and removal passed.")
 
 

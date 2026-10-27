@@ -9,6 +9,32 @@ import tempfile
 import time
 
 
+def read(path: Path) -> str:
+    try:
+        return path.read_text()
+    except OSError:
+        return ""
+
+
+def namespaced_pids(root: int) -> set[int]:
+    """PIDs of root and its descendants as each process sees itself, so a window
+    from an app in its own PID namespace (Flatpak) still matches its launcher."""
+    parents = {
+        int(entry.name): int(stat.rsplit(")", 1)[1].split()[1])
+        for entry in Path("/proc").iterdir()
+        if entry.name.isdigit() and (stat := read(entry / "stat"))
+    }
+    tree = {root}
+    while grown := {pid for pid, parent in parents.items() if parent in tree} - tree:
+        tree |= grown
+    return {
+        int(nspid[1].split()[-1])
+        if (nspid := re.search(r"^NSpid:\s+(.+)$", read(Path(f"/proc/{pid}/status")), re.MULTILINE))
+        else pid
+        for pid in tree
+    }
+
+
 def inspect(binary: Path) -> None:
     with tempfile.TemporaryDirectory(prefix="maple-package-smoke-") as directory:
         root = Path(directory)
@@ -33,6 +59,7 @@ def inspect(binary: Path) -> None:
                     if tree.returncode:
                         time.sleep(0.1)
                         continue
+                    launched = namespaced_pids(process.pid)
                     for line in tree.stdout.splitlines():
                         match = re.search(r'(0x[0-9a-f]+) "Maple".*?\s(\d+)x(\d+)\+', line)
                         if not match or int(match[2]) < 800 or int(match[3]) < 540:
@@ -45,7 +72,7 @@ def inspect(binary: Path) -> None:
                             continue
                         properties = queried.stdout
                         pid = re.search(r"_NET_WM_PID\(CARDINAL\) = (\d+)", properties)
-                        if pid and int(pid[1]) == process.pid and '"app.justmaple.aperture"' in properties:
+                        if pid and int(pid[1]) in launched and '"app.justmaple.aperture"' in properties:
                             window = (line.strip(), properties.strip())
                             break
                     if window:
