@@ -24,7 +24,7 @@ Chromium-, Android-, and Fuchsia-only rules from the Google guide (one-file crat
 
 ## Formatting
 
-- `rustfmt` with repo defaults (edition 2021, 100-column width). Formatting is not a review topic.
+- `rustfmt` with repo defaults (edition 2021, 100-column width) on the files you touch. Only `raw-ffi` is fully rustfmt-clean and gated by `cargo fmt --check -p raw-ffi`; don't reformat untouched files in other crates. Formatting is not a review topic.
 - `#[rustfmt::skip]` only for deliberate alignment (a 3×3 colour matrix, a LUT table) or generated code — never for taste.
 
 ## Modules and imports
@@ -109,7 +109,7 @@ Prefer, in order: functions/types/traits → `macro_rules!` → code generation 
 
 - Every public item in library crates gets a `///` doc comment that states what a reader can't infer from the signature: units, colour space, value range, panics, errors.
 - `//!` at the top of a module for its invariants (see `raw-core/src/api.rs`).
-- Unit tests live in an inline `#[cfg(test)] mod tests` with `use super::*;`. Roughly one test per public function and per failure mode; the ACR perceptual harness is the integration gate (`docs/testing.md`).
+- Unit tests live in an inline `#[cfg(test)] mod tests` with `use super::*;`. Roughly one test per public function and per failure mode. The colour integration gate is `src/scripts/test_color_pipeline.sh`, which compares Auto against each camera's embedded JPEG (`docs/testing.md`); ACR comparisons are retired (#5000) and must not be reinstated.
 
 ## Reviewing against this guide
 
