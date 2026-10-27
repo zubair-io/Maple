@@ -10,8 +10,9 @@
 //     progressed recently, or a request is still sending its bytes.
 //   - Plugged in (charging or full): the screen stays on for as long as the
 //     upload runs, and after `screenSaverDelay` without a touch the screen
-//     saver appears (when enabled) — unless someone is using the app in a
-//     way a touch count can't see: VoiceOver, Switch Control, or typing.
+//     saver appears (when enabled; it is off by default) — unless the editor
+//     is showing, or someone is using the app in a way a touch count can't
+//     see: VoiceOver, Switch Control, or typing.
 //   - On battery: the screen stays on only until `batteryAwakeLimit` passes
 //     without a touch, then normal auto-lock resumes. No screen saver.
 
@@ -34,7 +35,7 @@ public struct BackupScreenPreferences: Equatable, Sendable {
   public static func load(from defaults: UserDefaults = .standard) -> BackupScreenPreferences {
     BackupScreenPreferences(
       keepScreenOn: defaults.object(forKey: keepScreenOnKey) as? Bool ?? true,
-      screenSaverEnabled: defaults.object(forKey: screenSaverKey) as? Bool ?? true)
+      screenSaverEnabled: defaults.object(forKey: screenSaverKey) as? Bool ?? false)
   }
 }
 
@@ -57,13 +58,16 @@ public struct BackupScreenState: Equatable, Sendable {
   public let secondsSinceInteraction: TimeInterval
   /// VoiceOver, Switch Control or the keyboard is in use.
   public let assistedInputActive: Bool
+  /// The photo editor is on screen, where a pause to judge an edit is not
+  /// the device being left alone.
+  public let editorVisible: Bool
   public let preferences: BackupScreenPreferences
 
   public init(
     backupRunning: Bool, secondsSinceUpload: TimeInterval?,
     secondsSinceBytesSent: TimeInterval? = nil, power: DevicePower,
     secondsSinceInteraction: TimeInterval, assistedInputActive: Bool = false,
-    preferences: BackupScreenPreferences
+    editorVisible: Bool = false, preferences: BackupScreenPreferences
   ) {
     self.backupRunning = backupRunning
     self.secondsSinceUpload = secondsSinceUpload
@@ -71,6 +75,7 @@ public struct BackupScreenState: Equatable, Sendable {
     self.power = power
     self.secondsSinceInteraction = secondsSinceInteraction
     self.assistedInputActive = assistedInputActive
+    self.editorVisible = editorVisible
     self.preferences = preferences
   }
 }
@@ -113,6 +118,7 @@ public enum BackupScreenPolicy {
     return BackupScreenDecision(
       keepScreenAwake: pluggedIn || state.secondsSinceInteraction < batteryAwakeLimit,
       showScreenSaver: pluggedIn && state.preferences.screenSaverEnabled
-        && !state.assistedInputActive && state.secondsSinceInteraction >= screenSaverDelay)
+        && !state.assistedInputActive && !state.editorVisible
+        && state.secondsSinceInteraction >= screenSaverDelay)
   }
 }
