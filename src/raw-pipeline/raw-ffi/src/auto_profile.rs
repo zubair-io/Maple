@@ -16,8 +16,10 @@ use raw_core::view::auto_profile::AutoFitOutcome;
 use std::ffi::{c_char, CStr};
 
 /// Auto Profile fit return code: Auto was selected but no embedded camera
-/// preview could be extracted, so the host renders Neutral (#5458).
+/// preview could be extracted, so the host renders Neutral (#5458). A literal
+/// because cbindgen drops a constant defined by another crate's path.
 pub const MAPLE_AUTO_FIT_NO_PREVIEW: i32 = 10;
+const _: () = assert!(MAPLE_AUTO_FIT_NO_PREVIEW == AutoFitOutcome::NO_PREVIEW_FFI_CODE);
 
 /// The return code an Auto fit with no applicable tail reports.
 pub(crate) fn no_tail_rc(outcome: AutoFitOutcome) -> i32 {

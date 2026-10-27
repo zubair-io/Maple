@@ -1,5 +1,6 @@
 using System.Runtime.CompilerServices;
 using System.Security.Cryptography;
+using Maple.WinUI.Generated;
 using Maple.WinUI.Models;
 using Maple.WinUI.Native;
 using Maple.WinUI.Services;
@@ -263,7 +264,7 @@ public class ProfileArtifactNativeTests
         uint size = uint.MaxValue;
         fixed (float* curvePtr = curve)
         fixed (float* residualPtr = residual)
-            Assert.Equal(RawFfi.MapleAutoFitNoPreview, RawFfi.maple_gpu_fit_auto_profile_at_render_size(
+            Assert.Equal(AutoFitCodes.NoPreview, RawFfi.maple_gpu_fit_auto_profile_at_render_size(
                 source, null, RefineDecodeQuality.Preview, 64,
                 curvePtr, &present, residualPtr, (nuint)residual.Length, &size));
         Assert.Equal(0, present);

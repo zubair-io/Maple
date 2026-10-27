@@ -37,6 +37,7 @@ mod adjustment_groups;
 mod adjustment_tables;
 mod adjustment_transfer;
 mod adjustment_ts_enums;
+mod auto_fit_codes;
 mod batch_transfer_contract;
 mod capability_registry;
 mod capability_summary;
@@ -109,6 +110,8 @@ enum Schema {
     LocalMaskWire,
     /// Broadcast graticule directions from the shared Rec.709 scope producer.
     ScopeTargets,
+    /// Auto Profile fit return codes for the WinUI host (#5458).
+    AutoFitCodes,
     /// Culling metadata XMP vocabulary, with no pixel-processing behavior.
     ColorLabels,
     /// Portable filename vocabulary (#3990).
@@ -241,6 +244,11 @@ fn main() {
         (Schema::AdjustmentTransfer, Target::Swift) => adjustment_transfer::emit_swift(),
         (Schema::AdjustmentTransfer, _) => {
             eprintln!("codegen: --schema adjustment-transfer supports only swift / ts targets");
+            std::process::exit(2);
+        }
+        (Schema::AutoFitCodes, Target::Cs) => auto_fit_codes::emit_cs(),
+        (Schema::AutoFitCodes, _) => {
+            eprintln!("auto-fit-codes supports cs");
             std::process::exit(2);
         }
         (Schema::ScopeTargets, Target::Cs) => scope_targets::emit_cs(),

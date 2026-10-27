@@ -98,6 +98,9 @@ fi
 # --- Windows scope graticule (#3885) --------------------------------------
 "$BIN" --schema scope-targets --target cs --out "src/windows/Maple.WinUI/Generated/ScopeTargets.g.cs"
 
+# --- Auto Profile fit return codes (#5458) --------------------------------
+"$BIN" --schema auto-fit-codes --target cs --out "src/windows/Maple.WinUI/Generated/AutoFitCodes.g.cs"
+
 # --- Culling metadata vocabulary (#3662) ----------------------------------
 for color_label_out in \
 	"swift:src/apple/Packages/MapleCore/Sources/MapleCore/Generated/ColorLabel+Generated.swift" \

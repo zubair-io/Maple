@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
+using Maple.WinUI.Generated;
 using Maple.WinUI.Models;
 using Maple.WinUI.Native;
 using Maple.WinUI.Services.Metadata;
@@ -159,7 +160,7 @@ namespace Maple.WinUI.Services
                         {
                             var fitRc = FitAutoProfile(decoded, rawPath, tempXmpPath, fit);
                             decoded.AutoProfileOutcome = AutoProfileStatus.Classify(fitRc);
-                            if (fitRc is 0 or 1 or RawFfi.MapleAutoFitNoPreview)
+                            if (fitRc is 0 or 1 or AutoFitCodes.NoPreview)
                             {
                                 decoded.ProfileSource = source;
                                 decoded.ProfileFit = fit;
@@ -369,7 +370,7 @@ namespace Maple.WinUI.Services
         /// The separate curve + residual artifacts serve
         /// the GPU live chain, and the composed display-domain LUT for the CPU
         /// fallback. Returns the fit's return code: rc 1 (no tail) and
-        /// <see cref="RawFfi.MapleAutoFitNoPreview"/> render plain AgX but
+        /// <see cref="AutoFitCodes.NoPreview"/> render plain AgX but
         /// still qualify source and fit ownership for reuse.</summary>
         private static int FitAutoProfile(DecodedImage decoded, string rawPath, string xmpPath, ProfileFitContext fit)
         {
@@ -401,7 +402,7 @@ namespace Maple.WinUI.Services
             }
             if (rc != 0)
             {
-                if (rc is not (1 or RawFfi.MapleAutoFitNoPreview))
+                if (rc is not (1 or AutoFitCodes.NoPreview))
                     DiagLog.Write($"[profile] gpu fit rc={rc}: {RawFfi.LastError()}");
                 return rc;
             }
