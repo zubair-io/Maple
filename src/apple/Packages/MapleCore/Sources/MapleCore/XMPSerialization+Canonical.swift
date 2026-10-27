@@ -79,6 +79,14 @@ enum XMPCanonical {
     }
   }
 
+  /// One attribute per name, the first one winning. Callers list the model's
+  /// attributes before passthrough, so a name `XMPKnownFields` fails to claim
+  /// keeps the current edit and can never be written twice (#4686, #5475).
+  static func firstOfEachName(_ attrs: [(String, String)]) -> [(String, String)] {
+    var seen = Set<String>()
+    return attrs.filter { seen.insert($0.0).inserted }
+  }
+
   /// Assemble the canonical sidecar document.
   ///
   /// `extraNamespaces` are the conditional declarations (metadata prefixes,
@@ -96,7 +104,7 @@ enum XMPCanonical {
     let nsLines = (coreNamespaces + extraNamespaces).map {
       "\(childIndent)xmlns:\($0.prefix)=\"\($0.uri)\""
     }
-    let attrLines = sorted(attributes).map { "\(childIndent)\($0.0)=\"\($0.1)\"" }
+    let attrLines = sorted(firstOfEachName(attributes)).map { "\(childIndent)\($0.0)=\"\($0.1)\"" }
     let head = (nsLines + attrLines).joined(separator: "\n")
     let body = children.isEmpty ? "/>" : ">\n\(children)\n    </rdf:Description>"
     let rdfLines = rdfNodes.map { "    \($0)" }

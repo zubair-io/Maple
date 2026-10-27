@@ -21,6 +21,7 @@ import {
   attrOf,
   hasXmlParseError,
   mergedXmpDescription,
+  parseSidecarDocument,
   primaryXmpDescription,
   sawMapleAuthorshipMarker,
 } from './xmp-dom-utils';
@@ -40,7 +41,7 @@ export class XmpParserService {
     const defaults: XmpCulling = { rating: 0, flag: 'unflagged', colorLabel: null, keywords: [] };
     let desc: Element | null = null;
     try {
-      const doc = new DOMParser().parseFromString(xml, 'text/xml');
+      const doc = parseSidecarDocument(xml);
       if (hasXmlParseError(doc)) {
         console.warn('XmpParserService: malformed XML');
         return defaults;
@@ -64,7 +65,7 @@ export class XmpParserService {
   parseMetadata(xml: string): XmpMetadata {
     let desc: Element | null = null;
     try {
-      const doc = new DOMParser().parseFromString(xml, 'text/xml');
+      const doc = parseSidecarDocument(xml);
       if (hasXmlParseError(doc)) return {};
       desc = mergedXmpDescription(doc);
     } catch {
@@ -157,7 +158,7 @@ export class XmpParserService {
     sawPappAnywhere: boolean;
   } | null {
     try {
-      const doc = new DOMParser().parseFromString(xml, 'text/xml');
+      const doc = parseSidecarDocument(xml);
       if (hasXmlParseError(doc)) {
         console.warn('XmpParserService.parseAdjustmentModel: malformed XML');
         return null;

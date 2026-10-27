@@ -4,6 +4,8 @@
 // a single shared home avoids the copy-paste fallow's duplicate-code
 // detector flags when each file declares it locally.
 
+import { removeDuplicateAttributes } from './xmp-duplicate-attributes';
+
 export const RDF_NAMESPACE = 'http://www.w3.org/1999/02/22-rdf-syntax-ns#';
 export const XMP_NAMESPACE = 'http://ns.adobe.com/xap/1.0/';
 export const CRS_NAMESPACE = 'http://ns.adobe.com/camera-raw-settings/1.0/';
@@ -47,6 +49,33 @@ export function rdfDescriptions(document: Document): Element[] {
 export function hasXmlParseError(document: Document): boolean {
   const name = document.documentElement?.localName.toLowerCase();
   return name === 'parsererror' || name === 'parseerror';
+}
+
+/** Parse failure in any engine: Chromium and WebKit keep the partial root
+ * and append `parsererror` beneath it. */
+export function sidecarParseFailed(document: Document): boolean {
+  return hasXmlParseError(document) || document.getElementsByTagName('parsererror').length > 0;
+}
+
+/**
+ * Parse a sidecar. A document whose only defect is a repeated attribute
+ * (Apple before #4686 wrote `papp:FilmLook` twice) is read from its first
+ * copies, so its edits load and the next save writes a clean file (#5475).
+ * `xml` is the text that was parsed, for callers that hand it on (the WASM
+ * develop). Any other malformation returns the original text and document.
+ */
+export function readSidecar(source: string): { xml: string; document: Document } {
+  const document = new DOMParser().parseFromString(source, 'text/xml');
+  const repair = sidecarParseFailed(document) ? removeDuplicateAttributes(source) : undefined;
+  if (!repair) return { xml: source, document };
+  const repaired = new DOMParser().parseFromString(repair.xml, 'text/xml');
+  return sidecarParseFailed(repaired)
+    ? { xml: source, document }
+    : { xml: repair.xml, document: repaired };
+}
+
+export function parseSidecarDocument(xml: string): Document {
+  return readSidecar(xml).document;
 }
 
 const rdfSubjectAttr = (element: Element, name: 'about' | 'nodeID'): string | null =>

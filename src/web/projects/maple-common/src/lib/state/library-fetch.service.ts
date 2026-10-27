@@ -27,7 +27,7 @@ import { parseAddress, formatAddress, type MapleAddress } from '../addressing/ma
 import { MapleCacheService } from '../maple-cache/maple-cache.service';
 import { AuthService } from '../auth/auth.service';
 import { XmpParserService } from '../xmp/xmp-parser.service';
-import { hasXmlParseError } from '../xmp/xmp-dom-utils';
+import { readSidecar, sidecarParseFailed } from '../xmp/xmp-dom-utils';
 import { HostedSidecarErrors } from './hosted-sidecar-errors.service';
 import { XmpStoreService } from '../xmp/xmp-store.service';
 import { WorkflowVariantStoreService } from '../xmp/workflow-variant-store.service';
@@ -331,11 +331,7 @@ export class LibraryFetch {
             : await this.hostedVariants.read(folder, xmpName, binding.variantId);
         if (xmpText === null) throw Error('Selected variant sidecar is missing.');
         newDocuments.set(binding.filename, xmpText);
-        const xmpDocument = new DOMParser().parseFromString(xmpText, 'text/xml');
-        if (
-          hasXmlParseError(xmpDocument) ||
-          xmpDocument.getElementsByTagName('parsererror').length > 0
-        ) {
+        if (sidecarParseFailed(readSidecar(xmpText).document)) {
           throw new Error(`Malformed XMP sidecar: ${xmpName}`);
         }
 

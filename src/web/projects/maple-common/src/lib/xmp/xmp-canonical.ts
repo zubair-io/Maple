@@ -96,6 +96,21 @@ export function sortCanonicalAttributes(parts: readonly string[]): string[] {
 }
 
 /**
+ * One part per attribute name, the first one winning. Callers list the
+ * model's attributes before passthrough, so a name the known set fails to
+ * claim keeps the current edit and can never be written twice (#4686, #5475).
+ */
+function firstOfEachName(parts: readonly string[]): string[] {
+  const seen = new Set<string>();
+  return parts.filter((part) => {
+    const name = attributeName(part);
+    if (seen.has(name)) return false;
+    seen.add(name);
+    return true;
+  });
+}
+
+/**
  * Assemble the canonical sidecar document.
  *
  * `extraNamespaces` are the conditional declarations (metadata prefixes,
@@ -131,7 +146,9 @@ export function canonicalDocument(
   const nsLines = renderedNamespaces.map(
     ([prefix, uri]) => `${indent}xmlns:${prefix}="${escapeNamespaceUri(uri)}"`,
   );
-  const attrLines = sortCanonicalAttributes(attributes).map((part) => `${indent}${part}`);
+  const attrLines = sortCanonicalAttributes(firstOfEachName(attributes)).map(
+    (part) => `${indent}${part}`,
+  );
   const head = [...nsLines, ...attrLines].join('\n');
   const body = children.length === 0 ? '/>' : `>\n${children}\n    </rdf:Description>`;
 

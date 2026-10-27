@@ -9,7 +9,7 @@ import {
   PREVIEW_LONG_EDGE_PX,
 } from '../raw-pipeline/image-utils';
 import { RawPipelineService } from '../raw-pipeline/raw-pipeline.service';
-import { hasXmlParseError } from '../xmp/xmp-dom-utils';
+import { readSidecar, sidecarParseFailed } from '../xmp/xmp-dom-utils';
 import { XmpParserService } from '../xmp/xmp-parser.service';
 import type { PreviewLocation } from './preview-location';
 
@@ -33,15 +33,15 @@ export class HostedRawSidecarService {
       if (error instanceof DOMException && error.name === 'NotFoundError') return null;
       throw error;
     }
-    let xml: string;
+    let source: string;
     try {
-      xml = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+      source = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
     } catch {
       return null;
     }
-    const document = new DOMParser().parseFromString(xml, 'text/xml');
-    // Chromium may keep the input's root and append parsererror underneath it.
-    if (hasXmlParseError(document) || document.getElementsByTagName('parsererror').length > 0) {
+    // raw-core rejects a repeated attribute too, so the develop gets the repaired text (#5475).
+    const { xml, document } = readSidecar(source);
+    if (sidecarParseFailed(document)) {
       // Folder enumeration records the sidecar error and blocks edits. Decode
       // the original RAW so a damaged XMP cannot make the photo disappear.
       return null;
