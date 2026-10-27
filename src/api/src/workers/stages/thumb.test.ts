@@ -7,6 +7,7 @@ import { ObjectId } from '../../db/object-id.ts';
 import thumbStage from './thumb.ts';
 import { resolveThumbPath, resolveThumbPathForAsset } from '../../fs/xmp.ts';
 import * as videoPosterModule from '../../thumbs/video-poster.ts';
+import { ffiPool } from '../../ffi/ffi-pool.ts';
 import {
   createLiveTestDatabase,
   insertAsset,
@@ -135,10 +136,9 @@ describe('thumb handler — bitmap path', () => {
 
   it("returns { skip: 'no-video-decoder' } for a .MOV when the host has no ffmpeg", async () => {
     // #1649: video is skipped on host capability, not on extension. The skip
-    // must land BEFORE `generateThumb` — a failed render there still returns
-    // `{ wrote: true }`, which would mark the stage done having published
-    // nothing AND cascade a pointless cf-thumb-sync reset for a thumb that
-    // doesn't exist. Pinned to "absent" rather than reading the real host so
+    // must land BEFORE `generateThumb` — a render that publishes nothing
+    // throws, so every video would retry to the dead-letter for a missing
+    // tool. Pinned to "absent" rather than reading the real host so
     // this asserts the same thing on a dev Mac and on a bare CI container.
     const ffmpegSpy = spyOn(videoPosterModule, 'ffmpegBinary').mockResolvedValue(null);
     try {
@@ -246,13 +246,10 @@ describe('thumb handler — bitmap path', () => {
     expect(meta.orientation === undefined || meta.orientation === 1).toBe(true);
   });
 
-  it('marks the stage as wrote for a RAW when the FFI is unavailable (soft pass)', async () => {
-    // Without libraw_ffi built, generateThumb silently skips the RAW and
-    // returns without writing a file. The handler must still return
-    // a clean success so the runtime can mark the stage done and the image
-    // advances to face.
-    //
-    // This test verifies the handler does not throw when the FFI is absent.
+  it('renders a RAW thumb when the fixture and the FFI are available (soft pass)', async () => {
+    // Without libraw_ffi nothing is rendered, and a render that publishes
+    // nothing is never recorded done (#5474) — so this soft-passes instead.
+    if (!ffiPool().available()) return;
     const dng = path.resolve(process.cwd(), '../../test-fixtures/raws/test_0017.dng');
     let dngExists = false;
     try {

@@ -33,7 +33,7 @@ import { replicatePath } from '../fs/mirrored.ts';
 import { ffiPool } from '../ffi/ffi-pool.ts';
 import { BITMAP_EXTENSIONS, PSD_HDR_EXTENSIONS } from './media-types.ts';
 import { isUndecodableFilename, isVideoFilename } from './media-types.ts';
-import { renderImageThumbToFileViaPool } from '../thumbs/bitmap-pool.ts';
+import { renderImageThumbToFileViaPool, throwIfSourceRejected } from '../thumbs/bitmap-pool.ts';
 import { extractVideoPosterJpeg } from '../thumbs/video-poster.ts';
 import { THUMB_AVIF_QUALITY, THUMB_LONG_EDGE_PX } from '../thumbs/render.ts';
 import { finalizeAvifRender } from '../thumbs/validate-avif.ts';
@@ -75,8 +75,12 @@ let _failed = 0;
  * undefined this derives the same location itself with
  * `resolveThumbPath(absPath)` — both are the one path-keyed name every reader
  * computes, so the two agree by construction.
+ *
+ * Resolves true when a fresh thumb is on disk (already cached or just
+ * published). Throws `SourceDecodeError` when the decoder rejects the
+ * original; every other failure resolves false.
  */
-export async function generateThumb(absPath: string, thumbPathOverride?: string): Promise<void> {
+export async function generateThumb(absPath: string, thumbPathOverride?: string): Promise<boolean> {
   const ext = path.extname(absPath).toLowerCase();
   const extNoDot = ext.startsWith('.') ? ext.slice(1) : ext;
   const thumbPath = thumbPathOverride ?? resolveThumbPath(absPath);
@@ -89,13 +93,13 @@ export async function generateThumb(absPath: string, thumbPathOverride?: string)
     _failed++;
     log.warn({ thumbPath, err: e instanceof Error ? e.message : e }, 'mkdir failed');
     logTotals();
-    return;
+    return false;
   }
 
   if (await isDerivativeCacheFresh(thumbPath, absPath)) {
     _cached++;
     logTotals();
-    return;
+    return true;
   }
 
   // Metadata-only stub images (eip/braw/afphoto/ai) and audio have no still
@@ -109,7 +113,7 @@ export async function generateThumb(absPath: string, thumbPathOverride?: string)
     _failed++;
     log.warn({ absPath }, 'skipped: no still frame to thumbnail');
     logTotals();
-    return;
+    return false;
   }
 
   // Encode to a private temp path first, not `thumbPath` directly — a
@@ -120,7 +124,13 @@ export async function generateThumb(absPath: string, thumbPathOverride?: string)
   // on any failure the temp file is removed, never `thumbPath`.
   const tmpPath = `${thumbPath}.tmp.${process.pid}.${randomBytes(8).toString('hex')}`;
 
-  const renderOk = await renderByFormat(absPath, ext, extNoDot, tmpPath);
+  const renderOk = await renderByFormat(absPath, ext, extNoDot, tmpPath).catch(
+    async (e: unknown) => {
+      _failed++;
+      await fs.rm(tmpPath, { force: true });
+      throw e;
+    },
+  );
 
   const ok = await finalizeAvifRender(renderOk, tmpPath, thumbPath, THUMB_LONG_EDGE_PX, log, {
     assetPath: absPath,
@@ -140,6 +150,7 @@ export async function generateThumb(absPath: string, thumbPathOverride?: string)
     log.warn({ absPath }, 'failed');
   }
   logTotals();
+  return ok;
 }
 
 /**
@@ -161,7 +172,7 @@ async function renderByFormat(
   if (RAW_EXTS.has(ext)) return renderRawThumbToFile(absPath, tmpPath);
   if (isVideoFilename(absPath)) return renderVideoThumbToFile(absPath, tmpPath);
   if (BITMAP_EXTENSIONS.has(extNoDot) || PSD_HDR_EXTENSIONS.has(extNoDot)) {
-    return renderBitmapThumbToFile(absPath, tmpPath, extNoDot);
+    return renderBitmapThumbToFile(absPath, tmpPath, extNoDot, true);
   }
   // Unknown format — fall back to copy so something is at the path (matches
   // the prior behaviour for, e.g., a future format we haven't taught Maple
@@ -324,32 +335,36 @@ async function renderVideoThumbToFile(videoPath: string, outPath: string): Promi
  * + resize via the FFI child pool (Maple), same isolated process as RAW.
  * Same output as the live `/api/thumb/:slug/*` route on a cache miss.
  * `outPath` is the caller's private temp path — see `renderRawThumbToFile`.
+ * When `srcPath` is the asset's original, a decoder rejection throws
+ * `SourceDecodeError`; for an intermediate (poster frame, develop) it cannot
+ * describe the asset, so it stays a plain failure.
  */
 async function renderBitmapThumbToFile(
   srcPath: string,
   outPath: string,
   ext: string,
+  isOriginal = false,
 ): Promise<boolean> {
-  try {
-    const result = await renderImageThumbToFileViaPool(
-      srcPath,
-      outPath,
-      THUMB_LONG_EDGE_PX,
-      THUMB_AVIF_QUALITY,
-      ext,
-    );
-    if (!result.ok) {
-      log.warn(
-        { srcPath, err: result.error ?? 'FFI bitmap render failed' },
-        'FFI child returned error',
-      );
-      return false;
-    }
-    return true;
-  } catch (e) {
+  const result = await renderImageThumbToFileViaPool(
+    srcPath,
+    outPath,
+    THUMB_LONG_EDGE_PX,
+    THUMB_AVIF_QUALITY,
+    ext,
+  ).catch((e: unknown) => {
     log.warn({ srcPath, err: e instanceof Error ? e.message : e }, 'FFI pool threw');
+    return null;
+  });
+  if (result === null) return false;
+  if (!result.ok) {
+    log.warn(
+      { srcPath, err: result.error ?? 'FFI bitmap render failed' },
+      'FFI child returned error',
+    );
+    if (isOriginal) throwIfSourceRejected(result, srcPath);
     return false;
   }
+  return true;
 }
 
 /**
