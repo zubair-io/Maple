@@ -6,26 +6,26 @@ on:
   push:
     branches: [main]
     paths:
-      - 'src/linux/**'
-      - 'tools/qualification/linux-native/**'
-      - 'src/raw-pipeline/**'
-      - 'resources/film-luts/**'
-      - 'test-fixtures/batch-transfer/**'
-      - 'test-fixtures/jpeg-tiff/**'
-      - 'src/apple/MapleUITests/Fixtures/synthetic/**'
-      - 'src/apple/Maple/Assets.xcassets/AppIcon.appiconset/maple512.png'
-      - '.github/workflows/linux.yml'
+      - "src/linux/**"
+      - "tools/qualification/linux-native/**"
+      - "src/raw-pipeline/**"
+      - "resources/film-luts/**"
+      - "test-fixtures/batch-transfer/**"
+      - "test-fixtures/jpeg-tiff/**"
+      - "src/apple/MapleUITests/Fixtures/synthetic/**"
+      - "src/apple/Maple/Assets.xcassets/AppIcon.appiconset/maple512.png"
+      - ".github/workflows/linux.yml"
   pull_request:
     paths:
-      - 'src/linux/**'
-      - 'tools/qualification/linux-native/**'
-      - 'src/raw-pipeline/**'
-      - 'resources/film-luts/**'
-      - 'test-fixtures/batch-transfer/**'
-      - 'test-fixtures/jpeg-tiff/**'
-      - 'src/apple/MapleUITests/Fixtures/synthetic/**'
-      - 'src/apple/Maple/Assets.xcassets/AppIcon.appiconset/maple512.png'
-      - '.github/workflows/linux.yml'
+      - "src/linux/**"
+      - "tools/qualification/linux-native/**"
+      - "src/raw-pipeline/**"
+      - "resources/film-luts/**"
+      - "test-fixtures/batch-transfer/**"
+      - "test-fixtures/jpeg-tiff/**"
+      - "src/apple/MapleUITests/Fixtures/synthetic/**"
+      - "src/apple/Maple/Assets.xcassets/AppIcon.appiconset/maple512.png"
+      - ".github/workflows/linux.yml"
   workflow_dispatch:
 
 concurrency:
@@ -58,9 +58,9 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     env:
-      CARGO_INCREMENTAL: '0'
-      CARGO_PROFILE_DEV_DEBUG: '0'
-      CARGO_PROFILE_TEST_DEBUG: '0'
+      CARGO_INCREMENTAL: "0"
+      CARGO_PROFILE_DEV_DEBUG: "0"
+      CARGO_PROFILE_TEST_DEBUG: "0"
       XDG_RUNTIME_DIR: /tmp/maple-linux-runtime
     steps:
       - uses: actions/checkout@v7.0.1

@@ -438,6 +438,15 @@ def smoke_flatpak(package: Path, sessions: list[str]) -> None:
     apt("install", "--no-install-recommends", *FLATPAK_TOOLS, *TEST_TOOLS)
     flatpak("install", *install, str(package), env=env)
     ref = flatpak("info", "--show-ref", APP_ID, env=env).strip()
+    files = Path(flatpak("info", "--show-location", APP_ID, env=env).strip()) / "files"
+    layout = [
+        files / "bin/maple-linux",
+        exports / f"applications/{APP_ID}.desktop",
+        exports / f"icons/hicolor/512x512/apps/{APP_ID}.png",
+        exports / f"mime/packages/{APP_ID}.xml",
+    ]
+    if missing := [path for path in layout if not path.exists()]:
+        raise RuntimeError(f"The installed Flatpak lacks {missing}")
     launcher = home / "maple-flatpak"
     launcher.write_text(f'#!/bin/sh\nexec flatpak run --user {APP_ID} "$@"\n')
     launcher.chmod(0o755)

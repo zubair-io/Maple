@@ -202,7 +202,7 @@ def build_flatpak(binary: Path, output_dir: Path) -> Path:
     with tempfile.TemporaryDirectory(prefix="maple-flatpak-") as directory:
         work = Path(directory)
         source = work / "source"
-        stage_usr(binary, source / "usr")
+        stage_usr(binary, source)
         for name in [f"{APP_ID}.yml", f"{APP_ID}.metainfo.xml"]:
             shutil.copyfile(LINUX / "packaging" / name, source / name)
         subprocess.run(
