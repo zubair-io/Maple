@@ -35,16 +35,3 @@ export async function isDerivativeCacheFresh(
   ]);
   return cached.mtimeMs >= Math.max(source?.mtimeMs ?? 0, sidecar?.mtimeMs ?? 0);
 }
-
-/** A stage must not record a render that published no derivative as done
- * (#5474); throwing hands it to the runner's retry/dead-letter path. A
- * vanished original rethrows its own ENOENT so the runner tags it missing. */
-export async function assertDerivativeRendered(
-  rendered: boolean,
-  cachePath: string,
-  sourcePath: string,
-): Promise<void> {
-  if (rendered) return;
-  await stat(sourcePath);
-  throw new Error(`Derivative render produced no file at ${cachePath}`);
-}

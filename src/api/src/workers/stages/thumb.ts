@@ -39,8 +39,7 @@
  * this stage's own success row, so either both land or neither does.
  */
 import { generateThumb } from '../../indexer/thumbnailer.ts';
-import { assertDerivativeRendered } from '../../indexer/derivative-cache.ts';
-import { deferWhileDecoderMissing } from './derivative-decoder-missing.ts';
+import { deferWhileDecoderMissing, unrenderedOutcome } from './derivative-render-outcome.ts';
 import { THUMB_TARGET_VERSION } from '../derivative-versions.ts';
 import { resolveThumbPathForAsset } from '../../fs/xmp.ts';
 import { assetAbsPath, assetPrimaryFileInfo } from '../../indexer/images.repo.ts';
@@ -116,8 +115,8 @@ const thumbStage = defineStage({
 
     // Video posters need a runnable host ffmpeg (#1649). When there isn't one,
     // skip BEFORE `generateThumb` rather than letting its video branch fail:
-    // a render that publishes nothing throws below, so every video would
-    // retry to the dead-letter and be tagged damaged for a missing tool.
+    // a render that publishes nothing defers below, so every video would be
+    // re-polled indefinitely for a missing tool.
     //
     // This skip does write `version = targetVersion` — i.e. "handled" — so an
     // operator who installs ffmpeg later needs the `rearm-video-posters`
@@ -155,7 +154,8 @@ const thumbStage = defineStage({
     // — this stage sets `tagsMissingOnEnoent` — for the missing-reaper.
     const decoderMissing = deferWhileDecoderMissing();
     if (decoderMissing) return decoderMissing;
-    await assertDerivativeRendered(await generateThumb(absPath, thumbPath), thumbPath, absPath);
+    const unrendered = await unrenderedOutcome(await generateThumb(absPath, thumbPath), absPath);
+    if (unrendered) return unrendered;
     // We do NOT persist the path on the asset: every reader derives it from the
     // source path alone via `resolveThumbPath`, so a stored `thumb_path` would
     // be dead, redundant data — and a DB field is exactly the dependency

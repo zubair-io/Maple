@@ -137,7 +137,7 @@ describe('thumb handler — bitmap path', () => {
   it("returns { skip: 'no-video-decoder' } for a .MOV when the host has no ffmpeg", async () => {
     // #1649: video is skipped on host capability, not on extension. The skip
     // must land BEFORE `generateThumb` — a render that publishes nothing
-    // throws, so every video would retry to the dead-letter for a missing
+    // defers, so every video would be re-polled indefinitely for a missing
     // tool. Pinned to "absent" rather than reading the real host so
     // this asserts the same thing on a dev Mac and on a bare CI container.
     const ffmpegSpy = spyOn(videoPosterModule, 'ffmpegBinary').mockResolvedValue(null);

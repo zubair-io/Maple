@@ -1,12 +1,13 @@
 /**
  * #5474: a thumb or preview render that leaves no file must not be recorded
- * as done at the target version. It goes through the runner's retry →
- * dead-letter → damaged path instead, so the asset is visible to the operator
- * rather than silently "processed" with nothing on disk. Real SQLite, real
- * temp library, real FFI child.
+ * as done at the target version. Only an original the decoder refuses goes
+ * through the runner's retry → dead-letter → damaged path; a server-side
+ * failure (unwritable cache, crashed child, missing decoder) defers without
+ * spending attempts and is never tagged damaged. Real SQLite, real temp
+ * library, real FFI child.
  */
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
-import { mkdtemp, rm, utimes, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, rm, utimes, writeFile } from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import thumbStage from './thumb.ts';
@@ -60,6 +61,17 @@ function stageRow(stage: string) {
     .get(assetId, stage) as { version: number; attempts: number; last_error: string; dead: number };
 }
 
+function expectDeferredUndamaged(stage: string, targetVersion: number) {
+  const row = stageRow(stage);
+  expect(row.version).toBeLessThan(targetVersion);
+  expect(row.attempts).toBe(0);
+  expect(row.dead).toBe(0);
+  const asset = live.db.query(`SELECT damaged_since FROM assets WHERE id = ?`).get(assetId) as {
+    damaged_since: string | null;
+  };
+  expect(asset.damaged_since).toBeNull();
+}
+
 function runStageOnce(stage: StageConfig, maxAttempts: number) {
   return runOnce(stage, {
     concurrency: 1,
@@ -102,7 +114,7 @@ describe.each([
     expect(asset.damaged_since).not.toBeNull();
   });
 
-  it('is not recorded done when a render fails for a reason other than the source', async () => {
+  it('defers a crashed child without tagging the original damaged', async () => {
     const crashedChild = {
       available: () => true,
       poolSize: () => 1,
@@ -110,13 +122,24 @@ describe.each([
     };
     const previous = _setFfiPoolForTests(crashedChild as never);
     try {
-      await runStageOnce(stage as unknown as StageConfig, 5);
+      await runStageOnce(stage as unknown as StageConfig, 1);
     } finally {
       _setFfiPoolForTests(previous);
     }
-    const row = stageRow(name);
-    expect(row.version).toBeLessThan(stage.targetVersion);
-    expect(row.last_error).toContain('Derivative render produced no file');
+    expectDeferredUndamaged(name, stage.targetVersion);
+  });
+
+  it('defers a read-only cache directory without tagging the original damaged', async () => {
+    await writeFile(path.join(dir, 'broken.jpg'), await solidJpeg(64, 48, [10, 120, 200]));
+    const cacheRoot = path.join(dir, '.maple');
+    await mkdir(cacheRoot, { recursive: true });
+    await chmod(cacheRoot, 0o500);
+    try {
+      await runStageOnce(stage as unknown as StageConfig, 1);
+    } finally {
+      await chmod(cacheRoot, 0o700);
+    }
+    expectDeferredUndamaged(name, stage.targetVersion);
   });
 
   it('defers without spending an attempt while the native decoder is missing', async () => {
