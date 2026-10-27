@@ -20,6 +20,7 @@ import { resolveThumbPath, sha256Prefix16 } from '../../fs/xmp.ts';
 import { invalidateLibraryRoots } from '../../indexer/libraries.cache.ts';
 import { registerLibrary, seedRouteAsset } from '../../../tests/helpers/assets-route-fixtures.ts';
 import { newObjectIdHex } from '../../db/object-id.ts';
+import { solidJpeg } from '../../test-support/synth-image.ts';
 import {
   createLiveTestDatabase,
   type LiveTestDatabase,
@@ -258,5 +259,39 @@ describe('GET /thumb/:slug/*', () => {
     expect(await res.text()).toBe('legacy');
     expect(resolveThumbPath(src)).toBe(path.join(thumbsDir, 'IMG_1234.CR2.avif'));
     expect(await readdir(thumbsDir)).toEqual(['IMG_1234.CR2.avif']);
+  });
+
+  describe('on-demand generation outcomes (#5474)', () => {
+    test('generates a thumb for an original wider than 16384 px on the first request', async () => {
+      await writeFile(
+        path.join(tmpDir, 'DJI_0483_D.JPG'),
+        await solidJpeg(19_000, 8, [90, 140, 200]),
+      );
+      const res = await app.handle(new Request('http://localhost/thumb/thumblib/DJI_0483_D.JPG'));
+      expect(res.status).toBe(200);
+      expect(res.headers.get('Content-Type')).toBe('image/avif');
+      expect(res.headers.get('X-Thumb-Cache')).toBe('miss');
+    }, 60_000);
+
+    test('answers 422 source-undecodable when the decoder refuses the original', async () => {
+      await writeFile(path.join(tmpDir, 'broken.jpg'), Buffer.from('\xff\xd8not a jpeg', 'latin1'));
+      const res = await app.handle(new Request('http://localhost/thumb/thumblib/broken.jpg'));
+      expect(res.status).toBe(422);
+      expect(await res.json()).toEqual({
+        error: 'This photo cannot be decoded',
+        code: 'source-undecodable',
+      });
+    });
+
+    test('still answers 404 when an indexed original is gone from disk', async () => {
+      seedRouteAsset(live.db, {
+        libraryId,
+        path: '',
+        filename: 'vanished.jpg',
+        mapleId: newObjectIdHex(),
+      });
+      const res = await app.handle(new Request('http://localhost/thumb/thumblib/vanished.jpg'));
+      expect(res.status).toBe(404);
+    });
   });
 });

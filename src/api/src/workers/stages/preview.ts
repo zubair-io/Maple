@@ -24,7 +24,10 @@ import {
   PREVIEW_CACHE_SUFFIX,
 } from '../../indexer/previewer.ts';
 import { runBackgroundPreviewRender } from '../background-preview-gate.ts';
-import { assertDerivativeCacheDirectory } from '../../indexer/derivative-cache.ts';
+import {
+  assertDerivativeCacheDirectory,
+  assertDerivativeRendered,
+} from '../../indexer/derivative-cache.ts';
 import { PREVIEW_TARGET_VERSION } from '../derivative-versions.ts';
 import { cachePathForAsset } from '../../fs/xmp.ts';
 import { assetAbsPath, assetPrimaryFileInfo } from '../../indexer/images.repo.ts';
@@ -32,6 +35,7 @@ import { isUndecodableFilename, isVideoFilename } from '../../indexer/media-type
 import { ffmpegBinary } from '../../thumbs/video-poster.ts';
 import { loadLibraryRootsForAsset } from '../../indexer/libraries.cache.ts';
 import { noResolvableLocation } from './no-resolvable-location.ts';
+import { deferWhileDecoderMissing } from './derivative-decoder-missing.ts';
 import { defineStage, runStage, type RunStageHandle, type StageResult } from '../run-stage.ts';
 
 const previewStage = defineStage({
@@ -104,7 +108,12 @@ const previewStage = defineStage({
     // runner — this stage sets `tagsMissingOnEnoent` — for the missing-reaper.
     await assertDerivativeCacheDirectory(previewPath);
     if (!(await isPreviewCacheFresh(previewPath, absPath))) {
-      await runBackgroundPreviewRender(previewPath, () => generatePreview(absPath, previewPath));
+      const decoderMissing = deferWhileDecoderMissing();
+      if (decoderMissing) return decoderMissing;
+      const rendered = await runBackgroundPreviewRender(previewPath, () =>
+        generatePreview(absPath, previewPath),
+      );
+      await assertDerivativeRendered(rendered, previewPath, absPath);
     }
     // The preview now lives on disk at the path-keyed location. We do NOT
     // persist that path on the asset: readers recompute it from (library

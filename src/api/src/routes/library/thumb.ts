@@ -26,9 +26,9 @@ import {
 const EDGE_CACHEABLE_HEADER = 'X-Maple-Cacheable';
 
 const log = childLogger('routes/library/thumb');
-const inflightThumbGen = new Map<string, Promise<void>>();
+const inflightThumbGen = new Map<string, Promise<boolean>>();
 
-function generateThumbDeduped(absPath: string, thumbPath: string): Promise<void> {
+function generateThumbDeduped(absPath: string, thumbPath: string): Promise<boolean> {
   const existing = inflightThumbGen.get(thumbPath);
   if (existing) return existing;
   const pending = generateThumb(absPath, thumbPath).finally(() =>

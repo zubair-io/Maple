@@ -72,7 +72,7 @@ async function onCpu<T>(work: () => Promise<T>): Promise<T> {
   }
 }
 
-async function fakeGeneratePreview(absPath: string, previewPath?: string): Promise<void> {
+async function fakeGeneratePreview(absPath: string, previewPath?: string): Promise<boolean> {
   if (!previewPath) throw new Error('Expected an explicit preview output path');
   const name = basename(absPath);
   renders.push(name);
@@ -81,6 +81,7 @@ async function fakeGeneratePreview(absPath: string, previewPath?: string): Promi
   await onCpu(() => Bun.sleep(RENDER_MS));
   await mkdir(join(previewPath, '..'), { recursive: true });
   await writeFile(previewPath, `preview-of-${name}`);
+  return true;
 }
 
 let generatePreviewSpy: { mockRestore(): void } | null = null;

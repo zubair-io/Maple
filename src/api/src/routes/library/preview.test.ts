@@ -108,4 +108,20 @@ describe('GET /preview/:slug/*', () => {
     expect(revalidated.status).toBe(304);
     expect(revalidated.headers.get('ETag')).toBe(etag);
   });
+
+  test('answers 422 source-undecodable when the decoder refuses the original (#5474)', async () => {
+    seedRouteAsset(live.db, {
+      libraryId,
+      path: '',
+      filename: 'broken.jpg',
+      mapleId: newObjectIdHex(),
+    });
+    await writeFile(path.join(tmpDir, 'broken.jpg'), Buffer.from('\xff\xd8not a jpeg', 'latin1'));
+    const res = await app.handle(new Request('http://localhost/preview/prevlib/broken.jpg'));
+    expect(res.status).toBe(422);
+    expect(await res.json()).toEqual({
+      error: 'This photo cannot be decoded',
+      code: 'source-undecodable',
+    });
+  });
 });

@@ -207,10 +207,11 @@ describe('preview handler — video, ffmpeg available', () => {
     }
   });
 
-  it('skips and publishes nothing when extraction fails on a corrupt container', async () => {
+  it('fails and publishes nothing when extraction fails on a corrupt container', async () => {
     // ffmpeg present but the file is undecodable. `generatePreview`'s video
     // branch returns false, `finalizeAvifRender` publishes nothing, and no
-    // zero-byte artefact may be left behind for the route to serve.
+    // zero-byte artefact may be left behind for the route to serve. The
+    // handler throws so the runner retries rather than recording it done (#5474).
     const ffmpegSpy = spyOn(videoPosterModule, 'ffmpegBinary').mockResolvedValue('/usr/bin/ffmpeg');
     const extractSpy = spyOn(videoPosterModule, 'extractVideoPosterJpeg').mockResolvedValue(false);
     try {
@@ -218,7 +219,9 @@ describe('preview handler — video, ffmpeg available', () => {
       await writeFile(file, Buffer.from('truncated container'));
       const doc = makeDoc(file, 'c'.repeat(32));
 
-      await previewStage.handler(doc as never, {} as never);
+      await expect(previewStage.handler(doc as never, {} as never)).rejects.toThrow(
+        'Derivative render produced no file',
+      );
 
       await expect(stat(previewPathFor(doc))).rejects.toMatchObject({ code: 'ENOENT' });
     } finally {
