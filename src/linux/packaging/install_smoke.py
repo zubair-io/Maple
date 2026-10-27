@@ -418,9 +418,10 @@ def flatpak(command: str, *arguments: str, env: dict) -> str:
 
 
 def expect_sandbox_problems(launcher: Path, env: dict) -> None:
-    """Headless and without a session bus; the runtime has no zenity fallback."""
+    """Headless and without a session bus, so the folder picker relies on the
+    runtime's zenity and only the missing display is a problem."""
     found = diagnose_problems(launcher, headless(env))
-    if found != {"session", "portal"}:
+    if found != {"session"}:
         raise RuntimeError(f"--diagnose in the sandbox found {sorted(found)}")
 
 
