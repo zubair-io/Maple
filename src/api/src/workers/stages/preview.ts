@@ -24,10 +24,7 @@ import {
   PREVIEW_CACHE_SUFFIX,
 } from '../../indexer/previewer.ts';
 import { runBackgroundPreviewRender } from '../background-preview-gate.ts';
-import {
-  assertDerivativeCacheDirectory,
-  assertDerivativeRendered,
-} from '../../indexer/derivative-cache.ts';
+import { assertDerivativeCacheDirectory } from '../../indexer/derivative-cache.ts';
 import { PREVIEW_TARGET_VERSION } from '../derivative-versions.ts';
 import { cachePathForAsset } from '../../fs/xmp.ts';
 import { assetAbsPath, assetPrimaryFileInfo } from '../../indexer/images.repo.ts';
@@ -35,7 +32,7 @@ import { isUndecodableFilename, isVideoFilename } from '../../indexer/media-type
 import { ffmpegBinary } from '../../thumbs/video-poster.ts';
 import { loadLibraryRootsForAsset } from '../../indexer/libraries.cache.ts';
 import { noResolvableLocation } from './no-resolvable-location.ts';
-import { deferWhileDecoderMissing } from './derivative-decoder-missing.ts';
+import { deferWhileDecoderMissing, unrenderedOutcome } from './derivative-render-outcome.ts';
 import { defineStage, runStage, type RunStageHandle, type StageResult } from '../run-stage.ts';
 
 const previewStage = defineStage({
@@ -113,7 +110,8 @@ const previewStage = defineStage({
       const rendered = await runBackgroundPreviewRender(previewPath, () =>
         generatePreview(absPath, previewPath),
       );
-      await assertDerivativeRendered(rendered, previewPath, absPath);
+      const unrendered = await unrenderedOutcome(rendered, absPath);
+      if (unrendered) return unrendered;
     }
     // The preview now lives on disk at the path-keyed location. We do NOT
     // persist that path on the asset: readers recompute it from (library
