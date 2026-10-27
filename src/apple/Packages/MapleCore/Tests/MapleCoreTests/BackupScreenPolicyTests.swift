@@ -15,13 +15,14 @@ final class BackupScreenPolicyTests: XCTestCase {
     power: DevicePower = .pluggedIn,
     idle: TimeInterval = 0,
     assisted: Bool = false,
+    editor: Bool = false,
     preferences: BackupScreenPreferences? = nil
   ) -> BackupScreenState {
     BackupScreenState(
       backupRunning: running, secondsSinceUpload: sinceUpload,
       secondsSinceBytesSent: sinceBytes, power: power,
       secondsSinceInteraction: idle, assistedInputActive: assisted,
-      preferences: preferences ?? enabled)
+      editorVisible: editor, preferences: preferences ?? enabled)
   }
 
   func test_pluggedInUpload_keepsAwake_withoutSaverBeforeDelay() {
@@ -125,6 +126,26 @@ final class BackupScreenPolicyTests: XCTestCase {
     XCTAssertEqual(decision, BackupScreenDecision(keepScreenAwake: true, showScreenSaver: false))
   }
 
+  func test_editorVisible_suppressesSaverButKeepsAwake() {
+    let decision = BackupScreenPolicy.decide(state(idle: 600, editor: true))
+    XCTAssertEqual(decision, BackupScreenDecision(keepScreenAwake: true, showScreenSaver: false))
+  }
+
+  func test_editorVisibleOnBattery_keepsTheBatteryAwakeLimit() {
+    let held = BackupScreenPolicy.decide(
+      state(power: .battery, idle: BackupScreenPolicy.batteryAwakeLimit - 1, editor: true))
+    let released = BackupScreenPolicy.decide(
+      state(power: .battery, idle: BackupScreenPolicy.batteryAwakeLimit, editor: true))
+    XCTAssertEqual(held, BackupScreenDecision(keepScreenAwake: true, showScreenSaver: false))
+    XCTAssertEqual(released, .released)
+  }
+
+  func test_leavingTheEditor_showsSaverOnceIdleForTheDelay() {
+    let decision = BackupScreenPolicy.decide(
+      state(idle: BackupScreenPolicy.screenSaverDelay, editor: false))
+    XCTAssertEqual(decision, BackupScreenDecision(keepScreenAwake: true, showScreenSaver: true))
+  }
+
   func test_unpluggingWhileSaverShows_closesSaverAndHoldsUntilBatteryLimit() {
     let showing = BackupScreenPolicy.decide(state(idle: 300))
     let unplugged = BackupScreenPolicy.decide(state(power: .battery, idle: 300))
@@ -132,18 +153,26 @@ final class BackupScreenPolicyTests: XCTestCase {
     XCTAssertEqual(unplugged, BackupScreenDecision(keepScreenAwake: true, showScreenSaver: false))
   }
 
-  func test_preferences_defaultToOnAndPersistPerDevice() throws {
+  func test_preferences_defaultToKeepAwakeWithoutSaverAndPersistPerDevice() throws {
     let suiteName = "BackupScreenPolicyTests.\(UUID().uuidString)"
     let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
     defer { defaults.removePersistentDomain(forName: suiteName) }
 
+    let defaultPreferences = BackupScreenPreferences.load(from: defaults)
+    XCTAssertEqual(
+      defaultPreferences, BackupScreenPreferences(keepScreenOn: true, screenSaverEnabled: false))
+    XCTAssertEqual(
+      BackupScreenPolicy.decide(state(idle: 600, preferences: defaultPreferences)),
+      BackupScreenDecision(keepScreenAwake: true, showScreenSaver: false))
+
+    defaults.set(true, forKey: BackupScreenPreferences.screenSaverKey)
     XCTAssertEqual(
       BackupScreenPreferences.load(from: defaults),
       BackupScreenPreferences(keepScreenOn: true, screenSaverEnabled: true))
 
-    defaults.set(false, forKey: BackupScreenPreferences.screenSaverKey)
+    defaults.set(false, forKey: BackupScreenPreferences.keepScreenOnKey)
     XCTAssertEqual(
       BackupScreenPreferences.load(from: defaults),
-      BackupScreenPreferences(keepScreenOn: true, screenSaverEnabled: false))
+      BackupScreenPreferences(keepScreenOn: false, screenSaverEnabled: true))
   }
 }

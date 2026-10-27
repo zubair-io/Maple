@@ -15,6 +15,9 @@ struct EditorView: View {
   var filmstripAssets: [AssetRef] = []
   var onSelectAsset: (AssetRef) -> Void = { _ in }
   var filmstripSource: (any ImageSource)? = nil
+  #if os(iOS)
+    @State private var screenSaverID = UUID()
+  #endif
 
   var body: some View {
     GeometryReader { geometry in
@@ -41,6 +44,10 @@ struct EditorView: View {
       )
       .environment(\.mapleLayout, layout.density)
     }
+    #if os(iOS)
+      .onAppear { BackupScreenSaverController.shared.editorAppeared(screenSaverID) }
+      .onDisappear { BackupScreenSaverController.shared.editorDisappeared(screenSaverID) }
+    #endif
   }
 }
 

@@ -18,6 +18,7 @@
     private var lastInteraction = Date()
     private var holdsIdleTimer = false
     private var keyboardVisible = false
+    private var visibleEditors: Set<UUID> = []
     private var saverWindow: UIWindow?
     private weak var windowBeforeSaver: UIWindow?
     #if DEBUG
@@ -58,6 +59,14 @@
       }
     }
 
+    func editorAppeared(_ editor: UUID) {
+      visibleEditors.insert(editor)
+    }
+
+    func editorDisappeared(_ editor: UUID) {
+      visibleEditors.remove(editor)
+    }
+
     private func recordInteraction() {
       lastInteraction = Date()
     }
@@ -73,6 +82,7 @@
         secondsSinceInteraction: now.timeIntervalSince(lastInteraction),
         assistedInputActive: keyboardVisible || UIAccessibility.isVoiceOverRunning
           || UIAccessibility.isSwitchControlRunning,
+        editorVisible: !visibleEditors.isEmpty,
         preferences: .load())
       apply(previewDecision ?? BackupScreenPolicy.decide(state))
     }

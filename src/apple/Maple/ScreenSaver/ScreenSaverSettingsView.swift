@@ -7,7 +7,7 @@ import SwiftUI
 
 struct ScreenSaverSettingsView: View {
   @AppStorage(BackupScreenPreferences.keepScreenOnKey) private var keepScreenOn = true
-  @AppStorage(BackupScreenPreferences.screenSaverKey) private var screenSaverEnabled = true
+  @AppStorage(BackupScreenPreferences.screenSaverKey) private var screenSaverEnabled = false
 
   var body: some View {
     Form {
@@ -22,7 +22,7 @@ struct ScreenSaverSettingsView: View {
         )
         .accessibilityIdentifier("screenSaver.lightTable")
         MuiText(
-          "While a backup uploads and this device is plugged in and untouched for \(Self.minutes(BackupScreenPolicy.screenSaverDelay)), photos from your library drift across the screen until you touch it.",
+          "Off by default. When on, photos from your library drift across the screen once a backup is uploading and this device is plugged in and untouched for \(Self.minutes(BackupScreenPolicy.screenSaverDelay)). A touch closes it. It never starts while you are editing a photo.",
           variant: .body, color: .muted, block: true)
       }
       .listRowBackground(MapleTokens.surface)
