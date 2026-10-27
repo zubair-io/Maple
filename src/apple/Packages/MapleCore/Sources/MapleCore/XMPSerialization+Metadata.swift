@@ -295,13 +295,20 @@ extension XMPParser {
     ///
     /// Mirrors `XmpParserService.parseMetadata()` in `xmp-parser.service.ts`.
     public static func parseMetadata(_ xml: String) -> XmpMetadata {
-        var result = XmpMetadata()
+        let (metadata, parsed) = metadataParse(xml)
+        guard !parsed, let repaired = XMPDuplicateAttributes.removingRepeats(in: xml) else {
+            return metadata
+        }
+        let (repairedMetadata, repairedParsed) = metadataParse(repaired)
+        return repairedParsed ? repairedMetadata : metadata
+    }
+
+    private static func metadataParse(_ xml: String) -> (XmpMetadata, Bool) {
         let delegate = _XMPMetadataDelegate()
         let parser = XMLParser(data: Data(xml.utf8))
         parser.delegate = delegate
-        _ = parser.parse()
-        result = delegate.metadata
-        return result
+        let parsed = parser.parse()
+        return (delegate.metadata, parsed)
     }
 }
 

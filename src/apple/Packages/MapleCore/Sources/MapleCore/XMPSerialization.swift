@@ -45,6 +45,11 @@ public struct XMPParser {
     parser.delegate = delegate
     guard parser.parse() else {
       let err = parser.parserError?.localizedDescription ?? "unknown XML error"
+      if let repaired = XMPDuplicateAttributes.removingRepeats(in: xml),
+        let result = try? parse(repaired)
+      {
+        return result
+      }
       throw XMPError.parseError(err)
     }
     m = delegate.model

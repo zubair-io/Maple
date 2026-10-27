@@ -483,5 +483,22 @@ namespace Maple.WinUI.Tests
             Assert.True(firstAt >= 0, "the tone-curve block must still survive the resave");
             Assert.Equal(firstAt, lastAt);
         }
+
+        [Fact]
+        public void AnAttributeTheModelOwnsIsNeverWrittenTwice()
+        {
+            // #5475: Apple builds before #4686 filed `papp:FilmLook` as
+            // passthrough too and wrote it twice; no writer may do that again.
+            var doc = new XmpSidecarDocument();
+            doc.Adjustments.FilmLook = "slide_fuji_velvia_50";
+            doc.PassthroughAttributes.Add(
+                new XmpAttribute("papp:FilmLook", "color_negative_kodak_portra_160"));
+
+            var xml = XmpWriter.Serialize(doc);
+
+            Assert.Single(System.Text.RegularExpressions.Regex.Matches(xml, "papp:FilmLook="));
+            Assert.Contains("papp:FilmLook=\"slide_fuji_velvia_50\"", xml);
+            Assert.NotNull(XmpParser.Parse(xml));
+        }
     }
 }

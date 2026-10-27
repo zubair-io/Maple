@@ -321,10 +321,14 @@ namespace Maple.WinUI.Services.Xmp
         /// <summary>
         /// Canonical attribute order: namespace priority (xmp, crs, papp, dc,
         /// exif, photoshop, Iptc4xmpCore, xmpRights, then unknown) and
-        /// alphabetical by fully-qualified name within each namespace.
+        /// alphabetical by fully-qualified name within each namespace. One part
+        /// per name, the first winning: model parts precede passthrough, so a
+        /// name the consumed set misses keeps the edit and is never written
+        /// twice (#4686, #5475).
         /// </summary>
         private static List<string> SortedAttributeParts(IEnumerable<string> parts) =>
-            parts.OrderBy(p => XmpSchema.PrefixPriority(AttributeName(p)))
+            parts.DistinctBy(AttributeName)
+                 .OrderBy(p => XmpSchema.PrefixPriority(AttributeName(p)))
                  .ThenBy(AttributeName, StringComparer.Ordinal)
                  .ToList();
 

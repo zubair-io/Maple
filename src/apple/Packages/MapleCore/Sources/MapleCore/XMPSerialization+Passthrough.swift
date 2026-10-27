@@ -19,13 +19,16 @@ extension XMPParser {
   ///
   /// Returns `.empty` for a document that will not parse: a malformed
   /// sidecar has no trustworthy bytes to carry forward, and the caller
-  /// (`XMPSidecarStore`) is about to replace it either way.
+  /// (`XMPSidecarStore`) is about to replace it either way. One whose only
+  /// defect is a repeated attribute is read from its first copies (#5475).
   public static func parsePassthrough(_ xml: String) -> XMPPassthrough {
     let parser = XMLParser(data: Data(xml.utf8))
     let delegate = _XMPPassthroughDelegate(
       primaryDescription: XMPChildElementScanner.primaryDescription(in: xml))
     parser.delegate = delegate
-    guard parser.parse() else { return .empty }
+    guard parser.parse() else {
+      return XMPDuplicateAttributes.removingRepeats(in: xml).map(parsePassthrough) ?? .empty
+    }
 
     let groups = XMPMaskGroupSources.collect(xml)
     let isPassthroughChild: (XMPChildElementScanner.Child) -> Bool = {
