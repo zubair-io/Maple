@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <component type="desktop-application">
   <id>app.justmaple.aperture</id>
+  <update_contact>help@justmaple.app</update_contact>
   <metadata_license>CC0-1.0</metadata_license>
   <project_license>LicenseRef-proprietary</project_license>
   <name>Maple</name>
@@ -16,7 +17,6 @@
   </description>
   <launchable type="desktop-id">app.justmaple.aperture.desktop</launchable>
   <url type="homepage">https://mapleeditor.com/</url>
-  <url type="contact">mailto:help@justmaple.app</url>
   <content_rating type="oars-1.1"/>
   <provides>
     <binary>maple-linux</binary>
