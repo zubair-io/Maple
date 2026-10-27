@@ -217,99 +217,106 @@ fn early_vs_late_downsample_within_fp16_tolerance() {
     assert!(mean_db < 0.005, "mean B delta {} > 0.005", mean_db);
 }
 
-/// AMaZE should resolve finer detail than Hamilton-Adams at full
-/// resolution. Renders the same Bayer DNG twice (once Full, once
-/// Amaze) through the entire scene-linear chain, then for each
-/// developed buffer:
-///   * Computes the per-pixel green-channel gradient magnitude
-///     (|dx| + |dy|) summed over the whole frame — the "high-frequency
-///     energy". AMaZE's variance-driven H/V selection preserves edge
-///     detail HA blurs over, so total HF energy should be
-///     equal-or-greater under AMaZE.
-///   * Confirms the global mean barely moves — AMaZE is a detail
-///     refinement, not a tone change. The test budget allows at most
-///     5% drift in mean luminance.
+/// AMaZE must resolve at least as much green detail as RCD, the `Full`
+/// kernel, when both reconstruct the same white-balance-balanced CFA input.
+/// Before #5443 this test was named for Hamilton-Adams, but `Full` runs
+/// RCD; it also compared balanced AMaZE (#5000) against native-domain
+/// RCD, which measures the input conditioning rather than the kernel.
+/// Hamilton-Adams is not the baseline: on the same balanced input AMaZE
+/// reaches only 0.965× its green gradient energy, but HA's surplus comes
+/// with more checkerboard energy, the signature of zipper artefacts.
+///
+/// Two checks on test_0002:
+///   * Demosaic stage, same balanced input: AMaZE's green gradient energy
+///     (|dx| + |dy| over ±1 px) is at least 0.99× RCD's.
+///   * Full pipeline as shipped: AMaZE's 2×2 checkerboard (Nyquist) energy
+///     is no higher than `Full`'s, so the balanced domain adds no maze
+///     artefacts, and mean green drifts by under 5%.
+///
 /// `ignore`d without `--features fixtures` (#1082).
 #[test]
 #[cfg_attr(not(feature = "fixtures"), ignore)]
-fn amaze_resolves_finer_detail_than_hamilton_adams() {
+fn amaze_resolves_at_least_rcd_detail_on_balanced_input() {
+    use crate::image::Image;
     let path = crate::test_support::fixtures::require_raw("test_0002.dng");
     let bytes = std::fs::read(&path).expect("read raw");
     let raw = crate::decode::decode_bytes(&bytes, "dng").expect("decode");
-    let model = AdjustmentModel::default();
 
-    let ha = develop_scene_linear_from_raw_with_quality(&raw, &model, RenderQuality::Full)
-        .expect("HA develop");
+    let interior = |buf: &Image| {
+        let (w, h) = (buf.width as usize, buf.height as usize);
+        (4..h - 4).flat_map(move |y| (4..w - 4).map(move |x| y * w + x))
+    };
+    let gradient_energy = |buf: &Image| -> f64 {
+        let w = buf.width as usize;
+        let g = |i: usize| buf.pixels[i][1] as f64;
+        interior(buf)
+            .map(|i| (g(i + 1) - g(i - 1)).abs() + (g(i + w) - g(i - w)).abs())
+            .sum()
+    };
+    let checkerboard_energy = |buf: &Image| -> f64 {
+        let w = buf.width as usize;
+        let g = |i: usize| buf.pixels[i][1] as f64;
+        interior(buf)
+            .map(|i| (g(i) - g(i + 1) - g(i + w) + g(i + w + 1)).abs())
+            .sum()
+    };
+    let mean_g = |buf: &Image| -> f64 {
+        buf.pixels.iter().map(|p| p[1] as f64).sum::<f64>() / buf.pixels.len() as f64
+    };
+
+    let scales = crate::demosaic::balance_scales(raw.as_shot_neutral);
+    let mosaic = crate::linearize::sensor_linearize(&raw);
+    let balanced_mosaic = Image {
+        pixels: mosaic
+            .pixels
+            .iter()
+            .map(|p| [p[0] * scales[0], p[1] * scales[1], p[2] * scales[2]])
+            .collect(),
+        width: mosaic.width,
+        height: mosaic.height,
+        space: mosaic.space,
+        whites_anchor_ev: mosaic.whites_anchor_ev,
+        nr_sampling_scale: mosaic.nr_sampling_scale,
+    };
+    let rcd_balanced = crate::demosaic::rcd(&balanced_mosaic, raw.cfa);
+    let amaze_balanced = crate::demosaic::amaze::amaze_with_gains(&mosaic, raw.cfa, scales);
+    let rcd_detail = gradient_energy(&rcd_balanced) / f64::from(scales[1]);
+    let amaze_detail = gradient_energy(&amaze_balanced);
+    let detail_ratio = amaze_detail / rcd_detail;
+    eprintln!(
+        "balanced demosaic: green gradient energy RCD={rcd_detail:.0} AMaZE={amaze_detail:.0} \
+         (ratio={detail_ratio:.3}×)"
+    );
+    assert!(
+        detail_ratio >= 0.99,
+        "AMaZE green gradient energy {amaze_detail:.0} below RCD's {rcd_detail:.0} on the \
+         same balanced input (ratio {detail_ratio:.3} < 0.99)"
+    );
+
+    let model = AdjustmentModel::default();
+    let full = develop_scene_linear_from_raw_with_quality(&raw, &model, RenderQuality::Full)
+        .expect("Full develop");
     let amz = develop_scene_linear_from_raw_with_quality(&raw, &model, RenderQuality::Amaze)
         .expect("AMaZE develop");
-    assert_eq!((ha.width, ha.height), (amz.width, amz.height));
+    assert_eq!((full.width, full.height), (amz.width, amz.height));
 
-    let w = ha.width as usize;
-    let h = ha.height as usize;
-
-    // Total green-channel mean — should hardly move between HA/AMaZE.
-    let mean_g = |buf: &crate::image::Image| -> f64 {
-        let s: f64 = buf.pixels.iter().map(|p| p[1] as f64).sum();
-        s / buf.pixels.len() as f64
-    };
-    let m_ha = mean_g(&ha);
-    let m_amz = mean_g(&amz);
-    let mean_drift = ((m_amz - m_ha) / m_ha).abs();
+    let (m_full, m_amz) = (mean_g(&full), mean_g(&amz));
+    let mean_drift = ((m_amz - m_full) / m_full).abs();
+    let (cb_full, cb_amz) = (checkerboard_energy(&full), checkerboard_energy(&amz));
+    eprintln!(
+        "pipeline: mean_g Full={m_full:.4} AMaZE={m_amz:.4} (drift={:.3}%); \
+         checkerboard Full={cb_full:.0} AMaZE={cb_amz:.0} (ratio={:.3}×)",
+        mean_drift * 100.0,
+        cb_amz / cb_full
+    );
     assert!(
         mean_drift < 0.05,
-        "AMaZE shifted overall green mean by {:.3}% (HA mean = {:.4}, AMaZE = {:.4}); \
-         expected ≤ 5%",
-        mean_drift * 100.0,
-        m_ha,
-        m_amz
+        "AMaZE shifted overall green mean by {:.3}% (Full = {m_full:.4}, AMaZE = {m_amz:.4})",
+        mean_drift * 100.0
     );
-
-    // High-frequency energy via the L1 gradient magnitude on the green
-    // channel. We skip a 4-pixel border so AMaZE's edge-fallback
-    // pixels (where it reverts to bilinear-difference) don't
-    // dominate. Comparing a pure detail metric, not a per-pixel
-    // ΔE — the goal is "AMaZE preserves more detail," not "AMaZE
-    // shifts color."
-    let hf_energy = |buf: &crate::image::Image| -> f64 {
-        let mut sum = 0.0_f64;
-        for y in 4..h - 4 {
-            for x in 4..w - 4 {
-                let i = y * w + x;
-                let g = buf.pixels[i][1];
-                let dx = (buf.pixels[i + 1][1] - buf.pixels[i - 1][1]).abs();
-                let dy = (buf.pixels[i + w][1] - buf.pixels[i - w][1]).abs();
-                let _ = g;
-                sum += (dx + dy) as f64;
-            }
-        }
-        sum
-    };
-    let hf_ha = hf_energy(&ha);
-    let hf_amz = hf_energy(&amz);
-    eprintln!(
-        "amaze vs hamilton-adams: mean_g HA={:.4} AMaZE={:.4} (drift={:.3}%); \
-               HF energy HA={:.0} AMaZE={:.0} (ratio={:.3}×)",
-        m_ha,
-        m_amz,
-        mean_drift * 100.0,
-        hf_ha,
-        hf_amz,
-        hf_amz / hf_ha
-    );
-
-    // AMaZE's HF energy must be at least as high as HA's. The 0.99
-    // floor (1% slack) absorbs tiny per-pixel noise differences from
-    // AMaZE's adaptive median bound on saturated edges, which can
-    // very-slightly suppress one HA-only zipper. The expected
-    // direction is hf_amz > hf_ha; in practice the ratio sits well
-    // above 1.0 on natural fixtures.
     assert!(
-        hf_amz / hf_ha >= 0.99,
-        "AMaZE HF energy {:.0} below HA HF energy {:.0} (ratio {:.3} < 0.99) — \
-         AMaZE should preserve at least as much green-channel detail as HA",
-        hf_amz,
-        hf_ha,
-        hf_amz / hf_ha
+        cb_amz <= cb_full,
+        "AMaZE checkerboard energy {cb_amz:.0} exceeds Full's {cb_full:.0}"
     );
 }
 
