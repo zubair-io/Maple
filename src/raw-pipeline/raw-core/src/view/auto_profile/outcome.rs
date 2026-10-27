@@ -12,6 +12,10 @@ pub enum AutoFitOutcome {
 }
 
 impl AutoFitOutcome {
+    /// The C-FFI fit return code for [`Self::NoPreview`], emitted to C# by
+    /// codegen and pinned by raw-ffi's `MAPLE_AUTO_FIT_NO_PREVIEW`.
+    pub const NO_PREVIEW_FFI_CODE: i32 = 10;
+
     /// The wire name WASM hands the browser host.
     pub fn as_str(self) -> &'static str {
         match self {

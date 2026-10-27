@@ -1,5 +1,5 @@
+using Maple.WinUI.Generated;
 using Maple.WinUI.Models;
-using Maple.WinUI.Native;
 using Maple.WinUI.Services;
 using Xunit;
 
@@ -9,7 +9,7 @@ public class AutoProfileStatusTests
 {
     [Theory]
     [InlineData(0, AutoProfileOutcome.Applied)]
-    [InlineData(10, AutoProfileOutcome.NoPreview)]
+    [InlineData(AutoFitCodes.NoPreview, AutoProfileOutcome.NoPreview)]
     [InlineData(1, AutoProfileOutcome.Unavailable)]
     [InlineData(-1, AutoProfileOutcome.Unavailable)]
     [InlineData(-2, AutoProfileOutcome.Unavailable)]
@@ -18,9 +18,6 @@ public class AutoProfileStatusTests
     [InlineData(99, AutoProfileOutcome.Unavailable)]
     public void ClassifiesTheNativeFitReturnCode(int rc, AutoProfileOutcome expected) =>
         Assert.Equal(expected, AutoProfileStatus.Classify(rc));
-
-    [Fact]
-    public void NoPreviewCodeMirrorsRawFfi() => Assert.Equal(10, RawFfi.MapleAutoFitNoPreview);
 
     [Fact]
     public void NoPreviewFallbackShowsTheVisibleNeutralLine()

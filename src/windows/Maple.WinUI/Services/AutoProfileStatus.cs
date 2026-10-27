@@ -1,5 +1,5 @@
+using Maple.WinUI.Generated;
 using Maple.WinUI.Models;
-using Maple.WinUI.Native;
 
 namespace Maple.WinUI.Services;
 
@@ -17,7 +17,7 @@ public static class AutoProfileStatus
     public static AutoProfileOutcome Classify(int fitReturnCode) => fitReturnCode switch
     {
         0 => AutoProfileOutcome.Applied,
-        RawFfi.MapleAutoFitNoPreview => AutoProfileOutcome.NoPreview,
+        AutoFitCodes.NoPreview => AutoProfileOutcome.NoPreview,
         _ => AutoProfileOutcome.Unavailable,
     };
 

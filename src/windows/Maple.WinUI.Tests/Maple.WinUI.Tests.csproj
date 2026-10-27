@@ -259,6 +259,7 @@
     <Compile Include="..\Maple.WinUI\Services\NativeDetailHazeCache.cs" LinkBase="Services" />
     <Compile Include="..\Maple.WinUI\Services\RenderEngine.ProfileReuse.cs" LinkBase="Services" />
     <Compile Include="..\Maple.WinUI\Services\AutoProfileStatus.cs" LinkBase="Services" />
+    <Compile Include="..\Maple.WinUI\Generated\AutoFitCodes.g.cs" LinkBase="Generated" />
     <Compile Include="..\Maple.WinUI\Services\RenderEngine.Raster.cs" LinkBase="Services" />
     <Compile Include="..\Maple.WinUI\Services\CaptureCreative.cs" LinkBase="Services" />
     <Compile Include="..\Maple.WinUI\Services\NativeDetailDecoder.cs" LinkBase="Services" />
