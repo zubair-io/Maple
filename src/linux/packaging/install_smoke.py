@@ -104,10 +104,12 @@ def check_associations(data_dir: Path, env: dict) -> None:
     )
     globs = (data_dir / "mime/globs2").read_text()
     own = re.findall(
-        r'<mime-type type="([^"]+)">.*?<glob pattern="([^"]+)"/>',
+        r'<mime-type type="([^"]+)">.*?<glob pattern="([^"]+)"[^>]*/>',
         (data_dir / f"mime/packages/{APP_ID}.xml").read_text(),
         re.DOTALL,
     )
+    if not own:
+        raise RuntimeError(f"No MIME types parsed from Maple's {APP_ID}.xml")
     for mime_type, glob in own:
         if not re.search(
             rf"^\d+:{re.escape(mime_type)}:{re.escape(glob)}$", globs, re.MULTILINE
@@ -473,7 +475,19 @@ def smoke_flatpak(package: Path, sessions: list[str]) -> None:
         raise RuntimeError("Installing the newer bundle did not update Maple")
     expect_sandbox_problems(launcher, env)
     check_associations(exports, env)
-    flatpak("uninstall", "--noninteractive", "-y", "--delete-data", APP_ID, env=env)
+    # --delete-data also resets the app's portal permissions over the session bus.
+    run(
+        "dbus-run-session",
+        "--",
+        "flatpak",
+        "uninstall",
+        "--user",
+        "--noninteractive",
+        "-y",
+        "--delete-data",
+        APP_ID,
+        env=env,
+    )
     if f"{APP_ID}-origin" in flatpak("remotes", env=env):
         raise RuntimeError("Uninstall left the bundle's origin remote")
     check_removed(
