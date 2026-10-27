@@ -1,17 +1,19 @@
 ---
 name: rust-style
-description: Maple's Rust style rules, adapted from the Google Rust Style Guide (https://google.github.io/styleguide/rustguide.html). Use when writing, reviewing, or refactoring any Rust under src/raw-pipeline/ (raw-core, raw-gpu, raw-ffi, raw-wasm, raw-napi, maple-cli, maple-pano, codegen) or src/windows/.
+description: Maple's Rust style rules, adapted from the Google Rust Style Guide (https://google.github.io/styleguide/rustguide.html). Applies to all Rust under src/raw-pipeline/ (raw-core, raw-gpu, raw-ffi, raw-wasm, raw-napi, maple-cli, maple-pano, codegen) or src/windows/.
 ---
 
 # Rust style for Maple
 
-Maple's Rust follows the [Google Rust Style Guide](https://google.github.io/styleguide/rustguide.html), which itself defers to the official [Rust Style Guide](https://doc.rust-lang.org/nightly/style-guide/) and [Rust API Guidelines](https://rust-lang.github.io/api-guidelines/). The rules below are that guide filtered to what applies here, with the places where Maple's own invariants are stricter called out. Where this file and `docs/best-practices.md` § "Rust core" disagree, best-practices wins.
+Maple's Rust follows the [Google Rust Style Guide](https://google.github.io/styleguide/rustguide.html), which itself defers to the official [Rust Style Guide](https://doc.rust-lang.org/nightly/style-guide/) and [Rust API Guidelines](https://rust-lang.github.io/api-guidelines/). The rules below are that guide filtered to what applies here, with the places where Maple's own invariants are stricter called out. Where this file and `docs/best-practices.md` § "Rust core" disagree, best-practices wins. The style rules apply to new and changed code; existing code comes into line when it is next touched.
 
 Everything in `raw-core`, `raw-gpu`, and `maple-pano` is **library code**: API-design rules are binding. `maple-cli`, `codegen`, and the binding crates (`raw-ffi`, `raw-wasm`, `raw-napi`) are **application code**: the same rules are strong recommendations, and simplicity beats generality (CLAUDE.md principle 7, YAGNI).
 
 Chromium-, Android-, and Fuchsia-only rules from the Google guide (one-file crates, flat crate layout, `chromium::import!`, no `async`, no `std::thread`, gtest interop, `panic=abort`) do **not** apply.
 
 ## Maple overrides — these win over the Google guide
+
+These invariants outrank every style rule further down.
 
 - **Never panic on bad input in library code.** The Google guide allows `panic!` for violated caller invariants; Maple does not for anything reachable from a RAW file, an XMP sidecar, or an FFI/WASM argument. Return `Result`. `unwrap`/`expect` belong in tests, binaries, and on invariants the code itself just established.
 - **Determinism.** No wall-clock reads, no unseeded RNG, no parallel reductions with non-associative operators. Output must be byte-identical across native and WASM.
@@ -24,7 +26,7 @@ Chromium-, Android-, and Fuchsia-only rules from the Google guide (one-file crat
 
 ## Formatting
 
-- `rustfmt` with repo defaults (edition 2021, 100-column width) on the files you touch. Only `raw-ffi` is fully rustfmt-clean and gated by `cargo fmt --check -p raw-ffi`; don't reformat untouched files in other crates. Formatting is not a review topic.
+- `rustfmt` with repo defaults (edition 2021, 100-column width) on changed files. Only `raw-ffi` is fully rustfmt-clean and gated by `cargo fmt --check -p raw-ffi`; untouched files in other crates keep their current formatting.
 - `#[rustfmt::skip]` only for deliberate alignment (a 3×3 colour matrix, a LUT table) or generated code — never for taste.
 
 ## Modules and imports
@@ -110,7 +112,3 @@ Prefer, in order: functions/types/traits → `macro_rules!` → code generation 
 - Every public item in library crates gets a `///` doc comment that states what a reader can't infer from the signature: units, colour space, value range, panics, errors.
 - `//!` at the top of a module for its invariants (see `raw-core/src/api.rs`).
 - Unit tests live in an inline `#[cfg(test)] mod tests` with `use super::*;`. Roughly one test per public function and per failure mode. The colour integration gate is `src/scripts/test_color_pipeline.sh`, which compares Auto against each camera's embedded JPEG (`docs/testing.md`); ACR comparisons are retired (#5000) and must not be reinstated.
-
-## Reviewing against this guide
-
-When reviewing a Rust diff, check the overrides section first — a panic on bad input, a non-deterministic reduction, an allocation in the render loop, or a raw-core change without its WGSL twin outranks every style point below it. Flag style issues only in lines the diff touches; don't ask for drive-by rewrites of untouched code.

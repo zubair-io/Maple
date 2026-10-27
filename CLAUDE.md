@@ -90,7 +90,7 @@ docs/                         # See docs/README.md for the index
 - **Adding an Angular component?** Read `docs/best-practices.md` § "Angular". TL;DR: standalone, signals, `input()`/`output()`, separate `.ts`/`.html`/`.scss` files, observables at the service layer, view models in components.
 - **Adding a Swift view?** Read `docs/best-practices.md` § "Swift". TL;DR: `@Observable`, actor-isolated I/O, generation-counter guards for async state.
 - **Touching the XMP schema?** Read `docs/xmp-canonical-format.md`. Schema changes are versioned; passthrough XML preserves unknown fields byte-for-byte.
-- **Writing or reviewing Rust?** Follow `.claude/skills/rust-style/SKILL.md` (the `rust-style` skill) — the Google Rust Style Guide adapted to Maple, with the repo's stricter invariants (no panics on bad input, determinism, no render-loop allocation) listed first.
+- **Writing Rust?** The house style is `.claude/skills/rust-style/SKILL.md` (the `rust-style` skill): the Google Rust Style Guide adapted to Maple, with the repo's stricter invariants (no panics on bad input, determinism, no render-loop allocation) listed first.
 - **Touching the describe stage?** Read `docs/indexer-enrichment.md` § describe first — it covers the structured `VisionDoc`, the preview-stage dependency, and the no-XMP-for-derived-data invariant. qwen2.5-vl is the sole OCR source.
 
 ## Build & test — Apple

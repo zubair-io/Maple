@@ -274,7 +274,7 @@ A change behind `#if os(...)` must be built on every platform it touches. CI's o
 - **No filesystem access in the core.** Entry points take and return bytes; the shell owns I/O.
 - **Never panic on bad input.** Library code returns `Result<T, E>`. `unwrap`/`expect` belong in tests and binaries.
 - **`rayon` for CPU parallelism.** Pixel-decomposable stages use parallel iterators; don't spawn threads by hand.
-- **Every stage gets unit tests**, and the ACR-referenced perceptual harness is the integration gate. Roughly one test per public function and per failure mode — not per line.
+- **Every stage gets unit tests**, and the embedded-JPEG colour harness (`src/scripts/test_color_pipeline.sh`) is the integration gate. Roughly one test per public function and per failure mode — not per line.
 - **A stage change must land its GPU counterpart.** `cargo test -p raw-core` cannot see WGSL divergence; `raw-pipeline.yml` runs a separate `raw-gpu` job that validates the shaders with `naga` and checks raw-core ↔ GPU parity.
 
 Day-to-day style — imports, signatures, error types, traits, naming, `unsafe` — follows the [Google Rust Style Guide](https://google.github.io/styleguide/rustguide.html) as adapted in [`.claude/skills/rust-style/SKILL.md`](../.claude/skills/rust-style/SKILL.md). The rules above override it where they are stricter.
