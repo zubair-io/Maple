@@ -2143,21 +2143,26 @@ mod tests {
 
     #[test]
     #[cfg_attr(not(feature = "fixtures"), ignore)]
-    fn fixture_sub_declared_saturation_is_detected() {
-        for (name, want) in [
-            ("test_0004.fff", 64856u32),
-            ("test_0018.dng", 62193),
-            ("test_0019.dng", 62206),
+    fn fixture_localized_bright_plateaus_keep_declared_white() {
+        // test_0004's plateau is its non-image border columns x = 0..3;
+        // test_0018/0019's is one 143×127 corner patch. Neither is spatial
+        // evidence of clipping, so the declared white must survive (#5443).
+        for (name, declared, plateau) in [
+            ("test_0004.fff", 65535u32, 64856u16),
+            ("test_0018.dng", 65535, 62193),
+            ("test_0019.dng", 65535, 62206),
         ] {
             let path = require_raw(name);
             let raw = decode_path(&path).expect("decode fixture");
-            assert_eq!(raw.white_level, want, "{name} effective white level");
+            let brightest = raw.raw_data.iter().copied().max().unwrap_or(0);
+            assert_eq!(brightest, plateau, "{name}: fixture plateau moved");
+            assert_eq!(raw.white_level, declared, "{name} effective white level");
             let clipped = raw
                 .raw_data
                 .iter()
                 .filter(|&&v| (v as f64) / (raw.white_level as f64) >= 0.995)
                 .count();
-            assert!(clipped > 0, "{name}: clip mask must be non-empty");
+            assert_eq!(clipped, 0, "{name}: clip mask must stay empty");
         }
     }
 
