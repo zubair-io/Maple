@@ -89,6 +89,9 @@ test('a sidecar published into a library reached through a symlinked root replic
 });
 
 test('a library root retargeted after the comparison fails closed instead of writing into another library (#5027)', async () => {
+  // A declared root covering the temp dir would legitimately allow the write (#5483).
+  const inheritedRoots = process.env.MAPLE_ROOTS;
+  delete process.env.MAPLE_ROOTS;
   const live = await createLiveTestDatabase();
   const scratch = await fs.mkdtemp(path.join(os.tmpdir(), 'maple-cas-retarget-'));
   try {
@@ -119,10 +122,11 @@ test('a library root retargeted after the comparison fails closed instead of wri
     );
     await fs.flushPendingMirrorOps();
 
-    expect(outcome.kind).toBe('error');
     await expect(fs.access(path.join(otherRoot, 'x.xmp'))).rejects.toThrow();
     await expect(fs.access(path.join(mirror, 'x.xmp'))).rejects.toThrow();
+    expect(outcome.kind).toBe('error');
   } finally {
+    if (inheritedRoots !== undefined) process.env.MAPLE_ROOTS = inheritedRoots;
     clearMirrorRoots();
     live.close();
     await fs.rm(scratch, { recursive: true, force: true });
