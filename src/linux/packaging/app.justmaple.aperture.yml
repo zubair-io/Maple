@@ -2,7 +2,7 @@
 # tested (#5449); package.py stages it, with the desktop integration, beside this manifest.
 app-id: app.justmaple.aperture
 runtime: org.freedesktop.Platform
-runtime-version: "25.08"
+runtime-version: '25.08'
 sdk: org.freedesktop.Sdk
 command: maple-linux
 finish-args:
