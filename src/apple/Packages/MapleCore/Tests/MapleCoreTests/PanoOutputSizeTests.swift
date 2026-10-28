@@ -198,6 +198,33 @@ final class PanoOutputSizeSessionTests: XCTestCase {
         XCTAssertEqual(session.outputSize, .fitted)
     }
 
+    func testAStrategyChangeInsideTheDebounceRefreshesTheFitBeforeStitching() async {
+        let smallCanvas = PanoStitchSizes(canvasWidth: 5_000, canvasHeight: 2_000, largestFramePixels: 1_000_000)
+        let (session, stitcher) = await makeSession(available: shortBudget(), sizes: smallCanvas)
+        guard case .fullFits = session.memoryFit else {
+            return XCTFail("expected fullFits first, got \(String(describing: session.memoryFit))")
+        }
+        let newStrategy: PanoOptions.Strategy = session.options.strategy == .tile ? .rotation : .tile
+        stitcher.previewSizes = pano01
+        session.options.strategy = newStrategy
+
+        let cap = await stitchCap(session, stitcher)
+
+        XCTAssertEqual(stitcher.previewCalls.last?.options.strategy, newStrategy)
+        guard case .fitted(_, let pixels, _, _) = session.memoryFit else {
+            return XCTFail("expected the new geometry's fit, got \(String(describing: session.memoryFit))")
+        }
+        XCTAssertEqual(cap, .some(pixels))
+    }
+
+    func testAStrategyChangeWithoutAMemoryLimitStitchesWithoutAnExtraPreview() async {
+        let (session, stitcher) = await makeSession(available: nil, sizes: pano01)
+        session.options.strategy = session.options.strategy == .tile ? .rotation : .tile
+        let cap = await stitchCap(session, stitcher)
+        XCTAssertEqual(stitcher.previewCalls.count, 1)
+        XCTAssertEqual(cap, .some(nil))
+    }
+
     func testPreviewWithoutSizesOffersNoChoice() async {
         let (session, stitcher) = await makeSession(available: shortBudget(), sizes: nil)
         XCTAssertNil(session.memoryFit)
