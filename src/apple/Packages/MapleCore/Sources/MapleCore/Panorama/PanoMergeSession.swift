@@ -128,8 +128,11 @@ public final class PanoMergeSession {
     /// read once when that preview lands so the sheet and the stitch agree;
     /// `nil` before a preview, or where the platform has no per-process
     /// memory limit (macOS). After a geometry change it describes the
-    /// previous geometry until the new preview lands.
-    public private(set) var memoryFit: PanoMemoryFit?
+    /// previous geometry until the new preview lands; `start` previews the
+    /// current geometry first rather than stitch against it.
+    public private(set) var memoryFit: PanoMemoryFit? {
+        didSet { if memoryFit == nil { memoryFitStrategy = nil } }
+    }
 
     /// The canvas cap the next stitch will run with, `nil` for the default.
     public var outputCanvasCap: Int? {
@@ -143,6 +146,9 @@ public final class PanoMergeSession {
     private let memoryModel = PanoMemoryModel()
     private let availableMemory: @Sendable () -> Int?
     private var chosenOutputSize: PanoOutputSize?
+    /// Geometry option the latest finished preview, and so `memoryFit`,
+    /// was solved for.
+    private var memoryFitStrategy: PanoOptions.Strategy?
     private let previewDebounce: Duration
     private var runGeneration: UInt64 = 0
     private var previewGeneration: UInt64 = 0
@@ -211,11 +217,7 @@ public final class PanoMergeSession {
                     }
                 )
                 guard self.previewGeneration == gen else { return }
-                self.alignment = preview.alignment
-                self.lastPreview = preview
-                self.memoryFit = preview.stitchSizes.flatMap {
-                    self.memoryModel.fit(sizes: $0, availableBytes: self.availableMemory())
-                }
+                self.adopt(preview, solvedFor: capturedOptions.strategy)
                 self.previewState = .ready
             } catch is CancellationError {
                 return
@@ -227,6 +229,23 @@ public final class PanoMergeSession {
                 self.schedulePreview(after: .zero)
             }
         }
+    }
+
+    private func adopt(_ preview: PanoPreview, solvedFor strategy: PanoOptions.Strategy) {
+        alignment = preview.alignment
+        lastPreview = preview
+        memoryFit = preview.stitchSizes.flatMap {
+            memoryModel.fit(sizes: $0, availableBytes: availableMemory())
+        }
+        memoryFitStrategy = strategy
+    }
+
+    /// On a device with a per-process memory limit, the stitch must not size
+    /// itself from a fit solved for different geometry: a `.fullFits` from
+    /// the old strategy would pass no cap at all, and a fitted cap budgets
+    /// the old canvas's width.
+    private func needsFreshFit(for strategy: PanoOptions.Strategy) -> Bool {
+        memoryFitStrategy != strategy && availableMemory() != nil
     }
 
     /// The running preview whose alignment Create Panorama should wait for:
@@ -280,9 +299,17 @@ public final class PanoMergeSession {
             if let awaitedPreview {
                 await awaitedPreview.value
                 guard runGeneration == gen else { return }
-                state = .running(stage: .decoding, stageFraction: 0.0, overallFraction: 0.0)
             }
             do {
+                if needsFreshFit(for: capturedOptions.strategy) {
+                    state = .finishingAlignment
+                    let preview = try await capturedStitcher.preview(
+                        assets: assets, options: capturedOptions, alignment: alignment, progress: { _, _ in })
+                    guard runGeneration == gen else { return }
+                    adopt(preview, solvedFor: capturedOptions.strategy)
+                    previewState = .ready
+                }
+                state = .running(stage: .decoding, stageFraction: 0.0, overallFraction: 0.0)
                 let result = try await capturedStitcher.stitch(
                     assets: assets,
                     options: capturedOptions,
