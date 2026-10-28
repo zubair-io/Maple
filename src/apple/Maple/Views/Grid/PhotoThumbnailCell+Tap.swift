@@ -46,6 +46,19 @@ struct TapWithFrame: ViewModifier {
   }
 }
 
+struct OptionalTapWithFrame: ViewModifier {
+  let onTap: ((CGRect) -> Void)?
+  let onFrameChange: ((CGRect) -> Void)?
+
+  func body(content: Content) -> some View {
+    if let onTap {
+      content.modifier(TapWithFrame(onTap: onTap, onFrameChange: onFrameChange))
+    } else {
+      content
+    }
+  }
+}
+
 /// Latest global frame of a cell (see `TapWithFrame`).
 private final class FrameBox {
   var frame: CGRect = .zero

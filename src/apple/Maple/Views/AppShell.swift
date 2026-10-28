@@ -1104,6 +1104,7 @@ struct AppShell: View {
     ) {
       PanoMergeView(
         assets: browseVM.selectedAssets(sessions: sessions),
+        source: browseVM.currentSource,
         session: panoMergeSession,
         onDismiss: { dismissPanoramaMerge() },
         // M5 (#1234): inject the stitched PNG into the library so it
@@ -1464,6 +1465,7 @@ struct AppShell: View {
       ) {
         PanoMergeView(
           assets: browseVM.selectedAssets(sessions: sessions),
+          source: browseVM.currentSource,
           session: panoMergeSession,
           onDismiss: { dismissPanoramaMerge() },
           // M5 (#1234): inject the stitched PNG into the library.

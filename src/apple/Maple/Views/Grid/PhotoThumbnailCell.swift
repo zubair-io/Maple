@@ -54,8 +54,9 @@ struct PhotoThumbnailCell: View {
   var dragPayload: DraggedAssetPayload? = nil
   /// Cell tap handler. Receives the cell's frame in the window's
   /// coordinate space at the moment of the tap — the iPhone Preview hero
-  /// grows out of exactly that rect.
-  let onTap: (CGRect) -> Void
+  /// grows out of exactly that rect. `nil` makes a display-only tile: no
+  /// gesture, no button trait, no VoiceOver action.
+  var onTap: ((CGRect) -> Void)? = nil
   /// Publishes this cell's live frame in the window's coordinate space on
   /// every layout change. The iPhone grid attaches it to the SELECTED cell
   /// only — one geometry watcher, not one per tile — so the Preview hero
@@ -197,13 +198,13 @@ struct PhotoThumbnailCell: View {
     // `app.buttons["thumb-<displayName>"]` — mirrors LibraryCell's
     // `.accessibilityIdentifier("thumb-\(asset.displayName)")`.
     .accessibilityElement(children: .ignore)
-    .accessibilityAddTraits(.isButton)
+    .accessibilityAddTraits(onTap == nil ? [] : .isButton)
     .accessibilityIdentifier("thumb-\(item.displayName)")
     .accessibilityLabel(accessibilityLabelText)
     .accessibilityHint(accessibilityHintText)
     // Attach activation after the final accessibility element: ignoring the
     // thumbnail's children must not discard its VoiceOver press action.
-    .modifier(TapWithFrame(onTap: onTap, onFrameChange: onFrameChange))
+    .modifier(OptionalTapWithFrame(onTap: onTap, onFrameChange: onFrameChange))
     .task(id: item.id) { await onLoad?() }
     .task(id: reloadKey) {
       if item.thumbnailSource.localAssetURL != nil {
@@ -463,8 +464,7 @@ private struct DragPayloadModifier: ViewModifier {
     item: item,
     provider: .preview(),
     displayMode: .fill,
-    isSelected: true,
-    onTap: { _ in }
+    isSelected: true
   )
   .frame(width: 120, height: 120)
   .padding()
@@ -480,8 +480,7 @@ private struct DragPayloadModifier: ViewModifier {
     item: item,
     provider: .preview(),
     displayMode: .fill,
-    isSelected: false,
-    onTap: { _ in }
+    isSelected: false
   )
   .frame(width: 180, height: 180)
   .padding()
@@ -500,8 +499,7 @@ private struct DragPayloadModifier: ViewModifier {
     item: item,
     provider: .preview(),
     displayMode: .fill,
-    isSelected: false,
-    onTap: { _ in }
+    isSelected: false
   )
   .frame(width: 140, height: 140)
   .padding()
@@ -518,8 +516,7 @@ private struct DragPayloadModifier: ViewModifier {
     provider: .preview(),
     displayMode: .fill,
     isSelected: true,
-    multiSelectChecked: true,
-    onTap: { _ in }
+    multiSelectChecked: true
   )
   .frame(width: 180, height: 180)
   .padding()
@@ -536,8 +533,7 @@ private struct DragPayloadModifier: ViewModifier {
     provider: .preview(),
     displayMode: .fill,
     isSelected: false,
-    multiSelectChecked: false,
-    onTap: { _ in }
+    multiSelectChecked: false
   )
   .frame(width: 180, height: 180)
   .padding()

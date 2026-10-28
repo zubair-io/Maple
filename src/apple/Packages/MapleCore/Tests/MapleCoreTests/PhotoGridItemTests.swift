@@ -121,6 +121,29 @@ final class PhotoGridItemTests: XCTestCase {
         XCTAssertEqual(item.overlays.flag, .pick)
     }
 
+    /// The pano merge sheet (#5486) builds its frames with this adapter and
+    /// the browse source; a Maple Cloud frame has no file, so its thumbnail
+    /// can only come from that source.
+    func testURLLessCloudAssetRoutesItsThumbnailThroughTheBrowseSource() {
+        let frame = AssetRef(
+            displayName: "IMG_0001.dng",
+            hintExtension: "dng",
+            stableID: "fs:/library/pano/IMG_0001.dng",
+            thumbnailProvenance: .cloud(server: URL(string: "https://maple.example.invalid")!),
+            bytesProvider: { Data() }
+        )
+        let source = ThumbnailLoaderSourcelessTests.StubSource(canned: Data())
+        let item = PhotoGridItem(local: frame, source: source, overlays: GridCellOverlays())
+
+        XCTAssertNil(frame.primaryURL)
+        guard case .thumbnailLoader(let ref, let box) = item.thumbnailSource.resolvedBackend() else {
+            return XCTFail("a URL-less local item must load through the thumbnail loader")
+        }
+        XCTAssertEqual(ref.stableID, frame.stableID)
+        XCTAssertTrue(box?.source.map { $0 as AnyObject === source } ?? false,
+                      "the loader must receive the browse source")
+    }
+
     func testLocalAdapterFallsBackToUUIDWhenNoStableID() {
         let asset = AssetRef(
             displayName: "noID.dng",
