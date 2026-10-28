@@ -27,6 +27,10 @@ describe('panoOutputLocation (#5488)', () => {
     expect(at.absPath.startsWith('/lib/Panoramas/')).toBe(true);
   });
 
+  test('a folder whose name starts with two dots is still inside the library', () => {
+    expect(place(['/lib/..trip/a.dng']).relDir).toBe('..trip/Panoramas');
+  });
+
   test('frame order does not change the name', () => {
     const reordered = { ...identity, assetIds: ['a', 'b'], inputStamps: ['20:2', '10:1'] };
     expect(place(['/lib/a.dng'], reordered).filename).toBe(place(['/lib/a.dng']).filename);
