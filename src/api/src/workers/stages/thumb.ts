@@ -39,7 +39,11 @@
  * this stage's own success row, so either both land or neither does.
  */
 import { generateThumb } from '../../indexer/thumbnailer.ts';
-import { deferWhileDecoderMissing, unrenderedOutcome } from './derivative-render-outcome.ts';
+import {
+  deferWhileDecoderMissing,
+  memoryBudgetDeferral,
+  unrenderedOutcome,
+} from './derivative-render-outcome.ts';
 import { THUMB_TARGET_VERSION } from '../derivative-versions.ts';
 import { resolveThumbPathForAsset } from '../../fs/xmp.ts';
 import { assetAbsPath, assetPrimaryFileInfo } from '../../indexer/images.repo.ts';
@@ -154,7 +158,11 @@ const thumbStage = defineStage({
     // — this stage sets `tagsMissingOnEnoent` — for the missing-reaper.
     const decoderMissing = deferWhileDecoderMissing();
     if (decoderMissing) return decoderMissing;
-    const unrendered = await unrenderedOutcome(await generateThumb(absPath, thumbPath), absPath);
+    const rendered = await generateThumb(absPath, thumbPath).catch(
+      (err: unknown) => memoryBudgetDeferral(err, absPath) ?? Promise.reject(err),
+    );
+    if (typeof rendered !== 'boolean') return rendered;
+    const unrendered = await unrenderedOutcome(rendered, absPath);
     if (unrendered) return unrendered;
     // We do NOT persist the path on the asset: every reader derives it from the
     // source path alone via `resolveThumbPath`, so a stored `thumb_path` would

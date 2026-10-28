@@ -203,6 +203,29 @@ export interface GeneratedSearchCard {
   generated_for: string;
 }
 
+/** The decode memory budget (#5467): the saved share of the container
+ * memory limit, what that comes to, and the worker's live reservation as of
+ * its last per-minute sample (null until the worker has sampled). */
+export interface DecodeMemoryBudgetStatus {
+  /** 0 = no cap. */
+  percent: number;
+  source: 'db' | 'default';
+  min: number;
+  max: number;
+  /** Null when the cap is off. */
+  budget_bytes: number | null;
+  container_limit_bytes: number;
+  container_current_bytes: number | null;
+  container_source: 'cgroup-v2' | 'cgroup-v1' | 'host';
+  live: {
+    limit_bytes: number | null;
+    reserved_bytes: number;
+    running: number;
+    waiting: number;
+    at: number | null;
+  } | null;
+}
+
 /** Effective performance config + clamp bounds + live pool state. */
 export interface PerformanceConfig {
   /** Effective RAW decode-worker count, clamped to [min, max]. */
@@ -214,6 +237,14 @@ export interface PerformanceConfig {
   /** Hard clamp upper bound (16). */
   max: number;
   pool: FfiPoolStats;
+  /** Absent from servers that predate #5467. */
+  decode_memory_budget?: DecodeMemoryBudgetStatus;
+}
+
+/** Body of PATCH /api/workers/performance: send either field or both. */
+export interface PerformancePatch {
+  ffi_workers?: number;
+  decode_memory_budget_percent?: number;
 }
 
 /** Response to PATCH /api/workers/performance. */
@@ -222,6 +253,7 @@ export interface PatchPerformanceResponse {
   ffi_workers: number;
   source: 'db' | 'env' | 'default';
   pool: FfiPoolStats;
+  decode_memory_budget?: DecodeMemoryBudgetStatus;
 }
 
 /** One registered migration (GET /api/workers/migration/migrations). */
@@ -335,12 +367,10 @@ export class WorkersApiService {
     return this.http.get<PerformanceConfig>(`${this.base}/workers/performance`);
   }
 
-  /** Set the RAW decode-worker count. The server clamps to [1, 16], persists
-   * to the `performance` settings doc, and resizes the live pool immediately. */
-  patchPerformanceConfig(ffiWorkers: number): Observable<PatchPerformanceResponse> {
-    return this.http.patch<PatchPerformanceResponse>(`${this.base}/workers/performance`, {
-      ffi_workers: ffiWorkers,
-    });
+  /** Set the RAW decode-worker count and/or the decode memory budget. The
+   * server clamps and persists both; the worker applies them within seconds. */
+  patchPerformanceConfig(patch: PerformancePatch): Observable<PatchPerformanceResponse> {
+    return this.http.patch<PatchPerformanceResponse>(`${this.base}/workers/performance`, patch);
   }
 
   /** List the registered one-shot migrations with their state + remaining work. */

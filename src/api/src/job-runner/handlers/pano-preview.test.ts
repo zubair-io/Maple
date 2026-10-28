@@ -29,6 +29,7 @@ import { PANO_CLI_FAILURE_MESSAGE, progressFromLine, PROGRESS_TOTAL } from './pa
 import { fakeCliRuns, TINY_PNG_B64, writeFakePanoCli } from './pano-fake-cli.test-helpers.ts';
 import { panoPreviewHandler } from './pano-preview.ts';
 import { panoStitchHandler } from './pano-stitch.ts';
+import { decodeMemoryBudget } from '../../ffi/decode-memory-budget.ts';
 
 let live: LiveTestDatabase;
 let tmpDir = '';
@@ -231,5 +232,33 @@ describe('preview directories', () => {
     expect(await exists(stale)).toBe(false);
     expect(await exists(fresh)).toBe(true);
     await fs.rm(fresh, { recursive: true, force: true });
+  });
+});
+
+describe('pano and the decode memory budget (#5467)', () => {
+  afterEach(() => decodeMemoryBudget().configure(null));
+
+  it('waits for an in-flight decode, then holds the whole budget while it stitches', async () => {
+    const cli = await writeFakePanoCli(tmpDir, { preview: true });
+    const budget = decodeMemoryBudget();
+    budget.configure(10 * 1024 ** 3);
+    const releaseDecode = await budget.acquire(3 * 1024 ** 3);
+    const runsBefore = (await fakeCliRuns(cli)).length;
+
+    const preview = panoPreviewHandler.run(payload(cli, newPreviewDir()), context().ctx);
+    await Bun.sleep(50);
+    expect(await fakeCliRuns(cli)).toHaveLength(runsBefore);
+    expect(budget.snapshot().waiting).toBe(1);
+
+    let decodeAdmittedDuringStitch = false;
+    const nextDecode = budget.acquire(1024 ** 3).then((release) => {
+      decodeAdmittedDuringStitch = budget.snapshot().reservedBytes > 1024 ** 3;
+      release();
+    });
+    releaseDecode();
+    expect((await preview).kind).toBe('done');
+    await nextDecode;
+    expect(decodeAdmittedDuringStitch).toBe(false);
+    expect(budget.snapshot()).toMatchObject({ reservedBytes: 0, running: 0, waiting: 0 });
   });
 });

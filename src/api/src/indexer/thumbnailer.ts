@@ -40,6 +40,7 @@ import { finalizeAvifRender } from '../thumbs/validate-avif.ts';
 import { renderRawSidecarDerivative } from '../thumbs/raw-sidecar-render.ts';
 import { assertDerivativeCacheDirectory, isDerivativeCacheFresh } from './derivative-cache.ts';
 import { child as childLogger } from '../log.ts';
+import { DecodeMemoryBudgetError } from '../ffi/decode-memory-budget.ts';
 
 const log = childLogger('thumbnailer');
 
@@ -282,6 +283,7 @@ async function developRawThumbToFile(
     }
     return await renderBitmapThumbToFile(jpegPath, outPath, 'jpg');
   } catch (e) {
+    if (e instanceof DecodeMemoryBudgetError) throw e;
     log.warn(
       { rawPath, extractError, err: e instanceof Error ? e.message : e },
       'demosaic fallback threw',

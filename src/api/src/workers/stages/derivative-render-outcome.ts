@@ -1,6 +1,10 @@
 import { ffiPool } from '../../ffi/ffi-pool.ts';
+import { DecodeMemoryBudgetError } from '../../ffi/decode-memory-budget.ts';
 import { stat } from '../../fs/mirrored.ts';
+import { child as childLogger } from '../../log.ts';
 import type { StageResult } from '../stage-config.ts';
+
+const log = childLogger('workers:derivative-render');
 
 const DECODER_RETRY_MS = 60_000;
 const RENDER_RETRY_MS = 30 * 60_000;
@@ -39,6 +43,22 @@ export async function unrenderedOutcome(
   return {
     defer: {
       reason: 'derivative-render-produced-no-file',
+      retryAt: new Date(Date.now() + RENDER_RETRY_MS),
+    },
+  };
+}
+
+/**
+ * A decode estimated larger than the whole decode memory budget (#5467) is a
+ * server setting, not a property of the file: defer without spending an
+ * attempt, so raising the budget (or setting it to 0) lets the asset render.
+ */
+export function memoryBudgetDeferral(err: unknown, sourcePath: string): StageResult | null {
+  if (!(err instanceof DecodeMemoryBudgetError)) return null;
+  log.warn({ sourcePath, err: err.message }, 'render deferred: decode exceeds the memory budget');
+  return {
+    defer: {
+      reason: 'decode-exceeds-memory-budget',
       retryAt: new Date(Date.now() + RENDER_RETRY_MS),
     },
   };

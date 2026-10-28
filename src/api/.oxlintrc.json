@@ -65,6 +65,12 @@
         "src/routes/xmp.workflow-cancel.test.ts",
         // #4722: stages disposable JPEG fixtures under os.tmpdir(), never library files.
         "src/workers/stages/exif.library-reload.test.ts",
+        // #5467: reads the cgroup memory limit under /sys/fs/cgroup; never writes.
+        "src/ffi/container-memory.ts",
+        // #5467: cgroup, RAW-size and budget fixtures live only under os.tmpdir().
+        "src/ffi/container-memory.test.ts",
+        "src/ffi/decode-memory-budget.test.ts",
+        "src/ffi/ffi-pool-admission.test.ts",
         // #5027: retargets a disposable symlinked library root with real fs so the swap is not itself mirrored.
         "src/backup/sidecar-cas.test.ts",
         "tests/coverage.instrument.ts",

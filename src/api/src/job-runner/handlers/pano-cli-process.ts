@@ -17,6 +17,7 @@ import { assetAbsPath } from '../../indexer/images.repo.ts';
 import { invalidateLibraryRoots, loadLibraryRoots } from '../../indexer/libraries.cache.ts';
 import { child as childLogger } from '../../log.ts';
 import { jailExecutablePaths } from '../../pano/pano-config-paths.ts';
+import { decodeMemoryBudget } from '../../ffi/decode-memory-budget.ts';
 import type { JobHandlerContext } from './index.ts';
 import type { PanoStitchPayload } from './pano-stitch.ts';
 
@@ -149,6 +150,21 @@ export async function runPanoCli(
     mapleCli: jailed.canonical.maple_cli_path ?? payload.mapleCli,
     ortDylibPath: jailed.canonical.ort_dylib_path ?? payload.ortDylibPath,
   };
+  // A stitch peaks at tens of GB, so it reserves the whole decode memory
+  // budget and runs only once every in-flight decode has released (#5467).
+  const release = await decodeMemoryBudget().acquireAll();
+  try {
+    return await spawnPanoCli(executables, args, ctx);
+  } finally {
+    release();
+  }
+}
+
+async function spawnPanoCli(
+  executables: PanoStitchPayload,
+  args: readonly string[],
+  ctx: JobHandlerContext,
+): Promise<PanoCliRun> {
   const proc = Bun.spawn([executables.mapleCli, ...args], {
     env: panoEnv(executables),
     stdout: 'pipe',

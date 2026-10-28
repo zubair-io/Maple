@@ -127,7 +127,7 @@ describe('WorkersApiService', () => {
 
   it('patchPerformanceConfig() PATCH /api/workers/performance sends { ffi_workers }', () => {
     let result: PatchPerformanceResponse | undefined;
-    svc.patchPerformanceConfig(8).subscribe((r) => (result = r));
+    svc.patchPerformanceConfig({ ffi_workers: 8 }).subscribe((r) => (result = r));
     const req = http.expectOne('/api/workers/performance');
     expect(req.request.method).toBe('PATCH');
     expect(req.request.body).toEqual({ ffi_workers: 8 });
