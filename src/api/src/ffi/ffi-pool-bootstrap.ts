@@ -10,7 +10,11 @@
 
 import { child as childLogger } from '../log.ts';
 import { ffiPool } from './ffi-pool.ts';
-import { readPerformanceConfig, resolveFfiPoolConfig } from './ffi-pool-config.repo.ts';
+import {
+  DEFAULT_DECODE_MEMORY_BUDGET_PERCENT,
+  readPerformanceConfig,
+  resolveFfiPoolConfig,
+} from './ffi-pool-config.repo.ts';
 import { budgetBytesForPercent, decodeMemoryBudget } from './decode-memory-budget.ts';
 import { readContainerMemory } from './container-memory.ts';
 
@@ -47,13 +51,17 @@ export async function applyPerformanceConfig(): Promise<void> {
   );
 }
 
-/** Non-fatal: on failure the pool keeps its last applied (or default) size
- * and budget, and the next poll tries again. */
+/** Non-fatal: if the DB is unreachable at boot the pool keeps its default
+ * size and the budget takes the default share, so decodes are never metered
+ * against no cap while the periodic refresh retries. */
 export async function bootstrapFfiPool(): Promise<void> {
   try {
     await applyPerformanceConfig();
   } catch (err) {
-    log.warn({ err }, 'FFI pool configuration failed; the periodic refresh retries');
+    decodeMemoryBudget().configure(
+      budgetBytesForPercent(DEFAULT_DECODE_MEMORY_BUDGET_PERCENT, readContainerMemory().limitBytes),
+    );
+    log.warn({ err }, 'FFI pool configuration failed; default budget applied, refresh retries');
   }
   if (refreshTimer) return;
   refreshTimer = setInterval(() => {

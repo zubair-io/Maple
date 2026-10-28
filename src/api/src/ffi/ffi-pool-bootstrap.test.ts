@@ -23,10 +23,7 @@ describe('applyPerformanceConfig (worker side, #5467)', () => {
 
   it('applies a saved percent and pool size, and lifts the cap at 0', async () => {
     using _live = await createLiveTestDatabase();
-    await savePerformanceConfig({
-      ffi_workers: 6,
-      decode_memory_budget_percent: 25,
-    });
+    await savePerformanceConfig({ ffi_workers: 6, decode_memory_budget_percent: 25 });
     await applyPerformanceConfig();
     expect(ffiPool().poolSize()).toBe(6);
     expect(decodeMemoryBudget().snapshot().limitBytes).toBe(

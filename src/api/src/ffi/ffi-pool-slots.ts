@@ -69,6 +69,7 @@ export class WorkerSlotPool {
   private queue: PendingRequest[] = [];
   private targetSize = DEFAULT_FFI_WORKERS;
   private spawnFailed = false;
+  private everSpawned = false;
   private shuttingDown = false;
   private readonly workerFactory: WorkerFactory;
 
@@ -202,9 +203,12 @@ export class WorkerSlotPool {
     try {
       w = this.workerFactory();
     } catch (e) {
-      // First spawn failure latches: the worker module is unusable, so don't
-      // retry on every request. Reject all queued work so callers don't hang.
-      this.spawnFailed = true;
+      // A failure before any child ever started latches: the worker module is
+      // unusable, so don't retry on every request. Once a child has run, a
+      // failure is transient (children are retired after each develop, #5467),
+      // so the next request tries again. Either way, reject queued work so
+      // callers don't hang.
+      this.spawnFailed = !this.everSpawned;
       const err = new Error(
         'ffi-pool: failed to spawn worker — ' + (e instanceof Error ? e.message : String(e)),
       );
@@ -213,6 +217,7 @@ export class WorkerSlotPool {
       return null;
     }
 
+    this.everSpawned = true;
     const slot: WorkerSlot = { worker: w, inFlight: null, surplus: false };
 
     w.addEventListener('message', (event) => this.onWorkerMessage(slot, event.data as FfiResponse));

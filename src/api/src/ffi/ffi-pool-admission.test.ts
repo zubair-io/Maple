@@ -167,6 +167,39 @@ describe('FfiWorkerPool — decode memory admission', () => {
     await develop;
   });
 
+  it('respawns after a transient spawn failure once a child has run', async () => {
+    const raw = rawOfSize(64 * MIB);
+    const workers: FakeWorker[] = [];
+    const failNext = { value: false };
+    const budget = new DecodeMemoryBudget();
+    budget.configure(20 * GIB);
+    const pool = _createFfiPoolForTests({
+      workerFactory: () => {
+        if (failNext.value) {
+          failNext.value = false;
+          throw new Error('EAGAIN');
+        }
+        const w = new FakeWorker();
+        workers.push(w);
+        return w;
+      },
+      budget,
+    });
+    const first = pool.renderDevelopJpegToFile(raw, null, '/a.jpg', 1280);
+    await until(() => posted(workers) === 1);
+    workers[0]!.reply();
+    await first;
+    failNext.value = true;
+    await expect(pool.renderDevelopJpegToFile(raw, null, '/b.jpg', 1280)).rejects.toThrow(
+      'failed to spawn worker',
+    );
+    const third = pool.renderDevelopJpegToFile(raw, null, '/c.jpg', 1280);
+    await until(() => posted(workers) === 2);
+    workers.at(-1)!.reply();
+    expect(await third).toBe(true);
+    expect(budget.snapshot().reservedBytes).toBe(0);
+  });
+
   it('rejects decodes still waiting for memory when the pool shuts down', async () => {
     const raw = rawOfSize(64 * MIB);
     const { pool, budget, workers } = harness(10 * GIB);

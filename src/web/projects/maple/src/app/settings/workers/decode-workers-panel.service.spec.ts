@@ -79,6 +79,16 @@ describe('DecodeWorkersPanelService — decode memory budget (#5467)', () => {
     req.flush({ ok: true, ...PERF_WITH_BUDGET });
   });
 
+  it('leaves an unchanged budget unsaved, so it keeps following the default', () => {
+    service.fetch();
+    http.expectOne('/api/workers/performance').flush(PERF_WITH_BUDGET);
+    service.setDraft('8');
+    service.save();
+    const req = http.expectOne('/api/workers/performance');
+    expect(req.request.body).toEqual({ ffi_workers: 8 });
+    req.flush({ ok: true, ...PERF_WITH_BUDGET, ffi_workers: 8 });
+  });
+
   it('sends only the worker count to a server without the budget', () => {
     const { decode_memory_budget: _omit, ...older } = PERF_WITH_BUDGET;
     service.fetch();
