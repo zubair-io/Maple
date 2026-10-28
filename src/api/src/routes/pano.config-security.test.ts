@@ -52,6 +52,8 @@ afterAll(async () => {
 });
 
 beforeEach(async () => {
+  // An image that bundles maple-cli exports MAPLE_PANO_CLI; these tests assume no bundled binary.
+  delete process.env.MAPLE_PANO_CLI;
   live = await createLiveTestDatabase();
   const libPath = path.join(tmpDir, 'lib');
   await fs.mkdir(libPath, { recursive: true });

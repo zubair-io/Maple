@@ -1,8 +1,8 @@
 # Maple Self Hosted — Dockerfile
 #
 # Self-contained build: every artifact (the WASM image-pipeline blob, the
-# Angular SPA bundle, the native libraw_ffi.so, and the Bun runtime) is
-# produced inside Docker. The only thing you need on the host is Docker.
+# Angular SPA bundle, the native libraw_ffi.so, the maple-cli panorama
+# stitcher, and the Bun runtime) is produced inside Docker. The only thing you need on the host is Docker.
 #
 # Build context must be the monorepo root so the build can see src/api,
 # src/web, and src/raw-pipeline.
@@ -118,8 +118,13 @@ ENV NODE_OPTIONS="--max-old-space-size=4096"
 RUN bun x ng build maple --configuration=production
 
 # ---------------------------------------------------------------------------
-# Stage 2: build the native libraw_ffi.so for the runtime image's arch.
-# Stable Rust; entirely independent of the wasm-builder stage.
+# Stage 2: build the native libraw_ffi.so and the maple-cli panorama stitcher
+# for the runtime image's arch. Stable Rust; entirely independent of the
+# wasm-builder stage.
+#
+# maple-cli is what `POST /api/pano/stitch` and `/preview` spawn (#5493).
+# `pano,pano-classical` gives it both matchers: classical needs nothing else,
+# and ML dlopens the ONNX Runtime this image already carries.
 #
 # `--features search` compiles the API-only `maple_search_*` symbols (#4462:
 # fastembed + Tantivy), whose tree needs Rust >= 1.86 (tantivy 0.26). The base
@@ -140,7 +145,9 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
     --mount=type=cache,id=raw-pipeline-target-ffi,target=/build/raw-pipeline/target \
     cd raw-pipeline \
  && cargo build --release -p raw-ffi --features search \
- && cp target/release/libraw_ffi.so /libraw_ffi.so
+ && cargo build --release -p maple-cli --features pano,pano-classical \
+ && cp target/release/libraw_ffi.so /libraw_ffi.so \
+ && cp target/release/maple-cli /maple-cli
 
 # CPU-only speech-to-text runtime. Model weights download on first use.
 FROM debian:bookworm-slim AS whisper-builder
@@ -217,6 +224,17 @@ COPY --from=rust-builder /libraw_ffi.so native/
 # Select the library this image just built explicitly, so the loader never
 # prefers an npm-installed @justmaple/maple-<platform> prebuilt over it.
 ENV MAPLE_NATIVE_LIB=/app/native/libraw_ffi.so
+
+# The panorama stitcher from stage 2 (#5493). MAPLE_PANO_CLI only names the
+# binary this image ships, so a stock image stitches with no setup; the path
+# saved in Settings > Pano still wins. The check fails `docker build` on a
+# binary that cannot load or lacks the matcher and preview flags the server
+# relies on.
+COPY --from=rust-builder /maple-cli native/
+ENV MAPLE_PANO_CLI=/app/native/maple-cli
+RUN help="$("$MAPLE_PANO_CLI" pano stitch --help)" \
+ && printf '%s\n' "$help" | grep -q -- --features-engine \
+ && printf '%s\n' "$help" | grep -q -- --preview-out
 
 # ONNX Runtime for maple-search's query embedder (#4462). Like maple-pano's
 # `ml` feature, the crate dlopens a libonnxruntime >= 1.23 from a configured

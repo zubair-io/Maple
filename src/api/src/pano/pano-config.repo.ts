@@ -3,11 +3,13 @@
  * `id = 'pano'`. Pattern mirrors enrichment-config.repo.ts.
  *
  * Settings (all operator-configurable at runtime via PUT /api/pano/config):
- *   - maple_cli_path  : absolute path to the compiled maple-cli binary
+ *   - maple_cli_path  : absolute path to the compiled maple-cli binary; when
+ *                       unset, the one the Docker image ships (MAPLE_PANO_CLI)
  *   - matcher         : 'classical' (default, no downloads) or 'ml' (opt-in)
  *   - models_dir      : ALIKED + LightGlue model directory (ML only)
  *   - ort_dylib_path  : libonnxruntime ≥ 1.23 (ML only)
- *   - enabled         : operator on/off toggle (default: false)
+ *   - enabled         : operator on/off toggle (default: on when the image
+ *                       ships maple-cli, off otherwise)
  *
  * The two ML paths still fall back to the legacy MAPLE_PANO_MODELS /
  * ORT_DYLIB_PATH environment variables when unset here, so setups provisioned
@@ -36,7 +38,7 @@ export interface PanoConfig {
   models_dir?: string | null;
   /** ORT_DYLIB_PATH — path to libonnxruntime.dylib / .so (>= 1.23). */
   ort_dylib_path?: string | null;
-  /** Operator enable/disable toggle. Default false until provisioned. */
+  /** Operator enable/disable toggle. Defaults on only with a bundled maple-cli. */
   enabled?: boolean | null;
   /** Feature detector/matcher the stitch runs with. Default classical. */
   matcher?: PanoMatcher | null;
@@ -60,7 +62,7 @@ export interface ResolvedPanoConfig {
   /** Whether the binary accepts --features-engine; one without it is ML-only. */
   features_engine_supported: boolean;
   source: {
-    maple_cli_path: 'db' | 'unset';
+    maple_cli_path: 'db' | 'bundled' | 'unset';
     models_dir: PathSource;
     ort_dylib_path: PathSource;
     enabled: 'db' | 'default';
@@ -115,6 +117,18 @@ function resolveStr(dbVal: string | null | undefined): {
   return { value: null, source: 'unset' };
 }
 
+/** The saved path, else the binary the Docker image ships (#5493). */
+function resolveCliPath(
+  dbVal: string | null | undefined,
+  env: Readonly<Record<string, string | undefined>>,
+): { value: string | null; source: 'db' | 'bundled' | 'unset' } {
+  const saved = typeof dbVal === 'string' && dbVal.trim().length > 0;
+  const fromDb = resolveStr(dbVal);
+  if (saved) return fromDb;
+  const bundled = resolveStr(env.MAPLE_PANO_CLI);
+  return bundled.value === null ? fromDb : { value: bundled.value, source: 'bundled' };
+}
+
 const legacyEnvNoticeLogged = new Set<string>();
 
 function resolvePathWithLegacyEnv(
@@ -144,16 +158,12 @@ export function resolvePanoConfig(
   db: PanoConfig | null,
   env: Readonly<Record<string, string | undefined>> = process.env,
 ): PanoConfigResolution {
-  const cliPath = resolveStr(db?.maple_cli_path);
+  const cliPath = resolveCliPath(db?.maple_cli_path, env);
   const modelsDir = resolvePathWithLegacyEnv(db?.models_dir, 'MAPLE_PANO_MODELS', env);
   const ortDylib = resolvePathWithLegacyEnv(db?.ort_dylib_path, 'ORT_DYLIB_PATH', env);
 
-  let enabled = false;
-  let enabledSource: 'db' | 'default' = 'default';
-  if (db && typeof db.enabled === 'boolean') {
-    enabled = db.enabled;
-    enabledSource = 'db';
-  }
+  const storedEnabled = typeof db?.enabled === 'boolean' ? db.enabled : null;
+  const enabled = storedEnabled ?? cliPath.source === 'bundled';
   const storedMatcher = PANO_MATCHERS.find((m) => m === db?.matcher);
 
   return {
@@ -166,7 +176,7 @@ export function resolvePanoConfig(
       maple_cli_path: cliPath.source,
       models_dir: modelsDir.source,
       ort_dylib_path: ortDylib.source,
-      enabled: enabledSource,
+      enabled: storedEnabled === null ? 'default' : 'db',
       matcher: storedMatcher ? 'db' : 'default',
     },
   };
