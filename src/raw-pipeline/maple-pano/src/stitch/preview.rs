@@ -411,7 +411,7 @@ mod tests {
         let all_low = rotation_width(&[(2.0, 2.0); 3]);
         let mixed = rotation_width(&[(4.0, 4.0), (2.0, 2.0), (2.0, 2.0)]);
         assert!((all_high as f64 / all_low as f64 - 2.0).abs() < 0.02);
-        // An average of the frames' scales would land near 2.45×, not 4×.
+        // Averaging the frames' area ratios would land near 2.83×, not 4×.
         assert!(
             mixed as f64 >= 0.98 * all_high as f64,
             "{mixed} vs {all_high}"
