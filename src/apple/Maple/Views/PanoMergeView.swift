@@ -22,7 +22,7 @@
 // Output size (#5454): on iPhone and iPad, PanoOutputSizeSection offers a
 // smaller output when the preview says full resolution would not fit.
 //
-// Ticket: #1236 / Part of #1234 / #1241 / #4554 / #4579 / #5454
+// Ticket: #1236 / Part of #1234 / #1241 / #4554 / #4579 / #5454 / #5486
 
 import MapleCore
 import MapleUI
@@ -30,14 +30,14 @@ import SwiftUI
 
 #if os(macOS)
   import AppKit
-#else
-  import UIKit
 #endif
 
 // MARK: - PanoMergeView
 
 struct PanoMergeView: View {
   let assets: [AssetRef]
+  /// URL-less frames (Maple Cloud, PhotoKit) load their thumbnails through it.
+  let source: (any ImageSource)?
   let session: PanoMergeSession
   let onDismiss: () -> Void
   /// Called when the user taps Done after a successful stitch. The library
@@ -49,9 +49,7 @@ struct PanoMergeView: View {
   /// Settings navigated to the Pano tab. (#1241)
   var onOpenPanoSettings: (() -> Void)? = nil
 
-  /// Shared thumbnail loader for the input-frame previews. `@State` keeps the
-  /// actor (and its in-memory cache) stable across body re-evaluations.
-  @State private var thumbLoader = ThumbnailLoader()
+  @State private var thumbnails = ThumbnailProvider.local()
 
   var body: some View {
     NavigationStack {
@@ -129,7 +127,12 @@ struct PanoMergeView: View {
         HStack(spacing: 8) {
           ForEach(assets) { asset in
             VStack(spacing: 4) {
-              PanoFrameThumbnail(asset: asset, loader: thumbLoader)
+              PhotoThumbnailCell(
+                item: PhotoGridItem(local: asset, source: source, overlays: GridCellOverlays()),
+                provider: thumbnails,
+                displayMode: .fill
+              )
+              .frame(width: 64, height: 64)
               Text(asset.displayName)
                 .font(.caption2)
                 .lineLimit(1)
@@ -137,6 +140,7 @@ struct PanoMergeView: View {
                 .foregroundStyle(.secondary)
             }
             .accessibilityElement(children: .combine)
+            .accessibilityIdentifier("pano-frame-\(asset.displayName)")
             .accessibilityLabel("Input frame: \(asset.displayName)")
           }
         }
@@ -331,64 +335,6 @@ struct PanoMergeView: View {
   }
 }
 
-// MARK: - Input-frame thumbnail
-
-/// One 64×48 input-frame preview. Loads through the app's `ThumbnailLoader`
-/// (disk-cached, security-scoped): a neutral glyph while loading, the real
-/// thumbnail when decoded, and a clean "can't preview" glyph if the frame
-/// can't be decoded — never raw bytes.
-private struct PanoFrameThumbnail: View {
-  let asset: AssetRef
-  let loader: ThumbnailLoader
-
-  @State private var image: Image?
-  @State private var failed = false
-
-  var body: some View {
-    RoundedRectangle(cornerRadius: MapleTokens.Radius.sm)
-      .fill(Color.secondary.opacity(0.2))
-      .frame(width: 64, height: 48)
-      .overlay {
-        if let image {
-          image
-            .resizable()
-            .aspectRatio(contentMode: .fill)
-        } else {
-          MuiIcon(name: failed ? "exclamationmark.triangle" : "photo", size: .sm)
-            .foregroundStyle(.secondary)
-        }
-      }
-      .clipShape(RoundedRectangle(cornerRadius: MapleTokens.Radius.sm))
-      .task(id: asset.id) { await load() }
-  }
-
-  private func load() async {
-    // Reset up front so a reused cell (asset.id changed) doesn't show the
-    // previous frame's thumbnail or failure state during the new load.
-    image = nil
-    failed = false
-    guard let url = asset.primaryURL else {
-      failed = true
-      return
-    }
-    let data = await loader.load(for: url, scopeParentURL: asset.scopeParentURL)
-    if Task.isCancelled { return }
-    if let data, let img = Self.image(from: data) {
-      image = img
-    } else {
-      failed = true
-    }
-  }
-
-  private static func image(from data: Data) -> Image? {
-    #if os(macOS)
-      return NSImage(data: data).map(Image.init(nsImage:))
-    #else
-      return UIImage(data: data).map(Image.init(uiImage:))
-    #endif
-  }
-}
-
 // MARK: - Option display name + help text extensions
 
 extension PanoOptions.Retention {
@@ -446,6 +392,7 @@ extension PanoOptions.Strategy {
   #Preview("Idle") {
     PanoMergeView(
       assets: (0..<6).map { AssetRef.preview(displayName: "IMG_\($0).dng") },
+      source: nil,
       session: PanoMergeSession(stitcher: MockPanoStitcher()),
       onDismiss: {}
     )
