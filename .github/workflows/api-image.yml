@@ -1,0 +1,84 @@
+name: API image
+
+# Builds src/api/Dockerfile and boots the image (#5495). The self-hosted
+# production host deploys every main push by running this same `docker build`
+# and restarting the container, so this is the only place an image that fails
+# to build or crash-loops on boot is caught before it reaches production.
+#
+# No merge_group trigger: this check is not required, and a merge group selects
+# every consumer, which would put a full image build in front of every queued
+# merge. Making `API image result` required (and adding merge_group then) is a
+# branch-protection decision for the repository owner.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: api-image-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  changes:
+    uses: ./.github/workflows/ci-changes.yml
+
+  # Selected by the `api` consumer: the image copies all of src/web (the
+  # Angular build), src/api, src/maple, src/raw-pipeline and resources/film-luts,
+  # and ci_changes.py selects `api` for each of those and for workflow edits.
+  api-image:
+    name: Build and boot API image
+    needs: changes
+    if: needs.changes.outputs.api == 'true'
+    runs-on: ubuntu-24.04
+    # A cold build compiles raw-wasm (nightly, build-std), libraw_ffi with the
+    # search features, whisper.cpp and the Angular bundle, and can take well
+    # over 30 minutes; stages whose inputs did not change come from the layer
+    # cache instead.
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      # The two Rust target directories and the image layers outgrow the
+      # runner's default free space; these preinstalled SDKs are unused here.
+      - name: Free runner disk space
+        run: |
+          df -h /
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          df -h /
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      # Same build as the production host: `docker build -f src/api/Dockerfile .`
+      # from the repository root. Layers are cached in the Actions cache with
+      # mode=max so intermediate builder stages are reused too. Only main
+      # writes the cache: each entry is several GB against a 10 GB repository
+      # quota, and pull requests (forks included) can read main's entry.
+      - name: Build src/api/Dockerfile
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: src/api/Dockerfile
+          tags: maple:ci
+          load: true
+          push: false
+          cache-from: type=gha,scope=api-image
+          cache-to: ${{ github.event_name == 'push' && 'type=gha,scope=api-image,mode=max,ignore-error=true' || '' }}
+      - name: Boot the image and wait for /api/health
+        run: bash src/api/scripts/image-boot-smoke.sh maple:ci 300
+
+  result:
+    name: API image result
+    needs: [changes, api-image]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - run: python3 tools/ci_result.py api-image=api
+        env:
+          NEEDS_JSON: ${{ toJSON(needs) }}
