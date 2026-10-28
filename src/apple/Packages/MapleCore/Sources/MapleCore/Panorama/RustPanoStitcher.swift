@@ -40,6 +40,7 @@
 
 import Foundation
 import OSLog
+import os
 import RawPipeline
 
 private let panoLog = Logger(subsystem: "app.justmaple.aperture", category: "RustPanoStitcher")
@@ -67,8 +68,10 @@ public final class RustPanoStitcher: PanoStitching {
     /// Why the core could not load the ML matcher, and the ML files it saw
     /// then. While those files are unchanged, later previews and stitches go
     /// straight to classical rather than decoding every frame twice; a
-    /// re-download or a new path in Settings → Pano tries ML again.
-    nonisolated(unsafe) private var mlLoadFailure: (environment: String, reason: String)?
+    /// re-download or a new path in Settings → Pano tries ML again. Locked
+    /// because overlapping previews can read it while a stitch records it.
+    private let mlLoadFailure = OSAllocatedUnfairLock<(environment: String, reason: String)?>(
+        initialState: nil)
 
     // MARK: - Init
 
@@ -151,14 +154,15 @@ public final class RustPanoStitcher: PanoStitching {
     }
 
     func rememberMLLoadFailure(_ reason: String) {
-        mlLoadFailure = (provisioning.mlEnvironmentFingerprint(), reason)
+        let failure = (environment: provisioning.mlEnvironmentFingerprint(), reason: reason)
+        mlLoadFailure.withLock { $0 = failure }
     }
 
     /// The matcher this run starts with. The ML runtime's environment is only
     /// provisioned when the ML matcher was opted into (#4554).
     func plannedMatcher() -> PanoMatcherOutcome {
         guard provisioning.mlOptedIn else { return .used(.classical) }
-        if let failure = mlLoadFailure, failure.environment == provisioning.mlEnvironmentFingerprint() {
+        if let failure = mlLoadFailure.withLock({ $0 }), failure.environment == provisioning.mlEnvironmentFingerprint() {
             return .classicalFallback(reason: failure.reason)
         }
         guard provisioning.featureEngine() == .ml else {
