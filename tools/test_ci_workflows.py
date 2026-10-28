@@ -279,7 +279,15 @@ class WorkflowTests(unittest.TestCase):
             self.assertIn(f"steps.changes.outputs.{component}", internal[component])
 
     def test_workflow_gates_cover_every_job_and_selection(self):
-        for name in ("android", "api", "windows", "web", "maple-types", "cross"):
+        for name in (
+            "android",
+            "api",
+            "api-image",
+            "windows",
+            "web",
+            "maple-types",
+            "cross",
+        ):
             with self.subTest(workflow=name):
                 jobs = workflow(name)["jobs"]
                 self.assertEqual(
@@ -425,7 +433,15 @@ class WorkflowTests(unittest.TestCase):
     def test_aggregate_checks_have_unique_stable_names(self):
         names = [
             workflow(name)["jobs"]["result"]["name"]
-            for name in ("android", "api", "windows", "web", "maple-types", "cross")
+            for name in (
+                "android",
+                "api",
+                "api-image",
+                "windows",
+                "web",
+                "maple-types",
+                "cross",
+            )
         ]
         names.append(workflow("apple")["jobs"]["validation-result"]["name"])
         self.assertEqual(
@@ -433,6 +449,7 @@ class WorkflowTests(unittest.TestCase):
             {
                 "Android result",
                 "API result",
+                "API image result",
                 "Windows result",
                 "Web result",
                 "Maple types result",

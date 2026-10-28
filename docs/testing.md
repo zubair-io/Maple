@@ -72,6 +72,14 @@ and intentional skips. Auto-merge waits for them without requiring ordinary PRs
 to update to every new main commit. Release freshness remains enforced by the
 handoff policy in `docs/releases.md`.
 
+`API image result` (`api-image.yml`) builds `src/api/Dockerfile` from the
+repository root, as the self-hosted production host does on every main push, then
+boots the image with a temporary data directory and waits for `GET /api/health`
+to report a connected database and `GET /` to serve the bundled UI
+(`src/api/scripts/image-boot-smoke.sh`, which also
+runs locally against any built image). It follows the `api` selection, writes the
+Docker layer cache only from main, and is not a required check.
+
 Web builds the canonical `gpu,parallel` WASM package once, shares it through an
 artifact from the same workflow run, and syncs it into each consumer. The stamp
 is refreshed after download so the existing build lifecycle hooks reuse that
