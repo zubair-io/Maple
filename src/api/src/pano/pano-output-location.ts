@@ -43,7 +43,8 @@ function identityKey(identity: PanoOutputIdentity): string {
 
 function isInside(root: string, candidate: string): boolean {
   const rel = path.relative(root, candidate);
-  return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
+  const escapes = rel === '..' || rel.startsWith(`..${path.sep}`);
+  return rel === '' || (!escapes && !path.isAbsolute(rel));
 }
 
 /** `sortedInputPaths` as `resolveInputPaths` returns them; the first names the result. */

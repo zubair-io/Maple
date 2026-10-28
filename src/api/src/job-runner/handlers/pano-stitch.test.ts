@@ -1,4 +1,4 @@
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, spyOn } from 'bun:test';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -13,6 +13,8 @@ import {
 } from '../../db/sqlite/test-sqlite.test-helpers.ts';
 import { invalidateLibraryRoots, loadLibraryRoots } from '../../indexer/libraries.cache.ts';
 import { panoStitchHandler } from './pano-stitch.ts';
+import * as mirrored from '../../fs/mirrored.ts';
+import { clearMirrorRoots, setMirrorRoots } from '../../fs/mirror-registry.ts';
 import { replaceFolderDestinations } from '../../cloud-backup/local-mirror-bridge.ts';
 
 const TINY_PNG_B64 =
@@ -275,5 +277,41 @@ describe('panoStitchHandler output location (#5488)', () => {
     expect((strict.result as { outputPath: string }).outputPath).not.toBe(
       (keep.result as { outputPath: string }).outputPath,
     );
+  });
+
+  describe('on a mirrored library', () => {
+    const mirrorPath = () => path.join(tmpDir, 'mirror');
+
+    beforeEach(async () => {
+      await fs.rm(mirrorPath(), { recursive: true, force: true });
+      setMirrorRoots({ [libPath()]: [mirrorPath()] });
+    });
+    afterEach(() => clearMirrorRoots());
+
+    const mirroredEntries = async () => {
+      await mirrored.flushPendingMirrorOps();
+      return fs.readdir(path.join(mirrorPath(), 'Panoramas')).catch(() => []);
+    };
+
+    it('replicates the panorama a same-mount rename puts in place', async () => {
+      const outcome = await panoStitchHandler.run(basePayload(), handlerContext());
+      const { outputPath } = outcome.result as { outputPath: string };
+      expect(await mirroredEntries()).toEqual([path.basename(outputPath)]);
+    });
+
+    it('replicates the panorama a cross-mount copy puts in place, never its temp file', async () => {
+      const crossMount = Object.assign(new Error('cross-device link'), { code: 'EXDEV' });
+      const rename = spyOn(mirrored, 'rename').mockRejectedValueOnce(crossMount);
+      try {
+        const outcome = await panoStitchHandler.run(basePayload(), handlerContext());
+        const { outputPath } = outcome.result as { outputPath: string };
+        expect(rename).toHaveBeenCalledTimes(2);
+        expect(await mirroredEntries()).toEqual([path.basename(outputPath)]);
+        const beside = await fs.readdir(path.dirname(outputPath));
+        expect(beside.filter((name) => name.includes('.tmp.'))).toEqual([]);
+      } finally {
+        rename.mockRestore();
+      }
+    });
   });
 });
