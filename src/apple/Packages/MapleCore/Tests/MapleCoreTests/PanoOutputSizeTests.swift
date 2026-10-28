@@ -217,6 +217,32 @@ final class PanoOutputSizeSessionTests: XCTestCase {
         XCTAssertEqual(cap, .some(pixels))
     }
 
+    func testARetentionOrLocalAlignChangeInsideTheDebounceRefreshesTheFit() async {
+        let smallCanvas = PanoStitchSizes(canvasWidth: 5_000, canvasHeight: 2_000, largestFramePixels: 1_000_000)
+        for change in [\PanoOptions.retention, \PanoOptions.localAlign] as [PartialKeyPath<PanoOptions>] {
+            let (session, stitcher) = await makeSession(available: shortBudget(), sizes: smallCanvas)
+            guard case .fullFits = session.memoryFit else {
+                return XCTFail("expected fullFits first, got \(String(describing: session.memoryFit))")
+            }
+            stitcher.previewSizes = pano01
+            var options = session.options
+            if change == \PanoOptions.retention {
+                options.retention = options.retention == .keep ? .strict : .keep
+            } else {
+                options.localAlign = options.localAlign == .off ? .mesh : .off
+            }
+            session.options = options
+
+            let cap = await stitchCap(session, stitcher)
+
+            XCTAssertEqual(stitcher.previewCalls.last?.options, options, "\(change)")
+            guard case .fitted(_, let pixels, _, _) = session.memoryFit else {
+                return XCTFail("\(change): expected the new options' fit, got \(String(describing: session.memoryFit))")
+            }
+            XCTAssertEqual(cap, .some(pixels), "\(change)")
+        }
+    }
+
     func testAStrategyChangeWithoutAMemoryLimitStitchesWithoutAnExtraPreview() async {
         let (session, stitcher) = await makeSession(available: nil, sizes: pano01)
         session.options.strategy = session.options.strategy == .tile ? .rotation : .tile
