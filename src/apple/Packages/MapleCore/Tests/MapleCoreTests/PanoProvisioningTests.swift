@@ -393,6 +393,30 @@ struct PanoMLFallbackTests {
         #expect(stitcher.plannedMatcher() != .classicalFallback(reason: "core could not load ALIKED"))
     }
 
+    @Test("overlapping runs can record and read the ML load failure at once (#5487)")
+    func rememberedFailureIsSafeUnderConcurrentAccess() {
+        let suite = makeSuite()
+        suite.set("/no/such/models", forKey: PanoProvisioningDefaults.modelsDirKey)
+        suite.set("/no/such/libonnxruntime.dylib", forKey: PanoProvisioningDefaults.ortDylibPathKey)
+        suite.set(true, forKey: PanoProvisioningDefaults.useMLMatcherKey)
+        let stitcher = RustPanoStitcher(provisioning: PanoProvisioning(defaults: suite))
+        let reasons = (0..<8).map { "core could not load ALIKED (\($0))" }
+
+        DispatchQueue.concurrentPerform(iterations: 400) { i in
+            if i.isMultiple(of: 2) {
+                stitcher.rememberMLLoadFailure(reasons[i % reasons.count])
+            } else {
+                _ = stitcher.plannedMatcher()
+            }
+        }
+
+        guard case .classicalFallback(let reason) = stitcher.plannedMatcher() else {
+            Issue.record("Expected the remembered fallback")
+            return
+        }
+        #expect(reasons.contains(reason))
+    }
+
     @Test("the stitcher plans a classical fallback when ML is on but not installed")
     func plannedFallbackWhenOptedInButMissing() {
         let suite = makeSuite()
