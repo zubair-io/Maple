@@ -163,7 +163,7 @@
           @if (mlPathsMissing()) {
             <div class="banner-error set-banner-error-record">
               The ML matcher needs both the models directory and the ONNX Runtime path. Until both
-              are set, merging a panorama is refused rather than falling back to classical.
+              are set, panoramas use the classical matcher and the merge dialog says so.
             </div>
           }
         }
@@ -181,11 +181,7 @@
                   : 'text-[11px] text-text-muted'
               "
             >
-              {{
-                config()?.strategy_supported
-                  ? 'Supported (ticket #1226 is merged)'
-                  : 'Not supported by this binary'
-              }}
+              {{ config()?.strategy_supported ? 'Supported' : 'Not supported by this binary' }}
             </span>
           </div>
           <div class="flex items-center gap-3 py-2 border-t-[0.5px] border-t-border">

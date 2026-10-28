@@ -25,7 +25,7 @@ import {
   sweepStalePreviews,
 } from '../../pano/pano-previews.ts';
 import type { JobHandlerContext } from './index.ts';
-import { progressFromLine, PROGRESS_TOTAL } from './pano-cli-process.ts';
+import { PANO_CLI_FAILURE_MESSAGE, progressFromLine, PROGRESS_TOTAL } from './pano-cli-process.ts';
 import { fakeCliRuns, TINY_PNG_B64, writeFakePanoCli } from './pano-fake-cli.test-helpers.ts';
 import { panoPreviewHandler } from './pano-preview.ts';
 import { panoStitchHandler } from './pano-stitch.ts';
@@ -131,6 +131,8 @@ describe('panoPreviewHandler', () => {
       width: 2047,
       height: 722,
       seconds: 1.5,
+      matcher: 'ml',
+      matcherNote: null,
     });
     expect(await exists(path.join(dir, PREVIEW_FILES.image))).toBe(true);
     expect(await exists(path.join(dir, PREVIEW_FILES.alignment))).toBe(true);
@@ -160,12 +162,12 @@ describe('panoPreviewHandler', () => {
     expect((await fakeCliRuns(cli)).length).toBe(before);
   });
 
-  it('fails with the CLI stderr and removes its directory', async () => {
+  it('fails with a plain message, not the CLI stderr, and removes its directory', async () => {
     const cli = await writeFakePanoCli(tmpDir, { preview: true, exitCode: 3 });
     const dir = newPreviewDir();
 
     await expect(panoPreviewHandler.run(payload(cli, dir), context().ctx)).rejects.toThrow(
-      /maple-cli exited 3:[\s\S]*pano: boom/,
+      PANO_CLI_FAILURE_MESSAGE,
     );
     expect(await exists(dir)).toBe(false);
   });

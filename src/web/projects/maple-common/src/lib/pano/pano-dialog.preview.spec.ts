@@ -92,12 +92,12 @@ describe('PanoDialogComponent quick preview (#4580)', () => {
     return call.request.body;
   }
 
-  function previewDone(id: string): void {
+  function previewDone(id: string, result: PanoJobView['result'] = null): void {
     http.expectOne(`/api/pano/jobs/${id}`).flush(previewJob(id, {}));
     vi.advanceTimersByTime(PREVIEW_POLL_MS);
     http
       .expectOne(`/api/pano/jobs/${id}`)
-      .flush(previewJob(id, { status: 'done', progress: { current: 600, total: 600 } }));
+      .flush(previewJob(id, { status: 'done', progress: { current: 600, total: 600 }, result }));
     http.expectOne(`/api/pano/jobs/${id}/preview`).flush(new Blob([new Uint8Array([1])]));
     fixture.detectChanges();
   }
@@ -155,6 +155,42 @@ describe('PanoDialogComponent quick preview (#4580)', () => {
     expect(stitch.request.body.alignmentFrom).toBe('p1');
     stitch.flush({ id: 's1', alignmentReused: true }, { status: 201, statusText: 'Created' });
     expect(fixture.componentInstance.phase()).toBe('polling');
+  });
+
+  it('says which matcher ran when ML fell back to classical (#5487)', () => {
+    const matcherNote = 'Used the classical matcher because the models aren’t installed.';
+    const fallback = { matcher: 'classical' as const, matcherNote };
+    open(true);
+    previewCreated('p1');
+    previewDone('p1', {
+      alignment: null,
+      width: 2047,
+      height: 722,
+      seconds: 1.5,
+      ...fallback,
+    } as PanoJobView['result']);
+    const note = () =>
+      fixture.nativeElement.querySelector('[data-testid="pano-matcher-note"]')?.textContent?.trim();
+    expect(note()).toBe(matcherNote);
+
+    fixture.componentInstance.onSubmit();
+    http.expectOne('/api/pano/stitch').flush({ id: 's1' }, { status: 201, statusText: 'Created' });
+    vi.advanceTimersByTime(2_000);
+    http.expectOne('/api/pano/jobs/s1').flush({
+      ...previewJob('s1', { status: 'done' }),
+      kind: 'pano_stitch',
+      result: {
+        outputAssetId: 'out1',
+        outputPath: '/V/.maple/panos/s1.png',
+        stagesCompleted: 6,
+        error: null,
+        ...fallback,
+      },
+    });
+    fixture.detectChanges();
+    expect(fixture.componentInstance.phase()).toBe('done');
+    expect(fixture.nativeElement.textContent).toContain('Panorama ready.');
+    expect(note()).toBe(matcherNote);
   });
 
   it('cancels an unfinished preview and stitches without an alignment', () => {

@@ -100,15 +100,22 @@ enum PanoFFICall {
 
     // MARK: - Return codes
 
+    /// The core prefixes every error with its entry point (`maple_pano_stitch: …`),
+    /// which means nothing to the user.
+    static func userMessage(fromCoreError raw: String) -> String {
+        raw.replacingOccurrences(of: #"^maple_[a-z_]+:\s*"#, with: "", options: .regularExpression)
+    }
+
     private static func outcome(rc: Int32, call: String, offered: Bool) throws -> PanoAlignmentOutcome {
-        let message = maple_last_error().map { String(cString: $0) } ?? "unknown error (rc \(rc))"
+        let raw = maple_last_error().map { String(cString: $0) } ?? "Something went wrong while merging."
+        let message = userMessage(fromCoreError: raw)
         switch rc {
         case 0:
             return offered ? .reused : .solved
         case staleAlignmentCode:
             return .stale(reason: message)
         default:
-            panoFFILog.error("\(call, privacy: .public) FAILED rc=\(rc): \(message, privacy: .public)")
+            panoFFILog.error("\(call, privacy: .public) FAILED rc=\(rc): \(raw, privacy: .public)")
             switch rc {
             case -3: throw PanoStitcherError.unsupportedPlatform
             case -6: throw PanoStitcherError.modelsNotInstalled(message)

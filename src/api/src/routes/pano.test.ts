@@ -34,6 +34,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { panoRoutes } from './pano.ts';
+import { ML_FALLBACK_NOTE } from '../pano/pano-engine.ts';
 import { fakeAuth } from '../../tests/helpers/test-auth.ts';
 import {
   createLiveTestDatabase,
@@ -309,29 +310,43 @@ describe('POST /api/pano/stitch (matcher)', () => {
     expect(payload.ortDylibPath).toBeNull();
   });
 
-  it('returns 409 pano_ml_not_provisioned when ML is selected without model paths', async () => {
+  it('falls back to the classical matcher when ML is selected without model paths (#5487)', async () => {
     await putJson('/api/pano/config', { maple_cli_path: fakeCli, enabled: true, matcher: 'ml' });
-    const res = await postJson('/api/pano/stitch', STITCH_BODY());
-    expect(res.status).toBe(409);
-    const body = (await res.json()) as { error: string; message: string };
-    expect(body.error).toBe('pano_ml_not_provisioned');
-    expect(body.message).toContain('Settings');
+    const payload = await stitchPayload();
+    expect(payload.featuresEngine).toBe('classical');
+    expect(payload.modelsDir).toBeNull();
+    expect(payload.ortDylibPath).toBeNull();
+    expect(payload.matcherNote).toBe(ML_FALLBACK_NOTE);
   });
 
-  it('returns 409 pano_ml_not_provisioned when ML has models but no ONNX Runtime', async () => {
+  it('falls back to the classical matcher when a configured ONNX Runtime path is gone (#5487)', async () => {
+    await putJson('/api/pano/config', {
+      maple_cli_path: fakeCli,
+      enabled: true,
+      matcher: 'ml',
+      models_dir: tmpDir,
+      ort_dylib_path: path.join(tmpDir, 'deleted-libonnxruntime.so'),
+    });
+    const payload = await stitchPayload();
+    expect(payload.featuresEngine).toBe('classical');
+    expect(payload.matcherNote).toBe(ML_FALLBACK_NOTE);
+  });
+
+  it('falls back to the classical matcher when ML has models but no ONNX Runtime (#5487)', async () => {
     await putJson('/api/pano/config', {
       maple_cli_path: fakeCli,
       enabled: true,
       matcher: 'ml',
       models_dir: tmpDir,
     });
-    const res = await postJson('/api/pano/stitch', STITCH_BODY());
-    expect(res.status).toBe(409);
-    expect(((await res.json()) as { error: string }).error).toBe('pano_ml_not_provisioned');
+    const payload = await stitchPayload();
+    expect(payload.featuresEngine).toBe('classical');
+    expect(payload.matcherNote).toBe(ML_FALLBACK_NOTE);
   });
 
   it('stitches with the ML matcher once its model paths are provisioned', async () => {
     const ortDylib = path.join(tmpDir, 'libonnxruntime.so');
+    await fs.writeFile(ortDylib, '');
     await putJson('/api/pano/config', {
       maple_cli_path: fakeCli,
       enabled: true,
@@ -347,6 +362,7 @@ describe('POST /api/pano/stitch (matcher)', () => {
 
   it('keeps an ML setup provisioned only through the legacy environment variables working', async () => {
     const ortDylib = path.join(tmpDir, 'libonnxruntime.so');
+    await fs.writeFile(ortDylib, '');
     process.env.MAPLE_PANO_MODELS = tmpDir;
     process.env.ORT_DYLIB_PATH = ortDylib;
     const cfg = (await (
@@ -371,17 +387,19 @@ describe('POST /api/pano/stitch (matcher)', () => {
     expect(legacy.features_engine_supported).toBe(false);
   });
 
-  it('refuses a pre-classical binary without ML paths with a rebuild instruction (409 pano_cli_outdated)', async () => {
+  it('refuses a pre-classical binary without ML paths in plain language (409 pano_cli_outdated)', async () => {
     await putJson('/api/pano/config', { maple_cli_path: legacyCli, enabled: true });
     const res = await postJson('/api/pano/stitch', STITCH_BODY());
     expect(res.status).toBe(409);
     const body = (await res.json()) as { error: string; message: string };
     expect(body.error).toBe('pano_cli_outdated');
-    expect(body.message).toContain('--features pano,pano-classical');
+    expect(body.message).toContain('Settings > Pano');
+    expect(body.message).not.toContain('cargo');
   });
 
   it('runs a pre-classical binary as ML, without the flag it lacks, when ML paths are set', async () => {
     const ortDylib = path.join(tmpDir, 'libonnxruntime.so');
+    await fs.writeFile(ortDylib, '');
     await putJson('/api/pano/config', {
       maple_cli_path: legacyCli,
       enabled: true,

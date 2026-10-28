@@ -74,37 +74,45 @@ struct PanoStitcherErrorTests {
         #expect(desc.contains("Test message"))
     }
 
-    @Test("production modelsNotInstalled message references M6 follow-up")
-    func productionModelsNotInstalledReferencesM6() {
-        // The real provisioning error messages (as thrown by RustPanoStitcher)
-        // must mention M6 so operators can find the follow-up ticket easily.
-        let modelMsg = "Panorama models not installed. Set MAPLE_PANO_MODELS to the directory " +
-                       "containing aliked.onnx and lightglue.onnx, or place them in " +
-                       "~/Library/Application Support/app.justmaple.aperture/pano-models/. " +
-                       "(Model bundling and download UI: M6 of #1234.)"
-        let err = PanoStitcherError.modelsNotInstalled(modelMsg)
-        #expect(err.errorDescription?.contains("M6") == true,
-                "Production error message should reference the M6 follow-up for discoverability")
-    }
-
     @Test("assetNotFileBacked embeds the asset name")
     func assetNotFileBackedEmbedsName() {
         let err = PanoStitcherError.assetNotFileBacked("IMG_0042.dng")
         #expect(err.errorDescription?.contains("IMG_0042.dng") == true)
     }
 
-    @Test("unsupportedPlatform references M6")
-    func unsupportedPlatformReferencesM6() {
-        let err = PanoStitcherError.unsupportedPlatform
-        #expect(err.errorDescription?.contains("M6") == true)
+    @Test("user-facing pano errors carry no ticket or milestone references (#5487)")
+    func userFacingErrorsHaveNoDeveloperText() {
+        let errors: [PanoStitcherError] = [
+            .unsupportedPlatform,
+            .assetNotFileBacked("IMG_0042.dng"),
+            .pathEncodingError(URL(fileURLWithPath: "/tmp/x.dng")),
+            .stitchFailed(code: -2, message: "the frames do not overlap"),
+            .previewUndecodable,
+        ]
+        for err in errors {
+            let text = err.errorDescription ?? ""
+            #expect(!text.isEmpty)
+            #expect(text.range(of: #"#\d|M\d|FFI|code -?\d"#, options: .regularExpression) == nil,
+                    "Developer text in: \(text)")
+        }
     }
 
-    @Test("stitchFailed includes code and message")
-    func stitchFailedIncludesCodeAndMessage() {
+    @Test("stitchFailed shows the message without the return code")
+    func stitchFailedShowsMessageWithoutCode() {
         let err = PanoStitcherError.stitchFailed(code: -7, message: "pipeline error")
         let desc = err.errorDescription ?? ""
-        #expect(desc.contains("-7"))
         #expect(desc.contains("pipeline error"))
+        #expect(!desc.contains("-7"))
+    }
+
+    @Test("the core's entry-point prefix is stripped from user-facing messages")
+    func coreEntryPointPrefixIsStripped() {
+        let raw = "maple_pano_stitch: fewer than 2 frames overlap — check the selection"
+        let message = PanoFFICall.userMessage(fromCoreError: raw)
+        #expect(message == "fewer than 2 frames overlap — check the selection")
+        let shown = PanoStitcherError.stitchFailed(code: -2, message: message).errorDescription ?? ""
+        #expect(!shown.contains("maple_"))
+        #expect(PanoFFICall.userMessage(fromCoreError: "no prefix here") == "no prefix here")
     }
 }
 

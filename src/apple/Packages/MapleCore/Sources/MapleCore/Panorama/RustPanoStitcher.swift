@@ -33,7 +33,8 @@
 // The default classical matcher needs nothing on disk;
 // `PanoProvisioning.featureEngine()` picks ML only when Settings → Pano
 // turned it on and it is provisioned; preview and stitch resolve it the
-// same way.
+// same way. An opted-in ML matcher that is missing or fails to load runs
+// classical instead and reports `.classicalFallback` (#5487).
 //
 // Ticket: #1234 (M4+M5) / #1235 / #1239 / #1241 / #4554 / #4579
 
@@ -63,6 +64,11 @@ public final class RustPanoStitcher: PanoStitching {
     /// stale flag from a previous run doesn't immediately cancel the next one.
     nonisolated(unsafe) private var cancelFlag: CancelFlag?
 
+    /// Why the core could not load the ML matcher earlier in this stitcher's
+    /// life; later previews and the stitch go straight to classical rather
+    /// than decoding every frame twice.
+    nonisolated(unsafe) private var mlLoadFailure: String?
+
     // MARK: - Init
 
     /// Creates a stitcher backed by the given provisioning resolver.
@@ -89,24 +95,25 @@ public final class RustPanoStitcher: PanoStitching {
         progress: @escaping @MainActor (PanoStage, Double) -> Void
     ) async throws -> PanoResult {
         let inputURLs = try collectInputURLs(from: assets)
-        let engine = try resolveEngine()
         let outputURL = makeOutputURL(near: inputURLs[0])
-        let outcome = try await runOffMain(progress: progress) { atom, flag in
-            try PanoFFICall.stitch(
-                inputURLs: inputURLs,
-                outputURL: outputURL,
-                options: options,
-                engine: engine,
-                alignment: alignment,
-                maxCanvasPixels: maxCanvasPixels,
-                atom: atom,
-                cancelFlag: flag
-            )
+        let (outcome, matcher) = try await runWithFallback { engine in
+            try await self.runOffMain(progress: progress) { atom, flag in
+                try PanoFFICall.stitch(
+                    inputURLs: inputURLs,
+                    outputURL: outputURL,
+                    options: options,
+                    engine: engine,
+                    alignment: alignment,
+                    maxCanvasPixels: maxCanvasPixels,
+                    atom: atom,
+                    cancelFlag: flag
+                )
+            }
         }
-        let summary = "Stitched \(inputURLs.count) frames with the \(engine.displayName) using \(options.strategy.rawValue) strategy. " +
+        let summary = "Stitched \(inputURLs.count) frames with the \(matcher.engine.displayName) using \(options.strategy.rawValue) strategy. " +
                       "Local align: \(options.localAlign.rawValue). Retention: \(options.retention.rawValue). " +
                       "Output: \(outputURL.lastPathComponent). \(outcome.summary)"
-        return PanoResult(outputURL: outputURL, reportSummary: summary, alignmentOutcome: outcome)
+        return PanoResult(outputURL: outputURL, reportSummary: summary, alignmentOutcome: outcome, matcher: matcher)
     }
 
     public func preview(
@@ -116,27 +123,65 @@ public final class RustPanoStitcher: PanoStitching {
         progress: @escaping @MainActor (PanoStage, Double) -> Void
     ) async throws -> PanoPreview {
         let inputURLs = try collectInputURLs(from: assets)
-        let engine = try resolveEngine()
-        return try await runOffMain(progress: progress) { atom, flag in
-            try PanoFFICall.preview(
-                inputURLs: inputURLs,
-                options: options,
-                engine: engine,
-                alignment: alignment,
-                atom: atom,
-                cancelFlag: flag
-            )
+        let (preview, matcher) = try await runWithFallback { engine in
+            try await self.runOffMain(progress: progress) { atom, flag in
+                try PanoFFICall.preview(
+                    inputURLs: inputURLs,
+                    options: options,
+                    engine: engine,
+                    alignment: alignment,
+                    atom: atom,
+                    cancelFlag: flag
+                )
+            }
+        }
+        return preview.with(matcher: matcher)
+    }
+
+    private func runWithFallback<T>(
+        _ body: (PanoFeatureEngine) async throws -> T
+    ) async throws -> (T, PanoMatcherOutcome) {
+        let planned = plannedMatcher()
+        let (value, matcher) = try await Self.withMLFallback(planned, body: body)
+        if planned == .used(.ml), case .classicalFallback(let reason) = matcher {
+            mlLoadFailure = reason
+        }
+        return (value, matcher)
+    }
+
+    /// The matcher this run starts with. The ML runtime's environment is only
+    /// provisioned when the ML matcher was opted into (#4554).
+    func plannedMatcher() -> PanoMatcherOutcome {
+        guard provisioning.mlOptedIn else { return .used(.classical) }
+        if let reason = mlLoadFailure { return .classicalFallback(reason: reason) }
+        guard provisioning.featureEngine() == .ml else {
+            return Self.fallback(reason: "The ML models or ONNX Runtime are not installed.")
+        }
+        do {
+            try provisionMLEnvironment()
+            return .used(.ml)
+        } catch {
+            return Self.fallback(reason: error.localizedDescription)
         }
     }
 
-    /// The engine this run uses; the ML runtime's environment is only
-    /// provisioned when the ML matcher was opted into (#4554).
-    private func resolveEngine() throws -> PanoFeatureEngine {
-        let engine = provisioning.featureEngine()
-        if engine == .ml {
-            try provisionMLEnvironment()
+    private static func fallback(reason: String) -> PanoMatcherOutcome {
+        panoLog.notice("Using the classical matcher instead of ML: \(reason, privacy: .public)")
+        return .classicalFallback(reason: reason)
+    }
+
+    /// Runs `body` with the planned engine; an ML run the core cannot load
+    /// (`modelsNotInstalled`) re-runs once with the classical matcher.
+    static func withMLFallback<T>(
+        _ planned: PanoMatcherOutcome,
+        body: (PanoFeatureEngine) async throws -> T
+    ) async throws -> (T, PanoMatcherOutcome) {
+        guard planned == .used(.ml) else { return (try await body(planned.engine), planned) }
+        do {
+            return (try await body(.ml), planned)
+        } catch PanoStitcherError.modelsNotInstalled(let reason) {
+            return (try await body(.classical), fallback(reason: reason))
         }
-        return engine
     }
 
     // MARK: - Off-main execution
@@ -265,16 +310,15 @@ public enum PanoStitcherError: Error, LocalizedError {
     public var errorDescription: String? {
         switch self {
         case .pathEncodingError(let url):
-            return "Cannot encode path as UTF-8: \(url.path)"
+            return "Maple can’t read the location of '\(url.lastPathComponent)'."
         case .assetNotFileBacked(let name):
-            return "Panorama requires file-backed images. '\(name)' is a cloud or PhotoKit asset — " +
-                   "download it to local storage first. (Bytes-variant FFI: M6 of #1234.)"
+            return "'\(name)' isn’t stored on this device yet. Download it, then merge again."
         case .modelsNotInstalled(let msg):
             return msg
         case .unsupportedPlatform:
-            return "Panorama stitching is not yet supported on this platform. (iOS support: M6 of #1234.)"
-        case .stitchFailed(let code, let message):
-            return "Panorama stitch failed (code \(code)): \(message)"
+            return "Panorama merging isn’t available on this device."
+        case .stitchFailed(_, let message):
+            return "The panorama merge failed: \(message)"
         case .previewUndecodable:
             return "The panorama preview image could not be decoded."
         }

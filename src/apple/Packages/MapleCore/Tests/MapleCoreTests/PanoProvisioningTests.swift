@@ -311,43 +311,78 @@ struct RustPanoStitcherProvisioningInjectionTests {
     }
 }
 
-// MARK: - PanoMergeSession.StitchError.isModelsNotInstalled
+// MARK: - Classical fallback (#5487)
 
-struct StitchErrorIsModelsNotInstalledTests {
+/// An ML run that cannot load is retried once with the classical matcher;
+/// every other outcome passes through untouched.
+struct PanoMLFallbackTests {
 
-    @Test("isModelsNotInstalled is true for PanoStitcherError.modelsNotInstalled")
-    func trueForModelsNotInstalled() {
-        let underlying = PanoStitcherError.modelsNotInstalled("test message")
-        let err = PanoMergeSession.StitchError(underlying: underlying)
-        #expect(err.isModelsNotInstalled == true)
+    private final class EngineLog: @unchecked Sendable {
+        var engines: [PanoFeatureEngine] = []
     }
 
-    @Test("isModelsNotInstalled is false for other PanoStitcherError variants")
-    func falseForOtherPanoErrors() {
-        let errors: [PanoStitcherError] = [
-            .stitchFailed(code: -1, message: "pipeline error"),
-            .unsupportedPlatform,
-            .assetNotFileBacked("IMG.dng"),
-            .pathEncodingError(URL(fileURLWithPath: "/tmp/x")),
-        ]
-        for e in errors {
-            let stitchErr = PanoMergeSession.StitchError(underlying: e)
-            #expect(!stitchErr.isModelsNotInstalled,
-                    "Expected isModelsNotInstalled=false for \(e)")
+    @Test("an ML run whose models fail to load re-runs with classical and reports the fallback")
+    func mlLoadFailureFallsBackToClassical() async throws {
+        let log = EngineLog()
+        let (value, matcher) = try await RustPanoStitcher.withMLFallback(.used(.ml)) { engine in
+            log.engines.append(engine)
+            if engine == .ml { throw PanoStitcherError.modelsNotInstalled("ONNX Runtime missing") }
+            return "classical-result"
         }
+        #expect(value == "classical-result")
+        #expect(log.engines == [.ml, .classical])
+        #expect(matcher == .classicalFallback(reason: "ONNX Runtime missing"))
+        #expect(matcher.engine == .classical)
+        #expect(matcher.note != nil)
     }
 
-    @Test("isModelsNotInstalled is false for non-PanoStitcherError errors")
-    func falseForGenericErrors() {
-        struct SomeError: Error {}
-        let err = PanoMergeSession.StitchError(underlying: SomeError())
-        #expect(!err.isModelsNotInstalled)
+    @Test("a planned fallback runs classical once, without trying ML")
+    func plannedFallbackRunsClassicalOnce() async throws {
+        let log = EngineLog()
+        let planned = PanoMatcherOutcome.classicalFallback(reason: "not installed")
+        let (_, matcher) = try await RustPanoStitcher.withMLFallback(planned) { engine in
+            log.engines.append(engine)
+        }
+        #expect(log.engines == [.classical])
+        #expect(matcher == planned)
     }
 
-    @Test("message is the localizedDescription of the underlying error")
-    func messageForwardsLocalizedDescription() {
-        let underlying = PanoStitcherError.modelsNotInstalled("custom message")
-        let err = PanoMergeSession.StitchError(underlying: underlying)
-        #expect(err.message.contains("custom message"))
+    @Test("a working ML run reports ML with no note")
+    func workingMLRunHasNoNote() async throws {
+        let (_, matcher) = try await RustPanoStitcher.withMLFallback(.used(.ml)) { _ in }
+        #expect(matcher == .used(.ml))
+        #expect(matcher.note == nil)
+    }
+
+    @Test("any other ML failure is not masked by a fallback")
+    func otherFailuresPropagate() async {
+        let log = EngineLog()
+        await #expect(throws: PanoStitcherError.self) {
+            _ = try await RustPanoStitcher.withMLFallback(.used(.ml)) { engine in
+                log.engines.append(engine)
+                throw PanoStitcherError.stitchFailed(code: -1, message: "decode failed")
+            }
+        }
+        #expect(log.engines == [.ml])
+    }
+
+    @Test("the stitcher plans classical with no note when ML was never turned on")
+    func plannedClassicalWhenNotOptedIn() {
+        let stitcher = RustPanoStitcher(provisioning: PanoProvisioning(defaults: makeSuite()))
+        #expect(stitcher.plannedMatcher() == .used(.classical))
+    }
+
+    @Test("the stitcher plans a classical fallback when ML is on but not installed")
+    func plannedFallbackWhenOptedInButMissing() {
+        let suite = makeSuite()
+        suite.set("/no/such/models", forKey: PanoProvisioningDefaults.modelsDirKey)
+        suite.set("/no/such/libonnxruntime.dylib", forKey: PanoProvisioningDefaults.ortDylibPathKey)
+        suite.set(true, forKey: PanoProvisioningDefaults.useMLMatcherKey)
+        let matcher = RustPanoStitcher(provisioning: PanoProvisioning(defaults: suite)).plannedMatcher()
+        guard case .classicalFallback = matcher else {
+            Issue.record("Expected a classical fallback, got \(matcher)")
+            return
+        }
+        #expect(matcher.note?.contains("classical matcher") == true)
     }
 }

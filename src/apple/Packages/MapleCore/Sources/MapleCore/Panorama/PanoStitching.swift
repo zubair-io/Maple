@@ -76,6 +76,34 @@ public enum PanoFeatureEngine: String, Sendable, CaseIterable {
     }
 }
 
+// MARK: - PanoMatcherOutcome
+
+/// The matcher a run used (#5487). ML that was opted into but cannot load
+/// (models or ONNX Runtime missing, or rejected) falls back to classical
+/// rather than failing the merge, and the merge sheet says so.
+public enum PanoMatcherOutcome: Sendable, Equatable {
+    case used(PanoFeatureEngine)
+    /// `reason` is the core's detail, for the log and tests only; it can
+    /// name environment variables and entry points, so it is never shown.
+    case classicalFallback(reason: String)
+
+    public var engine: PanoFeatureEngine {
+        switch self {
+        case .used(let engine): return engine
+        case .classicalFallback: return .classical
+        }
+    }
+
+    /// One line for the merge sheet; `nil` when the selected matcher ran.
+    public var note: String? {
+        switch self {
+        case .used: return nil
+        case .classicalFallback:
+            return "Used the classical matcher because the ML matcher couldn’t be loaded on this device."
+        }
+    }
+}
+
 // MARK: - PanoStage
 
 /// Processing stages emitted during a stitch run, in order. Names match the
@@ -120,11 +148,18 @@ public struct PanoResult: Sendable {
     public let reportSummary: String
     /// Whether the run started from an offered preview alignment.
     public let alignmentOutcome: PanoAlignmentOutcome
+    public let matcher: PanoMatcherOutcome
 
-    public init(outputURL: URL, reportSummary: String, alignmentOutcome: PanoAlignmentOutcome = .solved) {
+    public init(
+        outputURL: URL,
+        reportSummary: String,
+        alignmentOutcome: PanoAlignmentOutcome = .solved,
+        matcher: PanoMatcherOutcome = .used(.classical)
+    ) {
         self.outputURL = outputURL
         self.reportSummary = reportSummary
         self.alignmentOutcome = alignmentOutcome
+        self.matcher = matcher
     }
 }
 

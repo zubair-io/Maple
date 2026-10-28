@@ -26,11 +26,17 @@ import {
   resolveInputPaths,
   runPanoCli,
 } from './pano-cli-process.ts';
-import { parsePayload, readAlignmentVerdict, type PanoAlignmentVerdict } from './pano-stitch.ts';
+import {
+  matcherUsed,
+  parsePayload,
+  readAlignmentVerdict,
+  type PanoAlignmentVerdict,
+  type PanoMatcherUsed,
+} from './pano-stitch.ts';
 
 const log = childLogger('job:pano-preview');
 
-interface PanoPreviewResult {
+interface PanoPreviewResult extends PanoMatcherUsed {
   alignment: PanoAlignmentVerdict | null;
   width: number | null;
   height: number | null;
@@ -100,6 +106,7 @@ export const panoPreviewHandler: JobHandler = {
         width: report.width ?? null,
         height: report.height ?? null,
         seconds: report.timings_s?.total ?? null,
+        ...matcherUsed(payload),
       };
       log.info({ jobId: ctx.jobId.toHexString(), ...result }, 'pano preview complete');
       return { kind: 'done', result: { ...result } };

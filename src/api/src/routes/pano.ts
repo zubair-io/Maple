@@ -12,9 +12,9 @@
  *
  * Provisioning: when pano is not provisioned (enabled=false or no binary
  * path), POST returns 409 { error: 'pano_not_provisioned', message: '...' }.
- * How the matcher is chosen, and the 409s for an ML matcher without its paths
- * (`pano_ml_not_provisioned`) or a pre-#4523 binary that can only run ML
- * (`pano_cli_outdated`), is `pano/pano-engine.ts`.
+ * How the matcher is chosen — including the classical fallback for an ML
+ * matcher without its paths (#5487) and the 409 for a pre-#4523 binary that
+ * can only run ML (`pano_cli_outdated`) — is `pano/pano-engine.ts`.
  *
  * Concurrency: one pano_stitch job may run at a time (they are heavy:
  * ~6 min, tens of GB RSS). POST returns 409 { error: 'pano_job_running' }
@@ -46,7 +46,7 @@ import {
   type PanoConfigResolution,
 } from '../pano/pano-config.repo.ts';
 import { invalidatePanoCliProbe, probePanoCli } from '../pano/pano-cli-probe.ts';
-import { planPanoEngine } from '../pano/pano-engine.ts';
+import { planPanoEngine, withExistingMlPaths } from '../pano/pano-engine.ts';
 import { createJob, getJob, listJobs, requestCancel } from '../job-runner/jobs.repo.ts';
 import { ownedPreviewDir, PREVIEW_FILES } from '../pano/pano-previews.ts';
 import type { JobWithId } from '../db/schema.ts';
@@ -320,8 +320,9 @@ const NOT_PROVISIONED = {
  * stitch and preview routes — or the 409 body to refuse with.
  */
 export async function planStitch() {
-  const cfg = await loadEffectivePanoConfig();
-  if (!isPanoProvisioned(cfg)) return { refusal: NOT_PROVISIONED };
+  const loaded = await loadEffectivePanoConfig();
+  if (!isPanoProvisioned(loaded)) return { refusal: NOT_PROVISIONED };
+  const cfg = await withExistingMlPaths(loaded);
   const mapleCli = cfg.maple_cli_path!;
   const capabilities = await probePanoCli(mapleCli);
   const plan = planPanoEngine(cfg, capabilities.featuresEngine);
@@ -442,6 +443,7 @@ export async function panoJobPayload(
     featuresEngine: plan.featuresEngine,
     modelsDir: cfg.models_dir,
     ortDylibPath: cfg.ort_dylib_path,
+    matcherNote: plan.matcherNote,
     alignmentIn: capabilities.preview ? await previewAlignment(request.alignmentFrom) : null,
   };
 }

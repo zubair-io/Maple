@@ -65,7 +65,14 @@ export interface PanoAlignmentVerdict {
   stale_reason: string | null;
 }
 
-export interface PanoJobResult {
+/** The matcher a job ran; `matcherNote` says why it is not the one selected,
+ *  e.g. ML selected but its models missing, so classical ran (#5487). */
+export interface PanoMatcherUsed {
+  matcher?: PanoMatcher;
+  matcherNote?: string | null;
+}
+
+export interface PanoJobResult extends PanoMatcherUsed {
   outputAssetId: string | null;
   outputPath: string;
   stagesCompleted: number;
@@ -74,7 +81,7 @@ export interface PanoJobResult {
 }
 
 /** `result` of a finished `pano_preview` job. */
-export interface PanoPreviewResult {
+export interface PanoPreviewResult extends PanoMatcherUsed {
   alignment: PanoAlignmentVerdict | null;
   width: number | null;
   height: number | null;
@@ -127,11 +134,6 @@ export interface PanoConfigPatch {
 
 export interface PanoNotProvisionedError {
   error: 'pano_not_provisioned';
-  message: string;
-}
-
-export interface PanoMlNotProvisionedError {
-  error: 'pano_ml_not_provisioned';
   message: string;
 }
 

@@ -60,14 +60,13 @@ type DialogPhase =
 
 const SETTINGS_FIXABLE_ERRORS: ReadonlySet<string> = new Set([
   'pano_not_provisioned',
-  'pano_ml_not_provisioned',
   'pano_cli_outdated',
 ]);
 
 function stitchErrorMessage(err: HttpErrorResponse, code: string): string {
   if (err.status === 409 && SETTINGS_FIXABLE_ERRORS.has(code)) return err.error.message;
   if (err.status === 409 && code === 'pano_job_running') {
-    return `A panorama job is already running or queued (job ${err.error.jobId ?? ''}). Wait for it to finish.`;
+    return 'A panorama is already being merged. Wait for it to finish, then try again.';
   }
   return err.error?.message ?? 'Failed to start panorama job.';
 }
@@ -105,6 +104,7 @@ export class PanoDialogComponent implements OnDestroy {
   readonly errorCode = signal<string>('');
   readonly settingsFixable = computed(() => SETTINGS_FIXABLE_ERRORS.has(this.errorCode()));
   readonly job = signal<PanoJobView | null>(null);
+  readonly stitchMatcherNote = computed(() => this.job()?.result?.matcherNote ?? null);
 
   // ── option model (two-way signals) ────────────────────────────────────────
   readonly retention = signal<PanoRetention>('keep');

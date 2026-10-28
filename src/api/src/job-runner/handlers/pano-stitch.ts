@@ -14,6 +14,7 @@
  *     featuresEngine: 'classical' | 'ml' | null, // null: binary predates the flag
  *     modelsDir:     string | null,         // ML only
  *     ortDylibPath:  string | null,         // ML only
+ *     matcherNote:   string | null,         // why the planned matcher differs (#5487)
  *     alignmentIn?:  string | null,         // a done preview's alignment.json (#4580)
  *   }
  *
@@ -71,6 +72,8 @@ export interface PanoStitchPayload {
   /** Model paths handed to the subprocess; always null for a classical run. */
   modelsDir: string | null;
   ortDylibPath: string | null;
+  /** Set when ML was selected but the classical matcher runs instead (#5487). */
+  matcherNote: string | null;
   alignmentIn: string | null;
 }
 
@@ -80,12 +83,23 @@ export interface PanoAlignmentVerdict {
   stale_reason: string | null;
 }
 
-interface PanoStitchResult {
+/** Which matcher a job ran, for its result (#5487). */
+export interface PanoMatcherUsed {
+  matcher: PanoMatcher;
+  matcherNote: string | null;
+}
+
+interface PanoStitchResult extends PanoMatcherUsed {
   outputAssetId: string | null;
   outputPath: string;
   stagesCompleted: number;
   alignment: PanoAlignmentVerdict | null;
   error: string | null;
+}
+
+/** A null engine is a pre-#4523 binary, which only runs ML. */
+export function matcherUsed(payload: PanoStitchPayload): PanoMatcherUsed {
+  return { matcher: payload.featuresEngine ?? 'ml', matcherNote: payload.matcherNote };
 }
 
 /** An alignment file inside a preview directory this server handed out. */
@@ -171,6 +185,7 @@ export function parsePayload(raw: Record<string, unknown>): PanoStitchPayload {
       optionalAbsolutePath(raw, 'modelsDir'),
       optionalAbsolutePath(raw, 'ortDylibPath'),
     ),
+    matcherNote: typeof raw.matcherNote === 'string' ? raw.matcherNote : null,
     alignmentIn: parseAlignmentIn(raw.alignmentIn),
   };
 }
@@ -215,6 +230,7 @@ export const panoStitchHandler: JobHandler = {
           stagesCompleted,
           alignment: null,
           error: 'cancelled',
+          ...matcherUsed(payload),
         };
         return {
           kind: 'cancelled',
@@ -294,6 +310,7 @@ export const panoStitchHandler: JobHandler = {
         stagesCompleted,
         alignment,
         error: null,
+        ...matcherUsed(payload),
       };
       if (payload.alignmentIn) await removePreviewDir(path.dirname(payload.alignmentIn));
       return {

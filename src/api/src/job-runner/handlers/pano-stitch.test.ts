@@ -127,6 +127,16 @@ describe('panoStitchHandler feature engine (#4555)', () => {
     expect(args).toContain(`ORT_DYLIB_PATH=${ortDylib}`);
   });
 
+  it('records the matcher it ran and why it fell back in the result (#5487)', async () => {
+    const note = 'Used the classical matcher because the models are missing.';
+    const outcome = await panoStitchHandler.run(
+      { ...basePayload(), featuresEngine: 'classical', matcherNote: note },
+      handlerContext(),
+    );
+    expect(outcome.kind).toBe('done');
+    expect(outcome.result).toMatchObject({ matcher: 'classical', matcherNote: note });
+  });
+
   it('does not hand ML model paths to a classical run', async () => {
     const args = await stitchArgs({
       featuresEngine: 'classical',

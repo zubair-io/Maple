@@ -19,6 +19,7 @@ struct PanoPreviewSection: View {
     Section {
       if let preview = session.lastPreview {
         previewImage(preview)
+        PanoMatcherNote(matcher: preview.matcher, onOpenPanoSettings: onOpenPanoSettings)
       }
       status
     } header: {
@@ -111,12 +112,7 @@ struct PanoPreviewSection: View {
     .accessibilityElement(children: .combine)
     .accessibilityLabel("Panorama preview failed: \(error.message)")
 
-    if error.isModelsNotInstalled, let openSettings = onOpenPanoSettings {
-      Button("Configure in Settings → Pano", action: openSettings)
-        .accessibilityLabel("Open Settings → Pano to configure panorama model and runtime paths")
-    } else {
-      Button("Retry Preview", action: onRetry)
-        .accessibilityLabel("Build the panorama preview again")
-    }
+    Button("Retry Preview", action: onRetry)
+      .accessibilityLabel("Build the panorama preview again")
   }
 }
