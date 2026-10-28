@@ -372,6 +372,27 @@ struct PanoMLFallbackTests {
         #expect(stitcher.plannedMatcher() == .used(.classical))
     }
 
+    @Test("a remembered ML load failure holds until the ML files change (#5487)")
+    func rememberedFailureClearsWhenMLFilesChange() throws {
+        let suite = makeSuite()
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("pano-ml-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        suite.set(dir.path, forKey: PanoProvisioningDefaults.modelsDirKey)
+        suite.set(dir.appendingPathComponent("libonnxruntime.dylib").path,
+                  forKey: PanoProvisioningDefaults.ortDylibPathKey)
+        suite.set(true, forKey: PanoProvisioningDefaults.useMLMatcherKey)
+        let stitcher = RustPanoStitcher(provisioning: PanoProvisioning(defaults: suite))
+
+        stitcher.rememberMLLoadFailure("core could not load ALIKED")
+        #expect(stitcher.plannedMatcher() == .classicalFallback(reason: "core could not load ALIKED"))
+
+        suite.set(dir.appendingPathComponent("replacement.dylib").path,
+                  forKey: PanoProvisioningDefaults.ortDylibPathKey)
+        #expect(stitcher.plannedMatcher() != .classicalFallback(reason: "core could not load ALIKED"))
+    }
+
     @Test("the stitcher plans a classical fallback when ML is on but not installed")
     func plannedFallbackWhenOptedInButMissing() {
         let suite = makeSuite()

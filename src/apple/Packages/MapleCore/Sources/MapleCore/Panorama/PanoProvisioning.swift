@@ -147,6 +147,18 @@ public struct PanoProvisioning: @unchecked Sendable {
         mlOptedIn && PanoProvisioner.isReady(status()) ? .ml : .classical
     }
 
+    /// The resolved ML paths with their modification dates; changes when the
+    /// user points Settings → Pano elsewhere or re-downloads the files.
+    public func mlEnvironmentFingerprint() -> String {
+        [resolvedModelsDir(), resolvedOrtDylibPath()]
+            .map { url -> String in
+                guard let url else { return "-" }
+                let modified = (try? FileManager.default.attributesOfItem(atPath: url.path))?[.modificationDate] as? Date
+                return "\(url.path)@\(modified?.timeIntervalSince1970 ?? 0)"
+            }
+            .joined(separator: "|")
+    }
+
     /// Whether Settings → Pano turned the ML matcher on, installed or not.
     public var mlOptedIn: Bool {
         defaults.bool(forKey: PanoProvisioningDefaults.useMLMatcherKey)
