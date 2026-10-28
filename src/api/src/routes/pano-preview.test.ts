@@ -45,8 +45,11 @@ afterAll(async () => {
   await fs.rm(tmpDir, { recursive: true, force: true });
 });
 
+let ambientPanoCli: string | undefined;
+
 beforeEach(async () => {
   // An image that bundles maple-cli exports MAPLE_PANO_CLI; these tests assume no bundled binary.
+  ambientPanoCli = process.env.MAPLE_PANO_CLI;
   delete process.env.MAPLE_PANO_CLI;
   live = await createLiveTestDatabase();
   const libPath = path.join(tmpDir, 'lib');
@@ -56,6 +59,7 @@ beforeEach(async () => {
 });
 
 afterEach(() => {
+  if (ambientPanoCli !== undefined) process.env.MAPLE_PANO_CLI = ambientPanoCli;
   live.close();
   invalidateLibraryRoots();
 });
