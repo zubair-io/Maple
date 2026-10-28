@@ -18,7 +18,8 @@
  *
  * Concurrency: one pano_stitch job may run at a time (they are heavy:
  * ~6 min, tens of GB RSS). POST returns 409 { error: 'pano_job_running' }
- * when a running job exists.
+ * when a running job exists, unless the request repeats that job's — then it
+ * answers with that job's id (`pano/pano-stitch-rejoin.ts`).
  *
  * Optional flags: `--strategy`, `--features-engine` and the preview flags are
  * probed from `maple-cli pano stitch --help` (`pano/pano-cli-probe.ts`) and
@@ -55,6 +56,7 @@ import {
   type AssetLocationsRow,
 } from '../db/repos/assets.by-filename.ts';
 import { loadLibraryRoots } from '../indexer/libraries.cache.ts';
+import { repeatsRunningStitch } from '../pano/pano-stitch-rejoin.ts';
 import { isUnderRoot } from '../fs/browse.ts';
 
 const log = childLogger('pano:routes');
@@ -473,14 +475,6 @@ export const panoRoutes = new Elysia({ prefix: '/api/pano' })
         return stitchPlan.refusal;
       }
 
-      // Queued counts as active too: close-together requests would otherwise
-      // enqueue several stitches, and concurrent runs (tens of GB RSS) OOM the box.
-      const active = await activePanoJob('pano_stitch');
-      if (active !== null) {
-        set.status = 409;
-        return panoJobRunning(active._id);
-      }
-
       // The handler does `new ObjectId(payload.libraryId)`; a malformed id
       // would create a job guaranteed to crash at run time.
       if (!ObjectId.isValid(body.libraryId)) {
@@ -495,6 +489,27 @@ export const panoRoutes = new Elysia({ prefix: '/api/pano' })
       if ('rejection' in inputs) {
         set.status = inputs.status;
         return inputs.rejection;
+      }
+
+      // Queued counts as active too: close-together requests would otherwise
+      // enqueue several stitches, and concurrent runs (tens of GB RSS) OOM the box.
+      const active = await activePanoJob('pano_stitch');
+      if (active !== null) {
+        const repeat = repeatsRunningStitch(active, {
+          assetIds: inputs.uniqueIds,
+          libraryId: body.libraryId,
+          retention: body.options.retention,
+          localAlign: body.options.localAlign,
+          strategy: body.options.strategy ?? null,
+        });
+        if (!repeat) {
+          set.status = 409;
+          return panoJobRunning(active._id);
+        }
+        return {
+          id: active._id.toHexString(),
+          alignmentReused: active.payload.alignmentIn != null,
+        };
       }
 
       // The handler removes this temp dir after importing the result.

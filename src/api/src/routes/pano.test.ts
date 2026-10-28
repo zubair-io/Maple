@@ -457,6 +457,26 @@ describe('POST /api/pano/stitch (provisioned)', () => {
     expect(body.error).toBe('pano_job_running');
   });
 
+  it('answers a repeat of the queued request with its job, not a second stitch (#5488)', async () => {
+    // A client whose POST response was lost retries the same request.
+    const request = STITCH_BODY();
+    const first = await postJson('/api/pano/stitch', request);
+    expect(first.status).toBe(201);
+    const again = await postJson('/api/pano/stitch', {
+      ...request,
+      assetIds: [...request.assetIds].reverse(),
+    });
+    expect(again.status).toBe(200);
+    expect(((await again.json()) as { id: string }).id).toBe(
+      ((await first.json()) as { id: string }).id,
+    );
+    const changed = await postJson('/api/pano/stitch', {
+      ...request,
+      options: { ...request.options, retention: 'strict' },
+    });
+    expect(changed.status).toBe(409);
+  });
+
   it('returns 409 pano_job_running when a queued job already exists (back-to-back requests)', async () => {
     // Two close-together stitch POSTs must not enqueue multiple concurrent jobs.
     // The first creates a queued job; the second must see the queued job and
