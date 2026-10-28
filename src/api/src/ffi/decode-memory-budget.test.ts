@@ -239,6 +239,47 @@ describe('DecodeMemoryBudget — whole-budget reservation (panorama)', () => {
     expect(budget.snapshot().reservedBytes).toBe(8 * GIB);
   });
 
+  it('keeps decodes out while it runs even when the budget is raised', async () => {
+    const budget = new DecodeMemoryBudget();
+    budget.configure(20 * GIB);
+    const releasePano = await budget.acquireAll();
+    const order: string[] = [];
+    track(budget, 1 * GIB, 'decode', order);
+    budget.configure(30 * GIB);
+    await settled();
+    expect(order).toEqual([]);
+    releasePano();
+    await settled();
+    expect(order).toEqual(['decode']);
+  });
+
+  it('keeps decodes out while it runs when the budget shrinks below its reservation', async () => {
+    const budget = new DecodeMemoryBudget();
+    budget.configure(20 * GIB);
+    const releasePano = await budget.acquireAll();
+    const order: string[] = [];
+    track(budget, 1 * GIB, 'decode', order);
+    budget.configure(10 * GIB);
+    await settled();
+    expect(order).toEqual([]);
+    releasePano();
+    await settled();
+    expect(order).toEqual(['decode']);
+    expect(budget.snapshot()).toMatchObject({ reservedBytes: 1 * GIB, running: 1 });
+  });
+
+  it('lets the no-cap escape hatch release decodes waiting behind a running stitch', async () => {
+    const budget = new DecodeMemoryBudget();
+    budget.configure(20 * GIB);
+    const releasePano = await budget.acquireAll();
+    const order: string[] = [];
+    track(budget, 1 * GIB, 'decode', order);
+    budget.configure(null);
+    await settled();
+    expect(order).toEqual(['decode']);
+    releasePano();
+  });
+
   it('runs at once and reserves nothing while uncapped', async () => {
     const budget = new DecodeMemoryBudget();
     const release = await budget.acquireAll();

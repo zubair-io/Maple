@@ -101,6 +101,9 @@ export class DecodeMemoryBudget {
   private limitBytes: number | null = null;
   private reservedBytes = 0;
   private running = 0;
+  /** Whole-budget holders. Tracked apart from bytes: raising the limit while a
+   * stitch runs must not admit decodes beside it. */
+  private exclusive = 0;
   private readonly waiters: Waiter[] = [];
 
   capped(): boolean {
@@ -149,7 +152,8 @@ export class DecodeMemoryBudget {
   }
 
   private fits(bytes: number): boolean {
-    return this.limitBytes === null || this.reservedBytes + bytes <= this.limitBytes;
+    if (this.limitBytes === null) return true;
+    return this.exclusive === 0 && this.reservedBytes + bytes <= this.limitBytes;
   }
 
   private pump(): void {
@@ -160,19 +164,21 @@ export class DecodeMemoryBudget {
       if (!tooLarge && !this.fits(bytes)) return;
       this.waiters.shift();
       if (tooLarge) head.reject(tooLarge);
-      else head.resolve(this.grant(bytes));
+      else head.resolve(this.grant(bytes, head.whole));
     }
   }
 
-  private grant(bytes: number): ReleaseReservation {
+  private grant(bytes: number, whole: boolean): ReleaseReservation {
     this.reservedBytes += bytes;
     this.running++;
+    if (whole) this.exclusive++;
     let released = false;
     return () => {
       if (released) return;
       released = true;
       this.reservedBytes -= bytes;
       this.running--;
+      if (whole) this.exclusive--;
       this.pump();
     };
   }
