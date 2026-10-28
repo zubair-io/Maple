@@ -11,7 +11,7 @@
  * guaranteed failure.
  */
 
-import { access } from 'node:fs/promises';
+import { access } from '../fs/mirrored.ts';
 import type { PanoMatcher, ResolvedPanoConfig } from './pano-config.repo.ts';
 
 export type PanoEnginePlan =

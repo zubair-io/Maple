@@ -64,10 +64,11 @@ public final class RustPanoStitcher: PanoStitching {
     /// stale flag from a previous run doesn't immediately cancel the next one.
     nonisolated(unsafe) private var cancelFlag: CancelFlag?
 
-    /// Why the core could not load the ML matcher earlier in this stitcher's
-    /// life; later previews and the stitch go straight to classical rather
-    /// than decoding every frame twice.
-    nonisolated(unsafe) private var mlLoadFailure: String?
+    /// Why the core could not load the ML matcher, and the ML files it saw
+    /// then. While those files are unchanged, later previews and stitches go
+    /// straight to classical rather than decoding every frame twice; a
+    /// re-download or a new path in Settings → Pano tries ML again.
+    nonisolated(unsafe) private var mlLoadFailure: (environment: String, reason: String)?
 
     // MARK: - Init
 
@@ -144,16 +145,22 @@ public final class RustPanoStitcher: PanoStitching {
         let planned = plannedMatcher()
         let (value, matcher) = try await Self.withMLFallback(planned, body: body)
         if planned == .used(.ml), case .classicalFallback(let reason) = matcher {
-            mlLoadFailure = reason
+            rememberMLLoadFailure(reason)
         }
         return (value, matcher)
+    }
+
+    func rememberMLLoadFailure(_ reason: String) {
+        mlLoadFailure = (provisioning.mlEnvironmentFingerprint(), reason)
     }
 
     /// The matcher this run starts with. The ML runtime's environment is only
     /// provisioned when the ML matcher was opted into (#4554).
     func plannedMatcher() -> PanoMatcherOutcome {
         guard provisioning.mlOptedIn else { return .used(.classical) }
-        if let reason = mlLoadFailure { return .classicalFallback(reason: reason) }
+        if let failure = mlLoadFailure, failure.environment == provisioning.mlEnvironmentFingerprint() {
+            return .classicalFallback(reason: failure.reason)
+        }
         guard provisioning.featureEngine() == .ml else {
             return Self.fallback(reason: "The ML models or ONNX Runtime are not installed.")
         }
