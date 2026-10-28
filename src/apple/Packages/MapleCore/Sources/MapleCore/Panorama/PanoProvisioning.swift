@@ -144,8 +144,12 @@ public struct PanoProvisioning: @unchecked Sendable {
     /// in Settings → Pano AND its models/runtime are on disk; classical
     /// otherwise, so a merge never waits on (or fails for) a download.
     public func featureEngine() -> PanoFeatureEngine {
+        mlOptedIn && PanoProvisioner.isReady(status()) ? .ml : .classical
+    }
+
+    /// Whether Settings → Pano turned the ML matcher on, installed or not.
+    public var mlOptedIn: Bool {
         defaults.bool(forKey: PanoProvisioningDefaults.useMLMatcherKey)
-            && PanoProvisioner.isReady(status()) ? .ml : .classical
     }
 
     // MARK: - Status snapshot (for Settings → Pano UI)

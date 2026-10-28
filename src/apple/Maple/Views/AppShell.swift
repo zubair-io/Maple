@@ -1110,10 +1110,10 @@ struct AppShell: View {
         // M5 (#1234): inject the stitched PNG into the library so it
         // shows in the browse grid and is auto-selected.
         onComplete: { result in browseVM.injectPanoResult(url: result.outputURL) },
-        // M6 provisioning (#1241): modelsNotInstalled error offers a
-        // "Configure in Settings → Pano" button. We dismiss the pano
-        // sheet first, then open Settings on the Pano tab so the user
-        // can configure paths without the sheet stacking on top.
+        // #1241 / #5487: the classical-fallback note offers Settings → Pano.
+        // We dismiss the pano sheet first, then open Settings on the Pano
+        // tab so the user can set up the ML matcher without the sheet
+        // stacking on top.
         onOpenPanoSettings: {
           dismissPanoramaMerge()
           showAppSettings(initialTab: .pano)

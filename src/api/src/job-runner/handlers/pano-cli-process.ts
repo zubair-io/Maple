@@ -15,6 +15,7 @@ import { ObjectId } from '../../db/object-id.ts';
 import { loadAssetLocationViews } from '../../db/repos/assets.locations.repo.ts';
 import { assetAbsPath } from '../../indexer/images.repo.ts';
 import { invalidateLibraryRoots, loadLibraryRoots } from '../../indexer/libraries.cache.ts';
+import { child as childLogger } from '../../log.ts';
 import { jailExecutablePaths } from '../../pano/pano-config-paths.ts';
 import type { JobHandlerContext } from './index.ts';
 import type { PanoStitchPayload } from './pano-stitch.ts';
@@ -172,9 +173,19 @@ export async function runPanoCli(
   return { exitCode, cancelled: await ctx.shouldCancel(), stderrLines, progress };
 }
 
+const log = childLogger('job:pano-cli');
+
+export const PANO_CLI_FAILURE_MESSAGE =
+  'The panorama merge failed. The server log has the details.';
+
+/** The job's error is shown to the user verbatim, so the exit code and the
+ *  tool's stderr go to the log instead (#5487). */
 export function cliFailure(run: PanoCliRun): Error {
-  const lastLines = run.stderrLines.slice(-10).join('\n');
-  return new Error(`maple-cli exited ${run.exitCode}${lastLines ? `:\n${lastLines}` : ''}`);
+  log.error(
+    { exitCode: run.exitCode, stderr: run.stderrLines.slice(-10) },
+    'maple-cli pano failed',
+  );
+  return new Error(PANO_CLI_FAILURE_MESSAGE);
 }
 
 export function reportPath(outputDir: string): string {

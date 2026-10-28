@@ -308,35 +308,17 @@ describe('PanoDialogComponent', () => {
     expect(el.textContent).not.toContain('Check the server logs');
   });
 
-  it('shows the settings hint on 409 pano_ml_not_provisioned (#4555)', () => {
-    open(false);
-    fixture.componentInstance.onSubmit();
-    http.expectOne('/api/pano/stitch').flush(
-      {
-        error: 'pano_ml_not_provisioned',
-        message: 'The ML matcher is selected but its models directory is not set.',
-      },
-      { status: 409, statusText: 'Conflict' },
-    );
-    expect(fixture.componentInstance.errorCode()).toBe('pano_ml_not_provisioned');
-    expect(fixture.componentInstance.errorMessage()).toContain('ML matcher');
-    fixture.detectChanges();
-    const el: HTMLElement = fixture.nativeElement;
-    expect(el.textContent).toContain('Settings');
-    expect(el.textContent).not.toContain('Check the server logs');
-  });
-
-  it('shows the rebuild message and settings hint on 409 pano_cli_outdated (#4555)', () => {
+  it('shows the out-of-date message and settings hint on 409 pano_cli_outdated (#4555)', () => {
     open(false);
     fixture.componentInstance.onSubmit();
     http.expectOne('/api/pano/stitch').flush(
       {
         error: 'pano_cli_outdated',
-        message: 'Rebuild maple-cli with `--features pano,pano-classical`.',
+        message: 'The server’s panorama tool is out of date.',
       },
       { status: 409, statusText: 'Conflict' },
     );
-    expect(fixture.componentInstance.errorMessage()).toContain('pano,pano-classical');
+    expect(fixture.componentInstance.errorMessage()).toContain('out of date');
     fixture.detectChanges();
     const el: HTMLElement = fixture.nativeElement;
     expect(el.textContent).toContain('Settings');

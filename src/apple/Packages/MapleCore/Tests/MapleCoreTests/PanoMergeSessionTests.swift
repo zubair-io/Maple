@@ -18,6 +18,7 @@ private final class SynchronousMockStitcher: PanoStitching {
     // nonisolated(unsafe) avoids the Swift 6 Sendable mutation warning on
     // this test-only class while keeping the package on Swift 5 language mode.
     nonisolated(unsafe) var shouldFail: Bool = false
+    nonisolated(unsafe) var matcher: PanoMatcherOutcome = .used(.classical)
     nonisolated(unsafe) private var cancelledFlag: Bool = false
 
     func cancel() { cancelledFlag = true }
@@ -41,7 +42,7 @@ private final class SynchronousMockStitcher: PanoStitching {
         let url = dir.appendingPathComponent("test-pano-\(UUID().uuidString).tiff")
         // Write a trivially small file so outputURL is non-nil on disk.
         try Data("mock".utf8).write(to: url)
-        return PanoResult(outputURL: url, reportSummary: "test summary")
+        return PanoResult(outputURL: url, reportSummary: "test summary", matcher: matcher)
     }
     func preview(
         assets: [AssetRef],
@@ -98,6 +99,27 @@ struct PanoMergeSessionTests {
             return
         }
         #expect(!result.reportSummary.isEmpty)
+    }
+
+    @Test("a run that fell back to classical finishes done, carrying the note (#5487)")
+    func classicalFallbackRunEndsDoneWithNote() async throws {
+        let stitcher = SynchronousMockStitcher()
+        stitcher.matcher = .classicalFallback(reason: "ONNX Runtime missing")
+        let session = PanoMergeSession(stitcher: stitcher)
+        session.start(assets: makeAssets(2))
+
+        var iterations = 0
+        while session.isRunning && iterations < 10000 {
+            await Task.yield()
+            iterations += 1
+        }
+
+        guard case .done(let result) = session.state else {
+            Issue.record("Expected done, got \(session.state)")
+            return
+        }
+        #expect(result.matcher.engine == .classical)
+        #expect(result.matcher.note != nil)
     }
 
     @Test("failed run ends in error state")

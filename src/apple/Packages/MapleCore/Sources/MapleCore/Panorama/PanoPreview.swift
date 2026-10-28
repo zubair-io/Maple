@@ -43,16 +43,29 @@ public struct PanoPreview: @unchecked Sendable {
     /// What the full stitch of these frames will hold; `nil` when the
     /// stitcher cannot say (the mock).
     public let stitchSizes: PanoStitchSizes?
+    public let matcher: PanoMatcherOutcome
 
     public init(
         image: CGImage,
         alignment: PanoAlignment,
         alignmentOutcome: PanoAlignmentOutcome,
-        stitchSizes: PanoStitchSizes? = nil
+        stitchSizes: PanoStitchSizes? = nil,
+        matcher: PanoMatcherOutcome = .used(.classical)
     ) {
         self.image = image
         self.alignment = alignment
         self.alignmentOutcome = alignmentOutcome
         self.stitchSizes = stitchSizes
+        self.matcher = matcher
+    }
+
+    func with(matcher: PanoMatcherOutcome) -> PanoPreview {
+        PanoPreview(
+            image: image,
+            alignment: alignment,
+            alignmentOutcome: alignmentOutcome,
+            stitchSizes: stitchSizes,
+            matcher: matcher
+        )
     }
 }

@@ -57,6 +57,14 @@
                   [src]="image.url"
                   alt="Panorama preview"
                 />
+                @if (image.result?.matcherNote; as note) {
+                  <p
+                    class="m-0 text-[11px] leading-[1.5] text-text-muted"
+                    data-testid="pano-matcher-note"
+                  >
+                    {{ note }}
+                  </p>
+                }
               }
               @if (run.kind === 'running') {
                 <p class="m-0 text-[11px] text-text-muted">Preview — {{ previewLabel() }}</p>
@@ -215,6 +223,14 @@
           class="flex max-h-[60vh] min-h-[80px] flex-col items-center justify-center gap-3.5 overflow-y-auto p-4"
         >
           <p class="m-0 text-[12px] text-text-main">Panorama ready.</p>
+          @if (stitchMatcherNote(); as note) {
+            <p
+              class="m-0 text-[11px] leading-[1.5] text-text-muted"
+              data-testid="pano-matcher-note"
+            >
+              {{ note }}
+            </p>
+          }
         </div>
         <div
           class="flex shrink-0 items-center justify-end gap-2 border-t-[0.5px] border-border px-4 py-3"

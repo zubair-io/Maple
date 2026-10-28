@@ -5,8 +5,8 @@
 //   - maple-cli binary path
 //   - Matcher: classical (default, nothing to download) or ML (opt-in, #4555)
 //   - MAPLE_PANO_MODELS directory and ORT_DYLIB_PATH, shown only for ML; the
-//     server answers a stitch with 409 pano_ml_not_provisioned until both are set
-//     here or in the deprecated environment variables
+//     server stitches with the classical matcher (and says so) until both are
+//     set here or in the deprecated environment variables (#5487)
 //   - A rebuild notice when the binary predates --features-engine (ML-only)
 //
 // Config is saved via PUT /api/pano/config and re-resolved from the server
