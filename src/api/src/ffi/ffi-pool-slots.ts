@@ -49,6 +49,9 @@ export interface PendingRequest {
   post: (w: PoolWorker) => void;
   onResponse: (msg: FfiResponse) => boolean;
   onError: (err: Error) => void;
+  /** Terminate the child after this call: a develop leaves gigabytes of freed
+   * heap mapped in the child, which no later reservation accounts for (#5467). */
+  retireWorkerAfter?: boolean;
 }
 
 /** A worker slot. `inFlight` is the request currently running on it (null =
@@ -260,18 +263,15 @@ export class WorkerSlotPool {
         ),
       );
     }
-    this.releaseSlot(slot);
+    this.releaseSlot(slot, req.retireWorkerAfter === true);
   }
 
-  /** A worker finished its call. Terminate it if it was retired on a shrink,
-   * otherwise hand it the next queued request. */
-  private releaseSlot(slot: WorkerSlot): void {
+  /** A worker finished its call. Terminate it if it was retired on a shrink
+   * or by its request, then hand queued work to the remaining (or a fresh) child. */
+  private releaseSlot(slot: WorkerSlot, retire: boolean): void {
     slot.inFlight = null;
-    if (slot.surplus) {
-      this.terminateSlot(slot);
-      return;
-    }
-    this.dispatch();
+    if (slot.surplus || retire) this.terminateSlot(slot);
+    if (!slot.surplus) this.dispatch();
   }
 
   private terminateSlot(slot: WorkerSlot): void {

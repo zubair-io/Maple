@@ -366,6 +366,38 @@
                       (typically 4) is a good starting point for faster ingest.
                     </div>
                   </div>
+                  @if (perf.decode_memory_budget; as budget) {
+                    <div class="field set-field">
+                      <div class="field-label">Decode memory budget</div>
+                      <div class="num-input set-num-input">
+                        <mui-input
+                          variant="numeric"
+                          [min]="budget.min"
+                          [max]="budget.max"
+                          [step]="5"
+                          [value]="decodeWorkers.budgetDraft()"
+                          (valueChange)="decodeWorkers.setBudgetDraft($event)"
+                          ariaLabel="Decode memory budget, percent of container memory"
+                          data-testid="decode-memory-budget-input"
+                        />
+                        <span class="num-suffix"
+                          >% of {{ formatBytes(budget.container_limit_bytes) }}</span
+                        >
+                      </div>
+                      <div class="field-hint">
+                        Share of the server's memory limit that RAW decodes and panorama stitches
+                        may reserve at once. Each decode reserves its estimated peak (a 50 MP
+                        develop needs several GB); work that does not fit waits its turn instead of
+                        getting the server killed for running out of memory. A panorama stitch takes
+                        the whole budget. Default 50; 0 removes the cap.
+                      </div>
+                      @if (decodeWorkers.budgetReadout(); as readout) {
+                        <div class="field-hint" data-testid="decode-memory-budget-live">
+                          {{ readout }}
+                        </div>
+                      }
+                    </div>
+                  }
                   <div
                     class="row-footer set-row-footer-tail pt-3.5 pr-6 pb-0 pl-[54px] mt-3 border-t-[0.5px] border-t-[var(--s-border)] max-[1023px]:pt-3.5 max-[1023px]:px-4 max-[1023px]:pb-0 max-[767px]:flex-col-reverse max-[767px]:items-stretch max-[767px]:gap-2"
                   >

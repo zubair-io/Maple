@@ -23,6 +23,7 @@ import {
 import { invalidateLibraryRoots } from '../../indexer/libraries.cache.ts';
 import { runOnce, type StageConfig } from '../run-stage.ts';
 import { _setFfiPoolForTests } from '../../ffi/ffi-pool.ts';
+import { DecodeMemoryBudgetError } from '../../ffi/decode-memory-budget.ts';
 import { solidJpeg } from '../../test-support/synth-image.ts';
 
 let live: LiveTestDatabase;
@@ -153,6 +154,25 @@ describe.each([
     expect(row.version).toBeLessThan(stage.targetVersion);
     expect(row.attempts).toBe(0);
     expect(row.dead).toBe(0);
+  });
+
+  it('defers a RAW decode larger than the memory budget without spending an attempt', async () => {
+    await writeFile(path.join(dir, 'frame.cr2'), Buffer.alloc(1024));
+    run(live.db, `UPDATE asset_locations SET filename = 'frame.cr2' WHERE asset_id = ?`, assetId);
+    const overBudget = () => Promise.reject(new DecodeMemoryBudgetError(8 * 1024 ** 3, 1024 ** 3));
+    const previous = _setFfiPoolForTests({
+      available: () => true,
+      poolSize: () => 1,
+      renderThumbnailAvifToFile: overBudget,
+      renderDevelopJpegToFile: overBudget,
+    } as never);
+    try {
+      await runStageOnce(stage as unknown as StageConfig, 1);
+    } finally {
+      _setFfiPoolForTests(previous);
+    }
+    expectDeferredUndamaged(name, stage.targetVersion);
+    expect(stageRow(name).last_error).toContain('decode-exceeds-memory-budget');
   });
 
   it('records a render done even when the original carries a future mtime', async () => {

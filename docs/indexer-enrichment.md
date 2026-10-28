@@ -331,8 +331,8 @@ GET   /api/workers/deduplicate/config
 PATCH /api/workers/deduplicate/config
 GET   /api/workers/migration/migrations
 PATCH /api/workers/migration/migrations/:id
-GET   /api/workers/performance           # FFI decode-pool size + live pool stats
-PATCH /api/workers/performance           # clamped 1–16, resizes the pool live
+GET   /api/workers/performance           # decode-pool size, decode memory budget, live reservation
+PATCH /api/workers/performance           # ffi_workers 1–16 and/or decode_memory_budget_percent 0–90
 ```
 
 `pollIntervalMs` and `batchSize` are no longer knobs and a `PATCH` carrying either is rejected with a 400 rather than silently ignored. The `preview` stage's concurrency does not govern on-demand previews: those have their own small fixed cap and take priority over the stage (see [On-demand previews](#on-demand-previews)).

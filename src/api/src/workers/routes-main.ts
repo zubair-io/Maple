@@ -33,15 +33,7 @@ import {
   listDeadAssets,
   retryDeadStage,
 } from '../db/repos/worker-admin.repo.ts';
-import { ffiPool } from '../ffi/ffi-pool.ts';
-import {
-  MAX_FFI_WORKERS,
-  MIN_FFI_WORKERS,
-  clampFfiWorkers,
-  loadPerformanceConfig,
-  resolveFfiPoolConfig,
-  savePerformanceConfig,
-} from '../ffi/ffi-pool-config.repo.ts';
+import { patchPerformance, performanceStatus } from './performance-config.ts';
 import { WorkerConfigRepo } from '../db/repos/worker-config.repo.ts';
 import type { WorkerConfig } from './run-stage.ts';
 import { MISSING_REAPER_NAME } from './missing-reaper.ts';
@@ -391,54 +383,28 @@ export function workerRoutes() {
         },
       )
 
-      // ── Performance: FFI decode-pool size (ticket #673) ─────────────────────
-      // GET   /api/workers/performance — effective ffi_workers + source + live
-      //                                 pool stats.
-      // PATCH /api/workers/performance — clamp 1–16, persist to the
-      //                                 `performance` app_settings doc, then
-      //                                 resize the live pool immediately (no
-      //                                 restart).
-      .get('/performance', async () => {
-        const resolved = resolveFfiPoolConfig(await loadPerformanceConfig());
-        return {
-          ffi_workers: resolved.ffi_workers,
-          source: resolved.source.ffi_workers,
-          min: MIN_FFI_WORKERS,
-          max: MAX_FFI_WORKERS,
-          pool: ffiPool().stats(),
-        };
-      })
+      // ── Performance: RAW decode-pool size (#673) + decode memory budget (#5467)
+      // GET   /api/workers/performance — effective settings, sources, bounds,
+      //                                 API pool stats and the worker's live
+      //                                 budget reservation.
+      // PATCH /api/workers/performance — clamp and persist either field; the
+      //                                 worker re-applies within seconds.
+      .get('/performance', () => performanceStatus())
 
       .patch(
         '/performance',
         async ({ body, set }) => {
-          const clamped = clampFfiWorkers(body.ffi_workers);
-          if (clamped === null) {
-            set.status = 400;
-            return {
-              error: `Invalid ffi_workers: must be a finite number (got ${body.ffi_workers})`,
-            };
+          const outcome = await patchPerformance(body);
+          if (!outcome.ok) {
+            set.status = outcome.status;
+            return { error: outcome.error };
           }
-          try {
-            await savePerformanceConfig({ ffi_workers: clamped });
-          } catch (err) {
-            set.status = 500;
-            return { error: err instanceof Error ? err.message : String(err) };
-          }
-          // Re-resolve (in case the DB was unreachable and env/default applies)
-          // and resize the live pool right away.
-          const resolved = resolveFfiPoolConfig(await loadPerformanceConfig());
-          ffiPool().setPoolSize(resolved.ffi_workers);
-          return {
-            ok: true,
-            ffi_workers: resolved.ffi_workers,
-            source: resolved.source.ffi_workers,
-            pool: ffiPool().stats(),
-          };
+          return { ok: true, ...(await performanceStatus()) };
         },
         {
           body: t.Object({
-            ffi_workers: t.Number(),
+            ffi_workers: t.Optional(t.Number()),
+            decode_memory_budget_percent: t.Optional(t.Number()),
           }),
         },
       )

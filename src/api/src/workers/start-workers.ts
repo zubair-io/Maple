@@ -28,7 +28,8 @@ import { stageRegistry } from './registry.ts';
 import { registerDiscoverWorker, unregisterDiscoverWorker } from './discover/register.ts';
 import { startDiscover, type DiscoverHandle } from './discover/index.ts';
 import { sweepOrphanedCaches } from './cache-gc.ts';
-import { bootstrapFfiPool } from '../ffi/ffi-pool-bootstrap.ts';
+import { bootstrapFfiPool, stopFfiPoolConfigRefresh } from '../ffi/ffi-pool-bootstrap.ts';
+import { decodeMemoryBudget } from '../ffi/decode-memory-budget.ts';
 import { ffiPool } from '../ffi/ffi-pool.ts';
 import { startGeocodeWorker, stopGeocodeWorker } from '../enrichment/bootstrap.ts';
 import { startFaceWorker, stopFaceWorker } from '../enrichment/face-bootstrap.ts';
@@ -82,13 +83,16 @@ function workerLoadSnapshot(): Record<string, unknown> {
   const stages = Object.fromEntries(
     Object.entries(stageRegistry.statuses()).map(([name, s]) => [name, s.inFlight]),
   );
-  return { stages, ffi: ffiPool().stats() };
+  return { stages, ffi: ffiPool().stats(), decodeBudget: decodeMemoryBudget().snapshot() };
 }
 
 /** The worker's own sample plus whatever its native children last relayed,
  * persisted so the API process can show them on Settings → Workers. */
 function persistWorkerMemory(row: ProcessMemoryRow): void {
-  writeWorkerMemory({ rows: [row, ...childMemoryReports()] }).catch(() => {});
+  writeWorkerMemory({
+    rows: [row, ...childMemoryReports()],
+    decodeBudget: decodeMemoryBudget().snapshot(),
+  }).catch(() => {});
 }
 
 export async function startWorkers(): Promise<void> {
@@ -123,7 +127,7 @@ export async function startWorkers(): Promise<void> {
     }
   }, 'Discover failed to start');
 
-  await bootstrapFfiPool(); // size the FFI decode pool (DB > env > default 1)
+  await bootstrapFfiPool(); // pool size + decode memory budget, then a live re-apply poll
 
   // Slow-tier enrichment workers run in-process. Each one's failure is
   // isolated — the operator recovers via /settings/enrichment without a
@@ -214,6 +218,7 @@ export async function startWorkers(): Promise<void> {
 export async function stopWorkers(): Promise<void> {
   stopMemoryTelemetry();
   stopWorkerEnrichmentConfigRefresh();
+  stopFfiPoolConfigRefresh();
 
   // Clear the status-publishing interval before tearing down subsystems so
   // we don't fire a best-effort write after the DB connection closes.

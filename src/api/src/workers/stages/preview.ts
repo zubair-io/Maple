@@ -32,7 +32,11 @@ import { isUndecodableFilename, isVideoFilename } from '../../indexer/media-type
 import { ffmpegBinary } from '../../thumbs/video-poster.ts';
 import { loadLibraryRootsForAsset } from '../../indexer/libraries.cache.ts';
 import { noResolvableLocation } from './no-resolvable-location.ts';
-import { deferWhileDecoderMissing, unrenderedOutcome } from './derivative-render-outcome.ts';
+import {
+  deferWhileDecoderMissing,
+  memoryBudgetDeferral,
+  unrenderedOutcome,
+} from './derivative-render-outcome.ts';
 import { defineStage, runStage, type RunStageHandle, type StageResult } from '../run-stage.ts';
 
 const previewStage = defineStage({
@@ -109,7 +113,8 @@ const previewStage = defineStage({
       if (decoderMissing) return decoderMissing;
       const rendered = await runBackgroundPreviewRender(previewPath, () =>
         generatePreview(absPath, previewPath),
-      );
+      ).catch((err: unknown) => memoryBudgetDeferral(err, absPath) ?? Promise.reject(err));
+      if (typeof rendered !== 'boolean') return rendered;
       const unrendered = await unrenderedOutcome(rendered, absPath);
       if (unrendered) return unrendered;
     }

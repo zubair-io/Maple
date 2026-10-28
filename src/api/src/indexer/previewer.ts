@@ -55,6 +55,7 @@ import { finalizeAvifRender } from '../thumbs/validate-avif.ts';
 import { renderRawSidecarDerivative } from '../thumbs/raw-sidecar-render.ts';
 import { assertDerivativeCacheDirectory, isDerivativeCacheFresh } from './derivative-cache.ts';
 import { child as childLogger } from '../log.ts';
+import { DecodeMemoryBudgetError } from '../ffi/decode-memory-budget.ts';
 
 const log = childLogger('previewer');
 
@@ -320,6 +321,7 @@ async function developRawPreviewToFile(
     }
     return await renderBitmapPreviewToFile(jpegPath, outPath, 'jpg');
   } catch (e) {
+    if (e instanceof DecodeMemoryBudgetError) throw e;
     return logRenderFailure({ rawPath, extractError }, e, 'demosaic fallback threw');
   } finally {
     try {
