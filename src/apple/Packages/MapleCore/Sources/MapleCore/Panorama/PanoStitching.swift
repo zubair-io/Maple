@@ -224,4 +224,12 @@ public protocol PanoStitching: AnyObject, Sendable {
     /// call should throw `CancellationError` as soon as possible after this.
     /// Safe to call multiple times or when idle.
     func cancel()
+
+    /// Whether the stitch runs in this process, so its output must be sized
+    /// to this device's memory from a preview's fit. A server stitch is not.
+    var runsInDeviceMemory: Bool { get }
+}
+
+extension PanoStitching {
+    public var runsInDeviceMemory: Bool { true }
 }

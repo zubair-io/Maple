@@ -234,9 +234,9 @@ public final class PanoMergeSession {
     /// On a device with a per-process memory limit, the stitch must not size
     /// itself from a fit solved for other options: a `.fullFits` from them
     /// would pass no cap at all, and a fitted cap budgets their canvas's
-    /// width.
+    /// width. A stitch that runs elsewhere has no such limit to fit.
     private func needsFreshFit(for options: PanoOptions) -> Bool {
-        memoryFitOptions != options && availableMemory() != nil
+        stitcher.runsInDeviceMemory && memoryFitOptions != options && availableMemory() != nil
     }
 
     /// The running preview whose alignment Create Panorama should wait for:
