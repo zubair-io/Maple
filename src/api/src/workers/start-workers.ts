@@ -96,6 +96,10 @@ function persistWorkerMemory(row: ProcessMemoryRow): void {
 }
 
 export async function startWorkers(): Promise<void> {
+  // Before any stage polls: a decode enqueued while the budget is still
+  // unconfigured skips admission for good (#5467).
+  await bootstrapFfiPool();
+
   await startSubsystem(async () => {
     await startAllStages();
     log.info(stageRegistry.statuses(), 'Worker stages running');
@@ -126,8 +130,6 @@ export async function startWorkers(): Promise<void> {
       })(root);
     }
   }, 'Discover failed to start');
-
-  await bootstrapFfiPool(); // pool size + decode memory budget, then a live re-apply poll
 
   // Slow-tier enrichment workers run in-process. Each one's failure is
   // isolated — the operator recovers via /settings/enrichment without a

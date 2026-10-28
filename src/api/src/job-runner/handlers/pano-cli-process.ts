@@ -153,6 +153,9 @@ export async function runPanoCli(
   // budget and runs only once every in-flight decode has released (#5467).
   const release = await decodeMemoryBudget().acquireAll();
   try {
+    if (await ctx.shouldCancel()) {
+      return { exitCode: 0, cancelled: true, stderrLines: [], progress: 0 };
+    }
     return await spawnPanoCli(executables, args, ctx);
   } finally {
     release();

@@ -67,17 +67,13 @@ export class DecodeWorkersPanelService {
     if (!cfg) return;
     const n = parseClampedInt(this.draft(), cfg.min, cfg.max, cfg.ffi_workers);
     const budget = cfg.decode_memory_budget;
-    const patch: PerformancePatch = budget
-      ? {
-          ffi_workers: n,
-          decode_memory_budget_percent: parseClampedInt(
-            this.budgetDraft(),
-            budget.min,
-            budget.max,
-            budget.percent,
-          ),
-        }
-      : { ffi_workers: n };
+    const percent = budget
+      ? parseClampedInt(this.budgetDraft(), budget.min, budget.max, budget.percent)
+      : null;
+    const patch: PerformancePatch =
+      budget && percent !== budget.percent
+        ? { ffi_workers: n, decode_memory_budget_percent: percent ?? budget.percent }
+        : { ffi_workers: n };
     this.saveState.set('saving');
     this.saveError.set(null);
     this.api.patchPerformanceConfig(patch).subscribe({

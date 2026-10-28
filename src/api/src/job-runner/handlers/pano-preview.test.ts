@@ -259,4 +259,23 @@ describe('pano and the decode memory budget (#5467)', () => {
     expect(decodeAdmittedDuringStitch).toBe(false);
     expect(budget.snapshot()).toMatchObject({ reservedBytes: 0, running: 0, waiting: 0 });
   });
+
+  it('does not spawn a stitch cancelled while it waited for the budget', async () => {
+    const cli = await writeFakePanoCli(tmpDir, { preview: true });
+    const budget = decodeMemoryBudget();
+    budget.configure(10 * 1024 ** 3);
+    const releaseDecode = await budget.acquire(3 * 1024 ** 3);
+    const runsBefore = (await fakeCliRuns(cli)).length;
+    const cancel = { value: false };
+    const preview = panoPreviewHandler.run(
+      payload(cli, newPreviewDir()),
+      context(() => cancel.value).ctx,
+    );
+    await Bun.sleep(20);
+    cancel.value = true;
+    releaseDecode();
+    expect((await preview).kind).toBe('cancelled');
+    expect(await fakeCliRuns(cli)).toHaveLength(runsBefore);
+    expect(budget.snapshot().reservedBytes).toBe(0);
+  });
 });
