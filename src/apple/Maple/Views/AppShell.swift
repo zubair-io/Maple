@@ -180,6 +180,10 @@ struct AppShell: View {
   /// cancel or navigation away. Uses RustPanoStitcher (M4, #1234) so the
   /// real FFI stitch runs; MockPanoStitcher is retained for unit tests only.
   @State var panoMergeSession: PanoMergeSession = PanoMergeSession(stitcher: RustPanoStitcher())
+  /// The two places a merge can run (#5488): this device, and the Maple
+  /// server the selected frames live on (set by `openPanoramaMerge`).
+  @State var panoDeviceStitcher = RustPanoStitcher()
+  @State var panoServerStitcher: ServerPanoStitcher?
 
   /// True when an image surface is open (`.preview` or `.editing`) — i.e.
   /// the center column is showing an image, not the browse grid. The
@@ -1106,10 +1110,10 @@ struct AppShell: View {
         assets: browseVM.selectedAssets(sessions: sessions),
         source: browseVM.currentSource,
         session: panoMergeSession,
+        deviceStitcher: panoDeviceStitcher,
+        serverStitcher: panoServerStitcher,
         onDismiss: { dismissPanoramaMerge() },
-        // M5 (#1234): inject the stitched PNG into the library so it
-        // shows in the browse grid and is auto-selected.
-        onComplete: { result in browseVM.injectPanoResult(url: result.outputURL) },
+        onComplete: { result in completePanoramaMerge(result) },
         // #1241 / #5487: the classical-fallback note offers Settings → Pano.
         // We dismiss the pano sheet first, then open Settings on the Pano
         // tab so the user can set up the ML matcher without the sheet
@@ -1467,9 +1471,10 @@ struct AppShell: View {
           assets: browseVM.selectedAssets(sessions: sessions),
           source: browseVM.currentSource,
           session: panoMergeSession,
+          deviceStitcher: panoDeviceStitcher,
+          serverStitcher: panoServerStitcher,
           onDismiss: { dismissPanoramaMerge() },
-          // M5 (#1234): inject the stitched PNG into the library.
-          onComplete: { result in browseVM.injectPanoResult(url: result.outputURL) },
+          onComplete: { result in completePanoramaMerge(result) },
           // M6 provisioning (#1241): direct not-provisioned errors to
           // Settings → Pano on iPhone as well.
           onOpenPanoSettings: {
@@ -1670,28 +1675,6 @@ struct AppShell: View {
     }
   }
 
-  // MARK: - Panorama merge actions (M2, #1236)
-
-  /// Open the panorama merge view with the currently-selected assets.
-  /// Only called when `browseVM.canMergePanorama` is true.
-  func openPanoramaMerge() {
-    guard browseVM.canMergePanorama else { return }
-    panoMergeSession.reset()
-    mode = .panoramaMerge
-  }
-
-  /// Dismiss the panorama merge view and return to browse. Exits select
-  /// mode so the grid resets to normal tap-to-open behaviour.
-  ///
-  /// Always cancels the in-flight stitch, regardless of how the sheet is
-  /// dismissed (Cancel/Done button OR system swipe-down / Escape gesture).
-  /// The `.sheet(isPresented:set:)` binding routes ALL dismissal paths here,
-  /// so the stitch can never leak after the sheet is gone.
-  func dismissPanoramaMerge() {
-    panoMergeSession.cancel()
-    mode = .browse
-    browseVM.exitSelectMode()
-  }
 }
 
 // MARK: - Previews

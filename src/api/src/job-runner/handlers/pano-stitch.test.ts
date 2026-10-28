@@ -237,3 +237,43 @@ describe('panoStitchHandler feature engine (#4555)', () => {
     ).rejects.toThrow('ML matcher');
   });
 });
+
+describe('panoStitchHandler output location (#5488)', () => {
+  const libPath = () => path.join(tmpDir, 'lib');
+
+  it('imports the result into Panoramas/ beside the first source frame', async () => {
+    const outcome = await panoStitchHandler.run(basePayload(), handlerContext());
+    expect(outcome.kind).toBe('done');
+    const result = outcome.result as { outputAssetId: string; outputPath: string };
+    expect(path.dirname(result.outputPath)).toBe(path.join(libPath(), 'Panoramas'));
+    expect(path.basename(result.outputPath)).toMatch(/^in-a-pano-[0-9a-f]{8}\.png$/);
+    expect(await fs.readFile(result.outputPath)).toEqual(Buffer.from(TINY_PNG_B64, 'base64'));
+    const [location] = live.db
+      .query(`SELECT path, filename FROM asset_locations WHERE asset_id = ?`)
+      .all(result.outputAssetId) as { path: string; filename: string }[];
+    expect(location).toEqual({ path: 'Panoramas', filename: path.basename(result.outputPath) });
+  });
+
+  it('returns the panorama an earlier run made for the same frames without stitching again', async () => {
+    const first = await panoStitchHandler.run(basePayload(), handlerContext());
+    await fs.rm(spawnedPathLog, { force: true });
+    const again = await panoStitchHandler.run(basePayload(), handlerContext());
+    expect(again.kind).toBe('done');
+    expect(again.result).toMatchObject({
+      outputAssetId: (first.result as { outputAssetId: string }).outputAssetId,
+      outputPath: (first.result as { outputPath: string }).outputPath,
+    });
+    expect(await fs.stat(spawnedPathLog).catch(() => null)).toBeNull();
+  });
+
+  it('gives different options a panorama of their own', async () => {
+    const keep = await panoStitchHandler.run(basePayload(), handlerContext());
+    const strict = await panoStitchHandler.run(
+      { ...basePayload(), retention: 'strict' },
+      handlerContext(),
+    );
+    expect((strict.result as { outputPath: string }).outputPath).not.toBe(
+      (keep.result as { outputPath: string }).outputPath,
+    );
+  });
+});

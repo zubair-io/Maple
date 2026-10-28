@@ -132,7 +132,7 @@ public final class PanoMergeSession {
 
     // MARK: - Private
 
-    private let stitcher: any PanoStitching
+    public private(set) var stitcher: any PanoStitching
     private let memoryModel = PanoMemoryModel()
     private let availableMemory: @Sendable () -> Int?
     private var chosenOutputSize: PanoOutputSize?
@@ -325,6 +325,18 @@ public final class PanoMergeSession {
                 state = .error(StitchError(underlying: error))
             }
         }
+    }
+
+    /// Run later previews and stitches with `stitcher` — the merge sheet's
+    /// "Run on server" choice (#5488). Whatever is in flight stops, and the
+    /// alignment is dropped: one stitcher cannot reuse another's.
+    public func use(_ stitcher: any PanoStitching) {
+        guard stitcher !== self.stitcher else { return }
+        let assets = previewAssets
+        cancel()
+        alignment = nil
+        self.stitcher = stitcher
+        preview(assets: assets)
     }
 
     /// Cancel the in-flight stitch and preview and return to idle. The

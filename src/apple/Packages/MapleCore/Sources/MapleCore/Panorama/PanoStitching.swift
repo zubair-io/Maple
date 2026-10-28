@@ -86,11 +86,13 @@ public enum PanoMatcherOutcome: Sendable, Equatable {
     /// `reason` is the core's detail, for the log and tests only; it can
     /// name environment variables and entry points, so it is never shown.
     case classicalFallback(reason: String)
+    /// The server ran classical and said why, in words written for the user.
+    case serverClassicalFallback(note: String)
 
     public var engine: PanoFeatureEngine {
         switch self {
         case .used(let engine): return engine
-        case .classicalFallback: return .classical
+        case .classicalFallback, .serverClassicalFallback: return .classical
         }
     }
 
@@ -100,6 +102,7 @@ public enum PanoMatcherOutcome: Sendable, Equatable {
         case .used: return nil
         case .classicalFallback:
             return "Used the classical matcher because the ML matcher couldn’t be loaded on this device."
+        case .serverClassicalFallback(let note): return note
         }
     }
 }
@@ -149,17 +152,22 @@ public struct PanoResult: Sendable {
     /// Whether the run started from an offered preview alignment.
     public let alignmentOutcome: PanoAlignmentOutcome
     public let matcher: PanoMatcherOutcome
+    /// Set when the server stitched it (#5488): `outputURL` is then a path on
+    /// the server, and the panorama is this asset in the server's library.
+    public let serverAssetID: String?
 
     public init(
         outputURL: URL,
         reportSummary: String,
         alignmentOutcome: PanoAlignmentOutcome = .solved,
-        matcher: PanoMatcherOutcome = .used(.classical)
+        matcher: PanoMatcherOutcome = .used(.classical),
+        serverAssetID: String? = nil
     ) {
         self.outputURL = outputURL
         self.reportSummary = reportSummary
         self.alignmentOutcome = alignmentOutcome
         self.matcher = matcher
+        self.serverAssetID = serverAssetID
     }
 }
 
