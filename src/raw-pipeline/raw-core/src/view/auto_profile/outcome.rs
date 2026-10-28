@@ -12,6 +12,8 @@ pub enum AutoFitOutcome {
 }
 
 impl AutoFitOutcome {
+    pub const ALL: [Self; 3] = [Self::Applied, Self::NoPreview, Self::Unfitted];
+
     /// The C-FFI fit return code for [`Self::NoPreview`], emitted to C# by
     /// codegen and pinned by raw-ffi's `MAPLE_AUTO_FIT_NO_PREVIEW`.
     pub const NO_PREVIEW_FFI_CODE: i32 = 10;
@@ -23,5 +25,23 @@ impl AutoFitOutcome {
             Self::NoPreview => "no-preview",
             Self::Unfitted => "unfitted",
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::AutoFitOutcome;
+
+    #[test]
+    fn all_lists_every_outcome_once() {
+        let position = |outcome| match outcome {
+            AutoFitOutcome::Applied => 0,
+            AutoFitOutcome::NoPreview => 1,
+            AutoFitOutcome::Unfitted => 2,
+        };
+        assert!(AutoFitOutcome::ALL
+            .iter()
+            .enumerate()
+            .all(|(index, &outcome)| position(outcome) == index));
     }
 }

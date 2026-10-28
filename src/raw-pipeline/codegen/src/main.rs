@@ -247,8 +247,9 @@ fn main() {
             std::process::exit(2);
         }
         (Schema::AutoFitCodes, Target::Cs) => auto_fit_codes::emit_cs(),
+        (Schema::AutoFitCodes, Target::Ts) => auto_fit_codes::emit_ts(),
         (Schema::AutoFitCodes, _) => {
-            eprintln!("auto-fit-codes supports cs");
+            eprintln!("auto-fit-codes supports cs / ts");
             std::process::exit(2);
         }
         (Schema::ScopeTargets, Target::Cs) => scope_targets::emit_cs(),

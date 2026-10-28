@@ -100,6 +100,7 @@ fi
 
 # --- Auto Profile fit return codes (#5458) --------------------------------
 "$BIN" --schema auto-fit-codes --target cs --out "src/windows/Maple.WinUI/Generated/AutoFitCodes.g.cs"
+"$BIN" --schema auto-fit-codes --target ts --out "src/web/projects/maple-common/src/lib/generated/auto-fit-outcome.generated.ts"
 
 # --- Culling metadata vocabulary (#3662) ----------------------------------
 for color_label_out in \
