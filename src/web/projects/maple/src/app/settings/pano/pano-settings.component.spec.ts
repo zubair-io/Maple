@@ -201,6 +201,28 @@ describe('PanoSettingsComponent', () => {
     call.flush({ ...CLASSICAL_DEFAULT, ok: true });
   });
 
+  it('keeps stitching on when a custom path replaces the bundled binary (#5493)', async () => {
+    await load({
+      ...CLASSICAL_DEFAULT,
+      maple_cli_path: '/app/native/maple-cli',
+      enabled: true,
+      source: { ...CLASSICAL_DEFAULT.source, maple_cli_path: 'bundled', enabled: 'default' },
+    });
+    const cli = inputByLabel('maple-cli binary path');
+    cli.value = '/opt/custom/maple-cli';
+    cli.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    clickSave();
+    const call = http.expectOne('/api/pano/config');
+    expect(call.request.body).toMatchObject({
+      maple_cli_path: '/opt/custom/maple-cli',
+      enabled: true,
+    });
+    call.flush({ ...CLASSICAL_DEFAULT, ok: true });
+  });
+
   it('saves an explicit off when the default-on toggle is turned off (#5493)', async () => {
     await load({
       ...CLASSICAL_DEFAULT,

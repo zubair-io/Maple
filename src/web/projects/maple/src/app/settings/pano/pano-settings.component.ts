@@ -130,10 +130,15 @@ export class PanoSettingsComponent implements OnInit {
     this.fOrtDylibPath.set(cfg.ort_dylib_path ?? '');
   }
 
-  /** An untouched default stays a default, so a bundled binary keeps deciding it. */
-  private enabledPatch(): boolean | null {
+  /**
+   * An untouched default stays a default only while the bundled binary still
+   * decides it; saving a path of its own would otherwise flip the default off.
+   */
+  private enabledPatch(cliPath: string): boolean | null {
     const cfg = this.config();
-    const untouchedDefault = cfg?.source.enabled === 'default' && this.fEnabled() === cfg.enabled;
+    const keepsBundled = cfg?.source.maple_cli_path === 'bundled' && cliPath.length === 0;
+    const untouchedDefault =
+      keepsBundled && cfg.source.enabled === 'default' && this.fEnabled() === cfg.enabled;
     return untouchedDefault ? null : this.fEnabled();
   }
 
@@ -142,7 +147,7 @@ export class PanoSettingsComponent implements OnInit {
     this.saveState.set({ kind: 'saving' });
     this.pano
       .putConfig({
-        enabled: this.enabledPatch(),
+        enabled: this.enabledPatch(cliPath),
         matcher: this.fMatcher(),
         maple_cli_path: cliPath.length > 0 ? cliPath : null,
         models_dir: this.fModelsDir().trim() || null,
