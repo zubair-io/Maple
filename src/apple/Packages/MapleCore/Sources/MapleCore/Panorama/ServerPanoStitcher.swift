@@ -21,6 +21,8 @@ public enum ServerPanoStitchError: Error, LocalizedError, Equatable {
     /// The job was stopped on the server — by the web app, another device,
     /// or a newer preview superseding this one.
     case stoppedOnServer
+    /// The server can stitch but can't make quick previews; Create still works.
+    case previewUnsupported
     case previewUndecodable
 
     public var errorDescription: String? {
@@ -33,6 +35,8 @@ public enum ServerPanoStitchError: Error, LocalizedError, Equatable {
             return message
         case .stoppedOnServer:
             return "The panorama was stopped on the server, perhaps from another device."
+        case .previewUnsupported:
+            return "This server can’t show a quick preview. Create Panorama still stitches it there."
         case .previewUndecodable:
             return "The server’s panorama preview couldn’t be decoded."
         }
@@ -49,6 +53,8 @@ public final class ServerPanoStitcher: PanoStitching {
         /// The last stitch asked for, kept so Try Again after a lost
         /// connection follows the same job instead of queueing another.
         var lastStitch: (request: PanoServerRequest, jobID: String)?
+        /// From the server's pano config, once fetched.
+        var previewSupported: Bool?
     }
 
     private let jobs: any PanoServerJobs
@@ -56,6 +62,8 @@ public final class ServerPanoStitcher: PanoStitching {
     /// Consecutive failed polls before the run reports `.lostContact`.
     private let pollAttempts: Int
     private let state = OSAllocatedUnfairLock(initialState: State())
+
+    public var runsInDeviceMemory: Bool { false }
 
     public init(jobs: any PanoServerJobs, pollInterval: Duration = .seconds(1), pollAttempts: Int = 6) {
         self.jobs = jobs
@@ -77,6 +85,7 @@ public final class ServerPanoStitcher: PanoStitching {
     public func unavailableReason() async -> String? {
         do {
             let config = try await jobs.config()
+            state.withLock { $0.previewSupported = config.previewSupported }
             return config.provisioned
                 ? nil
                 : "Panorama stitching isn’t set up on this server. An owner can turn it on in Settings → Pano."
@@ -94,6 +103,7 @@ public final class ServerPanoStitcher: PanoStitching {
         progress: @escaping @MainActor (PanoStage, Double) -> Void
     ) async throws -> PanoPreview {
         let generation = state.withLock { $0.generation }
+        guard try await previewSupported() else { throw ServerPanoStitchError.previewUnsupported }
         let jobID = try await jobs.preview(try Self.request(assets, options, alignment))
         try claim(jobID, generation: generation) { $0.watchedPreviewJob = jobID }
         defer { state.withLock { if $0.watchedPreviewJob == jobID { $0.watchedPreviewJob = nil } } }
@@ -186,16 +196,32 @@ public final class ServerPanoStitcher: PanoStitching {
         }
     }
 
-    /// Rejoins the last stitch when the request is unchanged and the job is
-    /// still alive. A changed request replaces it: the server runs one stitch
-    /// at a time, so the stale one would block the new one.
+    private func previewSupported() async throws -> Bool {
+        if let known = state.withLock({ $0.previewSupported }) { return known }
+        let supported = try await jobs.config().previewSupported
+        state.withLock { $0.previewSupported = supported }
+        return supported
+    }
+
+    /// Rejoins the last stitch when the request is unchanged and the server
+    /// hasn't said the job is over; a server that can't be reached yet is no
+    /// such answer, so watching retries it. A changed request replaces it: the
+    /// server runs one stitch at a time, so the stale one would block the new
+    /// one. `lastStitch` stays until a new job is claimed, so a failed create
+    /// still leaves `abandon()` the job to stop.
     private func followOrCreate(_ request: PanoServerRequest) async throws -> String {
         if let last = state.withLock({ $0.lastStitch }) {
-            let job = try? await jobs.job(last.jobID)
-            let alive = job.map { $0.status != .failed && $0.status != .cancelled } ?? false
-            if alive && last.request == request { return last.jobID }
-            if alive { try? await jobs.cancel(last.jobID) }
-            state.withLock { $0.lastStitch = nil }
+            let over: Bool
+            do {
+                let job = try await jobs.job(last.jobID)
+                over = job.status == .failed || job.status == .cancelled
+            } catch let error where Self.isTransient(error) {
+                over = false
+            } catch {
+                over = true
+            }
+            if !over && last.request == request { return last.jobID }
+            if !over { try? await jobs.cancel(last.jobID) }
         }
         return try await jobs.stitch(request)
     }

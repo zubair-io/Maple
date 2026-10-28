@@ -17,19 +17,26 @@ private final class FakePanoJobs: PanoServerJobs {
         var replies: [Reply]
         var stitchRequests: [PanoServerRequest] = []
         var cancelled: [String] = []
+        var previewRequests = 0
     }
 
     private let calls: OSAllocatedUnfairLock<Calls>
     /// Runs while a job is being created, before its id comes back.
     private let whileCreating: @Sendable () -> Void
+    private let previewSupported: Bool
 
-    init(_ replies: [Reply], whileCreating: @escaping @Sendable () -> Void = {}) {
+    init(
+        _ replies: [Reply], previewSupported: Bool = true,
+        whileCreating: @escaping @Sendable () -> Void = {}
+    ) {
         calls = OSAllocatedUnfairLock(initialState: Calls(replies: replies))
+        self.previewSupported = previewSupported
         self.whileCreating = whileCreating
     }
 
     var stitchRequests: [PanoServerRequest] { calls.withLock { $0.stitchRequests } }
     var cancelled: [String] { calls.withLock { $0.cancelled } }
+    var previewRequests: Int { calls.withLock { $0.previewRequests } }
     func script(_ replies: [Reply]) { calls.withLock { $0.replies = replies } }
 
     func stitch(_ body: PanoServerRequest) async throws -> String {
@@ -39,12 +46,13 @@ private final class FakePanoJobs: PanoServerJobs {
     }
 
     func preview(_ body: PanoServerRequest) async throws -> String {
+        calls.withLock { $0.previewRequests += 1 }
         whileCreating()
         return "preview-1"
     }
 
     func config() async throws -> PanoServerConfig {
-        PanoServerConfig(enabled: false, mapleCliPath: nil, previewSupported: true)
+        PanoServerConfig(enabled: false, mapleCliPath: nil, previewSupported: previewSupported)
     }
 
     func job(_ id: String) async throws -> PanoServerJob {
@@ -229,5 +237,52 @@ struct ServerPanoStitcherTests {
         await #expect(throws: ServerPanoStitchError.lostContact) { try await stitch(stitcher) }
         stitcher.abandon()
         #expect(try await cancelled(jobs, count: 1) == ["job-1"])
+    }
+
+    @Test("Try Again rejoins the job even when the server can't answer the first check")
+    func rejoinSurvivesTransientLookup() async throws {
+        let jobs = FakePanoJobs([.offline, .offline, .offline])
+        let stitcher = stitcher(jobs)
+        await #expect(throws: ServerPanoStitchError.lostContact) { try await stitch(stitcher) }
+        stitcher.cancel()
+
+        jobs.script([.offline, job(.running), job(.done, result: .init(outputAssetId: "asset-7", outputPath: "/p.png"))])
+        let result = try await stitch(stitcher)
+        #expect(result.serverAssetID == "asset-7")
+        #expect(jobs.stitchRequests.count == 1)
+        #expect(jobs.cancelled.isEmpty)
+    }
+
+    @Test("a server without quick previews says so instead of asking for one")
+    func previewUnsupported() async {
+        let jobs = FakePanoJobs([], previewSupported: false)
+        await #expect(throws: ServerPanoStitchError.previewUnsupported) {
+            try await stitcher(jobs).preview(assets: frames, options: .default, alignment: nil, progress: { _, _ in })
+        }
+        #expect(jobs.previewRequests == 0)
+    }
+
+    @Test("on a memory-limited device, a server stitch starts without a preview's memory fit")
+    @MainActor
+    func serverStitchSkipsDeviceMemoryFit() async throws {
+        let jobs = FakePanoJobs(
+            [job(.done, result: .init(outputAssetId: "asset-7", outputPath: "/p.png"))], previewSupported: false)
+        let session = PanoMergeSession(
+            stitcher: stitcher(jobs), previewDebounce: .seconds(60), availableMemory: { 4 << 30 })
+        session.start(assets: frames)
+        let deadline = ContinuousClock.now + .seconds(5)
+        func finished() -> Bool {
+            switch session.state {
+            case .done, .error: return true
+            default: return false
+            }
+        }
+        while !finished(), ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(5)) }
+        guard case .done(let result) = session.state else {
+            Issue.record("expected the stitch to finish, got \(session.state)")
+            return
+        }
+        #expect(result.serverAssetID == "asset-7")
+        #expect(jobs.previewRequests == 0)
     }
 }
