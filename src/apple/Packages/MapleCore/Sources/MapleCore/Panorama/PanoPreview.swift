@@ -7,9 +7,13 @@ import Foundation
 /// for the lifetime of a merge session and handed to the full stitch.
 public struct PanoAlignment: Sendable, Equatable {
     public let json: Data
+    /// A server preview's alignment stays on the server; the stitch names the
+    /// preview job instead (#5488).
+    public let serverPreviewJobID: String?
 
-    public init(json: Data) {
+    public init(json: Data, serverPreviewJobID: String? = nil) {
         self.json = json
+        self.serverPreviewJobID = serverPreviewJobID
     }
 }
 

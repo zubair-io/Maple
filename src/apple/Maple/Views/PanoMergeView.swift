@@ -23,7 +23,13 @@
 // Output size (#5454): on iPhone and iPad, PanoOutputSizeSection offers a
 // smaller output when the preview says full resolution would not fit.
 //
-// Ticket: #1236 / Part of #1234 / #1241 / #4554 / #4579 / #5454 / #5486
+// Run on server (#5488): frames that all live on one Maple server can stitch
+// there instead (ServerPanoStitcher). Frames with no file on this device can
+// only stitch there, so the sheet starts on the server and says so; frames
+// that could go either way get a "Run On" picker. The job runs on the server
+// whatever the app does, so a lost connection is a Try Again away.
+//
+// Ticket: #1236 / Part of #1234 / #1241 / #4554 / #4579 / #5454 / #5486 / #5488
 
 import MapleCore
 import MapleUI
@@ -40,6 +46,10 @@ struct PanoMergeView: View {
   /// URL-less frames (Maple Cloud, PhotoKit) load their thumbnails through it.
   let source: (any ImageSource)?
   let session: PanoMergeSession
+  /// Where a merge runs: on this device, or on the frames' Maple server
+  /// (`nil` when they are not all on one).
+  let deviceStitcher: any PanoStitching
+  let serverStitcher: ServerPanoStitcher?
   let onDismiss: () -> Void
   /// Called when the user taps Done after a successful stitch. The library
   /// caller (AppShell) uses this to inject the result into BrowseViewModel
@@ -50,11 +60,14 @@ struct PanoMergeView: View {
   var onOpenPanoSettings: (() -> Void)? = nil
 
   @State private var thumbnails = ThumbnailProvider.local()
+  /// Why the frames' server can't stitch; `nil` when it can or is unchecked.
+  @State private var serverUnavailable: String?
 
   var body: some View {
     NavigationStack {
       Form {
         inputFramesSection
+        runOnSection
         PanoPreviewSection(
           session: session,
           onRetry: { session.preview(assets: assets) },
@@ -69,7 +82,9 @@ struct PanoMergeView: View {
         case .finishingAlignment:
           progressSection(title: "Finishing alignment…", overall: previewFraction)
         case .running(let stage, _, let overall):
-          progressSection(title: stage.displayName, overall: overall)
+          progressSection(
+            title: runsOnServer && overall == 0 ? "Waiting for the server…" : stage.displayName,
+            overall: overall)
         case .done(let result):
           resultSection(result: result)
         case .error(let stitchError):
@@ -77,7 +92,13 @@ struct PanoMergeView: View {
         }
       }
       .formStyle(.grouped)
-      .task { session.preview(assets: assets) }
+      .task {
+        if let serverStitcher, let reason = await serverStitcher.unavailableReason() {
+          serverUnavailable = reason
+          if canRunOnDevice { session.use(deviceStitcher) }
+        }
+        session.preview(assets: assets)
+      }
       .navigationTitle("Merge Panorama")
       #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
@@ -115,6 +136,59 @@ struct PanoMergeView: View {
             )
           }
         }
+      }
+    }
+  }
+
+  // MARK: - Run on (#5488)
+
+  private var runsOnServer: Bool {
+    guard let serverStitcher else { return false }
+    return session.stitcher === serverStitcher
+  }
+
+  /// Every frame has a file this device can read.
+  private var canRunOnDevice: Bool { assets.allSatisfy { $0.primaryURL != nil } }
+
+  @ViewBuilder
+  private var runOnSection: some View {
+    if let serverStitcher {
+      Section {
+        if canRunOnDevice {
+          Picker(
+            "Run On",
+            selection: Binding(
+              get: { runsOnServer },
+              set: { session.use($0 ? serverStitcher : deviceStitcher) }
+            )
+          ) {
+            Text("This Device").tag(false)
+            Text("Server").tag(true)
+          }
+          .disabled(session.isRunning || serverUnavailable != nil)
+          .accessibilityLabel("Where the panorama is stitched")
+        } else {
+          HStack(spacing: 8) {
+            MuiIcon(name: "dns", size: .sm)
+              .accessibilityHidden(true)
+            Text("Runs on your Maple server")
+          }
+          .accessibilityElement(children: .combine)
+          .accessibilityIdentifier("pano-runs-on-server")
+        }
+        if let serverUnavailable {
+          Text(serverUnavailable)
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        } else if runsOnServer {
+          Text(
+            "The server stitches the frames where they are stored and adds the panorama to a Panoramas folder beside them. It keeps going if you leave the app."
+          )
+          .font(.caption)
+          .foregroundStyle(.secondary)
+        }
+      } header: {
+        Text("Stitching")
       }
     }
   }
@@ -274,10 +348,12 @@ struct PanoMergeView: View {
       // panorama appears in the library grid and is auto-selected.
       // "Show in Finder" is macOS-only: there is no Finder on iOS.
       #if os(macOS)
-        Button("Show in Finder") {
-          NSWorkspace.shared.activateFileViewerSelecting([result.outputURL])
+        if result.serverAssetID == nil {
+          Button("Show in Finder") {
+            NSWorkspace.shared.activateFileViewerSelecting([result.outputURL])
+          }
+          .accessibilityLabel("Reveal panorama output in Finder")
         }
-        .accessibilityLabel("Reveal panorama output in Finder")
       #endif
     } header: {
       Text("Result")
@@ -373,6 +449,8 @@ extension PanoOptions.Strategy {
       assets: (0..<6).map { AssetRef.preview(displayName: "IMG_\($0).dng") },
       source: nil,
       session: PanoMergeSession(stitcher: MockPanoStitcher()),
+      deviceStitcher: MockPanoStitcher(),
+      serverStitcher: nil,
       onDismiss: {}
     )
   }

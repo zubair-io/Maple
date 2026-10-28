@@ -27,9 +27,11 @@
  *      pre-#4523 binary, which is ML-only and has no flag.
  *   3. Streams stderr `pano: progress` lines into job progress
  *      (`pano-cli-process.ts`).
- *   4. On exit 0: upserts the output PNG as a new asset in the library and
- *      records the report's alignment verdict — `reused` means the preview's
- *      matching was not repeated.
+ *   4. On exit 0: moves the PNG next to the first source frame and upserts it
+ *      as an asset (`pano-output-location.ts`), and records the report's
+ *      alignment verdict — `reused` means the preview's matching was not
+ *      repeated. When that file already exists, the panorama was made before:
+ *      the job imports it and finishes without stitching again.
  *   5. On non-zero exit or spawn error: fails the job with the last stderr
  *      content.
  *
@@ -37,14 +39,16 @@
  * pano_stitch job is already running); the handler itself is stateless.
  */
 
-import { mkdir, readFile, rename, rm, unlink } from 'node:fs/promises';
+import { access, mkdir as mkdirTemp, readFile, rm, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { ObjectId } from '../../db/object-id.ts';
+import { copyFile, mkdir, rename, unlink } from '../../fs/mirrored.ts';
 import { upsertAssetByMapleId } from '../../db/repos/assets.upsert.ts';
 import { hashFileForId } from '../../indexer/id.ts';
 import { loadLibraryRoots } from '../../indexer/libraries.cache.ts';
 import { child as childLogger } from '../../log.ts';
 import type { PanoMatcher } from '../../pano/pano-config.repo.ts';
+import { panoOutputLocation, type PanoOutputLocation } from '../../pano/pano-output-location.ts';
 import { ownedPreviewDir, removePreviewDir, sweepStalePreviews } from '../../pano/pano-previews.ts';
 import type { JobHandler, JobHandlerContext, JobHandlerResult } from './index.ts';
 import {
@@ -190,13 +194,60 @@ export function parsePayload(raw: Record<string, unknown>): PanoStitchPayload {
   };
 }
 
+async function importOutput(libraryId: string, location: PanoOutputLocation): Promise<string> {
+  // The real content identity, derived the way the discover watcher does, so
+  // its own upsert coalesces onto this row when it visits the folder. A
+  // stitched PNG has no camera serial, so the fallback form is the right one.
+  const fileIdentity = await hashFileForId(location.absPath);
+  const upserted = await upsertAssetByMapleId({
+    libraryId: new ObjectId(libraryId),
+    relDir: location.relDir,
+    filename: location.filename,
+    size: fileIdentity.size,
+    mtime: fileIdentity.mtime,
+    mapleId: fileIdentity.maple_id,
+    sha1Head: fileIdentity.sha1_head,
+  });
+  return upserted.id.toHexString();
+}
+
+async function moveIntoLibrary(outputPng: string, destAbs: string): Promise<void> {
+  try {
+    await rename(outputPng, destAbs);
+  } catch {
+    // tmpdir on another mount: copy beside the destination and rename it into
+    // place, so a crash mid-copy never leaves a truncated panorama there. The
+    // `.tmp.` name keeps it out of the mirror and apart from a concurrent job.
+    const partial = `${destAbs}.tmp.${process.pid}-${crypto.randomUUID()}`;
+    try {
+      await copyFile(outputPng, partial);
+      await rename(partial, destAbs);
+    } catch (err) {
+      await unlink(partial).catch(() => {});
+      throw err;
+    }
+    await unlink(outputPng).catch(() => {});
+  }
+}
+
+async function fileStamp(p: string): Promise<string> {
+  const { size, mtimeMs } = await stat(p);
+  return `${size}:${Math.trunc(mtimeMs)}`;
+}
+
+const exists = (p: string): Promise<boolean> =>
+  access(p).then(
+    () => true,
+    () => false,
+  );
+
 export const panoStitchHandler: JobHandler = {
   async run(
     rawPayload: Record<string, unknown>,
     ctx: JobHandlerContext,
   ): Promise<JobHandlerResult> {
     const payload = parsePayload(rawPayload);
-    await mkdir(payload.outputDir, { recursive: true });
+    await mkdirTemp(payload.outputDir, { recursive: true });
     // The outputDir is a temp dir created by the route for this job. It must
     // be cleaned up in a finally block regardless of success or failure.
     // The rename path leaves the dir empty after success; the copyFile fallback
@@ -204,6 +255,29 @@ export const panoStitchHandler: JobHandler = {
 
     try {
       const inputPaths = await resolveInputPaths(payload.assetIds);
+      const libPath = (await loadLibraryRoots()).get(payload.libraryId);
+      if (!libPath) throw new Error(`pano_stitch: library ${payload.libraryId} not found`);
+      const location = panoOutputLocation(libPath, inputPaths, {
+        assetIds: payload.assetIds,
+        inputStamps: await Promise.all(inputPaths.map(fileStamp)),
+        retention: payload.retention,
+        localAlign: payload.localAlign,
+        strategy: payload.strategy,
+        matcher: matcherUsed(payload).matcher,
+      });
+      if (await exists(location.absPath)) {
+        log.info({ destAbs: location.absPath }, 'pano stitch already made; importing it');
+        await ctx.reportProgress(PROGRESS_TOTAL, PROGRESS_TOTAL);
+        const result: PanoStitchResult = {
+          outputAssetId: await importOutput(payload.libraryId, location),
+          outputPath: location.absPath,
+          stagesCompleted: PROGRESS_TOTAL / PROGRESS_PER_STAGE,
+          alignment: null,
+          error: null,
+          ...matcherUsed(payload),
+        };
+        return { kind: 'done', result: result as unknown as Record<string, unknown> };
+      }
       await ctx.reportProgress(0, PROGRESS_TOTAL);
 
       const outputPng = path.join(payload.outputDir, 'pano.png');
@@ -252,55 +326,10 @@ export const panoStitchHandler: JobHandler = {
       // ── 4. Import result PNG into the library ─────────────────────────────
       await ctx.reportProgress(PROGRESS_TOTAL, PROGRESS_TOTAL);
 
-      const libId = new ObjectId(payload.libraryId);
-      const libPath = (await loadLibraryRoots()).get(payload.libraryId);
-      if (!libPath) throw new Error(`pano_stitch: library ${payload.libraryId} not found`);
-
-      // Place the result in .maple/panos/<jobId hex>.png under the library root.
-      const destDir = path.join(libPath, '.maple', 'panos');
-      const destFilename = `${ctx.jobId.toHexString()}.png`;
-      const destAbs = path.join(destDir, destFilename);
-      await mkdir(destDir, { recursive: true });
-
-      // Move the output PNG into the library. On a cross-device rename (tmpdir
-      // on a different mount), fall back to copy + unlink of the source temp so
-      // the temp dir is empty before the finally block removes it.
-      try {
-        await rename(outputPng, destAbs);
-      } catch {
-        // Cross-device rename (e.g. tmpdir on different mount) — fallback to copy.
-        const { copyFile } = await import('node:fs/promises');
-        await copyFile(outputPng, destAbs);
-        // Unlink the source temp PNG so the temp dir is empty before the
-        // finally block removes it.
-        await unlink(outputPng).catch(() => {});
-      }
-
-      // Derive the real content identity the same way the discover watcher does:
-      // hashFileForId reads the first 64 KB, computes sha1_head, and derives a
-      // fallback-form MapleId (tag 0x02 || BLAKE3(sha1Full || filesize)).
-      // A stitched PNG has no camera serial or shutter count, so the fallback
-      // form is the correct choice — no exif stage upgrade will follow.
-      //
-      // Using the real maple_id means the discover scanner's upsert will
-      // coalesce onto this same row if it ever visits .maple/panos/
-      // (the sweeper's isInsideMapleCache guard already refuses such events,
-      // but if that guard ever fails the real id prevents a duplicate row).
-      const fileIdentity = await hashFileForId(destAbs);
-
-      // The upsert reports which row it settled on, so the result payload needs
-      // no second lookup by `maple_id` — and cannot be answered by a concurrent
-      // writer's asset the way a re-query could.
-      const upserted = await upsertAssetByMapleId({
-        libraryId: libId,
-        relDir: '.maple/panos',
-        filename: destFilename,
-        size: fileIdentity.size,
-        mtime: fileIdentity.mtime,
-        mapleId: fileIdentity.maple_id,
-        sha1Head: fileIdentity.sha1_head,
-      });
-      const outputAssetId = upserted.id.toHexString();
+      await mkdir(path.dirname(location.absPath), { recursive: true });
+      await moveIntoLibrary(outputPng, location.absPath);
+      const outputAssetId = await importOutput(payload.libraryId, location);
+      const destAbs = location.absPath;
 
       log.info({ outputAssetId, destAbs }, 'pano stitch complete');
 
