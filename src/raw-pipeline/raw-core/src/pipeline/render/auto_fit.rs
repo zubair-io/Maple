@@ -561,8 +561,6 @@ fn fit_artifacts_from_pinned_develop(
     )
 }
 
-// Tests live in the sibling `auto_fit_tests.rs` file so this module stays
-// under the 600-LOC hard budget. Test contents were moved verbatim.
 #[cfg(test)]
 #[path = "auto_fit_tests.rs"]
 mod tests;
