@@ -180,6 +180,44 @@ describe('PanoSettingsComponent', () => {
     expect(text).toContain('environment variable (deprecated)');
   });
 
+  it('keeps the bundled maple-cli by leaving the path blank (#5493)', async () => {
+    await load({
+      ...CLASSICAL_DEFAULT,
+      maple_cli_path: '/app/native/maple-cli',
+      enabled: true,
+      source: { ...CLASSICAL_DEFAULT.source, maple_cli_path: 'bundled', enabled: 'default' },
+    });
+    const cli = inputByLabel('maple-cli binary path');
+    expect(cli.value).toBe('');
+    expect(cli.placeholder).toBe('/app/native/maple-cli');
+    expect((fixture.nativeElement as HTMLElement).textContent).toContain(
+      'bundled with this server',
+    );
+
+    clickSave();
+    const call = http.expectOne('/api/pano/config');
+    expect(call.request.body.maple_cli_path).toBeNull();
+    expect(call.request.body.enabled).toBeNull();
+    call.flush({ ...CLASSICAL_DEFAULT, ok: true });
+  });
+
+  it('saves an explicit off when the default-on toggle is turned off (#5493)', async () => {
+    await load({
+      ...CLASSICAL_DEFAULT,
+      maple_cli_path: '/app/native/maple-cli',
+      enabled: true,
+      source: { ...CLASSICAL_DEFAULT.source, maple_cli_path: 'bundled', enabled: 'default' },
+    });
+    enabledCheckbox().click();
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    clickSave();
+    const call = http.expectOne('/api/pano/config');
+    expect(call.request.body.enabled).toBe(false);
+    call.flush({ ...CLASSICAL_DEFAULT, ok: true });
+  });
+
   it('shows the load error state when the config fetch fails', () => {
     fixture.detectChanges();
     http

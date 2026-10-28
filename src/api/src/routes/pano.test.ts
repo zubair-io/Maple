@@ -104,6 +104,8 @@ afterAll(async () => {
 });
 
 beforeEach(async () => {
+  // An image that bundles maple-cli exports MAPLE_PANO_CLI; these tests assume no bundled binary.
+  delete process.env.MAPLE_PANO_CLI;
   live = await createLiveTestDatabase();
   const libPath = path.join(tmpDir, 'lib');
   await fs.mkdir(libPath, { recursive: true });
@@ -252,6 +254,55 @@ describe('PUT /api/pano/config', () => {
   it('rejects an unknown matcher value', async () => {
     const res = await putJson('/api/pano/config', { matcher: 'sift' });
     expect(res.status).toBe(422);
+  });
+});
+
+// ── bundled maple-cli (#5493) ─────────────────────────────────────────────────
+
+describe('bundled maple-cli (#5493)', () => {
+  let savedBundled: string | undefined;
+  beforeEach(() => {
+    savedBundled = process.env.MAPLE_PANO_CLI;
+    process.env.MAPLE_PANO_CLI = fakeCli;
+  });
+  afterEach(() => {
+    if (savedBundled === undefined) delete process.env.MAPLE_PANO_CLI;
+    else process.env.MAPLE_PANO_CLI = savedBundled;
+  });
+
+  it('reports a stock image as provisioned with the bundled binary', async () => {
+    const body = (await (await getReq('/api/pano/config')).json()) as {
+      enabled: boolean;
+      maple_cli_path: string;
+      source: { maple_cli_path: string; enabled: string };
+    };
+    expect(body.enabled).toBe(true);
+    expect(body.maple_cli_path).toBe(await fs.realpath(fakeCli));
+    expect(body.source.maple_cli_path).toBe('bundled');
+    expect(body.source.enabled).toBe('default');
+  });
+
+  it('stitches on a stock image with no saved settings', async () => {
+    const res = await postJson('/api/pano/stitch', STITCH_BODY());
+    expect(res.status).toBe(201);
+  });
+
+  it('prefers the path saved in Settings > Pano over the bundled one', async () => {
+    const body = (await (
+      await putJson('/api/pano/config', { maple_cli_path: legacyCli })
+    ).json()) as {
+      maple_cli_path: string;
+      source: { maple_cli_path: string };
+    };
+    expect(body.maple_cli_path).toBe(await fs.realpath(legacyCli));
+    expect(body.source.maple_cli_path).toBe('db');
+  });
+
+  it('stays off when the operator turned pano off', async () => {
+    await putJson('/api/pano/config', { enabled: false });
+    const res = await postJson('/api/pano/stitch', STITCH_BODY());
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as { error: string }).error).toBe('pano_not_provisioned');
   });
 });
 

@@ -56,8 +56,9 @@
               >maple-cli binary path</label
             >
             <span class="field-hint set-record-field-hint">
-              Absolute path to the compiled <code>maple-cli</code> binary on this server. Build
-              with: <code>{{ buildCommand }}</code> (in <code>src/raw-pipeline/</code>).
+              Absolute path to the compiled <code>maple-cli</code> binary on this server. Leave it
+              blank to use the one bundled with the server, when it has one. To build your own:
+              <code>{{ buildCommand }}</code> (in <code>src/raw-pipeline/</code>).
             </span>
             @if (config()?.source?.maple_cli_path) {
               <span class="field-source set-field-source">{{
@@ -69,7 +70,7 @@
             <mui-input
               inputId="pano-cli-path"
               [(value)]="fCliPath"
-              placeholder="/usr/local/bin/maple-cli"
+              [placeholder]="cliPathPlaceholder()"
               ariaLabel="maple-cli binary path"
               (committed)="save()"
             />

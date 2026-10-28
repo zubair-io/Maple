@@ -114,12 +114,27 @@ export class PanoSettingsComponent implements OnInit {
     });
   }
 
+  /** Left blank, the field keeps the bundled binary rather than pinning its path. */
+  protected readonly cliPathPlaceholder = computed(() => {
+    const cfg = this.config();
+    return cfg?.source.maple_cli_path === 'bundled' && cfg.maple_cli_path
+      ? cfg.maple_cli_path
+      : '/usr/local/bin/maple-cli';
+  });
+
   private seedForm(cfg: PanoConfig): void {
     this.fEnabled.set(cfg.enabled);
-    this.fCliPath.set(cfg.maple_cli_path ?? '');
+    this.fCliPath.set(cfg.source.maple_cli_path === 'bundled' ? '' : (cfg.maple_cli_path ?? ''));
     this.fMatcher.set(cfg.matcher);
     this.fModelsDir.set(cfg.models_dir ?? '');
     this.fOrtDylibPath.set(cfg.ort_dylib_path ?? '');
+  }
+
+  /** An untouched default stays a default, so a bundled binary keeps deciding it. */
+  private enabledPatch(): boolean | null {
+    const cfg = this.config();
+    const untouchedDefault = cfg?.source.enabled === 'default' && this.fEnabled() === cfg.enabled;
+    return untouchedDefault ? null : this.fEnabled();
   }
 
   protected save(): void {
@@ -127,7 +142,7 @@ export class PanoSettingsComponent implements OnInit {
     this.saveState.set({ kind: 'saving' });
     this.pano
       .putConfig({
-        enabled: this.fEnabled(),
+        enabled: this.enabledPatch(),
         matcher: this.fMatcher(),
         maple_cli_path: cliPath.length > 0 ? cliPath : null,
         models_dir: this.fModelsDir().trim() || null,
@@ -165,6 +180,8 @@ export class PanoSettingsComponent implements OnInit {
         return 'not set';
       case 'default':
         return 'default';
+      case 'bundled':
+        return 'bundled with this server';
       default:
         return source ?? '';
     }

@@ -100,7 +100,7 @@ export interface PanoJobView {
   updated_at: string;
 }
 
-export type ConfigSource = 'db' | 'env' | 'unset' | 'default';
+export type ConfigSource = 'db' | 'env' | 'unset' | 'default' | 'bundled';
 
 export interface PanoConfig {
   maple_cli_path: string | null;
