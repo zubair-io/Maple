@@ -312,17 +312,97 @@ describe('panoStitchHandler output location (#5488)', () => {
 
     it('replicates the panorama a cross-mount copy puts in place, never its temp file', async () => {
       const crossMount = Object.assign(new Error('cross-device link'), { code: 'EXDEV' });
-      const rename = spyOn(mirrored, 'rename').mockRejectedValueOnce(crossMount);
+      const link = spyOn(mirrored, 'link').mockRejectedValueOnce(crossMount);
       try {
         const outcome = await panoStitchHandler.run(basePayload(), handlerContext());
         const { outputPath } = outcome.result as { outputPath: string };
-        expect(rename).toHaveBeenCalledTimes(2);
+        expect(link).toHaveBeenCalledTimes(1);
+        expect(await fs.readFile(outputPath)).toEqual(Buffer.from(TINY_PNG_B64, 'base64'));
         expect(await mirroredEntries()).toEqual([path.basename(outputPath)]);
         const beside = await fs.readdir(path.dirname(outputPath));
         expect(beside.filter((name) => name.includes('.tmp.'))).toEqual([]);
       } finally {
-        rename.mockRestore();
+        link.mockRestore();
       }
+    });
+  });
+});
+
+describe('panoStitchHandler containment', () => {
+  const libPath = () => path.join(tmpDir, 'lib');
+  const outside = () => path.join(tmpDir, 'outside');
+
+  beforeEach(async () => {
+    await fs.rm(path.join(libPath(), 'Panoramas'), { recursive: true, force: true });
+    await fs.rm(outside(), { recursive: true, force: true });
+    await fs.mkdir(outside(), { recursive: true });
+  });
+
+  it('refuses a Panoramas folder that is a symlink out of the library', async () => {
+    await fs.symlink(outside(), path.join(libPath(), 'Panoramas'));
+    await expect(panoStitchHandler.run(basePayload(), handlerContext())).rejects.toThrow(
+      'outside the library',
+    );
+    expect(await fs.readdir(outside())).toEqual([]);
+  });
+
+  it('never imports or writes through a symlink planted at the panorama name', async () => {
+    const first = await panoStitchHandler.run(basePayload(), handlerContext());
+    const { outputPath } = first.result as { outputPath: string };
+    await fs.rm(outputPath);
+    const secret = path.join(outside(), 'secret.png');
+    await fs.writeFile(secret, 'not yours');
+    await fs.symlink(secret, outputPath);
+    await expect(panoStitchHandler.run(basePayload(), handlerContext())).rejects.toThrow(
+      'non-file',
+    );
+    expect(await fs.readFile(secret, 'utf8')).toBe('not yours');
+  });
+
+  it('refuses an input whose library file links outside every library', async () => {
+    const frame = path.join(libPath(), 'in-a.png');
+    const original = await fs.readFile(frame);
+    await fs.writeFile(path.join(outside(), 'elsewhere.png'), original);
+    await fs.rm(frame);
+    await fs.symlink(path.join(outside(), 'elsewhere.png'), frame);
+    try {
+      await expect(panoStitchHandler.run(basePayload(), handlerContext())).rejects.toThrow(
+        'outside every library root',
+      );
+    } finally {
+      await fs.rm(frame);
+      await fs.writeFile(frame, original);
+    }
+  });
+
+  it('refuses ML models that live inside a library', async () => {
+    const models = path.join(libPath(), 'models');
+    await fs.mkdir(models, { recursive: true });
+    await expect(
+      panoStitchHandler.run(
+        {
+          ...basePayload(),
+          featuresEngine: 'ml',
+          modelsDir: models,
+          ortDylibPath: path.join(tmpDir, 'libonnxruntime.so'),
+        },
+        handlerContext(),
+      ),
+    ).rejects.toThrow('models_dir must not point inside a library root');
+  });
+
+  it('announces the imported panorama on the change feed', async () => {
+    const outcome = await panoStitchHandler.run(basePayload(), handlerContext());
+    const { outputAssetId, outputPath } = outcome.result as {
+      outputAssetId: string;
+      outputPath: string;
+    };
+    const change = live.db
+      .query(`SELECT kind, relative_path FROM asset_changes WHERE asset_id = ?`)
+      .get(outputAssetId);
+    expect(change).toEqual({
+      kind: 'create',
+      relative_path: `Panoramas/${path.basename(outputPath)}`,
     });
   });
 });

@@ -37,7 +37,9 @@ let folderId = '';
 let assetIds: string[] = [];
 
 beforeAll(async () => {
-  tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'maple-pano-preview-handler-'));
+  tmpDir = await fs.realpath(
+    await fs.mkdtemp(path.join(os.tmpdir(), 'maple-pano-preview-handler-')),
+  );
 });
 
 afterAll(async () => {

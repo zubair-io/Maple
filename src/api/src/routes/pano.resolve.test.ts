@@ -196,6 +196,59 @@ describe('POST /api/pano/stitch — path-based resolution (#1311)', () => {
     }
   });
 
+  it('indexes a file in a nested library under that library, not the outer one', async () => {
+    const innerPath = path.join(tmpDir, 'lib', 'inner');
+    await fs.mkdir(innerPath, { recursive: true });
+    const innerId = insertFolder(live.db, { path: innerPath, slug: 'pano-inner-lib' });
+    invalidateLibraryRoots();
+    const png = Buffer.from(TINY_PNG_B64, 'base64');
+    const assetPaths = await Promise.all(
+      ['nested-a.png', 'nested-b.png'].map(async (name) => {
+        const filePath = path.join(innerPath, name);
+        await fs.writeFile(filePath, Buffer.concat([png, Buffer.from(name)]));
+        return filePath;
+      }),
+    );
+
+    const res = await postJson('/api/pano/stitch', {
+      assetPaths,
+      libraryId: innerId,
+      options: { retention: 'keep', localAlign: 'mesh' },
+    });
+
+    expect(res.status).toBe(201);
+    const rows = live.db
+      .query(`SELECT library_id, path FROM asset_locations WHERE filename LIKE 'nested-%'`)
+      .all();
+    expect(rows).toEqual([
+      { library_id: innerId, path: '' },
+      { library_id: innerId, path: '' },
+    ]);
+  });
+
+  it('refuses a file the library excludes with a 400, not a 500', async () => {
+    const ignored = path.join(tmpDir, 'lib', 'ignored');
+    await fs.mkdir(ignored, { recursive: true });
+    await fs.writeFile(path.join(ignored, '.mapleignore'), '');
+    const png = Buffer.from(TINY_PNG_B64, 'base64');
+    const assetPaths = await Promise.all(
+      ['skip-a.png', 'skip-b.png'].map(async (name) => {
+        const filePath = path.join(ignored, name);
+        await fs.writeFile(filePath, Buffer.concat([png, Buffer.from(name)]));
+        return filePath;
+      }),
+    );
+
+    const res = await postJson('/api/pano/stitch', {
+      assetPaths,
+      libraryId: folderId,
+      options: { retention: 'keep', localAlign: 'mesh' },
+    });
+
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { error: string }).error).toBe('path_excluded');
+  });
+
   it('rejects a path that is outside every registered library root (security)', async () => {
     const res = await postJson('/api/pano/stitch', {
       // /etc/passwd is never under a registered library root.

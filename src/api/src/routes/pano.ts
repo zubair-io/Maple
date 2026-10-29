@@ -33,7 +33,6 @@
  */
 
 import { Elysia, t } from 'elysia';
-import fs from 'node:fs/promises';
 import os from 'node:os';
 import { randomBytes } from 'node:crypto';
 import path from 'node:path';
@@ -51,13 +50,8 @@ import { planPanoEngine, withExistingMlPaths } from '../pano/pano-engine.ts';
 import { getJob, requestCancel } from '../job-runner/jobs.repo.ts';
 import { ownedPreviewDir, PREVIEW_FILES } from '../pano/pano-previews.ts';
 import type { JobWithId } from '../db/schema.ts';
-import {
-  findAssetLocationsByFilenames,
-  type AssetLocationsRow,
-} from '../db/repos/assets.by-filename.ts';
-import { loadLibraryRoots } from '../indexer/libraries.cache.ts';
 import { admitPanoStitch, panoJobRunning } from '../pano/pano-admission.ts';
-import { isUnderRoot } from '../fs/browse.ts';
+import { resolveAssetPaths } from '../pano/pano-path-inputs.ts';
 
 const log = childLogger('pano:routes');
 
@@ -133,181 +127,6 @@ function projectJob(doc: JobWithId): JobView {
     created_at: doc.created_at,
     updated_at: doc.updated_at,
   };
-}
-
-// ── path → asset-id resolution (server-authoritative) ────────────────────────
-
-/** Every registered library root, as realpath sees it. */
-interface CanonicalRoots {
-  /** Canonical root → the folder that owns it. */
-  canonRootToFolderId: Map<string, ObjectId>;
-  /** The jail: the same roots, as a list to scan. */
-  canonRoots: string[];
-  /** Folder id → canonical root, for rebuilding an entry's absolute path. */
-  libIdToCanonRoot: Map<string, string>;
-}
-
-/**
- * Canonicalises every registered root through `realpath`.
- *
- * Without this the jail check fails on macOS, where `/tmp` is really
- * `/private/tmp` and a stored root of `/var/folders/…` never equals the
- * realpath-resolved path of a file inside it. A root that does not exist on
- * disk is kept as stored — an offline volume is not a reason to drop a library
- * out of the jail.
- */
-async function canonicaliseRoots(libs: ReadonlyMap<string, string>): Promise<CanonicalRoots> {
-  const canonRootToFolderId = new Map<string, ObjectId>();
-  const canonRoots: string[] = [];
-  const libIdToCanonRoot = new Map<string, string>();
-  for (const [id, root] of libs) {
-    const canonRoot = await fs.realpath(root).catch(() => root);
-    canonRootToFolderId.set(canonRoot, new ObjectId(id));
-    canonRoots.push(canonRoot);
-    libIdToCanonRoot.set(id, canonRoot);
-  }
-  return { canonRootToFolderId, canonRoots, libIdToCanonRoot };
-}
-
-/**
- * Groups candidate rows by the filenames they hold, so matching one path walks
- * only the rows that could match it rather than every row fetched.
- */
-function byFilename(docs: readonly AssetLocationsRow[]): Map<string, AssetLocationsRow[]> {
-  const index = new Map<string, AssetLocationsRow[]>();
-  for (const doc of docs) {
-    for (const entry of doc.fileinfo) {
-      const rows = index.get(entry.filename);
-      if (rows === undefined) index.set(entry.filename, [doc]);
-      else rows.push(doc);
-    }
-  }
-  return index;
-}
-
-/**
- * Resolve a list of absolute filesystem paths to asset ids.
- *
- * Security: every path is validated against the registered library roots
- * (longest-prefix match from `loadLibraryRoots`). Paths outside every root
- * are rejected with a 400 error. This is the sole security boundary —
- * arbitrary server paths can never be indexed or stitched.
- *
- * For each path:
- *   (a) Look up the asset doc by filename match + canonical path comparison
- *       (the realpath-normalized absolute path must equal the path rebuilt
- *       from the doc's library root + stored relative path).
- *   (b) If not found: index the file on-demand by firing `handleEvent` (the
- *       discover producer's per-file insert path). This is a light index —
- *       skeleton doc + fileinfo only. The stitch reads the RAW file by path
- *       directly, so heavy enrichment (exif, thumb, face, describe) can stay
- *       deferred to the normal worker pipeline.
- *
- * Returns `{ resolvedIds, indexedCount }` where:
- *   `resolvedIds` — 24-character asset ids, one per input path, same order.
- *   `indexedCount` — number of assets that were indexed on-demand.
- *
- * Throws a structured error when a path escapes the library roots.
- */
-async function resolveAssetPaths(
-  paths: string[],
-): Promise<{ resolvedIds: string[]; indexedCount: number }> {
-  const libs = await loadLibraryRoots();
-  const { canonRootToFolderId, canonRoots, libIdToCanonRoot } = await canonicaliseRoots(libs);
-
-  const resolvedIds: string[] = [];
-  let indexedCount = 0;
-
-  // ── 1. Normalize all paths ─────────────────────────────────────────────
-  const normalized = await Promise.all(
-    paths.map(async (rawPath) => {
-      let absPath: string;
-      try {
-        absPath = await fs.realpath(rawPath);
-      } catch {
-        throw Object.assign(new Error(`Path does not exist or cannot be accessed: ${rawPath}`), {
-          status: 400,
-          code: 'path_not_found',
-        });
-      }
-
-      const owningRoot = canonRoots.find((root) => isUnderRoot(absPath, root));
-      if (!owningRoot) {
-        throw Object.assign(
-          new Error(
-            `Path is outside every registered library root and cannot be stitched: ${absPath}`,
-          ),
-          { status: 400, code: 'path_outside_library' },
-        );
-      }
-      const owningFolderId = canonRootToFolderId.get(owningRoot)!;
-      const filename = path.basename(absPath);
-      return { rawPath, absPath, owningRoot, owningFolderId, filename };
-    }),
-  );
-
-  // ── 2. Bulk-fetch candidate docs by filename ───────────────────────────
-  const allFilenames = [...new Set(normalized.map((p) => p.filename))];
-  const candidateDocs = await findAssetLocationsByFilenames(allFilenames);
-
-  const candidatesByFilename = byFilename(candidateDocs);
-
-  // Helper to match a normalized path against a pre-filtered subset of docs
-  // (keyed by filename) or a fresh flat list (used after on-demand indexing).
-  const findInDocs = (
-    absPath: string,
-    filename: string,
-    docs: AssetLocationsRow[],
-  ): string | null => {
-    for (const doc of docs) {
-      for (const entry of doc.fileinfo) {
-        if (entry.filename !== filename) continue;
-        if (entry.deleted_at || entry.missing_since) continue;
-        const libId = entry.library_id.toHexString();
-        const libRoot = libIdToCanonRoot.get(libId) ?? libs.get(libId);
-        if (!libRoot) continue;
-        const segments = entry.path === '' ? [] : entry.path.split('/');
-        const resolved = path.join(libRoot, ...segments, entry.filename);
-        if (resolved === absPath) return doc._id.toHexString();
-      }
-    }
-    return null;
-  };
-
-  // ── 3. Resolve each path ───────────────────────────────────────────────
-  for (const p of normalized) {
-    const found = findInDocs(p.absPath, p.filename, candidatesByFilename.get(p.filename) ?? []);
-
-    if (found) {
-      resolvedIds.push(found);
-      continue;
-    }
-
-    // ── Index on-demand ──────────────────────────────────────────────────
-    // The file is not yet in the assets collection. Run `handleEvent` —
-    // the same per-file code path the discover producer uses — to create
-    // the skeleton asset doc. This is lightweight: it hashes the file head
-    // and upserts a fileinfo entry; heavy enrichment (thumb, exif, etc.)
-    // runs asynchronously on the normal worker schedule.
-    log.info({ absPath: p.absPath }, 'pano/stitch: indexing file on-demand');
-    const { handleEvent } = await import('../workers/discover/index.ts');
-    await handleEvent({ kind: 'created', absPath: p.absPath }, p.owningFolderId, p.owningRoot);
-    indexedCount++;
-
-    // Re-query after index to get the newly created id.
-    const freshDocs = await findAssetLocationsByFilenames([p.filename]);
-    const afterId = findInDocs(p.absPath, p.filename, freshDocs);
-
-    if (!afterId) {
-      throw Object.assign(new Error(`Failed to index file on-demand: ${p.absPath}`), {
-        status: 500,
-        code: 'index_on_demand_failed',
-      });
-    }
-    resolvedIds.push(afterId);
-  }
-
-  return { resolvedIds, indexedCount };
 }
 
 const NOT_PROVISIONED = {

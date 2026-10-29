@@ -39,10 +39,13 @@
  * (`pano/pano-admission.ts`); the handler itself is stateless.
  */
 
-import { access, mkdir as mkdirTemp, readFile, rm, stat } from 'node:fs/promises';
+import { mkdir as mkdirTemp, readFile, rm, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { ObjectId } from '../../db/object-id.ts';
-import { copyFile, mkdir, rename, unlink } from '../../fs/mirrored.ts';
+import { lstat, mkdir } from '../../fs/mirrored.ts';
+import { errnoCode, publishExclusive } from '../../fs/relocate-publish.ts';
+import { isWithinRoot, resolveRealPathThroughAncestors } from '../../fs/root.ts';
+import { recordAndPublishAssetChange } from '../../db/changes.repo.ts';
 import { upsertAssetByMapleId } from '../../db/repos/assets.upsert.ts';
 import { hashFileForId } from '../../indexer/id.ts';
 import { loadLibraryRoots } from '../../indexer/libraries.cache.ts';
@@ -212,38 +215,64 @@ async function importOutput(libraryId: string, location: PanoOutputLocation): Pr
     mapleId: fileIdentity.maple_id,
     sha1Head: fileIdentity.sha1_head,
   });
+  await recordAndPublishAssetChange({
+    kind: 'create',
+    asset_id: upserted.id,
+    folder_id: new ObjectId(libraryId),
+    abs_path: location.absPath,
+    relative_path:
+      location.relDir === '' ? location.filename : `${location.relDir}/${location.filename}`,
+  });
   return upserted.id.toHexString();
 }
 
-async function moveIntoLibrary(outputPng: string, destAbs: string): Promise<void> {
-  try {
-    await rename(outputPng, destAbs);
-  } catch {
-    // tmpdir on another mount: copy beside the destination and rename it into
-    // place, so a crash mid-copy never leaves a truncated panorama there. The
-    // `.tmp.` name keeps it out of the mirror and apart from a concurrent job.
-    const partial = `${destAbs}.tmp.${process.pid}-${crypto.randomUUID()}`;
-    try {
-      await copyFile(outputPng, partial);
-      await rename(partial, destAbs);
-    } catch (err) {
-      await unlink(partial).catch(() => {});
-      throw err;
-    }
-    await unlink(outputPng).catch(() => {});
+/** `location` with its folder resolved through symlinks, refused unless that
+ * folder is inside the library: a symlinked `Panoramas/` never sends the
+ * panorama out of it. */
+async function containedLocation(
+  realRoot: string,
+  location: PanoOutputLocation,
+): Promise<PanoOutputLocation> {
+  const realDir = await resolveRealPathThroughAncestors(path.dirname(location.absPath));
+  if (!isWithinRoot(realRoot, realDir)) {
+    throw new Error('pano_stitch: the Panoramas folder resolves outside the library');
   }
+  return {
+    absPath: path.join(realDir, location.filename),
+    relDir: path.relative(realRoot, realDir).split(path.sep).join('/'),
+    filename: location.filename,
+  };
+}
+
+/** Whether an earlier run made this panorama. Anything there that is not a
+ * regular file (a planted symlink, say) is refused rather than imported. */
+async function alreadyMade(absPath: string): Promise<boolean> {
+  const found = await lstat(absPath).catch((err: unknown) => {
+    if (errnoCode(err) === 'ENOENT') return null;
+    throw err;
+  });
+  if (found === null) return false;
+  if (!found.isFile()) throw new Error(`pano_stitch: ${absPath} is occupied by a non-file`);
+  return true;
+}
+
+/** Publish the stitched PNG under its name without following a link there or
+ * replacing whatever holds the name; the folder is re-checked once it exists. */
+async function publishIntoLibrary(
+  outputPng: string,
+  realRoot: string,
+  location: PanoOutputLocation,
+): Promise<PanoOutputLocation> {
+  await mkdir(path.dirname(location.absPath), { recursive: true });
+  const placed = await containedLocation(realRoot, location);
+  await publishExclusive(outputPng, placed.absPath);
+  return placed;
 }
 
 async function fileStamp(p: string): Promise<string> {
   const { size, mtimeMs } = await stat(p);
   return `${size}:${Math.trunc(mtimeMs)}`;
 }
-
-const exists = (p: string): Promise<boolean> =>
-  access(p).then(
-    () => true,
-    () => false,
-  );
 
 export const panoStitchHandler: JobHandler = {
   async run(
@@ -261,15 +290,19 @@ export const panoStitchHandler: JobHandler = {
       const inputPaths = await resolveInputPaths(payload.assetIds);
       const libPath = (await loadLibraryRoots()).get(payload.libraryId);
       if (!libPath) throw new Error(`pano_stitch: library ${payload.libraryId} not found`);
-      const location = panoOutputLocation(libPath, inputPaths, {
-        assetIds: payload.assetIds,
-        inputStamps: await Promise.all(inputPaths.map(fileStamp)),
-        retention: payload.retention,
-        localAlign: payload.localAlign,
-        strategy: payload.strategy,
-        matcher: matcherUsed(payload).matcher,
-      });
-      if (await exists(location.absPath)) {
+      const realRoot = await resolveRealPathThroughAncestors(libPath);
+      const location = await containedLocation(
+        realRoot,
+        panoOutputLocation(realRoot, inputPaths, {
+          assetIds: payload.assetIds,
+          inputStamps: await Promise.all(inputPaths.map(fileStamp)),
+          retention: payload.retention,
+          localAlign: payload.localAlign,
+          strategy: payload.strategy,
+          matcher: matcherUsed(payload).matcher,
+        }),
+      );
+      if (await alreadyMade(location.absPath)) {
         log.info({ destAbs: location.absPath }, 'pano stitch already made; importing it');
         await ctx.reportProgress(PROGRESS_TOTAL, PROGRESS_TOTAL);
         const result: PanoStitchResult = {
@@ -332,10 +365,9 @@ export const panoStitchHandler: JobHandler = {
       // ── 4. Import result PNG into the library ─────────────────────────────
       await ctx.reportProgress(PROGRESS_TOTAL, PROGRESS_TOTAL);
 
-      await mkdir(path.dirname(location.absPath), { recursive: true });
-      await moveIntoLibrary(outputPng, location.absPath);
-      const outputAssetId = await importOutput(payload.libraryId, location);
-      const destAbs = location.absPath;
+      const placed = await publishIntoLibrary(outputPng, realRoot, location);
+      const outputAssetId = await importOutput(payload.libraryId, placed);
+      const destAbs = placed.absPath;
 
       log.info({ outputAssetId, destAbs }, 'pano stitch complete');
 
