@@ -105,7 +105,8 @@ public final class RustPanoStitcher: PanoStitching {
         progress: @escaping @MainActor (PanoStage, Double) -> Void
     ) async throws -> PanoResult {
         let inputURLs = try collectInputURLs(from: assets)
-        let outputURL = self.outputURL(near: inputURLs[0])
+        let outputURL = try reserveOutputURL(near: inputURLs[0])
+        defer { PanoOutputDestination.release(outputURL) }
         let (outcome, matcher) = try await runWithFallback { engine in
             try await self.runOffMain(progress: progress) { atom, flag in
                 try PanoFFICall.stitch(
@@ -260,33 +261,18 @@ public final class RustPanoStitcher: PanoStitching {
 
     // MARK: - Output URL
 
-    /// Writes the panorama PNG into `outputDirectory` when one was given,
-    /// otherwise into a `Panoramas/` subdirectory next to the first input
-    /// file's parent. Falls back to Application Support if the
-    /// directory isn't writable. NEVER touches or overwrites source RAWs.
-    func outputURL(near firstInput: URL) -> URL {
-        let name = "panorama-\(Int(Date().timeIntervalSince1970)).png"
-        if let outputDirectory {
-            try? FileManager.default.createDirectory(at: outputDirectory, withIntermediateDirectories: true)
-            return outputDirectory.appendingPathComponent(name)
-        }
-        let parentDir = firstInput.deletingLastPathComponent()
-        let panoDir = parentDir.appendingPathComponent("Panoramas", isDirectory: true)
-        try? FileManager.default.createDirectory(at: panoDir, withIntermediateDirectories: true)
-
-        // Verify the directory is writable; fall back to Application Support
-        // if sandbox or read-only filesystem blocks it.
-        let isWritable = FileManager.default.isWritableFile(atPath: panoDir.path)
-        let targetDir: URL
-        if isWritable {
-            targetDir = panoDir
-        } else {
-            let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-                .appendingPathComponent("app.justmaple.aperture/Panoramas", isDirectory: true)
-            try? FileManager.default.createDirectory(at: appSupport, withIntermediateDirectories: true)
-            targetDir = appSupport
-        }
-        return targetDir.appendingPathComponent(name)
+    /// Claims a fresh PNG name in `outputDirectory` when one was given,
+    /// otherwise in a `Panoramas/` subdirectory beside the first input, or in
+    /// Application Support when the sandbox or a read-only volume refuses
+    /// that. Never replaces an existing file, source RAWs included.
+    func reserveOutputURL(near firstInput: URL) throws -> URL {
+        if let outputDirectory { return try PanoOutputDestination.reserve(in: outputDirectory) }
+        let besideFrames = firstInput.deletingLastPathComponent()
+            .appendingPathComponent("Panoramas", isDirectory: true)
+        if let reserved = try? PanoOutputDestination.reserve(in: besideFrames) { return reserved }
+        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("app.justmaple.aperture/Panoramas", isDirectory: true)
+        return try PanoOutputDestination.reserve(in: appSupport)
     }
 
 }
