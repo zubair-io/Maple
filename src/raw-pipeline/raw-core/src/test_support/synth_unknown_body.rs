@@ -5,8 +5,8 @@
 use super::synth_dng::*;
 
 pub const MODEL: &str = "Hasselblad H0D";
-pub const PREVIEW_WIDTH: u32 = 32;
-pub const PREVIEW_HEIGHT: u32 = 16;
+pub const PREVIEW_WIDTH: u32 = 320;
+pub const PREVIEW_HEIGHT: u32 = 160;
 
 const TAG_MAKE: u16 = 271;
 const TAG_MODEL: u16 = 272;
@@ -16,19 +16,25 @@ const CFA_SIDE: u32 = 2;
 
 /// The preview's RGB bytes, a ramp so a test can tell them apart.
 pub fn preview_rgb() -> Vec<u8> {
-    (0..PREVIEW_WIDTH * PREVIEW_HEIGHT * 3)
-        .map(|i| (i % 251) as u8)
-        .collect()
+    ramp(PREVIEW_WIDTH, PREVIEW_HEIGHT)
+}
+
+fn ramp(width: u32, height: u32) -> Vec<u8> {
+    (0..width * height * 3).map(|i| (i % 251) as u8).collect()
 }
 
 pub fn unknown_body_3fr() -> Vec<u8> {
-    let preview = preview_rgb();
+    unknown_body_3fr_with_preview(PREVIEW_WIDTH, PREVIEW_HEIGHT)
+}
+
+pub fn unknown_body_3fr_with_preview(width: u32, height: u32) -> Vec<u8> {
+    let preview = ramp(width, height);
     let preview_len = preview.len() as u32;
     let build = |cfa_ifd_at: u32, strips_at: u32| {
         let mut root = Ifd::new();
         root.add_long(TAG_NEW_SUBFILE_TYPE, 1);
-        root.add_long(TAG_IMAGE_WIDTH, PREVIEW_WIDTH);
-        root.add_long(TAG_IMAGE_LENGTH, PREVIEW_HEIGHT);
+        root.add_long(TAG_IMAGE_WIDTH, width);
+        root.add_long(TAG_IMAGE_LENGTH, height);
         root.add_shorts(TAG_BITS_PER_SAMPLE, vec![8, 8, 8]);
         root.add_short(TAG_COMPRESSION, 1);
         root.add_short(TAG_PHOTOMETRIC, 2);
@@ -37,7 +43,7 @@ pub fn unknown_body_3fr() -> Vec<u8> {
         root.add_long(TAG_STRIP_OFFSETS, strips_at);
         root.add_short(TAG_ORIENTATION, 6);
         root.add_short(TAG_SAMPLES_PER_PIXEL, 3);
-        root.add_long(TAG_ROWS_PER_STRIP, PREVIEW_HEIGHT);
+        root.add_long(TAG_ROWS_PER_STRIP, height);
         root.add_long(TAG_STRIP_BYTE_COUNTS, preview_len);
         root.add_long(TAG_SUB_IFDS, cfa_ifd_at);
         let mut cfa = Ifd::new();

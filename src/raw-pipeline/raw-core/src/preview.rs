@@ -158,7 +158,13 @@ pub fn extract_embedded_preview(
 /// camera-rendered preview sits in the container regardless. For a TIFF-based
 /// RAW, every IFD (chained and SubIFDs) is considered and the largest 8-bit RGB
 /// or YCbCr image wins — a sensor IFD is CFA or linear-raw, so it can never be
-/// mistaken for a preview. Other containers take the existing byte scan.
+/// mistaken for a preview. A best image smaller than a grid thumbnail is
+/// refused: a NEF or ARW keeps its large JPEG behind `JPEGInterchangeFormat`,
+/// so only its ~160 px IFD0 strip is reachable here, and publishing that would
+/// leave a permanently blurry thumbnail and preview once the body is supported.
+/// Other containers take the existing byte scan.
+const MIN_FALLBACK_LONG_EDGE: u32 = 256;
+
 fn decoder_free_preview(raw_bytes: &[u8]) -> Option<(image::DynamicImage, ExifOrientation)> {
     if !crate::view::auto_profile::preview::is_tiff_container(raw_bytes) {
         return crate::view::auto_profile::preview::largest_embedded_jpeg(raw_bytes)
@@ -178,6 +184,7 @@ fn decoder_free_preview(raw_bytes: &[u8]) -> Option<(image::DynamicImage, ExifOr
         .into_iter()
         .filter_map(|ifd| ifd_display_image(ifd, &source))
         .max_by_key(|image| u64::from(image.width()) * u64::from(image.height()))
+        .filter(|image| image.width().max(image.height()) >= MIN_FALLBACK_LONG_EDGE)
         .map(|image| (image, orientation))
 }
 
@@ -266,6 +273,13 @@ mod tests {
         let rgb = img.to_rgb8();
         assert_eq!(rgb.dimensions(), (PREVIEW_WIDTH, PREVIEW_HEIGHT));
         assert_eq!(rgb.as_raw(), &preview_rgb());
+    }
+
+    #[test]
+    fn unknown_body_refuses_a_preview_smaller_than_a_thumbnail() {
+        use crate::test_support::synth_unknown_body::unknown_body_3fr_with_preview;
+        let err = extract_embedded_preview(&unknown_body_3fr_with_preview(160, 120), "nef");
+        assert!(matches!(err, Err(Error::Preview(_))));
     }
 
     #[test]
