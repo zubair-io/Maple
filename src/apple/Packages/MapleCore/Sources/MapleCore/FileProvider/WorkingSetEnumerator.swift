@@ -69,25 +69,20 @@ final class WorkingSetEnumerator: NSObject, NSFileProviderEnumerator {
                         lastTouched: now
                     )
                 }
-                // Resolve each entry's real folder parent so working-set
-                // items don't appear under a "Working Set" container in
-                // Finder. The OS still uses the working set for indexing
-                // and search; with real parents, items show up only in
-                // their owning folder.
-                let roots = (try? await rootCache?.roots()) ?? []
+                // An entry whose library isn't listed is left out rather
+                // than shown at the top level (#5503).
+                let roots = try await libraryRoots()
                 for start in stride(from: 0, to: entries.count, by: Self.enumerationBatchSize) {
                     let batch = entries[start..<min(start + Self.enumerationBatchSize, entries.count)]
-                    observer.didEnumerate(batch.map { e -> MapleItem in
-                        let parent = Self.resolveParent(folderID: e.folderID,
-                                                         absPath: e.absPath,
-                                                         roots: roots)
-                        return MapleItem(workingSetEntry: e, parent: parent)
+                    observer.didEnumerate(batch.compactMap { e -> MapleItem? in
+                        Self.resolveParent(folderID: e.folderID, absPath: e.absPath, roots: roots)
+                            .map { MapleItem(workingSetEntry: e, parent: $0) }
                     })
                 }
                 observer.finishEnumerating(upTo: nil)
             } catch {
                 log.error("workingSet enumerate failed: \(error.localizedDescription, privacy: .public)")
-                observer.finishEnumeratingWithError(error)
+                observer.finishEnumeratingWithError(enumerationError(error))
             }
         }
     }
@@ -105,7 +100,12 @@ final class WorkingSetEnumerator: NSObject, NSFileProviderEnumerator {
 
     func enumerateChanges(for observer: NSFileProviderChangeObserver,
                           from anchor: NSFileProviderSyncAnchor) {
-        let since = Self.parseAnchor(anchor)
+        guard let since = Self.parseAnchor(anchor) else {
+            observer.finishEnumeratingWithError(
+                NSError(domain: NSFileProviderErrorDomain,
+                        code: NSFileProviderError.syncAnchorExpired.rawValue))
+            return
+        }
         Task {
             guard await FileProviderChangeEnumeration.acquire(for: observer) else { return }
             defer { FileProviderChangeEnumeration.release() }
@@ -120,7 +120,7 @@ final class WorkingSetEnumerator: NSObject, NSFileProviderEnumerator {
                 // and resolves against the cached list via
                 // `Self.resolveParent(folderID:absPath:roots:)`; mirror
                 // that here (Copilot review, PR #2687).
-                let roots = (try? await rootCache?.roots()) ?? []
+                let roots = try await libraryRoots()
                 let resolution = await WorkingSetChangeResolver.resolveChanges(
                     page.changes, catalog: catalog, roots: roots,
                     workingSet: workingSet, log: log
@@ -130,8 +130,7 @@ final class WorkingSetEnumerator: NSObject, NSFileProviderEnumerator {
                     // A genuine connectivity failure (not merely a bad
                     // HTTP status from a server we DID reach) hit the
                     // per-asset metadata GET. Handing every row in the
-                    // batch its own stub — same hardcoded filename,
-                    // same `.rootContainer` parent — would paint
+                    // batch its own placeholder stub would paint
                     // Finder with a pile of colliding "(stub)" entries
                     // for the duration of the outage (jules WARN, PR
                     // #2687). Fail the whole call instead: the anchor
@@ -198,7 +197,7 @@ final class WorkingSetEnumerator: NSObject, NSFileProviderEnumerator {
                 )
             } catch {
                 log.error("enumerateChanges failed: \(error.localizedDescription, privacy: .public)")
-                observer.finishEnumeratingWithError(error)
+                observer.finishEnumeratingWithError(enumerationError(error))
             }
         }
     }
@@ -210,33 +209,32 @@ final class WorkingSetEnumerator: NSObject, NSFileProviderEnumerator {
 
     // MARK: - Helpers
 
-    /// Same shape as `FileProviderExtensionCore.resolveAssetParent` but
-    /// scoped to the WorkingSet enumeration loop — caller pre-fetches
-    /// the roots once and we resolve all entries against the same list.
-    /// Also called from `WorkingSetChangeResolver.resolveChange`.
-    ///
-    /// Fallbacks mirror the extension-core helper: never `.workingSet`
-    /// (the OS now treats that container as `noSuchItem`, which aborts
-    /// materialization). folderID-in-roots-but-prefix-mismatch routes
-    /// to the library root; folderID-not-in-roots routes to
-    /// `.rootContainer`.
+    /// Loaded once per call; a failure fails the call so the OS retries,
+    /// instead of resolving every item against an empty list. No rootCache
+    /// means no libraries to match.
+    private func libraryRoots() async throws -> [LibraryRoot] {
+        try await rootCache?.roots() ?? []
+    }
+
+    /// The folder an asset sits in, or nil when its library is not in
+    /// `roots`. Nil is never mapped to `.rootContainer`: the OS keeps that
+    /// parent and shows the asset at the top level until it next changes
+    /// (#5503). Never `.workingSet` either, which `item(for:)` answers with
+    /// `noSuchItem`. An `absPath` outside its library resolves to the
+    /// library root.
     static func resolveParent(folderID: String,
                               absPath: String,
-                              roots: [LibraryRoot]) -> NSFileProviderItemIdentifier {
-        guard let root = roots.first(where: { $0.id == folderID }) else {
-            return .rootContainer
-        }
+                              roots: [LibraryRoot]) -> NSFileProviderItemIdentifier? {
+        guard let root = roots.first(where: { $0.id == folderID }) else { return nil }
         let rootWithSlash = root.path.hasSuffix("/") ? root.path : root.path + "/"
         guard absPath.hasPrefix(rootWithSlash) else {
-            let rootIdent = FileProviderIdentifier.folder(folderID: folderID,
-                                                           relativePath: "")
-            return NSFileProviderItemIdentifier(rootIdent.rawValue)
+            return NSFileProviderItemIdentifier(
+                FileProviderIdentifier.folder(folderID: folderID, relativePath: "").rawValue)
         }
         let relative = String(absPath.dropFirst(rootWithSlash.count))
         let parentRelative = (relative as NSString).deletingLastPathComponent
-        let parentID = FileProviderIdentifier.folder(folderID: folderID,
-                                                       relativePath: parentRelative)
-        return NSFileProviderItemIdentifier(parentID.rawValue)
+        return NSFileProviderItemIdentifier(
+            FileProviderIdentifier.folder(folderID: folderID, relativePath: parentRelative).rawValue)
     }
 
     private static func kindFor(_ e: AssetListEntry) -> WorkingSetKind {
@@ -248,14 +246,21 @@ final class WorkingSetEnumerator: NSObject, NSFileProviderEnumerator {
         return .recent
     }
 
-    private static func anchor(_ cursor: Int64) -> NSFileProviderSyncAnchor {
-        NSFileProviderSyncAnchor(String(cursor).data(using: .utf8)!)
+    /// Prefix of every working-set anchor. A bare-cursor anchor comes from
+    /// a build that could parent items at the top level (#5503); refusing
+    /// it once makes the OS list the working set again and re-read every
+    /// item's parent.
+    static let anchorPrefix = "ws2:"
+
+    static func anchor(_ cursor: Int64) -> NSFileProviderSyncAnchor {
+        NSFileProviderSyncAnchor(Data((anchorPrefix + String(cursor)).utf8))
     }
 
-    private static func parseAnchor(_ anchor: NSFileProviderSyncAnchor) -> Int64 {
-        guard let s = String(data: anchor.rawValue, encoding: .utf8),
-              let v = Int64(s) else { return 0 }
-        return v
+    /// Nil when `anchor` predates `anchorPrefix` or cannot be read.
+    static func parseAnchor(_ anchor: NSFileProviderSyncAnchor) -> Int64? {
+        guard let text = String(data: anchor.rawValue, encoding: .utf8),
+              text.hasPrefix(anchorPrefix) else { return nil }
+        return Int64(text.dropFirst(anchorPrefix.count))
     }
 }
 

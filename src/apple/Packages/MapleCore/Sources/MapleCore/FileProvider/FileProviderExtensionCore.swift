@@ -12,8 +12,8 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
     /// `FileProviderExtensionCore+Transfers.swift`.
     let writePermits = BoundedAsyncSemaphore(value: FileProviderExtensionCore.writeConcurrency)
     let fetchPermits = BoundedAsyncSemaphore(value: FileProviderExtensionCore.fetchConcurrency)
-    private let dormant: Bool
-    private let catalog: RemoteCatalog?
+    let dormant: Bool
+    let catalog: RemoteCatalog?
     private let rootCache: LibraryRootCache?
     private let deviceName: String
     /// Shared SQLite mirror used by the Quick Look extension to resolve a
@@ -514,9 +514,9 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
             ) {
                 try? await mgr.signalEnumerator(for: derived)
             }
-            // Folder counts may have shifted — drop the library-root cache
-            // so the next root enumeration re-reads.
-            await rootCache?.invalidate()
+            // Folder counts may have shifted. Refreshing instead of dropping
+            // the list keeps it servable through an upload burst (#5503).
+            await rootCache?.revalidate()
         }
     }
 
@@ -657,7 +657,7 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
                                                            code: NSFileProviderError.noSuchItem.rawValue))
                             return
                         }
-                        let parent = await Self.resolveAssetParent(meta: meta, rootCache: rootCache)
+                        let parent = try await Self.resolveAssetParent(meta: meta, rootCache: rootCache)
                         completionHandler(MapleItem(assetMetadata: meta, parent: parent), nil)
                     } catch {
                         log.error("getAsset failed: \(error.localizedDescription, privacy: .public)")
@@ -854,6 +854,15 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
                                                             code: NSFileProviderError.noSuchItem.rawValue))
                         return
                     }
+                    let parent: NSFileProviderItemIdentifier
+                    do {
+                        parent = try await Self.resolveAssetParent(meta: resolved, rootCache: self.rootCache)
+                    } catch {
+                        downloadTask.cancel()
+                        _ = try? await downloadTask.value
+                        try? FileManager.default.removeItem(at: localURL)
+                        throw error
+                    }
                     try await withTaskCancellationHandler {
                         try await downloadTask.value
                     } onCancel: {
@@ -887,7 +896,6 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
                         log.notice("setAttributes(modificationDate:) failed for \(localURL.lastPathComponent, privacy: .public): \(String(describing: error), privacy: .public)")
                     }
                     log.notice("fetchContents asset \(id, privacy: .public) ok bytes-at=\(localURL.path, privacy: .public)")
-                    let parent = await Self.resolveAssetParent(meta: resolved, rootCache: self.rootCache)
                     completionHandler(localURL, MapleItem(assetMetadata: resolved, parent: parent), nil)
                     return
                 case .sidecar(let assetID, let conflictBasename):
@@ -915,6 +923,7 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
                                                             code: NSFileProviderError.noSuchItem.rawValue))
                         return
                     }
+                    let parentSidecar = try await Self.resolveAssetParent(meta: resolved, rootCache: self.rootCache)
                     let bytes = try await bytesTask.value
                     try bytes.write(to: localURL, options: .atomic)
                     self.recordMeta(domain: self.domain.identifier.rawValue,
@@ -951,7 +960,6 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
                     // `.asset(id)` and the OS would associate the downloaded
                     // `.xmp` bytes with the RAW asset, breaking subsequent
                     // sidecar lookups and Quick Look discrimination.
-                    let parentSidecar = await Self.resolveAssetParent(meta: resolved, rootCache: self.rootCache)
                     let imageBase: String = {
                         let f = resolved.filename
                         let dot = f.lastIndex(of: ".")
@@ -2255,25 +2263,34 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
     /// metadata. Strips the matching library-root prefix off `absPath`
     /// and returns `.folder(folderID, parentRelativePath)`.
     ///
-    /// Fallbacks — NEVER `.workingSet`. Routing to the working-set
-    /// container forces the OS to `item(for: .workingSet)`, which now
-    /// returns `noSuchItem` (the container is hidden), and that breaks
-    /// materialization. Instead:
-    ///   - folderID is in roots but absPath prefix mismatch (server bug
-    ///     or out-of-tree asset): fall back to the library root —
-    ///     `.folder(folderID, "")` — which the rest of the codebase
-    ///     guarantees exists.
-    ///   - folderID itself isn't in roots (domain unregistered, race
-    ///     against root cache invalidation): fall back to
-    ///     `.rootContainer`. Uglier — the asset surfaces alongside the
-    ///     library roots instead of inside one — but the identifier is
-    ///     always valid and materialization completes.
+    /// Never `.workingSet` (hidden, `item(for:)` answers `noSuchItem`) and
+    /// never `.rootContainer`: the OS keeps whatever parent it is given
+    /// and would show the asset at the top level of Maple until it next
+    /// changed (#5503). So:
+    ///   - absPath outside the library's path (server bug or out-of-tree
+    ///     asset): the library root, `.folder(folderID, "")`.
+    ///   - the library list fails to load: the error propagates and the
+    ///     OS retries.
+    ///   - the library isn't in a freshly fetched list either: `noSuchItem`,
+    ///     the asset has no place in the tree. The served list may predate
+    ///     a new library, so a miss refetches before deciding.
     static func resolveAssetParent(meta: AssetMetadata,
-                                    rootCache: LibraryRootCache?) async -> NSFileProviderItemIdentifier {
-        guard let rootCache,
-              let roots = try? await rootCache.roots(),
-              let root = roots.first(where: { $0.id == meta.folderID }) else {
-            return .rootContainer
+                                    rootCache: LibraryRootCache?) async throws -> NSFileProviderItemIdentifier {
+        guard let rootCache else {
+            throw NSError(domain: NSFileProviderErrorDomain,
+                          code: NSFileProviderError.noSuchItem.rawValue)
+        }
+        let listed = { (roots: [LibraryRoot]) in roots.first(where: { $0.id == meta.folderID }) }
+        let found: LibraryRoot?
+        if let cached = listed(try await rootCache.roots()) {
+            found = cached
+        } else {
+            await rootCache.invalidate()
+            found = listed(try await rootCache.roots())
+        }
+        guard let root = found else {
+            throw NSError(domain: NSFileProviderErrorDomain,
+                          code: NSFileProviderError.noSuchItem.rawValue)
         }
         // absPath e.g. "/srv/photos/Library/2026/Adam/04-02/IMG.jpg"
         // root.path e.g. "/srv/photos/Library"

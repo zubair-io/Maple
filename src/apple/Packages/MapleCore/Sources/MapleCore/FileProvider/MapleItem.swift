@@ -251,34 +251,21 @@ public final class MapleItem: NSObject, NSFileProviderItem {
   /// must never be shown to a user for longer than one failed sync
   /// round-trip (#2537).
   ///
-  /// `parentItemIdentifier` is derived from `folderID + relativePath`
-  /// when both are present (Phase 6 item 2): the change-feed payload
-  /// now carries the asset's path relative to its folder root, so we
-  /// can attach the stub under `folder(folderID, dirname(relPath))`.
-  /// Falls back to `.rootContainer` when either is nil — legacy
-  /// server payloads, or rows where the server couldn't reconcile
-  /// absPath against folder.path. `.rootContainer` is always-valid
-  /// (unlike `.workingSet`, which `item(for:)` now unconditionally
-  /// rejects with `noSuchItem` — see `FileProviderExtensionCore
-  /// .resolveAssetParent`'s "NEVER .workingSet" clause); the OS
-  /// reattaches under the real folder on the next folder enumeration
-  /// regardless.
+  /// The stub sits under `folder(folderID, dirname(relativePath))`. A row
+  /// without both has no place in the tree and gets no stub: a top-level
+  /// parent would stay put in Files until the asset next changed (#5503).
   ///
-  /// `filename` falls back to `lastPathComponent(relativePath)` when
-  /// available — saves Finder from briefly painting "(stub)" before
-  /// `item(for:)` resolves the full metadata.
+  /// `filename` is `lastPathComponent(relativePath)`, or "(stub)" when
+  /// that is empty, until `item(for:)` resolves the full metadata.
   public init(
     stubAssetID assetID: String,
     cursor: Int64,
-    folderID: String? = nil,
-    relativePath: String? = nil
+    folderID: String,
+    relativePath: String
   ) {
     self.identifier = .asset(assetID)
-    let resolvedFilename: String = {
-      guard let rel = relativePath, !rel.isEmpty else { return "(stub)" }
-      let last = (rel as NSString).lastPathComponent
-      return last.isEmpty ? "(stub)" : last
-    }()
+    let last = (relativePath as NSString).lastPathComponent
+    let resolvedFilename = last.isEmpty ? "(stub)" : last
     self.displayName = resolvedFilename
     self.isDirectory = false
     self.size = nil
@@ -297,19 +284,10 @@ public final class MapleItem: NSObject, NSFileProviderItem {
     self.utType = ext.isEmpty ? .data : (UTType(filenameExtension: ext) ?? .data)
     self.writeCapabilities = [.allowsReading]
     self.itemIdentifier = NSFileProviderItemIdentifier(self.identifier.rawValue)
-    if let folderID, let rel = relativePath {
-      // Parent dir relative to the folder root. `lastPathComponent`
-      // of `relativePath` is the filename; `deletingLastPathComponent`
-      // gives the dir. Both for a root-level asset reduce to `""`,
-      // which is the folder-root identifier (`folder(folderID, "")`).
-      let parentRel = (rel as NSString).deletingLastPathComponent
-      let parent = FileProviderIdentifier.folder(
-        folderID: folderID,
-        relativePath: parentRel)
-      self.parentItemIdentifier = NSFileProviderItemIdentifier(parent.rawValue)
-    } else {
-      self.parentItemIdentifier = .rootContainer
-    }
+    let parent = FileProviderIdentifier.folder(
+      folderID: folderID,
+      relativePath: (relativePath as NSString).deletingLastPathComponent)
+    self.parentItemIdentifier = NSFileProviderItemIdentifier(parent.rawValue)
     self.filename = resolvedFilename
   }
 
