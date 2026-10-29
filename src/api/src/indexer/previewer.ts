@@ -393,7 +393,7 @@ async function renderBitmapPreviewToFile(
       'FFI child returned error',
     );
     // Only the original describes the asset; see the thumbnailer's twin.
-    if (isOriginal) throwIfSourceRejected(result, srcPath);
+    if (isOriginal) await throwIfSourceRejected(result, srcPath);
     return false;
   }
   return true;
