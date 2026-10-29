@@ -29,7 +29,12 @@
 // that could go either way get a "Run On" picker. The job runs on the server
 // whatever the app does, so a lost connection is a Try Again away.
 //
-// Ticket: #1236 / Part of #1234 / #1241 / #4554 / #4579 / #5454 / #5486 / #5488
+// Download frames (#5489): cloud-only frames can also stitch here, after
+// PanoDownloadSection fetches them into a temporary cache; the panorama then
+// goes back to the server beside them. Frames from Photos can't do either
+// yet, and the sheet says so rather than failing mid-stitch.
+//
+// Ticket: #1236 / Part of #1234 / #1241 / #4554 / #4579 / #5454 / #5486 / #5488 / #5489
 
 import MapleCore
 import MapleUI
@@ -62,17 +67,25 @@ struct PanoMergeView: View {
   @State private var thumbnails = ThumbnailProvider.local()
   /// Why the frames' server can't stitch; `nil` when it can or is unchecked.
   @State private var serverUnavailable: String?
+  /// For cloud-only frames: stitch on the server rather than downloading.
+  @State private var prefersServer = true
 
   var body: some View {
     NavigationStack {
       Form {
         inputFramesSection
         runOnSection
-        PanoPreviewSection(
-          session: session,
-          onRetry: { session.preview(assets: assets) },
-          onOpenPanoSettings: onOpenPanoSettings
-        )
+        photosFramesSection
+        if awaitingDownload, let route = session.downloadRoute {
+          PanoDownloadSection(
+            download: route.download, onRetry: { route.download.estimate(assets) })
+        } else {
+          PanoPreviewSection(
+            session: session,
+            onRetry: { session.preview(assets: assets) },
+            onOpenPanoSettings: onOpenPanoSettings
+          )
+        }
         optionsSection
         PanoOutputSizeSection(session: session)
 
@@ -97,7 +110,10 @@ struct PanoMergeView: View {
           serverUnavailable = reason
           if canRunOnDevice { session.use(deviceStitcher) }
         }
-        session.preview(assets: assets)
+        if downloadsFrames { followRoute() } else { session.preview(assets: assets) }
+      }
+      .onChange(of: session.downloadRoute?.download.state) { _, state in
+        if state == .downloaded { followRoute() }
       }
       .navigationTitle("Merge Panorama")
       #if os(iOS)
@@ -128,7 +144,7 @@ struct PanoMergeView: View {
             Button("Create Panorama") {
               session.start(assets: assets)
             }
-            .disabled(assets.count < 2)
+            .disabled(assets.count < 2 || awaitingDownload || blockedByPhotosFrames)
             .accessibilityLabel(
               session.alignment == nil
                 ? "Create the full panorama from \(assets.count) selected frames"
@@ -150,11 +166,64 @@ struct PanoMergeView: View {
   /// Every frame has a file this device can read.
   private var canRunOnDevice: Bool { assets.allSatisfy { $0.primaryURL != nil } }
 
+  /// Cloud-only frames stitch here from downloaded copies (#5489): chosen,
+  /// or the only way when no server can stitch them.
+  private var downloadsFrames: Bool {
+    guard session.downloadRoute != nil, !canRunOnDevice else { return false }
+    return serverStitcher == nil || serverUnavailable != nil || !prefersServer
+  }
+
+  /// The frames still have to download before a preview or stitch can run.
+  private var awaitingDownload: Bool {
+    guard downloadsFrames, let route = session.downloadRoute else { return false }
+    if case .done = session.state { return false }
+    return route.download.state != .downloaded
+  }
+
+  /// A frame from Photos: no file here and no server copy.
+  private var blockedByPhotosFrames: Bool {
+    !canRunOnDevice && assets.contains { $0.primaryURL == nil && $0.catalog == nil }
+  }
+
+  /// Points the session at the stitcher the current choice needs.
+  private func followRoute() {
+    guard let route = session.downloadRoute else { return }
+    guard downloadsFrames else {
+      route.download.stop()
+      if let serverStitcher { session.use(serverStitcher) }
+      session.preview(assets: assets)
+      return
+    }
+    guard let localFrames = route.download.localAssets else {
+      session.cancel()
+      if case .idle = route.download.state { route.download.estimate(assets) }
+      return
+    }
+    session.use(route.makeStitcher(assets, localFrames))
+    session.preview(assets: assets)
+  }
+
   @ViewBuilder
   private var runOnSection: some View {
     if let serverStitcher {
       Section {
-        if canRunOnDevice {
+        if !canRunOnDevice, session.downloadRoute != nil {
+          Picker(
+            "Run On",
+            selection: Binding(
+              get: { !downloadsFrames },
+              set: { useServer in
+                prefersServer = useServer
+                followRoute()
+              }
+            )
+          ) {
+            Text("This Device").tag(false)
+            Text("Server").tag(true)
+          }
+          .disabled(session.isRunning || serverUnavailable != nil)
+          .accessibilityLabel("Where the panorama is stitched")
+        } else if canRunOnDevice {
           Picker(
             "Run On",
             selection: Binding(
@@ -180,6 +249,12 @@ struct PanoMergeView: View {
           Text(serverUnavailable)
             .font(.caption)
             .foregroundStyle(.secondary)
+        } else if downloadsFrames {
+          Text(
+            "The frames download to this device first. The panorama is stitched here, then added to a Panoramas folder beside them on the server."
+          )
+          .font(.caption)
+          .foregroundStyle(.secondary)
         } else if runsOnServer {
           Text(
             "The server stitches the frames where they are stored and adds the panorama to a Panoramas folder beside them. It keeps going if you leave the app."
@@ -189,6 +264,19 @@ struct PanoMergeView: View {
         }
       } header: {
         Text("Stitching")
+      }
+    }
+  }
+
+  @ViewBuilder
+  private var photosFramesSection: some View {
+    if blockedByPhotosFrames {
+      Section {
+        Text(
+          "Frames from your Photos library can’t be merged here yet. Export them to Files, then merge them from there."
+        )
+        .font(.caption)
+        .accessibilityIdentifier("pano-photos-frames-unsupported")
       }
     }
   }
@@ -348,7 +436,7 @@ struct PanoMergeView: View {
       // panorama appears in the library grid and is auto-selected.
       // "Show in Finder" is macOS-only: there is no Finder on iOS.
       #if os(macOS)
-        if result.serverAssetID == nil {
+        if !result.storedOnServer {
           Button("Show in Finder") {
             NSWorkspace.shared.activateFileViewerSelecting([result.outputURL])
           }

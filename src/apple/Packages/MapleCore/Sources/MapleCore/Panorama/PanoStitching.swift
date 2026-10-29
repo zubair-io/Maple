@@ -155,19 +155,24 @@ public struct PanoResult: Sendable {
     /// Set when the server stitched it (#5488): `outputURL` is then a path on
     /// the server, and the panorama is this asset in the server's library.
     public let serverAssetID: String?
+    /// The panorama is in a server library (stitched there, or uploaded
+    /// after a stitch from downloaded frames, #5489), not a local file.
+    public let storedOnServer: Bool
 
     public init(
         outputURL: URL,
         reportSummary: String,
         alignmentOutcome: PanoAlignmentOutcome = .solved,
         matcher: PanoMatcherOutcome = .used(.classical),
-        serverAssetID: String? = nil
+        serverAssetID: String? = nil,
+        storedOnServer: Bool? = nil
     ) {
         self.outputURL = outputURL
         self.reportSummary = reportSummary
         self.alignmentOutcome = alignmentOutcome
         self.matcher = matcher
         self.serverAssetID = serverAssetID
+        self.storedOnServer = storedOnServer ?? (serverAssetID != nil)
     }
 }
 

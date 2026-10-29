@@ -167,12 +167,15 @@ extension CloudSource: ImageSource {
 
   /// Disk-backed original delivery for file promises; every auth attempt
   /// owns and cleans its download, including a rejected 401 response.
-  public func writeOriginal(for ref: ImageRef, to destination: URL) async throws {
+  public func writeOriginal(
+    for ref: ImageRef, to destination: URL,
+    onProgress: @escaping @Sendable (_ received: Int64, _ total: Int64?) -> Void = { _, _ in }
+  ) async throws {
     let rawURL = try await addresses.url(route: "image", absPath: Self.absPath(from: ref.id))
     let (_, response) = try await httpClient.refreshIfNeededAndRetry(
       request: URLRequest(url: rawURL)
     ) { request in
-      let download = DownloadProgressDelegate(fallbackTotal: nil, onProgress: { _, _ in })
+      let download = DownloadProgressDelegate(fallbackTotal: nil, onProgress: onProgress)
       let (temporary, response) = try await download.download(for: request)
       defer { try? FileManager.default.removeItem(at: temporary) }
       if let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) {
@@ -182,6 +185,23 @@ extension CloudSource: ImageSource {
       return ((), response)
     }
     try Self.checkOK(response, data: Data())
+  }
+
+  /// The original's size in bytes, read from a one-byte range request so
+  /// nothing else downloads; `nil` when the server gives no total (#5489).
+  public func originalSize(for ref: ImageRef) async throws -> Int64? {
+    var request = URLRequest(
+      url: try await addresses.url(route: "image", absPath: Self.absPath(from: ref.id)))
+    request.setValue("bytes=0-0", forHTTPHeaderField: "Range")
+    let (data, response) = try await httpClient.data(for: request)
+    try Self.checkOK(response, data: data)
+    return Self.totalBytes(
+      contentRange: (response as? HTTPURLResponse)?.value(forHTTPHeaderField: "Content-Range"))
+  }
+
+  /// The total in a `Content-Range: bytes 0-0/<total>` reply.
+  static func totalBytes(contentRange: String?) -> Int64? {
+    contentRange?.split(separator: "/").last.flatMap { Int64($0) }
   }
 
   /// Seekable streaming URL for AVPlayer. The endpoint self-authenticates via
