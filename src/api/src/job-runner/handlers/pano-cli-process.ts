@@ -11,6 +11,8 @@
  */
 
 import path from 'node:path';
+import { realpath } from '../../fs/mirrored.ts';
+import { isWithinRoot, resolveRealPathThroughAncestors } from '../../fs/root.ts';
 import { ObjectId } from '../../db/object-id.ts';
 import { loadAssetLocationViews } from '../../db/repos/assets.locations.repo.ts';
 import { assetAbsPath } from '../../indexer/images.repo.ts';
@@ -38,7 +40,19 @@ export function progressFromLine(line: string): number | null {
   return Math.round((stage + fraction) * PROGRESS_PER_STAGE);
 }
 
-/** Absolute paths of the selected assets, sorted by name (= capture order). */
+/** The file's real path, refused unless it lies inside one of `realRoots`: a
+ * symlink planted in a library never points the CLI at a file outside it. */
+async function containedRealPath(id: string, p: string, realRoots: string[]): Promise<string> {
+  const real = await realpath(p).catch(() => {
+    throw new Error(`pano: asset file is missing: ${id}`);
+  });
+  if (!realRoots.some((root) => isWithinRoot(root, real))) {
+    throw new Error(`pano: asset ${id} resolves outside every library root`);
+  }
+  return real;
+}
+
+/** Real paths of the selected assets, sorted by name (= capture order). */
 export async function resolveInputPaths(assetIds: readonly string[]): Promise<string[]> {
   const invalid = assetIds.find((id) => !ObjectId.isValid(id));
   if (invalid !== undefined) throw new Error(`pano: invalid asset id: ${invalid}`);
@@ -46,15 +60,19 @@ export async function resolveInputPaths(assetIds: readonly string[]): Promise<st
     loadLibraryRoots(),
     loadAssetLocationViews(assetIds.map((id) => new ObjectId(id))),
   ]);
-  return assetIds
-    .map((id) => {
+  const realRoots = await Promise.all(
+    [...libs.values()].map((root) => resolveRealPathThroughAncestors(root)),
+  );
+  const paths = await Promise.all(
+    assetIds.map((id) => {
       const view = viewsById.get(id);
       if (!view) throw new Error(`pano: asset not found: ${id}`);
       const p = assetAbsPath(view, libs);
       if (!p) throw new Error(`pano: asset has no resolvable path: ${id}`);
-      return p;
-    })
-    .sort();
+      return containedRealPath(id, p, realRoots);
+    }),
+  );
+  return paths.sort();
 }
 
 /**
@@ -169,12 +187,14 @@ export async function runPanoCli(
   const jailed = await jailExecutablePaths({
     maple_cli_path: payload.mapleCli,
     ort_dylib_path: payload.ortDylibPath,
+    models_dir: payload.modelsDir,
   });
   if (!jailed.ok) throw new Error(`pano: refusing to spawn — ${jailed.error}`);
   const executables = {
     ...payload,
     mapleCli: jailed.canonical.maple_cli_path ?? payload.mapleCli,
     ortDylibPath: jailed.canonical.ort_dylib_path ?? payload.ortDylibPath,
+    modelsDir: jailed.canonical.models_dir ?? payload.modelsDir,
   };
   // A stitch peaks at tens of GB, so it reserves the whole decode memory
   // budget and runs only once every in-flight decode has released (#5467).

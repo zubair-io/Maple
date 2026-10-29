@@ -140,6 +140,14 @@ describe('PUT /api/pano/config — owner gate and executable jail (#4743)', () =
     expect(res.status).toBe(400);
   });
 
+  it('refuses a models_dir inside a registered library root', async () => {
+    const planted = path.join(tmpDir, 'lib', 'pano-models');
+    await fs.mkdir(planted, { recursive: true });
+    const res = await putJson('/api/pano/config', { models_dir: planted });
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { error: string }).error).toContain('models_dir');
+  });
+
   it('refuses a not-yet-existing path whose ancestor is a symlink into a library', async () => {
     const alias = path.join(tmpDir, 'alias-to-lib');
     await fs.symlink(path.join(tmpDir, 'lib'), alias);

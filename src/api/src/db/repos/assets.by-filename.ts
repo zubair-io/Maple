@@ -99,11 +99,11 @@ export interface AssetLocationsRow {
 }
 
 /**
- * Every asset holding a location with one of these basenames, as id plus
- * locations.
+ * Every asset not in the trash holding a location with one of these basenames,
+ * as id plus locations.
  *
- * `routes/pano.ts` uses this to turn a list of absolute paths into asset ids
- * before it queues a stitch.
+ * `pano/pano-path-inputs.ts` uses this to turn a list of absolute paths into
+ * asset ids before it queues a stitch.
  */
 export async function findAssetLocationsByFilenames(
   filenames: readonly string[],
@@ -111,7 +111,15 @@ export async function findAssetLocationsByFilenames(
 ): Promise<AssetLocationsRow[]> {
   const db = sqliteDb(dbOverride);
   const { ids, locations } = await idsByFilenames(db, filenames);
-  return ids.map((id) => ({ _id: toObjectId(id), fileinfo: toFileInfo(locations.get(id) ?? []) }));
+  if (ids.length === 0) return [];
+  const live = await db.read<{ id: string }>(
+    `SELECT id FROM assets WHERE id IN (${placeholders(ids.length)}) AND deleted_at IS NULL`,
+    ids,
+  );
+  return live.map(({ id }) => ({
+    _id: toObjectId(id),
+    fileinfo: toFileInfo(locations.get(id) ?? []),
+  }));
 }
 
 /**

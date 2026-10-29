@@ -1,6 +1,7 @@
 /**
  * Guard for the executable paths an operator may save in the pano config
- * (#4743). The server runs `maple_cli_path` and loads `ort_dylib_path`, so a
+ * (#4743). The server runs `maple_cli_path`, loads `ort_dylib_path` and feeds
+ * the ONNX models under `models_dir` to that runtime, so a
  * path that resolves inside a registered library root would let anyone able to
  * place a file in a library (upload, SMB share) choose what the service user
  * executes. Candidates and roots are compared by real path, resolving through
@@ -23,8 +24,12 @@ import {
 
 const log = childLogger('pano:config-paths');
 
-export type ExecutableField = 'maple_cli_path' | 'ort_dylib_path';
-const EXECUTABLE_FIELDS: readonly ExecutableField[] = ['maple_cli_path', 'ort_dylib_path'];
+export type ExecutableField = 'maple_cli_path' | 'ort_dylib_path' | 'models_dir';
+const EXECUTABLE_FIELDS: readonly ExecutableField[] = [
+  'maple_cli_path',
+  'ort_dylib_path',
+  'models_dir',
+];
 
 /** Every root a member's bytes can reach: the registered libraries and each
  * folder mirror destination, read fresh from the database on every check. A
@@ -69,7 +74,7 @@ async function jailExecutablePath(
   return hit
     ? {
         ok: false,
-        error: `${field} must not point inside a ${hit.via} (${hit.root}); the server executes it`,
+        error: `${field} must not point inside a ${hit.via} (${hit.root}); the server runs or loads it`,
       }
     : { ok: true, canonical: real };
 }
