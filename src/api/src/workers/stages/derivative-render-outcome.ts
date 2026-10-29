@@ -1,5 +1,6 @@
 import { ffiPool } from '../../ffi/ffi-pool.ts';
 import { DecodeMemoryBudgetError } from '../../ffi/decode-memory-budget.ts';
+import { UnsupportedCameraError } from '../../ffi/unsupported-camera.ts';
 import { stat } from '../../fs/mirrored.ts';
 import { child as childLogger } from '../../log.ts';
 import type { StageResult } from '../stage-config.ts';
@@ -8,6 +9,7 @@ const log = childLogger('workers:derivative-render');
 
 const DECODER_RETRY_MS = 60_000;
 const RENDER_RETRY_MS = 30 * 60_000;
+const UNSUPPORTED_CAMERA_RETRY_MS = 24 * 60 * 60_000;
 
 /**
  * Thumb and preview renders all run in the FFI child. Without its native
@@ -44,6 +46,23 @@ export async function unrenderedOutcome(
     defer: {
       reason: 'derivative-render-produced-no-file',
       retryAt: new Date(Date.now() + RENDER_RETRY_MS),
+    },
+  };
+}
+
+/**
+ * A RAW with no embedded preview whose camera body the decoder does not know
+ * (#5499) has nothing to render from in this build. The original is intact —
+ * a build that supports the body renders it — so this defers without spending
+ * an attempt rather than dead-lettering into `damaged`.
+ */
+export function unsupportedCameraDeferral(err: unknown, sourcePath: string): StageResult | null {
+  if (!(err instanceof UnsupportedCameraError)) return null;
+  log.warn({ sourcePath, err: err.message }, 'render deferred: camera body is not supported');
+  return {
+    defer: {
+      reason: 'camera-unsupported',
+      retryAt: new Date(Date.now() + UNSUPPORTED_CAMERA_RETRY_MS),
     },
   };
 }

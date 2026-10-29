@@ -17,3 +17,4 @@ pub mod synth_dng;
 pub mod synth_linearraw_dng;
 pub mod synth_perf;
 pub mod synth_sweep;
+pub mod synth_unknown_body;

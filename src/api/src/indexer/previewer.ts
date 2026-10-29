@@ -56,6 +56,7 @@ import { renderRawSidecarDerivative } from '../thumbs/raw-sidecar-render.ts';
 import { assertDerivativeCacheDirectory, isDerivativeCacheFresh } from './derivative-cache.ts';
 import { child as childLogger } from '../log.ts';
 import { DecodeMemoryBudgetError } from '../ffi/decode-memory-budget.ts';
+import { UnsupportedCameraError } from '../ffi/unsupported-camera.ts';
 
 const log = childLogger('previewer');
 
@@ -106,7 +107,9 @@ let _failed = 0;
  *
  * Resolves true when a fresh preview is on disk (already cached or just
  * published). Throws `SourceDecodeError` when the decoder rejects the
- * original; every other failure resolves false.
+ * original, and `UnsupportedCameraError` when a RAW has no embedded preview
+ * and its camera body is unknown to the decoder; every other failure resolves
+ * false.
  */
 export async function generatePreview(
   absPath: string,
@@ -321,7 +324,7 @@ async function developRawPreviewToFile(
     }
     return await renderBitmapPreviewToFile(jpegPath, outPath, 'jpg');
   } catch (e) {
-    if (e instanceof DecodeMemoryBudgetError) throw e;
+    if (e instanceof DecodeMemoryBudgetError || e instanceof UnsupportedCameraError) throw e;
     return logRenderFailure({ rawPath, extractError }, e, 'demosaic fallback threw');
   } finally {
     try {

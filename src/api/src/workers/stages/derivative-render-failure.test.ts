@@ -24,6 +24,7 @@ import { invalidateLibraryRoots } from '../../indexer/libraries.cache.ts';
 import { runOnce, type StageConfig } from '../run-stage.ts';
 import { _setFfiPoolForTests } from '../../ffi/ffi-pool.ts';
 import { DecodeMemoryBudgetError } from '../../ffi/decode-memory-budget.ts';
+import { developRejection } from '../../ffi/unsupported-camera.ts';
 import { solidJpeg } from '../../test-support/synth-image.ts';
 
 let live: LiveTestDatabase;
@@ -173,6 +174,25 @@ describe.each([
     }
     expectDeferredUndamaged(name, stage.targetVersion);
     expect(stageRow(name).last_error).toContain('decode-exceeds-memory-budget');
+  });
+
+  it('defers an unsupported camera body without spending an attempt (#5499)', async () => {
+    await writeFile(path.join(dir, 'frame.3fr'), Buffer.alloc(1024));
+    run(live.db, `UPDATE asset_locations SET filename = 'frame.3fr' WHERE asset_id = ?`, assetId);
+    const previous = _setFfiPoolForTests({
+      available: () => true,
+      poolSize: () => 1,
+      renderThumbnailAvifToFile: () => Promise.reject(new Error('render-failed')),
+      renderDevelopJpegToFile: (rawPath: string) =>
+        Promise.reject(developRejection('unsupported camera: Hasselblad Hasselblad H2D', rawPath)),
+    } as never);
+    try {
+      await runStageOnce(stage as unknown as StageConfig, 1);
+    } finally {
+      _setFfiPoolForTests(previous);
+    }
+    expectDeferredUndamaged(name, stage.targetVersion);
+    expect(stageRow(name).last_error).toContain('camera-unsupported');
   });
 
   it('records a render done even when the original carries a future mtime', async () => {

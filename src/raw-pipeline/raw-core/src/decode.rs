@@ -95,6 +95,17 @@ pub fn decode_bytes(bytes: &[u8], ext: &str) -> Result<RawImage> {
     // ── 1. Decode via rawler ───────────────────────────────────────────────
     let params = RawDecodeParams::default();
     let raw = rawler::decode(&source, &params).map_err(|e| {
+        if let rawler::RawlerError::Unsupported {
+            what, make, model, ..
+        } = &e
+        {
+            if what == "Unknown camera" {
+                return Error::UnsupportedCamera {
+                    make: make.clone(),
+                    model: model.clone(),
+                };
+            }
+        }
         // Belt-and-braces: even when ext wasn't `.x3f` (e.g. a wrapped
         // X3F passed without the extension hint), rawler's own decoder
         // emits "X3F decoding not implemented yet" — promote it to the

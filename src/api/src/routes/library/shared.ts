@@ -10,6 +10,7 @@ import { ffmpegBinary } from '../../thumbs/video-poster.ts';
 import { ffiPool } from '../../ffi/ffi-pool.ts';
 import { AuthoredSidecarRenderError } from '../../thumbs/raw-sidecar-render.ts';
 import { SourceDecodeError } from '../../thumbs/bitmap-pool.ts';
+import { UnsupportedCameraError } from '../../ffi/unsupported-camera.ts';
 import type { Stats } from 'node:fs';
 import { t, type Context } from 'elysia';
 import { resolveAddress, type ResolvedAddress } from '../../library/address.ts';
@@ -391,9 +392,10 @@ export async function derivativeDecoderUnavailable(sourcePath: string): Promise<
     : 'Derivative FFI not built — run src/api/scripts/build-raw-ffi.sh to build native/libraw_ffi.* first';
 }
 
-/** Authored edits that cannot be developed (#5231) and an original the decoder
- * refuses (#5474) are properties of the asset, not server faults, so they
- * answer 422 rather than the generic 500. */
+/** Authored edits that cannot be developed (#5231), an original the decoder
+ * refuses (#5474) and a camera body it does not know (#5499) are properties
+ * of the asset, not server faults, so they answer 422 rather than the generic
+ * 500. */
 export function derivativeGenerationFailure(
   error: unknown,
   set: Context['set'],
@@ -409,6 +411,10 @@ export function derivativeGenerationFailure(
   if (error instanceof SourceDecodeError) {
     set.status = 422;
     return { error: 'This photo cannot be decoded', code: 'source-undecodable' };
+  }
+  if (error instanceof UnsupportedCameraError) {
+    set.status = 422;
+    return { error: 'This camera is not supported yet', code: 'camera-unsupported' };
   }
   set.status = 500;
   return { error: fallback };

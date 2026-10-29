@@ -44,6 +44,7 @@ import type { LensProfileInventory } from '../lens-profiles/types.ts';
 import { defaultChildWorkerFactory } from './ffi-child-worker.ts';
 import { WorkerSlotPool } from './ffi-pool-slots.ts';
 import { admitDecode } from './ffi-pool-admission.ts';
+import { developRejection } from './unsupported-camera.ts';
 import {
   decodeMemoryBudget,
   DecodeMemoryBudget,
@@ -176,7 +177,7 @@ class FfiWorkerPool {
           onResponse: (msg) => {
             if (msg.type !== type) return false;
             if (msg.ok) resolve(true);
-            else if (msg.error) reject(new Error(msg.error));
+            else if (msg.error) reject(developRejection(msg.error, payload.rawPath));
             else resolve(false);
             return true;
           },
