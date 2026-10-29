@@ -46,6 +46,7 @@
     },
     {
       "name": "film-luts",
+      "version": 2,
       "urls": ["/film-luts/*.mlut"],
       "cacheConfig": {
         "strategy": "performance",
