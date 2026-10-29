@@ -95,13 +95,7 @@ fn auto_has_fit(
     }) {
         return true;
     }
-    match source {
-        Some(RawInput::Path(path)) => auto_profile::preview::extract_for_fit(path).is_some(),
-        Some(RawInput::Bytes { bytes, ext }) => {
-            auto_profile::preview::extract_for_fit_from_bytes(bytes, ext).is_some()
-        }
-        None => false,
-    }
+    source.is_some_and(|source| auto_fit::preview_for_fit(&source, key.as_ref()).is_ok())
 }
 
 fn finish(

@@ -343,20 +343,18 @@ fn render_display_scene_with_context_cancellable(
         .as_ref()
         .and_then(auto_profile::cache::get_lut);
     let cached_curve = auto_cache_key.as_ref().and_then(auto_profile::cache::get);
-    let preview = if !auto_profile_disabled
-        && model.profile == Profile::Auto
-        && (cached_curve.is_none() || cached_lut.is_none())
-    {
-        match &raw_source {
-            Some(RawInput::Path(p)) => auto_profile::preview::extract_for_fit(p),
-            Some(RawInput::Bytes { bytes, ext }) => {
-                auto_profile::preview::extract_for_fit_from_bytes(bytes, ext)
-            }
-            None => None,
+    let probe = match &raw_source {
+        Some(source)
+            if !auto_profile_disabled
+                && model.profile == Profile::Auto
+                && (cached_curve.is_none() || cached_lut.is_none()) =>
+        {
+            Some(auto_fit::preview_for_fit(source, auto_cache_key.as_ref()))
         }
-    } else {
-        None
+        _ => None,
     };
+    let missing_preview = probe.as_ref().and_then(|p| p.as_ref().err().copied());
+    let preview = probe.and_then(std::result::Result::ok);
     let auto_will_fit = cached_curve.is_some() || cached_lut.is_some() || preview.is_some();
     // Profile::Auto pins auto-exposure OFF because the Auto Profile tail owns the
     // scene→JPEG brightness mapping: the #550 curve is fit against the AE-Off
@@ -483,12 +481,14 @@ fn render_display_scene_with_context_cancellable(
             active_model: active_model.clone(),
             ae_gain,
             whites_anchor_ev,
-            auto_fit: (model.profile == Profile::Auto).then(|| match &raw_source {
-                _ if artifacts.0.is_some() || artifacts.1.is_some() => AutoFitOutcome::Applied,
-                Some(source) if !auto_profile_disabled => {
-                    auto_fit::unapplied_outcome(source, auto_will_fit)
+            auto_fit: (model.profile == Profile::Auto).then(|| {
+                if artifacts.0.is_some() || artifacts.1.is_some() {
+                    AutoFitOutcome::Applied
+                } else {
+                    missing_preview
+                        .filter(|_| !auto_will_fit)
+                        .unwrap_or(AutoFitOutcome::Unfitted)
                 }
-                _ => AutoFitOutcome::Unfitted,
             }),
             profile_curve: artifacts.0,
             profile_lut: artifacts.1,
