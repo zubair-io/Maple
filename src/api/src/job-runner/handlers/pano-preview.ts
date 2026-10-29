@@ -65,12 +65,13 @@ const cancelled = (): JobHandlerResult => ({
 export const panoPreviewHandler: JobHandler = {
   async run(rawPayload, ctx) {
     const payload = parsePayload(rawPayload);
-    await sweepStalePreviews(alignmentDir(payload));
-    // A superseded preview is cancelled while still queued; skip it outright.
+    // A superseded preview is cancelled while still queued; skip it before the
+    // sweep, which could otherwise remove the alignment a queued stitch reads.
     if (await ctx.shouldCancel()) {
       await removePreviewDir(payload.outputDir);
       return cancelled();
     }
+    await sweepStalePreviews(alignmentDir(payload));
     try {
       const inputPaths = await resolveInputPaths(payload.assetIds);
       await mkdir(payload.outputDir, { recursive: true });

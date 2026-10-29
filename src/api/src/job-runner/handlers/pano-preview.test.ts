@@ -247,6 +247,23 @@ describe('preview directories', () => {
     expect(await exists(other)).toBe(false);
     await fs.rm(inUse, { recursive: true, force: true });
   });
+
+  it('a superseded preview sweeps nothing, so a queued stitch keeps its alignment', async () => {
+    const stitchAlignment = newPreviewDir();
+    await fs.mkdir(stitchAlignment, { recursive: true });
+    const old = new Date(Date.now() - PREVIEW_TTL_MS - 60_000);
+    await fs.utimes(stitchAlignment, old, old);
+    const cli = await writeFakePanoCli(tmpDir, { preview: true });
+
+    const outcome = await panoPreviewHandler.run(
+      payload(cli, newPreviewDir()),
+      context(() => true).ctx,
+    );
+
+    expect(outcome.kind).toBe('cancelled');
+    expect(await exists(stitchAlignment)).toBe(true);
+    await fs.rm(stitchAlignment, { recursive: true, force: true });
+  });
 });
 
 describe('pano and the decode memory budget (#5467)', () => {

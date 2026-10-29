@@ -53,13 +53,12 @@ async function fencedOutBy(err: unknown): Promise<JobWithId> {
 export async function admitPanoStitch(payload: PanoJobPayload): Promise<StitchAdmission> {
   const active = await activePanoJob('pano_stitch');
   if (active !== null) return againstActive(active, payload);
-  try {
-    const created = await createJob({ kind: 'pano_stitch', payload });
-    await supersedeActivePreviews();
-    return { created };
-  } catch (err) {
-    return againstActive(await fencedOutBy(err), payload);
-  }
+  const created = await createJob({ kind: 'pano_stitch', payload }).catch(async (err: unknown) =>
+    againstActive(await fencedOutBy(err), payload),
+  );
+  if (!('_id' in created)) return created;
+  await supersedeActivePreviews();
+  return { created };
 }
 
 export type PreviewAdmission = { created: JobWithId; superseded: number } | { running: JobWithId };
