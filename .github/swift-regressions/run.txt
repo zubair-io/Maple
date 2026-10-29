@@ -435,6 +435,10 @@ ServerPanoPreviewSupersedeTests
 PanoMLEnvironmentTests
 PanoAlignmentHandoffTests
 
+# Panorama output names: a stitch never replaces an existing file, and
+# claiming a name writes nothing.
+PanoOutputDestinationTests
+
 # RGB bias precision (#4667): generated large images, no external fixtures.
 CIEDE2000BiasTests
 

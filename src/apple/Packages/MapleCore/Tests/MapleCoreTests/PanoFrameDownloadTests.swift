@@ -504,8 +504,8 @@ private final class LocalCopyRecorder: PanoStitching {
     let download = PanoFrameDownload(
       fetcher: FakeFetcher(sizes: [:]), root: root.appending(path: "cache"),
       networkCost: { wifi })
-    let output = RustPanoStitcher(outputDirectory: download.outputDirectory)
-      .outputURL(near: localFirst)
+    let output = try RustPanoStitcher(outputDirectory: download.outputDirectory)
+      .reserveOutputURL(near: localFirst)
     #expect(output.deletingLastPathComponent() == download.outputDirectory)
     #expect(
       try FileManager.default.contentsOfDirectory(atPath: originals.path) == ["AAA_0001.DNG"])
