@@ -8,9 +8,10 @@
 //! ticks on the same RAW reuse the previously fitted curve.
 //!
 //! Key shapes (see [`CacheKey`]):
-//! - [`CacheKey::Path`] — `(canonical path, mtime, quality, origin)` for
-//!   native callers. Mtime catches "user re-edited and re-exported the RAW out from
-//!   under us"; the path discriminates between fixtures.
+//! - [`CacheKey::Path`] — `(canonical path, mtime, length, quality, origin)`
+//!   for native callers. Mtime and length catch "the RAW was rewritten out from
+//!   under us" (a copy that preserves mtime still changes length while it is
+//!   partial); the path discriminates between fixtures.
 //! - [`CacheKey::Bytes`] — `(hash, quality, origin)`, where the hash is a 64-bit
 //!   blake3 digest of the first 64 KB + last 64 KB + total length of the
 //!   bytes. Full blake3 of a 50 MB RAW alone is ~50 ms (would defeat the
@@ -28,6 +29,13 @@
 //! a fit would produce, and a warm entry is always exactly what a cold fit
 //! would re-compute. Both caches live only for the process, so a change to
 //! the fitting code never meets an entry an older build stored (#5162).
+//!
+//! The curve LRU also records a key's "no embedded preview" verdict (#5485):
+//! a source that was read and yielded no preview has nothing to fit, and the
+//! verdict is a pure function of the source bytes like the artifacts are, so
+//! it shares their key, capacity and eviction. Without it every slider tick on
+//! a preview-less RAW re-ran the full extraction. A source that could not be
+//! read is never recorded — that is a transient failure, not a verdict.
 //!
 //! The fit's [`FitOrigin`] joined the key in #3233 / #3235 — see its doc for
 //! the three producers that used to collide on one key.
@@ -56,7 +64,8 @@ use super::lut::ColorLut;
 /// Shared capacity, in entries, of BOTH the curve and LUT caches. The two
 /// stores are touched with the same keys in the same order (a fit inserts
 /// both; a render bumps both), so equal capacities keep them evicting in
-/// lockstep — a curve can't outlive its paired residual by 24 generations the
+/// near-lockstep (no-preview verdicts occupy curve slots only, #5485) — a
+/// curve can't outlive its paired residual by 24 generations the
 /// way the old 32-vs-8 split allowed (#1085). Sized for the LUT, the larger
 /// artifact: a 49³ [`ColorLut`] is 49³×3×4 ≈ 1.4 MB, so 32 entries cap at
 /// ~45 MB — still well under one decoded frame (a 100 MP f32 buffer is
@@ -111,6 +120,7 @@ pub enum CacheKey {
     Path {
         path: PathBuf,
         mtime: SystemTime,
+        len: u64,
         quality: RenderQuality,
         origin: FitOrigin,
     },
@@ -137,6 +147,7 @@ impl CacheKey {
         Some(CacheKey::Path {
             path: canonical,
             mtime,
+            len: meta.len(),
             quality,
             origin: FitOrigin::Standalone,
         })
@@ -148,11 +159,13 @@ impl CacheKey {
             CacheKey::Path {
                 path,
                 mtime,
+                len,
                 quality,
                 ..
             } => CacheKey::Path {
                 path,
                 mtime,
+                len,
                 quality,
                 origin,
             },
@@ -208,8 +221,16 @@ impl CacheKey {
     }
 }
 
+// At most CAPACITY slots exist; boxing the curve would add an allocation to every hit.
+#[allow(clippy::large_enum_variant)]
+#[derive(Clone)]
+enum CurveSlot {
+    Fitted(ProfileCurve),
+    NoPreview,
+}
+
 struct LruInner {
-    map: HashMap<CacheKey, ProfileCurve>,
+    map: HashMap<CacheKey, CurveSlot>,
     order: VecDeque<CacheKey>,
 }
 
@@ -227,29 +248,20 @@ fn cell() -> &'static Mutex<LruInner> {
     CELL.get_or_init(|| Mutex::new(LruInner::new()))
 }
 
-/// Look up `key` in the cache. Returns a clone of the cached curve on
-/// hit, `None` on miss. The clone keeps the API simple — callers don't
-/// hold the lock past the lookup, and `ProfileCurve` is ~2 KB so the
-/// copy is well below the budget the cache exists to protect.
-pub fn get(key: &CacheKey) -> Option<ProfileCurve> {
+fn lookup(key: &CacheKey) -> Option<CurveSlot> {
     let mut guard = cell().lock().ok()?;
-    let curve = guard.map.get(key).cloned()?;
-    // Move the key to the back of the order queue (most-recently used).
+    let slot = guard.map.get(key).cloned()?;
     if let Some(pos) = guard.order.iter().position(|k| k == key) {
         let k = guard.order.remove(pos).unwrap();
         guard.order.push_back(k);
     }
-    Some(curve)
+    Some(slot)
 }
 
-/// Insert `curve` under `key`. Evicts the oldest entry when at capacity.
-/// If `key` is already present, replaces the value in place and bumps it
-/// to the most-recently-used end of the order queue.
-pub fn insert(key: CacheKey, curve: ProfileCurve) {
+fn store(key: CacheKey, slot: CurveSlot) {
     let Ok(mut guard) = cell().lock() else { return };
     if guard.map.contains_key(&key) {
-        // Update value + bump to MRU.
-        guard.map.insert(key.clone(), curve);
+        guard.map.insert(key.clone(), slot);
         if let Some(pos) = guard.order.iter().position(|k| k == &key) {
             let k = guard.order.remove(pos).unwrap();
             guard.order.push_back(k);
@@ -262,7 +274,47 @@ pub fn insert(key: CacheKey, curve: ProfileCurve) {
         }
     }
     guard.order.push_back(key.clone());
-    guard.map.insert(key, curve);
+    guard.map.insert(key, slot);
+}
+
+/// Look up `key` in the cache. Returns a clone of the cached curve on
+/// hit, `None` on miss or a recorded no-preview verdict, and bumps the entry
+/// to most-recently-used. The clone keeps the API simple — callers don't
+/// hold the lock past the lookup, and `ProfileCurve` is ~2 KB so the
+/// copy is well below the budget the cache exists to protect.
+pub fn get(key: &CacheKey) -> Option<ProfileCurve> {
+    match lookup(key)? {
+        CurveSlot::Fitted(curve) => Some(curve),
+        CurveSlot::NoPreview => None,
+    }
+}
+
+/// Insert `curve` under `key`. Evicts the oldest entry when at capacity.
+/// If `key` is already present, replaces the value in place and bumps it
+/// to the most-recently-used end of the order queue.
+pub fn insert(key: CacheKey, curve: ProfileCurve) {
+    store(key, CurveSlot::Fitted(curve));
+}
+
+/// Whether `key`'s source was already read and found to carry no embedded
+/// preview (#5485).
+pub fn has_no_preview(key: &CacheKey) -> bool {
+    cell()
+        .lock()
+        .is_ok_and(|guard| matches!(guard.map.get(key), Some(CurveSlot::NoPreview)))
+}
+
+/// Record that `key`'s source was read and yielded no embedded preview. Only
+/// for that definitive verdict — never for a source that could not be read.
+/// A fitted curve already under `key` proves a preview existed, so the
+/// verdict never replaces it.
+pub fn insert_no_preview(key: CacheKey) {
+    let already_fitted = cell()
+        .lock()
+        .is_ok_and(|guard| matches!(guard.map.get(&key), Some(CurveSlot::Fitted(_))));
+    if !already_fitted {
+        store(key, CurveSlot::NoPreview);
+    }
 }
 
 // ---------------------------------------------------------------------------

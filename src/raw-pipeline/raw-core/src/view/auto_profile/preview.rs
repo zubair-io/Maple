@@ -70,12 +70,19 @@ pub enum JpegColorSpace {
 /// `exiftool -b -JpgFromRaw`. Returns `None` for any failure or when
 /// exiftool is unavailable.
 pub fn extract_preview<P: AsRef<Path>>(path: P) -> Option<DynamicImage> {
-    if let Ok(src) = RawSource::new(path.as_ref()) {
-        if let Some(img) = extract_preview_from_rawsource(&src) {
-            return Some(img);
-        }
+    extract_preview_checked(path.as_ref()).ok().flatten()
+}
+
+/// [`extract_preview`], telling "no tier yielded a preview" (`Ok(None)`) apart
+/// from "the file could not be opened" (`Err`), which says nothing about it.
+fn extract_preview_checked(path: &Path) -> std::io::Result<Option<DynamicImage>> {
+    match RawSource::new(path).map(|src| extract_preview_from_rawsource(&src)) {
+        Ok(Some(img)) => Ok(Some(img)),
+        in_process => match exiftool_preview(path)? {
+            Some(img) => Ok(Some(img)),
+            None => in_process,
+        },
     }
-    extract_preview_via_exiftool(path.as_ref())
 }
 
 /// A decoded embedded preview plus its detected color space — the unit the
@@ -95,13 +102,23 @@ pub struct ExtractedPreview {
 /// bundle every Auto Profile fit shares (#1085). Path variant (exiftool
 /// fallback included via [`extract_preview`]).
 pub fn extract_for_fit<P: AsRef<Path>>(path: P) -> Option<ExtractedPreview> {
-    let image = extract_preview(path.as_ref())?;
-    let color_space = detect_jpeg_color_space(path.as_ref());
-    Some(ExtractedPreview { image, color_space })
+    probe_for_fit(path.as_ref()).ok().flatten()
+}
+
+/// [`extract_for_fit`] that keeps the definitive `Ok(None)` (the file was read
+/// and carries no preview) apart from `Err` (it could not be opened, #5485).
+pub fn probe_for_fit(path: &Path) -> std::io::Result<Option<ExtractedPreview>> {
+    Ok(
+        extract_preview_checked(path)?.map(|image| ExtractedPreview {
+            image,
+            color_space: detect_jpeg_color_space(path),
+        }),
+    )
 }
 
 /// Bytes/WASM mirror of [`extract_for_fit`] (no exiftool tier — see
-/// [`extract_preview_from_bytes`]).
+/// [`extract_preview_from_bytes`]). The bytes are already in memory, so
+/// `None` is always definitive.
 pub fn extract_for_fit_from_bytes(bytes: &[u8], ext: &str) -> Option<ExtractedPreview> {
     let image = extract_preview_from_bytes(bytes, ext)?;
     let color_space = detect_jpeg_color_space_from_bytes(bytes, ext);
@@ -387,17 +404,40 @@ pub(super) fn detect_jpeg_color_space_from_rawsource(raw_src: &RawSource<'_>) ->
 }
 
 pub(super) fn extract_preview_via_exiftool(path: &Path) -> Option<DynamicImage> {
+    exiftool_preview(path).ok().flatten()
+}
+
+/// `Err` only for a failure that may pass (a spawn refused for resources, a
+/// killed process); a host without a usable exiftool answers `Ok(None)`.
+fn exiftool_preview(path: &Path) -> std::io::Result<Option<DynamicImage>> {
     for tag in ["-PreviewImage", "-JpgFromRaw"] {
-        let out = Command::new("exiftool")
+        let out = match Command::new("exiftool")
             .args(["-b", tag, "--"])
             .arg(path)
             .output()
-            .ok()?;
+        {
+            Ok(out) => out,
+            Err(e) if exiftool_unavailable(&e) => return Ok(None),
+            Err(e) => return Err(e),
+        };
+        if out.status.code().is_none() {
+            return Err(std::io::Error::other("exiftool terminated by a signal"));
+        }
         if out.status.success() && !out.stdout.is_empty() {
             if let Ok(img) = image::load_from_memory(&out.stdout) {
-                return Some(img);
+                return Ok(Some(img));
             }
         }
     }
-    None
+    Ok(None)
+}
+
+/// Not installed, denied by the sandboxed Apple apps, or no processes at all
+/// (WASM): permanent properties of the host, not transient failures.
+fn exiftool_unavailable(error: &std::io::Error) -> bool {
+    use std::io::ErrorKind;
+    matches!(
+        error.kind(),
+        ErrorKind::NotFound | ErrorKind::PermissionDenied | ErrorKind::Unsupported
+    )
 }

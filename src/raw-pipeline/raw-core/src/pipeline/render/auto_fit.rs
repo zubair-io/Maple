@@ -150,33 +150,33 @@ fn downsample_preview_for_fit(
     preview
 }
 
-/// The outcome of an Auto fit that produced no artifacts. `NoPreview` only
-/// when the source opened and yielded nothing; an unreadable path is a read
-/// failure, not a missing preview.
-pub(super) fn unapplied_outcome(
+/// The embedded preview the Auto fits share — ONE extraction per cold fit
+/// (#1085) — or why there is none: `NoPreview` when the source was read and
+/// yielded nothing, `Unfitted` when it could not be read. The definitive
+/// verdict is recorded under `key` so later renders of the same source skip
+/// the extraction (#5485); a read failure is not, so a retry can still fit.
+pub(super) fn preview_for_fit(
     raw_source: &RawInput<'_>,
-    fit_input_available: bool,
-) -> AutoFitOutcome {
-    // Short-circuit: the open is a syscall (an SMB round-trip) on the slider-tick path.
-    if fit_input_available
-        || matches!(raw_source, RawInput::Path(p) if std::fs::File::open(p).is_err())
-    {
-        AutoFitOutcome::Unfitted
-    } else {
-        AutoFitOutcome::NoPreview
+    key: Option<&CacheKey>,
+) -> std::result::Result<ExtractedPreview, AutoFitOutcome> {
+    if key.is_some_and(auto_profile::cache::has_no_preview) {
+        return Err(AutoFitOutcome::NoPreview);
     }
-}
-
-/// Extract the embedded preview (+ color space) for `raw_source` — ONE
-/// extraction shared by the curve fit, the residual fit, and the render
-/// path's will-it-fit probe (#1085 perf companion: pre-fix the cold Auto
-/// render extracted + JPEG-decoded the preview three times).
-fn extract_preview_for_fit(raw_source: &RawInput<'_>) -> Option<ExtractedPreview> {
-    match raw_source {
-        RawInput::Path(p) => auto_profile::preview::extract_for_fit(p),
-        RawInput::Bytes { bytes, ext } => {
-            auto_profile::preview::extract_for_fit_from_bytes(bytes, ext)
+    let probe = match raw_source {
+        RawInput::Path(p) => auto_profile::preview::probe_for_fit(p),
+        RawInput::Bytes { bytes, ext } => Ok(auto_profile::preview::extract_for_fit_from_bytes(
+            bytes, ext,
+        )),
+    };
+    match probe {
+        Ok(Some(preview)) => Ok(preview),
+        Ok(None) => {
+            if let Some(key) = key {
+                auto_profile::cache::insert_no_preview(key.clone());
+            }
+            Err(AutoFitOutcome::NoPreview)
         }
+        Err(_) => Err(AutoFitOutcome::Unfitted),
     }
 }
 
@@ -228,7 +228,7 @@ pub fn fit_profile_curve_from_raw(
         return Some(c);
     }
     // Extract BEFORE the multi-second develop — no preview ⇒ no fit possible.
-    let preview = extract_preview_for_fit(&raw_source)?;
+    let preview = preview_for_fit(&raw_source, auto_cache_key.as_ref()).ok()?;
     // Develop the fit at the proxy edge (#3510; #1637/#1647 for the memory
     // side) and shrink the JPEG to match so the pair the curve fits over is
     // ~1.5 MP, not the full embedded preview.
@@ -345,12 +345,12 @@ pub fn fit_auto_profile_from_raw_at_cap(
     // residual (a legitimately-`None` residual can't be distinguished from
     // "never fit" via the cache, but the host caches the baked artifacts, so
     // this re-fits at most once per image).
-    let preview = extract_preview_for_fit(&raw_source);
-    let preview_found = preview.is_some();
+    let preview = preview_for_fit(&raw_source, auto_cache_key.as_ref());
+    let missing_preview = preview.as_ref().err().copied();
     let (curve, residual) = match preview {
         // No embedded preview: nothing beyond the cache can be fit.
-        None => (cached_curve, cached_lut),
-        Some(preview) => {
+        Err(_) => (cached_curve, cached_lut),
+        Ok(preview) => {
             // Proxy develop + matching JPEG shrink (#3510) — or, for the
             // evidence harness only, the pre-#3510 native develop.
             let mle = match cap {
@@ -384,7 +384,7 @@ pub fn fit_auto_profile_from_raw_at_cap(
 
     let curve = render_curve(curve);
     if curve.is_none() && residual.is_none() {
-        return Err(unapplied_outcome(&raw_source, preview_found));
+        return Err(missing_preview.unwrap_or(AutoFitOutcome::Unfitted));
     }
     let k = auto_profile::lut::lut_strength_from_env();
     let residual = if k == 1.0 {
