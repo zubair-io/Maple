@@ -16,7 +16,7 @@
 // finished preview to the stitch as `alignmentFrom`, so the full stitch does
 // not repeat feature matching.
 //
-// Parent binds [visible] and [assetIds] and listens for (dismiss).
+// Parent binds [visible] and [assetIds] and listens for (dismiss) and (created).
 
 import {
   ChangeDetectionStrategy,
@@ -63,6 +63,10 @@ const SETTINGS_FIXABLE_ERRORS: ReadonlySet<string> = new Set([
   'pano_cli_outdated',
 ]);
 
+const DEFAULT_RETENTION: PanoRetention = 'keep';
+const DEFAULT_LOCAL_ALIGN: PanoLocalAlign = 'mesh';
+const DEFAULT_STRATEGY: PanoStrategy = 'auto';
+
 function stitchErrorMessage(err: HttpErrorResponse, code: string): string {
   if (err.status === 409 && SETTINGS_FIXABLE_ERRORS.has(code)) return err.error.message;
   if (err.status === 409 && code === 'pano_job_running') {
@@ -87,6 +91,8 @@ export class PanoDialogComponent implements OnDestroy {
   readonly assetIds = input<string[]>([]);
   /** Emitted when the dialog should close (done, error, or user cancel). */
   readonly dismiss = output<void>();
+  /** Emitted once a stitch finishes and its panorama has been imported. */
+  readonly created = output<void>();
 
   // ── services ───────────────────────────────────────────────────────────────
   private readonly pano = inject(PanoService);
@@ -107,9 +113,9 @@ export class PanoDialogComponent implements OnDestroy {
   readonly stitchMatcherNote = computed(() => this.job()?.result?.matcherNote ?? null);
 
   // ── option model (two-way signals) ────────────────────────────────────────
-  readonly retention = signal<PanoRetention>('keep');
-  readonly localAlign = signal<PanoLocalAlign>('mesh');
-  readonly strategy = signal<PanoStrategy>('auto');
+  readonly retention = signal<PanoRetention>(DEFAULT_RETENTION);
+  readonly localAlign = signal<PanoLocalAlign>(DEFAULT_LOCAL_ALIGN);
+  readonly strategy = signal<PanoStrategy>(DEFAULT_STRATEGY);
 
   readonly strategySupported = computed(() => this.config()?.strategy_supported ?? false);
   readonly previewSupported = computed(() => this.config()?.preview_supported ?? false);
@@ -129,6 +135,9 @@ export class PanoDialogComponent implements OnDestroy {
   });
 
   private pollSub: Subscription | null = null;
+  /** Bumped whenever the dialog goes away, so a stitch response that lands
+   * afterwards knows nobody is watching its job. */
+  private submitGeneration = 0;
 
   constructor() {
     // Load config when the dialog opens.
@@ -143,6 +152,10 @@ export class PanoDialogComponent implements OnDestroy {
         this.errorMessage.set('');
         this.errorCode.set('');
         this.job.set(null);
+        this.retention.set(DEFAULT_RETENTION);
+        this.localAlign.set(DEFAULT_LOCAL_ALIGN);
+        this.strategy.set(DEFAULT_STRATEGY);
+        this._abandonSubmit();
         this._stopPolling();
       }
     });
@@ -159,6 +172,7 @@ export class PanoDialogComponent implements OnDestroy {
   }
 
   ngOnDestroy(): void {
+    this._abandonSubmit();
     this._stopPolling();
   }
 
@@ -250,13 +264,19 @@ export class PanoDialogComponent implements OnDestroy {
     const alignmentFrom = this.preview.alignmentFrom();
     this.preview.cancel();
     this.phase.set('submitting');
+    const generation = this.submitGeneration;
     this.pano.stitch({ ...built.request, ...(alignmentFrom ? { alignmentFrom } : {}) }).subscribe({
       next: ({ id }) => {
+        if (generation !== this.submitGeneration) {
+          this.pano.cancelJob(id).subscribe();
+          return;
+        }
         this.errorMessage.set('');
         this.phase.set('polling');
         this._startPolling(id);
       },
       error: (err: HttpErrorResponse) => {
+        if (generation !== this.submitGeneration) return;
         const code: string = err.error?.error ?? '';
         this.errorCode.set(code);
         this.errorMessage.set(stitchErrorMessage(err, code));
@@ -271,6 +291,7 @@ export class PanoDialogComponent implements OnDestroy {
       this.pano.cancelJob(j.id).subscribe();
     }
     this.preview.cancel();
+    this._abandonSubmit();
     this._stopPolling();
     this.dismiss.emit();
   }
@@ -309,6 +330,7 @@ export class PanoDialogComponent implements OnDestroy {
           if (j.status === 'done') {
             this.phase.set('done');
             this._stopPolling();
+            this.created.emit();
           } else if (j.status === 'failed' || j.status === 'cancelled') {
             this.errorMessage.set(
               j.status === 'cancelled'
@@ -324,6 +346,10 @@ export class PanoDialogComponent implements OnDestroy {
           this.phase.set('error');
         },
       });
+  }
+
+  private _abandonSubmit(): void {
+    this.submitGeneration += 1;
   }
 
   private _stopPolling(): void {

@@ -39,6 +39,12 @@ const MATCHER_OPTIONS: readonly MuiSegmentedToggleOption[] = [
   { value: 'ml', label: 'ML' },
 ];
 
+/** The API rejects with `{ error: <reason> }` (`routes/pano.ts`); `message`
+ * covers framework-level bodies such as request-validation failures. */
+function serverErrorMessage(err: HttpErrorResponse): string | undefined {
+  return err.error?.error ?? err.error?.message;
+}
+
 type SaveState =
   | { kind: 'idle' }
   | { kind: 'saving' }
@@ -108,7 +114,7 @@ export class PanoSettingsComponent implements OnInit {
         this.loading.set(false);
       },
       error: (err: HttpErrorResponse) => {
-        this.loadError.set(err.error?.message ?? 'Failed to load pano configuration.');
+        this.loadError.set(serverErrorMessage(err) ?? 'Failed to load pano configuration.');
         this.loading.set(false);
       },
     });
@@ -165,7 +171,7 @@ export class PanoSettingsComponent implements OnInit {
         error: (err: HttpErrorResponse) => {
           this.saveState.set({
             kind: 'error',
-            message: err.error?.message ?? 'Save failed.',
+            message: serverErrorMessage(err) ?? 'Save failed.',
           });
         },
       });

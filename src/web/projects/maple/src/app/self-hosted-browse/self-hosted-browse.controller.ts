@@ -58,6 +58,15 @@ export class SelfHostedBrowseController {
     this.panoAssetIds.set([]);
   }
 
+  /** The server writes the result into a `Panoramas/` subfolder of the frames'
+   * folder (`pano-output-location.ts`), creating it on the first stitch, so
+   * re-list the open folder and the tree for that subfolder to appear without
+   * waiting on the change feed; the re-list is idempotent if the feed also
+   * delivers it. Opening the subfolder revalidates its own listing. */
+  onPanoCreated(): void {
+    this.refreshCurrentFolder();
+  }
+
   /** The currently-selected assets, resolved against the selected folder's
    * live asset list — shared by every action that operates on "whatever is
    * selected right now" (`openMetadata`, `openBatchRename`). `null` when
@@ -72,7 +81,7 @@ export class SelfHostedBrowseController {
   /** Re-sync the folder tree and, if the current source is a live Self
    * Hosted subfolder, reopen it — shared by every action whose completion
    * can change filenames/addresses under the current folder
-   * (`dismissMetadata`, `onBatchRenameApplied`). */
+   * (`dismissMetadata`, `onBatchRenameApplied`, `onPanoCreated`). */
   private refreshCurrentFolder(): void {
     this.state.loadFolderTree();
     const currentId = this.state.selectedSourceId();

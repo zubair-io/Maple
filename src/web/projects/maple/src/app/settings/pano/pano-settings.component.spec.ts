@@ -248,4 +248,37 @@ describe('PanoSettingsComponent', () => {
     fixture.detectChanges();
     expect((fixture.nativeElement as HTMLElement).textContent).toContain('boom');
   });
+
+  it("shows the server's rejection reason when a save is refused (#5517)", async () => {
+    await load();
+    clickSave();
+    const reason =
+      'maple_cli_path must not point inside a library root (/photos); the server executes it';
+    http
+      .expectOne((r) => r.method === 'PUT' && r.url === '/api/pano/config')
+      .flush({ error: reason }, { status: 400, statusText: 'Bad Request' });
+    fixture.detectChanges();
+    const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
+    expect(text).toContain(reason);
+    expect(text).not.toContain('Save failed.');
+  });
+
+  it('shows the owner-gate rejection rather than a generic failure (#5517)', async () => {
+    await load();
+    clickSave();
+    http
+      .expectOne((r) => r.method === 'PUT' && r.url === '/api/pano/config')
+      .flush({ error: 'owner role required' }, { status: 403, statusText: 'Forbidden' });
+    fixture.detectChanges();
+    expect((fixture.nativeElement as HTMLElement).textContent).toContain('owner role required');
+  });
+
+  it('shows the load error from the API error field (#5517)', () => {
+    fixture.detectChanges();
+    http
+      .expectOne('/api/pano/config')
+      .flush({ error: 'unauthorized' }, { status: 401, statusText: 'Unauthorized' });
+    fixture.detectChanges();
+    expect((fixture.nativeElement as HTMLElement).textContent).toContain('unauthorized');
+  });
 });
