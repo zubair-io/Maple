@@ -71,7 +71,7 @@ final class WorkingSetEnumerator: NSObject, NSFileProviderEnumerator {
                 }
                 // An entry whose library isn't listed is left out rather
                 // than shown at the top level (#5503).
-                let roots = try await libraryRoots()
+                let roots = try await libraryRoots(covering: Set(entries.map(\.folderID)))
                 for start in stride(from: 0, to: entries.count, by: Self.enumerationBatchSize) {
                     let batch = entries[start..<min(start + Self.enumerationBatchSize, entries.count)]
                     observer.didEnumerate(batch.compactMap { e -> MapleItem? in
@@ -120,7 +120,7 @@ final class WorkingSetEnumerator: NSObject, NSFileProviderEnumerator {
                 // and resolves against the cached list via
                 // `Self.resolveParent(folderID:absPath:roots:)`; mirror
                 // that here (Copilot review, PR #2687).
-                let roots = try await libraryRoots()
+                let roots = try await libraryRoots(covering: Set(page.changes.compactMap(\.folderID)))
                 let resolution = await WorkingSetChangeResolver.resolveChanges(
                     page.changes, catalog: catalog, roots: roots,
                     workingSet: workingSet, log: log
@@ -210,10 +210,17 @@ final class WorkingSetEnumerator: NSObject, NSFileProviderEnumerator {
     // MARK: - Helpers
 
     /// Loaded once per call; a failure fails the call so the OS retries,
-    /// instead of resolving every item against an empty list. No rootCache
-    /// means no libraries to match.
-    private func libraryRoots() async throws -> [LibraryRoot] {
-        try await rootCache?.roots() ?? []
+    /// instead of resolving every item against an empty list. The served
+    /// list may predate a library added since, so one that misses any of
+    /// `folderIDs` is fetched fresh once; an asset whose library is still
+    /// absent is skipped and its change consumed, since no folder of
+    /// Maple's can show it either. No rootCache means no libraries.
+    private func libraryRoots(covering folderIDs: Set<String>) async throws -> [LibraryRoot] {
+        guard let rootCache else { return [] }
+        let served = try await rootCache.roots()
+        guard !folderIDs.subtracting([""]).isSubset(of: Set(served.map(\.id))) else { return served }
+        await rootCache.invalidate()
+        return try await rootCache.roots()
     }
 
     /// The folder an asset sits in, or nil when its library is not in
