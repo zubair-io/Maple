@@ -43,31 +43,52 @@ export type StitchAdmission =
 const againstActive = (active: JobWithId, payload: PanoJobPayload): StitchAdmission =>
   repeatsRunningStitch(active, payload) ? { rejoined: active } : { running: active };
 
-/** The stitch that holds the slot after a fenced insert was refused. */
-async function fencedOutBy(err: unknown): Promise<JobWithId> {
-  const winner = err instanceof JobConflictError ? await activePanoJob('pano_stitch') : null;
-  if (winner === null) throw err;
-  return winner;
+/** A fenced insert can be refused by a stitch that finishes before it is read
+ * back; the slot is then free, so admission is simply tried again. */
+const ADMISSION_ATTEMPTS = 3;
+
+type InsertOutcome = { created: JobWithId } | { winner: JobWithId | null; refusal: unknown };
+
+/** The new job, or the stitch holding the slot when the fence refused it
+ * (null when that stitch has already finished). */
+async function insertOrWinner(
+  kind: 'pano_stitch' | 'pano_preview',
+  payload: PanoJobPayload,
+): Promise<InsertOutcome> {
+  try {
+    return { created: await createJob({ kind, payload }) };
+  } catch (err) {
+    if (!(err instanceof JobConflictError)) throw err;
+    return { winner: await activePanoJob('pano_stitch'), refusal: err };
+  }
 }
 
-export async function admitPanoStitch(payload: PanoJobPayload): Promise<StitchAdmission> {
+export async function admitPanoStitch(
+  payload: PanoJobPayload,
+  attemptsLeft = ADMISSION_ATTEMPTS,
+): Promise<StitchAdmission> {
   const active = await activePanoJob('pano_stitch');
   if (active !== null) return againstActive(active, payload);
-  const created = await createJob({ kind: 'pano_stitch', payload }).catch(async (err: unknown) =>
-    againstActive(await fencedOutBy(err), payload),
-  );
-  if (!('_id' in created)) return created;
-  await supersedeActivePreviews();
-  return { created };
+  const outcome = await insertOrWinner('pano_stitch', payload);
+  if ('created' in outcome) {
+    await supersedeActivePreviews();
+    return outcome;
+  }
+  if (outcome.winner !== null) return againstActive(outcome.winner, payload);
+  if (attemptsLeft <= 1) throw outcome.refusal;
+  return admitPanoStitch(payload, attemptsLeft - 1);
 }
 
 export type PreviewAdmission = { created: JobWithId; superseded: number } | { running: JobWithId };
 
-export async function admitPanoPreview(payload: PanoJobPayload): Promise<PreviewAdmission> {
+export async function admitPanoPreview(
+  payload: PanoJobPayload,
+  attemptsLeft = ADMISSION_ATTEMPTS,
+): Promise<PreviewAdmission> {
   const superseded = await supersedeActivePreviews();
-  try {
-    return { created: await createJob({ kind: 'pano_preview', payload }), superseded };
-  } catch (err) {
-    return { running: await fencedOutBy(err) };
-  }
+  const outcome = await insertOrWinner('pano_preview', payload);
+  if ('created' in outcome) return { created: outcome.created, superseded };
+  if (outcome.winner !== null) return { running: outcome.winner };
+  if (attemptsLeft <= 1) throw outcome.refusal;
+  return admitPanoPreview(payload, attemptsLeft - 1);
 }

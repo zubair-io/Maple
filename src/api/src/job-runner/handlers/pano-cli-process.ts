@@ -121,12 +121,22 @@ export async function terminateCli(
 ): Promise<void> {
   if (proc.exitCode !== null || proc.signalCode !== null) return;
   proc.kill('SIGTERM');
-  const exitedInGrace = await Promise.race([
-    proc.exited.then(() => true),
-    Bun.sleep(graceMs).then(() => false),
-  ]);
-  if (!exitedInGrace) proc.kill('SIGKILL');
+  if (!(await exitsWithin(proc, graceMs))) proc.kill('SIGKILL');
   await proc.exited;
+}
+
+/** Whether the process exits within `ms`; the timer is cleared either way so
+ * no grace-period wait outlives the process. */
+async function exitsWithin(proc: Bun.Subprocess, ms: number): Promise<boolean> {
+  const timer: { id?: ReturnType<typeof setTimeout> } = {};
+  const deadline = new Promise<boolean>((resolve) => {
+    timer.id = setTimeout(resolve, ms, false);
+  });
+  try {
+    return await Promise.race([proc.exited.then(() => true), deadline]);
+  } finally {
+    clearTimeout(timer.id);
+  }
 }
 
 // The poll races the process exit so it wakes as soon as the CLI is done,
