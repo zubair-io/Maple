@@ -142,7 +142,7 @@ pub(super) fn estimate_min_overlap_width(
             if rows == 0 {
                 continue;
             }
-            min_w = min_w.min(overlap_count[a][b] / rows);
+            min_w = min_w.min(overlap_count[a][b] * stride / rows);
         }
     }
     Ok(if min_w == usize::MAX { 0 } else { min_w })

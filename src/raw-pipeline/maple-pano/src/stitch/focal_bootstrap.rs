@@ -25,7 +25,7 @@ use std::collections::HashMap;
 
 use crate::ba;
 use crate::camera::{focal_px_for_hfov, Camera};
-use crate::graph::{GraphImage, LoopClosureGate, MatchGraph};
+use crate::graph::{DescriptorTopKProvider, GraphImage, LoopClosureGate, MatchGraph};
 use crate::ingest::{FrameMeta, FramePriors};
 use crate::twoview::PixelCorrespondence;
 
@@ -166,13 +166,14 @@ pub(super) fn rebuild_graph_with_focal(
     proxy_images: &[GraphImage],
     cache: &HashMap<(usize, usize), Vec<PixelCorrespondence>>,
     grid: Option<&LoopClosureGate<'_>>,
+    descriptor_topk: Option<&DescriptorTopKProvider>,
     mut fetch: impl FnMut(usize, usize) -> Vec<PixelCorrespondence>,
 ) -> MatchGraph {
-    super::graph_build::build_stitch_graph(proxy_images, grid, None, |a, b| {
-        match cache.get(&(a, b)) {
-            Some(cached) => cached.clone(),
-            None => fetch(a, b),
-        }
+    super::graph_build::build_stitch_graph(proxy_images, grid, descriptor_topk, |a, b| match cache
+        .get(&(a, b))
+    {
+        Some(cached) => cached.clone(),
+        None => fetch(a, b),
     })
 }
 
@@ -200,6 +201,7 @@ pub(super) fn refine_if_needed(
     proxy_images: &mut Vec<GraphImage>,
     raw_matches_cache: &mut Vec<((usize, usize), Vec<PixelCorrespondence>)>,
     grid: Option<&LoopClosureGate<'_>>,
+    descriptor_topk: Option<&DescriptorTopKProvider>,
     mut fetch: impl FnMut(usize, usize) -> Result<Vec<PixelCorrespondence>, String>,
 ) -> Result<(), StitchError> {
     if focal_seed.source != FocalSeedSource::HomographyFallback {
@@ -221,16 +223,23 @@ pub(super) fn refine_if_needed(
         std::mem::take(raw_matches_cache).into_iter().collect();
     let mut newly_fetched: Vec<((usize, usize), Vec<PixelCorrespondence>)> = Vec::new();
     let mut failures: Vec<String> = Vec::new();
-    *graph = rebuild_graph_with_focal(proxy_images, &cache, grid, |a, b| match fetch(a, b) {
-        Ok(corrs) => {
-            newly_fetched.push(((a, b), corrs.clone()));
-            corrs
-        }
-        Err(e) => {
-            failures.push(format!("pair ({a},{b}): {e}"));
-            Vec::new()
-        }
-    });
+    *graph =
+        rebuild_graph_with_focal(
+            proxy_images,
+            &cache,
+            grid,
+            descriptor_topk,
+            |a, b| match fetch(a, b) {
+                Ok(corrs) => {
+                    newly_fetched.push(((a, b), corrs.clone()));
+                    corrs
+                }
+                Err(e) => {
+                    failures.push(format!("pair ({a},{b}): {e}"));
+                    Vec::new()
+                }
+            },
+        );
     *raw_matches_cache = cache.into_iter().chain(newly_fetched).collect();
     if failures.is_empty() {
         Ok(())
