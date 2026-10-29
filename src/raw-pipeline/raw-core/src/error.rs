@@ -89,6 +89,13 @@ pub enum Error {
 }
 
 impl Error {
+    /// raw-ffi's develop return code for [`Self::UnsupportedCamera`] (#5499),
+    /// emitted to the API by codegen (`--schema ffi-status`).
+    pub const UNSUPPORTED_CAMERA_FFI_CODE: i32 = 15;
+    /// How [`Self::UnsupportedCamera`]'s message begins; the API recognises
+    /// the error by it after the message crosses its FFI child's IPC.
+    pub const UNSUPPORTED_CAMERA_MESSAGE_PREFIX: &'static str = "unsupported camera: ";
+
     pub(crate) fn encode(format: &'static str, reason: String) -> Self {
         Self::Encode { format, reason }
     }

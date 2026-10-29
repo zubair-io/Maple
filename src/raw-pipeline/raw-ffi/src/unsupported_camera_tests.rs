@@ -41,8 +41,14 @@ fn unknown_body_develop_returns_the_unsupported_camera_rc() {
             c_path(&out).as_ptr(),
         )
     };
-    assert_eq!(rc, 15);
+    assert_eq!(rc, raw_core::Error::UNSUPPORTED_CAMERA_FFI_CODE);
     assert!(!out.exists());
     let message = unsafe { CStr::from_ptr(maple_last_error()).to_str().unwrap() };
-    assert_eq!(message, format!("unsupported camera: Hasselblad {MODEL}"));
+    assert_eq!(
+        message,
+        format!(
+            "{}Hasselblad {MODEL}",
+            raw_core::Error::UNSUPPORTED_CAMERA_MESSAGE_PREFIX
+        )
+    );
 }

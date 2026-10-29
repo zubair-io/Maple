@@ -14,8 +14,6 @@ use raw_core::{
 };
 use std::ffi::{c_char, CStr};
 
-const RC_UNSUPPORTED_CAMERA: i32 = 15;
-
 /// Develop a RAW with its XMP sidecar applied, downsample to `max_px` on the
 /// long edge, JPEG-encode, and write the result atomically to `out_path`.
 ///
@@ -39,9 +37,9 @@ const RC_UNSUPPORTED_CAMERA: i32 = 15;
 /// end-to-end and JS just reads the file. `quality` is JPEG quality in
 /// [1, 100]; pass 0 for the default (82). The parent dir of `out_path` must
 /// already exist. Returns 0 on success; non-zero on error (call
-/// `maple_last_error`). [`RC_UNSUPPORTED_CAMERA`] (15) means the decoder has no
-/// definition for the camera body: the original is intact but cannot be
-/// developed by this build (#5499).
+/// `maple_last_error`). `raw_core::Error::UNSUPPORTED_CAMERA_FFI_CODE` (15)
+/// means the decoder has no definition for the camera body: the original is
+/// intact but cannot be developed by this build (#5499).
 #[no_mangle]
 pub unsafe extern "C" fn maple_render_develop_jpeg_to_file(
     raw_path: *const c_char,
@@ -118,7 +116,7 @@ pub unsafe extern "C" fn maple_render_develop_jpeg_to_file(
             Ok(r) => r,
             Err(e @ raw_core::Error::UnsupportedCamera { .. }) => {
                 set_last_error(e.to_string());
-                return RC_UNSUPPORTED_CAMERA;
+                return raw_core::Error::UNSUPPORTED_CAMERA_FFI_CODE;
             }
             Err(e) => {
                 set_last_error(format!("decode: {}", e));
