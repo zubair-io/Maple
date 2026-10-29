@@ -173,7 +173,7 @@ extension CloudSource: ImageSource {
   ) async throws {
     let rawURL = try await addresses.url(route: "image", absPath: Self.absPath(from: ref.id))
     let (_, response) = try await httpClient.refreshIfNeededAndRetry(
-      request: URLRequest(url: rawURL)
+      request: Self.uncompressed(URLRequest(url: rawURL))
     ) { request in
       let download = DownloadProgressDelegate(fallbackTotal: nil, onProgress: onProgress)
       let (temporary, response) = try await download.download(for: request)
@@ -187,19 +187,52 @@ extension CloudSource: ImageSource {
     try Self.checkOK(response, data: Data())
   }
 
-  /// The original's size in bytes, read from a one-byte range request so
-  /// nothing else downloads; `nil` when the server gives no total (#5489).
+  /// From the headers of a one-byte range request (#5489); the body is
+  /// never read, so a proxy that ignores `Range` costs nothing.
   public func originalSize(for ref: ImageRef) async throws -> Int64? {
-    var request = URLRequest(
-      url: try await addresses.url(route: "image", absPath: Self.absPath(from: ref.id)))
+    var request = Self.uncompressed(
+      URLRequest(
+        url: try await addresses.url(route: "image", absPath: Self.absPath(from: ref.id))))
     request.setValue("bytes=0-0", forHTTPHeaderField: "Range")
-    let (data, response) = try await httpClient.data(for: request)
-    try Self.checkOK(response, data: data)
-    return Self.totalBytes(
-      contentRange: (response as? HTTPURLResponse)?.value(forHTTPHeaderField: "Content-Range"))
+    let (_, response) = try await httpClient.refreshIfNeededAndRetry(request: request) {
+      ((), try await Self.headers(for: $0))
+    }
+    try Self.checkOK(response, data: Data())
+    return Self.totalBytes(of: response)
   }
 
-  /// The total in a `Content-Range: bytes 0-0/<total>` reply.
+  /// A compressed transfer's length isn't the file's, and the size check
+  /// after a download compares the two.
+  static func uncompressed(_ request: URLRequest) -> URLRequest {
+    var request = request
+    request.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
+    return request
+  }
+
+  /// Cancelled as soon as the headers arrive.
+  static func headers(
+    for request: URLRequest, protocolClasses: [AnyClass]? = nil
+  ) async throws -> URLResponse {
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.urlCache = nil
+    configuration.httpCookieStorage = nil
+    configuration.urlCredentialStorage = nil
+    if let protocolClasses { configuration.protocolClasses = protocolClasses }
+    let session = URLSession(configuration: configuration)
+    defer { session.invalidateAndCancel() }
+    let (body, response) = try await session.bytes(for: request)
+    body.task.cancel()
+    return response
+  }
+
+  static func totalBytes(of response: URLResponse) -> Int64? {
+    guard let http = response as? HTTPURLResponse else { return nil }
+    guard http.statusCode == 206 else {
+      return http.expectedContentLength >= 0 ? http.expectedContentLength : nil
+    }
+    return totalBytes(contentRange: http.value(forHTTPHeaderField: "Content-Range"))
+  }
+
   static func totalBytes(contentRange: String?) -> Int64? {
     contentRange?.split(separator: "/").last.flatMap { Int64($0) }
   }
