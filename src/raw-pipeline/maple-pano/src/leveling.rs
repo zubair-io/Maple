@@ -119,7 +119,7 @@ fn camera_tilt_deg(cam: &Camera) -> f64 {
         y: 0.0,
         z: 0.0,
     });
-    x.dot(WORLD_UP).abs().asin().to_degrees()
+    x.dot(WORLD_UP).abs().min(1.0).asin().to_degrees()
 }
 
 /// The spec §7 horizon metric: the largest tilt of any solved camera's
@@ -229,6 +229,22 @@ mod tests {
             local_correction_rms: vec![0.0; rotations.len()],
             placed_by_prior: Vec::new(),
         }
+    }
+
+    #[test]
+    fn a_camera_rolled_onto_the_vertical_reports_a_finite_tilt() {
+        let rolls: Vec<Mat3> = (0..2000)
+            .map(|i| {
+                let tilt = std::f64::consts::FRAC_PI_2 + (i as f64 - 1000.0) * 1e-17;
+                let yaw = i as f64 * 0.37;
+                Mat3::rotation_y(yaw).mul_mat(&Mat3::rotation_z(-tilt))
+            })
+            .collect();
+        let solution = solution_from_rotations(&rolls);
+        let tilt = horizon_tilt_deg(&solution);
+        let rms = horizon_tilt_rms_deg(&solution);
+        assert!((tilt - 90.0).abs() < 1e-6, "max tilt {tilt}");
+        assert!((rms - 90.0).abs() < 1e-6, "rms tilt {rms}");
     }
 
     /// A leveled ring stays put: g ≈ identity.

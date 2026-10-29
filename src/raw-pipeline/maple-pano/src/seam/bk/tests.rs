@@ -199,3 +199,99 @@ fn heterogeneous_capacity_grid_terminates_within_iter_bound() {
         "expected positive flow through the grid, got {flow}"
     );
 }
+
+struct ReferenceNetwork {
+    cap: Vec<Vec<i64>>,
+}
+
+impl ReferenceNetwork {
+    fn new(n_nodes: usize) -> Self {
+        Self {
+            cap: vec![vec![0; n_nodes + 2]; n_nodes + 2],
+        }
+    }
+
+    fn max_flow(mut self) -> i64 {
+        let n = self.cap.len();
+        let (source, sink) = (n - 2, n - 1);
+        std::iter::from_fn(|| {
+            let mut prev = vec![usize::MAX; n];
+            prev[source] = source;
+            let mut queue = std::collections::VecDeque::from([source]);
+            while let Some(u) = queue.pop_front() {
+                for v in 0..n {
+                    if prev[v] == usize::MAX && self.cap[u][v] > 0 {
+                        prev[v] = u;
+                        queue.push_back(v);
+                    }
+                }
+            }
+            (prev[sink] != usize::MAX).then(|| {
+                let path: Vec<(usize, usize)> =
+                    std::iter::successors(Some(sink), |&v| (v != source).then(|| prev[v]))
+                        .filter(|&v| v != source)
+                        .map(|v| (prev[v], v))
+                        .collect();
+                let push = path.iter().map(|&(u, v)| self.cap[u][v]).min().unwrap_or(0);
+                for &(u, v) in &path {
+                    self.cap[u][v] -= push;
+                    self.cap[v][u] += push;
+                }
+                push
+            })
+        })
+        .sum()
+    }
+}
+
+fn random_heterogeneous_grid(seed: u64, cols: usize, rows: usize) -> (BkGraph, ReferenceNetwork) {
+    let mut rng = crate::prng::SplitMix64::new(seed);
+    let n = cols * rows;
+    let mut g = BkGraph::with_capacity(n, n * 2);
+    let mut reference = ReferenceNetwork::new(n);
+    let (source, sink) = (n, n + 1);
+    let ids: Vec<super::NodeId> = (0..n).map(|_| g.add_node()).collect();
+    let mut capacity = || match rng.next_u64() % 4 {
+        0 => 0,
+        1 => 1 + (rng.next_u64() % 3) as i64,
+        2 => 1 + (rng.next_u64() % 40) as i64,
+        _ => 1 + (rng.next_u64() % 4000) as i64,
+    };
+    for y in 0..rows {
+        for x in 0..cols {
+            let idx = y * cols + x;
+            let neighbours = [(x + 1 < cols, idx + 1), (y + 1 < rows, idx + cols)];
+            for (_, other) in neighbours.into_iter().filter(|&(exists, _)| exists) {
+                let (fwd, rev) = (capacity(), capacity());
+                g.add_edge(ids[idx], ids[other], fwd, rev);
+                reference.cap[idx][other] += fwd;
+                reference.cap[other][idx] += rev;
+            }
+            let (to_source, to_sink) = (capacity(), capacity());
+            g.add_terminal(ids[idx], to_source, to_sink);
+            reference.cap[source][idx] += to_source;
+            reference.cap[idx][sink] += to_sink;
+        }
+    }
+    g.finalize();
+    (g, reference)
+}
+
+#[test]
+fn heterogeneous_random_grids_reach_the_true_max_flow() {
+    let mismatches: Vec<(u64, i64, i64)> = (0..400u64)
+        .filter_map(|seed| {
+            let (mut g, reference) = random_heterogeneous_grid(seed, 9, 7);
+            let expected = reference.max_flow();
+            g.set_iter_limit(100_000);
+            let got = g.solve();
+            (got != expected).then_some((seed, got, expected))
+        })
+        .collect();
+    assert!(
+        mismatches.is_empty(),
+        "BK under-augmented on {} of 400 grids (seed, got, expected): {:?}",
+        mismatches.len(),
+        &mismatches[..mismatches.len().min(8)]
+    );
+}

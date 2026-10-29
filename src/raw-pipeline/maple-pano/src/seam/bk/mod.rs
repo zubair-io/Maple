@@ -18,45 +18,22 @@
 //! and the grow/augment/adopt algorithm internals split into [`solve`]
 //! to respect the file-size budget.
 //!
-//! # Known correctness limitation: parent_edge cycles
-//!
-//! On grid graphs with **heterogeneous edge capacities** (some edges
-//! much larger than others), the `adopt()` / `try_find_parent()` pair
-//! can produce parent_edge chains that form cycles. Specifically, when
-//! an orphan is processed, `try_find_parent` walks each candidate's
-//! parent chain via `path_valid` to confirm it still reaches a
-//! terminal — but `path_valid` short-circuits on the current
-//! iteration's timestamp without verifying that the in-progress walk
-//! hasn't re-visited a node, so a cycle that forms later in adoption
-//! cascades isn't detected. Once a cycle exists, `augment()`'s S/T-tree
-//! walks would loop forever.
-//!
-//! Defensive mitigation in this file: every walk in `augment()` and
-//! `path_valid()` is capped at `n_nodes + small_constant` steps; on
-//! overflow we abort the augmenting path (saturating its crossing edge
-//! to remove it from future grow searches) so the solver terminates
-//! with under-augmented flow rather than hanging. On a seam graph this
-//! means the cut can land a few flow units short of the true min-cut —
-//! invisible in the routed seam, since the search space that matters
-//! (whole-canvas seam placement) is far coarser than a single unit of
-//! flow.
-//!
 //! # Data-structure conventions
 //!
 //! Edges are stored as sister pairs: edge `2k` is the forward
 //! direction, edge `2k+1` is the reverse. `sister(e) = e ^ 1` always.
 //!
-//! **Parent-edge convention (matching Kolmogorov's original C++
-//! implementation):**
+//! **Parent-edge convention (Kolmogorov's original C++ implementation):**
+//! a tree node's `parent_edge` is always the arc *child -> parent*, in
+//! both trees. Flow runs parent -> child in the S-tree, so an S-node's
+//! augmenting capacity is `edges[parent_edge ^ 1].residual`; it runs
+//! child -> parent in the T-tree, so a T-node's is
+//! `edges[parent_edge].residual`.
 //!
-//! - **S-tree** node `q` with parent `p`: `q.parent_edge = arc q->p`
-//!   (the arc going child -> parent, *opposite* to flow direction).
-//!   The augmenting-path capacity is `edges[parent_edge ^ 1].residual`
-//!   (sister arc = arc p->q, flow direction source->q).
-//!
-//! - **T-tree** node `q` with parent `p`: `q.parent_edge = arc p->q`
-//!   (the arc going parent -> child, *same* as flow direction). The
-//!   augmenting-path capacity is `edges[parent_edge].residual`.
+//! **Timestamps:** the adoption phase gets a fresh timestamp after each
+//! augmentation, and a node carries the current one only once its path to
+//! the terminal has been verified in that phase, so a stamped node is a
+//! valid early exit for later path checks (Kolmogorov's `TS == TIME`).
 //!
 //! Sentinels: `TERMINAL` = tree root (directly connected to
 //! source/sink); `ORPHAN` = orphaned node (parent arc was saturated).
@@ -290,11 +267,11 @@ impl BkGraph {
             if self.augment_iters >= self.iter_limit {
                 break;
             }
-            self.timestamp += 1;
             match self.grow() {
                 Some((s_edge, t_edge)) => {
                     self.augment_iters += 1;
                     self.augment(s_edge, t_edge);
+                    self.timestamp += 1;
                     self.adopt();
                 }
                 None => break,

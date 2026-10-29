@@ -7,7 +7,7 @@
 use super::{TileCanvasSpec, TileConstraint, TilePose};
 
 /// Weighted scalar least-squares with anchor constraint (log-scale or
-/// rotation). Solves for `x` in `Ax = b` where the anchor row is an
+/// rotation; rotation residuals are unwrapped against `init`). Solves for `x` in `Ax = b` where the anchor row is an
 /// identity constraint `x[anchor] = init[anchor]` (= 0 for the anchor
 /// itself, or the spanning-tree init value).
 ///
@@ -41,7 +41,7 @@ pub(super) fn ls_scalar(
         let rhs = if use_log_scale {
             -c.sim_ab.scale.ln()
         } else {
-            -c.sim_ab.theta
+            nearest_turn(-c.sim_ab.theta, init[lb] - init[la])
         };
         let w = c.weight;
         // Minimise w·(x[lb] − x[la] − rhs)² w.r.t. x[la], x[lb].
@@ -71,6 +71,14 @@ pub(super) fn ls_scalar(
     b[anchor_local] = init[anchor_local];
 
     gauss_eliminate(&mut a, &mut b, n)
+}
+
+/// `angle` shifted by whole turns to the branch nearest `reference`, so a
+/// relative rotation measured as +179° and one measured as −179° agree
+/// with the spanning-tree init instead of pulling the solve 2π apart.
+fn nearest_turn(angle: f64, reference: f64) -> f64 {
+    use std::f64::consts::TAU;
+    angle + TAU * ((reference - angle) / TAU).round()
 }
 
 /// Weighted 2-D least-squares for translations, given solved scale/theta.
