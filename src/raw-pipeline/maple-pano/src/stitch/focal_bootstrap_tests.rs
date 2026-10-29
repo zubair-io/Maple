@@ -172,7 +172,9 @@ fn no_exif_bootstrap_recovers_focal_and_reconnects_the_strip() {
     let (_, bootstrap_proxy_images) =
         build_graph_images(&metas, &seed.full_px, &proxy_dims, &proxy_scale);
     let bootstrap_graph =
-        rebuild_graph_with_focal(&bootstrap_proxy_images, &cache, None, |_, _| Vec::new());
+        rebuild_graph_with_focal(&bootstrap_proxy_images, &cache, None, None, |_, _| {
+            Vec::new()
+        });
     assert!(
         !bootstrap_graph.edges.is_empty(),
         "assumed-FOV bootstrap must verify at least one pair to refine from"
@@ -194,7 +196,7 @@ fn no_exif_bootstrap_recovers_focal_and_reconnects_the_strip() {
     let (_, refined_proxy_images) =
         build_graph_images(&metas, &refined_full_px, &proxy_dims, &proxy_scale);
     let refined_graph =
-        rebuild_graph_with_focal(&refined_proxy_images, &cache, None, |_, _| Vec::new());
+        rebuild_graph_with_focal(&refined_proxy_images, &cache, None, None, |_, _| Vec::new());
     assert!(
         refined_graph.is_connected(),
         "refined graph must reconnect every frame, orphans: {:?}",
@@ -213,7 +215,7 @@ fn rebuild_graph_with_focal_falls_back_to_fetch_for_an_uncached_pair() {
         .collect();
     let cache: HashMap<(usize, usize), Vec<crate::twoview::PixelCorrespondence>> = HashMap::new();
     let mut fetched = Vec::new();
-    let graph = rebuild_graph_with_focal(&images, &cache, None, |a, b| {
+    let graph = rebuild_graph_with_focal(&images, &cache, None, None, |a, b| {
         fetched.push((a, b));
         Vec::new()
     });
@@ -221,4 +223,47 @@ fn rebuild_graph_with_focal_falls_back_to_fetch_for_an_uncached_pair() {
     // so both must fall through to `fetch`.
     assert_eq!(fetched, vec![(0, 1), (1, 2)]);
     assert!(graph.edges.is_empty());
+}
+
+#[test]
+fn rebuild_graph_with_focal_keeps_descriptor_nominated_pairs() {
+    use crate::features::{FeatureSet, Keypoint};
+    use crate::graph::DescriptorTopKProvider;
+
+    let images: Vec<GraphImage> = (0..4)
+        .map(|_| GraphImage {
+            camera: Camera::new([0.0; 3], 1500.0, 0.0, 0.0, 800, 600),
+            prior_rotation: None,
+        })
+        .collect();
+    let feature = |descriptor: [f32; 2]| FeatureSet {
+        keypoints: vec![Keypoint {
+            x: 0.0,
+            y: 0.0,
+            score: 1.0,
+        }],
+        descriptors: descriptor.to_vec(),
+        descriptor_dim: 2,
+        norm_keypoints: vec![[0.0, 0.0]],
+    };
+    let features = [
+        feature([1.0, 0.0]),
+        feature([0.0, 1.0]),
+        feature([0.0, 1.0]),
+        feature([1.0, 0.0]),
+    ];
+    let topk = DescriptorTopKProvider {
+        feature_sets: &features,
+        k: 1,
+    };
+    let cache: HashMap<(usize, usize), Vec<crate::twoview::PixelCorrespondence>> = HashMap::new();
+    let mut fetched = Vec::new();
+    rebuild_graph_with_focal(&images, &cache, None, Some(&topk), |a, b| {
+        fetched.push((a, b));
+        Vec::new()
+    });
+    assert!(
+        fetched.contains(&(0, 3)),
+        "descriptor top-k pair (0,3) must be re-requested, got {fetched:?}"
+    );
 }

@@ -276,3 +276,30 @@ fn canvas_cap_scales_poses_and_canvas_uniformly() {
         Err(TilePlacementError::InvalidCanvasCap)
     ));
 }
+
+#[test]
+fn overlap_width_is_measured_in_canvas_pixels() {
+    let (fw, fh) = (400u32, 160u32);
+    let poses = vec![
+        translation_pose(0, 0.0, 0.0),
+        translation_pose(1, 200.0, 0.0),
+    ];
+    let frames = vec![
+        canvas_gradient_frame(fw, fh, 0.0, 0.0),
+        canvas_gradient_frame(fw, fh, 200.0, 0.0),
+    ];
+    let canvas = TileCanvasSpec {
+        width: 616,
+        height: 176,
+        offset_x: 8.0,
+        offset_y: 8.0,
+    };
+    let full_dims: Vec<(u32, u32)> = frames.iter().map(|f| (f.width(), f.height())).collect();
+    let cache = TileFrameCache::from_frames(frames);
+    let width = super::masks::estimate_min_overlap_width(&cache, &full_dims, &poses, &canvas)
+        .expect("overlap estimate");
+    assert!(
+        (192..=208).contains(&width),
+        "overlap width {width} px, expected ~200"
+    );
+}

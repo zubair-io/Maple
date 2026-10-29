@@ -321,6 +321,7 @@ pub(super) fn solve_alignment(
         &mut proxy_images,
         &mut raw_matches_cache,
         rotation_gate.as_ref(),
+        Some(&descriptor_topk),
         |a, b| pair_matcher.match_pair(&feature_sets[a], &feature_sets[b]),
     )?;
     pair_matcher.release();
