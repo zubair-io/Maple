@@ -184,23 +184,23 @@ impl BkGraph {
         let first = self.nodes[p as usize].first_adj;
         let count = self.nodes[p as usize].adj_count;
 
-        let best = (0..count)
-            .map(|k| self.node_adj[(first + k) as usize])
-            .filter(|&ei| {
-                let head = self.edges[ei as usize].head;
-                let capacity = match tree_p {
-                    Tree::Source => self.edges[ei as usize ^ 1].residual,
-                    _ => self.edges[ei as usize].residual,
-                };
-                self.nodes[head as usize].tree == tree_p && capacity > 0
-            })
-            .collect::<Vec<u32>>()
-            .into_iter()
-            .filter_map(|ei| {
-                self.distance_to_terminal(self.edges[ei as usize].head)
-                    .map(|d| (d, ei))
-            })
-            .min_by_key(|&(d, _)| d);
+        let mut best: Option<(u32, u32)> = None;
+        for k in 0..count {
+            let ei = self.node_adj[(first + k) as usize];
+            let head = self.edges[ei as usize].head;
+            let capacity = match tree_p {
+                Tree::Source => self.edges[ei as usize ^ 1].residual,
+                _ => self.edges[ei as usize].residual,
+            };
+            if self.nodes[head as usize].tree != tree_p || capacity <= 0 {
+                continue;
+            }
+            if let Some(d) = self.distance_to_terminal(head) {
+                if best.is_none_or(|(best_d, _)| d < best_d) {
+                    best = Some((d, ei));
+                }
+            }
+        }
 
         let Some((dist, ei)) = best else {
             return false;
@@ -218,7 +218,7 @@ impl BkGraph {
     /// stops there; every node it verifies is stamped with its distance.
     fn distance_to_terminal(&mut self, node: NodeId) -> Option<u32> {
         let ts = self.timestamp;
-        let mut path = Vec::new();
+        let mut steps = 0u32;
         let mut cur = node;
         let base = loop {
             let n = &self.nodes[cur as usize];
@@ -227,20 +227,25 @@ impl BkGraph {
             }
             match n.parent_edge {
                 TERMINAL => {
-                    path.push(cur);
+                    steps += 1;
                     break 0;
                 }
                 ORPHAN | NO_EDGE => return None,
                 pe => {
-                    path.push(cur);
+                    steps += 1;
                     cur = self.edges[pe as usize].head;
                 }
             }
         };
-        let total = base + path.len() as u32;
-        for (i, &n) in path.iter().enumerate() {
-            self.nodes[n as usize].timestamp = ts;
-            self.nodes[n as usize].dist = total - i as u32;
+        let total = base + steps;
+        let mut cur = node;
+        for i in 0..steps {
+            let n = &mut self.nodes[cur as usize];
+            n.timestamp = ts;
+            n.dist = total - i;
+            if n.parent_edge != TERMINAL {
+                cur = self.edges[n.parent_edge as usize].head;
+            }
         }
         Some(total)
     }
