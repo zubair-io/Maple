@@ -253,6 +253,8 @@ public final class PanoFrameDownload {
       guard Self.fileSize(partial) == sizes[index] else {
         throw PanoFrameDownloadError.incomplete(asset.displayName)
       }
+      // moveItem won't overwrite, and any file here is a stale, wrong-size copy.
+      try? fileManager.removeItem(at: destination)
       try fileManager.moveItem(at: partial, to: destination)
     } catch {
       try? fileManager.removeItem(at: partial)

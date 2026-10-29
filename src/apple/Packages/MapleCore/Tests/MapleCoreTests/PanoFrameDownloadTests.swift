@@ -17,7 +17,8 @@ private final class FakeFetcher: PanoFrameFetching {
     var mostProbing = 0
   }
 
-  let sizes: [String: Int64]
+  private let sizeTable: OSAllocatedUnfairLock<[String: Int64]>
+  var sizes: [String: Int64] { sizeTable.withLock { $0 } }
   let failing: Set<String>
   let held: Set<String>
   /// Frames whose bytes come up one short of the size they report.
@@ -28,7 +29,7 @@ private final class FakeFetcher: PanoFrameFetching {
     sizes: [String: Int64], failing: Set<String> = [], held: Set<String> = [],
     truncated: Set<String> = []
   ) {
-    self.sizes = sizes
+    self.sizeTable = OSAllocatedUnfairLock(initialState: sizes)
     self.failing = failing
     self.held = held
     self.truncated = truncated
@@ -37,6 +38,7 @@ private final class FakeFetcher: PanoFrameFetching {
   var writes: [String] { calls.withLock { $0.writes } }
   var mostConcurrentProbes: Int { calls.withLock { $0.mostProbing } }
   func release() { calls.withLock { $0.released = true } }
+  func resize(_ name: String, to size: Int64) { sizeTable.withLock { $0[name] = size } }
 
   func size(of asset: AssetRef) async throws -> Int64 {
     calls.withLock {
@@ -185,6 +187,26 @@ private func temporaryRoot() -> URL {
     #expect(
       !FileManager.default.fileExists(
         atPath: root.appending(path: "\(leftovers[0])/2/C.dng.partial").path))
+  }
+
+  @Test func aFrameThatChangedOnTheServerIsReplacedOnTheNextTry() async throws {
+    let root = temporaryRoot()
+    let fetcher = FakeFetcher(sizes: sizes)
+    let download = PanoFrameDownload(fetcher: fetcher, root: root, networkCost: { wifi })
+    download.estimate(frames)
+    try await waitFor(download, isReady)
+    download.start()
+    try await waitFor(download) { $0 == .downloaded }
+    let grown = sizes["A.dng"]! + 5
+    fetcher.resize("A.dng", to: grown)
+    download.estimate(frames)
+    try await waitFor(download, isReady)
+    download.start()
+    try await waitFor(download) { $0 == .downloaded }
+    let cached = try #require(download.localAssets?.first?.primaryURL)
+    let bytes = try FileManager.default.attributesOfItem(atPath: cached.path)[.size] as? Int64
+    #expect(bytes == grown)
+    #expect(fetcher.writes == frames.map(\.displayName) + ["A.dng"])
   }
 
   @Test func framesAlreadyOnThisDeviceAreUsedInPlace() async throws {
