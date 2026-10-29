@@ -23,10 +23,7 @@ import {
   validateFilename as mapleValidateFilename,
 } from 'maple';
 import { child as childLogger } from '../log.ts';
-import {
-  RC_UNSUPPORTED_CAMERA,
-  UNSUPPORTED_CAMERA_MESSAGE_PREFIX,
-} from '../generated/ffi-status.generated.ts';
+import { developRenderSucceeded } from './unsupported-camera.ts';
 import type { HistogramBins } from '../thumbs/histogram.ts';
 import type * as BunFfi from 'bun:ffi';
 
@@ -371,19 +368,11 @@ function loadFfi(): RawFfi | null {
           quality & 0xff,
           ptr(outPathBuf),
         ) as number;
-        if (rc === RC_UNSUPPORTED_CAMERA) {
-          // Reaches the pool as the rejection message, where it becomes an
-          // `UnsupportedCameraError` the stages defer on (#5499).
-          throw new Error(
-            String(lib.symbols.maple_last_error() ?? `${UNSUPPORTED_CAMERA_MESSAGE_PREFIX}unknown`),
-          );
-        }
-        if (rc !== 0) {
-          const errStr = lib.symbols.maple_last_error() as unknown as string | null;
-          log.error({ rc, err: errStr }, 'maple_render_develop_jpeg_to_file failed');
-          return false;
-        }
-        return true;
+        return developRenderSucceeded(
+          rc,
+          () => lib.symbols.maple_last_error() as unknown as string | null,
+          log,
+        );
       },
 
       renderFilenameTemplate(args): FilenameTemplateResult {
