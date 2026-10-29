@@ -91,17 +91,17 @@ impl LumaLayer {
 /// `(view a, view b, node)` → weight and median of `ln L_b − ln L_a`.
 type Residuals = BTreeMap<(usize, usize, usize), (f64, f64)>;
 
-/// Solve over warped layers on a `sw × sh` seam canvas whose `u` axis
-/// wraps when `periodic_x`.
+/// Solve over warped layers on a `sw × sh` seam canvas whose `u` / `v`
+/// axes wrap per `periodic`.
 pub(super) fn solve_layers(
     layers: &[LumaLayer],
     (sw, sh): (usize, usize),
-    periodic_x: bool,
+    periodic: (bool, bool),
 ) -> ExposureField {
     let largest = layers.iter().map(LumaLayer::usable_px).max().unwrap_or(0);
     let mut cell = (largest as f64 / NODE_TARGET_PER_VIEW).sqrt().max(1.0);
     loop {
-        let grid = lattice(cell, sw, sh, periodic_x);
+        let grid = lattice(cell, sw, sh, periodic);
         let residuals = residuals(layers, grid, sw, sh);
         let corridors = corridors(&residuals, grid, layers.len());
         let widest = corridors.iter().map(BTreeSet::len).max().unwrap_or(0);
@@ -112,16 +112,20 @@ pub(super) fn solve_layers(
     }
 }
 
-fn lattice(cell: f64, sw: usize, sh: usize, periodic_x: bool) -> NodeGrid {
-    let span = |px: usize| (px as f64 / cell).round() as usize;
-    NodeGrid {
-        nx: if periodic_x {
-            span(sw).max(3)
+fn lattice(cell: f64, sw: usize, sh: usize, (periodic_x, periodic_y): (bool, bool)) -> NodeGrid {
+    let nodes = |px: usize, periodic: bool| {
+        let span = (px as f64 / cell).round() as usize;
+        if periodic {
+            span.max(3)
         } else {
-            (span(sw) + 1).max(2)
-        },
-        ny: (span(sh) + 1).max(2),
+            (span + 1).max(2)
+        }
+    };
+    NodeGrid {
+        nx: nodes(sw, periodic_x),
+        ny: nodes(sh, periodic_y),
         periodic_x,
+        periodic_y,
     }
 }
 

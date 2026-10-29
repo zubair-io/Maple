@@ -63,12 +63,42 @@ pub struct ExposureFieldSummary {
 }
 
 /// Node lattice over normalised canvas coordinates `(u, v) ∈ [0, 1]²`;
-/// on a full-wrap canvas the `u` axis is periodic.
+/// on a full-wrap canvas the periodic axis is `u` (columns), or `v`
+/// (rows) for a transverse projection.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(super) struct NodeGrid {
     pub(super) nx: usize,
     pub(super) ny: usize,
     pub(super) periodic_x: bool,
+    pub(super) periodic_y: bool,
+}
+
+fn axis_coord(t: f64, n: usize, periodic: bool) -> f64 {
+    if periodic {
+        t * n as f64
+    } else {
+        (t * (n - 1) as f64).clamp(0.0, (n - 1) as f64)
+    }
+}
+
+fn axis_wrap(c: i64, n: usize, periodic: bool) -> usize {
+    if periodic {
+        c.rem_euclid(n as i64) as usize
+    } else {
+        c.clamp(0, n as i64 - 1) as usize
+    }
+}
+
+fn axis_floor(g: f64, n: usize, periodic: bool) -> f64 {
+    if periodic {
+        g.floor()
+    } else {
+        g.floor().min((n - 2) as f64)
+    }
+}
+
+fn axis_contains(c: i64, n: usize, periodic: bool) -> bool {
+    periodic && n > 2 || (0..n as i64).contains(&c)
 }
 
 impl NodeGrid {
@@ -76,49 +106,29 @@ impl NodeGrid {
         self.nx * self.ny
     }
 
-    fn axis_x(&self, u: f64) -> f64 {
-        if self.periodic_x {
-            u * self.nx as f64
-        } else {
-            (u * (self.nx - 1) as f64).clamp(0.0, (self.nx - 1) as f64)
-        }
-    }
-
-    fn axis_y(&self, v: f64) -> f64 {
-        (v * (self.ny - 1) as f64).clamp(0.0, (self.ny - 1) as f64)
-    }
-
-    fn wrap_x(&self, c: i64) -> usize {
-        if self.periodic_x {
-            c.rem_euclid(self.nx as i64) as usize
-        } else {
-            c.clamp(0, self.nx as i64 - 1) as usize
-        }
+    fn index(&self, x: i64, y: i64) -> usize {
+        axis_wrap(y, self.ny, self.periodic_y) * self.nx + axis_wrap(x, self.nx, self.periodic_x)
     }
 
     pub(super) fn nearest(&self, u: f64, v: f64) -> usize {
-        let cx = self.wrap_x(self.axis_x(u).round() as i64);
-        let cy = self.axis_y(v).round() as usize;
-        cy * self.nx + cx
+        self.index(
+            axis_coord(u, self.nx, self.periodic_x).round() as i64,
+            axis_coord(v, self.ny, self.periodic_y).round() as i64,
+        )
     }
 
     fn stencil(&self, u: f64, v: f64) -> [(usize, f32); 4] {
-        let gx = self.axis_x(u);
-        let gy = self.axis_y(v);
-        let fx0 = if self.periodic_x {
-            gx.floor()
-        } else {
-            gx.floor().min((self.nx - 2) as f64)
-        };
-        let fy0 = gy.floor().min((self.ny - 2) as f64);
+        let gx = axis_coord(u, self.nx, self.periodic_x);
+        let gy = axis_coord(v, self.ny, self.periodic_y);
+        let fx0 = axis_floor(gx, self.nx, self.periodic_x);
+        let fy0 = axis_floor(gy, self.ny, self.periodic_y);
         let (tx, ty) = ((gx - fx0) as f32, (gy - fy0) as f32);
-        let (x0, x1) = (self.wrap_x(fx0 as i64), self.wrap_x(fx0 as i64 + 1));
-        let (y0, y1) = (fy0 as usize, fy0 as usize + 1);
+        let (x0, y0) = (fx0 as i64, fy0 as i64);
         [
-            (y0 * self.nx + x0, (1.0 - tx) * (1.0 - ty)),
-            (y0 * self.nx + x1, tx * (1.0 - ty)),
-            (y1 * self.nx + x0, (1.0 - tx) * ty),
-            (y1 * self.nx + x1, tx * ty),
+            (self.index(x0, y0), (1.0 - tx) * (1.0 - ty)),
+            (self.index(x0 + 1, y0), tx * (1.0 - ty)),
+            (self.index(x0, y0 + 1), (1.0 - tx) * ty),
+            (self.index(x0 + 1, y0 + 1), tx * ty),
         ]
     }
 
@@ -129,11 +139,18 @@ impl NodeGrid {
             .into_iter()
             .filter_map(move |(dx, dy)| {
                 let (x, y) = (cx + dx, cy + dy);
-                let x_ok = self.periodic_x && self.nx > 2 || (0..self.nx as i64).contains(&x);
-                (x_ok && (0..self.ny as i64).contains(&y))
-                    .then(|| y as usize * self.nx + self.wrap_x(x))
+                (axis_contains(x, self.nx, self.periodic_x)
+                    && axis_contains(y, self.ny, self.periodic_y))
+                .then(|| self.index(x, y))
             })
     }
+}
+
+/// `(periodic_x, periodic_y)` lattice axes for `canvas`.
+pub(super) fn periodic_axes(canvas: &CanvasSpec) -> (bool, bool) {
+    let wraps = canvas.is_full_wrap();
+    let transverse = canvas.projection.is_transverse();
+    (wraps && !transverse, wraps && transverse)
 }
 
 /// Per-view coarse log-exposure corrections over one [`NodeGrid`].
@@ -220,7 +237,7 @@ pub fn solve_exposure_field(
     Ok(solve_layers(
         &layers,
         (seam_canvas.width as usize, seam_canvas.height as usize),
-        seam_canvas.is_full_wrap(),
+        periodic_axes(&seam_canvas),
     ))
 }
 
@@ -258,7 +275,7 @@ pub fn solve_exposure_field_streaming(
     Ok(solve_layers(
         &layers,
         (seam_canvas.width as usize, seam_canvas.height as usize),
-        seam_canvas.is_full_wrap(),
+        periodic_axes(&seam_canvas),
     ))
 }
 
