@@ -329,7 +329,7 @@ These are binding across the crate (`src/raw-pipeline/maple-pano/src/lib.rs`), a
 - **Rotation:** stored as a Rodrigues axis-angle vector of the _camera-to-world_ rotation. Positive yaw turns the view east; positive pitch tilts it up.
 - **Pixels:** continuous coordinates with the origin at the top-left corner; texel `(ix, iy)` covers `[ix, ix+1) × [iy, iy+1)` with its centre at `(ix + 0.5, iy + 0.5)`. The principal point is fixed at the image centre.
 - **Equirect:** `u = (λ/2π + 0.5)·W`, `v = (0.5 − φ/π)·H`; row 0 is the zenith, horizontal wrap, vertical clamp.
-- **Distortion:** radial polynomial `r_d = r·(1 + k1·r² + k2·r⁴)`, inverted by Newton iteration.
+- **Distortion:** radial polynomial `r_d = r·(1 + k1·r² + k2·r⁴)`, inverted by Newton iteration. With `k2 < 0` the polynomial peaks at a finite radius and then falls again, so a ray far outside a frame would project back inside it. The forward projection refuses rays past that fold radius (`distortion::fold_radius_sq`), the same domain the Newton inverse already enforces (#5501).
 - **Light:** everything is scene-linear. PNG inputs are normalized without a transfer decode; outputs are 16-bit.
 
 Determinism is a property the crate maintains deliberately: the PRNG is pinned in-tree (SplitMix64), blending is sequential row-major per plane, the exposure-field solver iterates ordered maps, and warp rows are rayon-parallel over pure per-pixel work. Identical inputs produce identical bytes on a given platform and toolchain.

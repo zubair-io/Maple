@@ -59,7 +59,7 @@
 use rayon::prelude::*;
 
 use crate::ba::linalg::PackedSymmetric;
-use crate::distortion::undistort;
+use crate::distortion::{fold_radius_sq, undistort};
 use crate::math::{Mat3, Vec3};
 
 /// Residual magnitude (px) charged for a block whose projection chain is
@@ -258,6 +258,11 @@ fn eval_block(
     // Destination projection.
     let n = (v.x / v.z, v.y / v.z);
     let rho = n.0 * n.0 + n.1 * n.1;
+    // A destination ray past the fold would still land near its match and
+    // let an outlier pull k2 further negative (#5501).
+    if fold_radius_sq(k1, k2).is_some_and(|limit| rho >= limit) {
+        return None;
+    }
     let d_t = 1.0 + k1 * rho + k2 * rho * rho;
     let e = (n.0 * d_t, n.1 * d_t);
     let q = (f_d * e.0 + cx_d, f_d * e.1 + cy_d);
