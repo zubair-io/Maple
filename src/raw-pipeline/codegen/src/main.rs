@@ -44,6 +44,7 @@ mod capability_summary;
 mod color_labels;
 mod color_matrices;
 mod export_recipe;
+mod ffi_status;
 mod filename;
 mod film_catalog;
 mod local_mask_wire;
@@ -129,6 +130,8 @@ enum Schema {
     AdjustmentApi,
     /// The ranked search window's ladder (#4545).
     RankedWindow,
+    /// raw-ffi develop statuses the API acts on (#5499).
+    FfiStatus,
     /// Per-field batch transfer decisions (#3311).
     AdjustmentTransfer,
     /// Durable batch progress and outcome DTOs (#3311).
@@ -202,6 +205,11 @@ fn main() {
     let cli = Cli::parse();
     let out = match (cli.schema, cli.target) {
         (Schema::LocalMaskWire, target) => local_mask_wire::emit(target),
+        (Schema::FfiStatus, Target::Ts) => ffi_status::emit_ts(),
+        (Schema::FfiStatus, _) => {
+            eprintln!("ffi-status supports ts");
+            std::process::exit(2);
+        }
         (Schema::RankedWindow, Target::Swift) => ranked_window::emit_swift(),
         (Schema::RankedWindow, Target::Ts) => ranked_window::emit_ts(),
         (Schema::RankedWindow, _) => {

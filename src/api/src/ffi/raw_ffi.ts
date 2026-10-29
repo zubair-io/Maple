@@ -23,6 +23,10 @@ import {
   validateFilename as mapleValidateFilename,
 } from 'maple';
 import { child as childLogger } from '../log.ts';
+import {
+  RC_UNSUPPORTED_CAMERA,
+  UNSUPPORTED_CAMERA_MESSAGE_PREFIX,
+} from '../generated/ffi-status.generated.ts';
 import type { HistogramBins } from '../thumbs/histogram.ts';
 import type * as BunFfi from 'bun:ffi';
 
@@ -30,8 +34,6 @@ const log = childLogger('raw-ffi');
 
 /** Bins per channel in a Maple RGB histogram (8-bit → 256 levels). */
 const HISTOGRAM_BIN_COUNT = 256;
-/** `maple_render_develop_jpeg_to_file`: no decoder definition for the body. */
-const RC_UNSUPPORTED_CAMERA = 15;
 
 /**
  * Decode the channel-major `u32` histogram buffer that `maple_histogram_file`
@@ -372,7 +374,9 @@ function loadFfi(): RawFfi | null {
         if (rc === RC_UNSUPPORTED_CAMERA) {
           // Reaches the pool as the rejection message, where it becomes an
           // `UnsupportedCameraError` the stages defer on (#5499).
-          throw new Error(String(lib.symbols.maple_last_error() ?? 'unsupported camera: unknown'));
+          throw new Error(
+            String(lib.symbols.maple_last_error() ?? `${UNSUPPORTED_CAMERA_MESSAGE_PREFIX}unknown`),
+          );
         }
         if (rc !== 0) {
           const errStr = lib.symbols.maple_last_error() as unknown as string | null;

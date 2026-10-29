@@ -286,8 +286,14 @@ mod tests {
     fn unknown_body_develop_is_a_typed_unsupported_camera_error() {
         use crate::test_support::synth_unknown_body::*;
         match crate::decode::decode_bytes(&unknown_body_3fr(), "3fr").unwrap_err() {
-            Error::UnsupportedCamera { make, model } => {
-                assert_eq!((make.as_str(), model.as_str()), ("Hasselblad", MODEL));
+            error @ Error::UnsupportedCamera { .. } => {
+                assert_eq!(
+                    error.to_string(),
+                    format!(
+                        "{}Hasselblad {MODEL}",
+                        Error::UNSUPPORTED_CAMERA_MESSAGE_PREFIX
+                    )
+                );
             }
             other => panic!("expected Error::UnsupportedCamera, got {other:?}"),
         }
