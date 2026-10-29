@@ -16,8 +16,9 @@
 // # Cancel
 //
 // Each run gets a fresh Rust-allocated `MapleCancelFlag` via `CancelFlag`.
-// It is set by `cancel()` or by cancelling the calling Swift task, so the
-// session can abandon a superseded preview without a shared flag.
+// It is set by `cancel()` (every run in flight) or by cancelling the calling
+// Swift task (that run only); either way the run throws `CancellationError`,
+// never the core's generic failure code.
 //
 // # Models / ONNX Runtime provisioning
 //
@@ -60,10 +61,9 @@ public final class RustPanoStitcher: PanoStitching {
     // Internal (not private) so RustPanoStitcher+MLEnvironment.swift can reach it.
     let provisioning: PanoProvisioning
 
-    /// Cancel flag forwarded to the FFI so `cancel()` can interrupt a
-    /// running stitch. Replaced on each new `stitch(...)` call so a
-    /// stale flag from a previous run doesn't immediately cancel the next one.
-    nonisolated(unsafe) private var cancelFlag: CancelFlag?
+    /// The runs in flight, so `cancel()` reaches a preview and a stitch
+    /// alike. Locked because runs start off the main actor.
+    private let activeRuns = OSAllocatedUnfairLock<[PanoRunCancellation]>(initialState: [])
 
     /// Why the core could not load the ML matcher, and the ML files it saw
     /// then. While those files are unchanged, later previews and stitches go
@@ -94,7 +94,7 @@ public final class RustPanoStitcher: PanoStitching {
     // MARK: - PanoStitching
 
     public func cancel() {
-        cancelFlag?.requestCancel()
+        activeRuns.withLock { $0 }.forEach { $0.request() }
     }
 
     public func stitch(
@@ -204,15 +204,16 @@ public final class RustPanoStitcher: PanoStitching {
     // MARK: - Off-main execution
 
     /// Runs a blocking pano FFI call on a detached task with progress polled
-    /// onto the MainActor. Cancelling the calling task sets the Rust cancel
-    /// flag, so the run stops at its next checkpoint and throws
-    /// `CancellationError`.
-    private func runOffMain<T: Sendable>(
+    /// onto the MainActor. Cancelling the calling task or calling `cancel()`
+    /// sets the Rust cancel flag, so the run stops at its next checkpoint and
+    /// throws `CancellationError`.
+    func runOffMain<T: Sendable>(
         progress: @escaping @MainActor (PanoStage, Double) -> Void,
         body: @escaping @Sendable (PanoProgressAtom, CancelFlag) throws -> T
     ) async throws -> T {
-        let flag = CancelFlag()
-        cancelFlag = flag
+        let run = PanoRunCancellation()
+        activeRuns.withLock { $0.append(run) }
+        defer { activeRuns.withLock { $0.removeAll { $0 === run } } }
         let atom = PanoProgressAtom()
         let poller = await MainActor.run {
             let p = PanoProgressPoller(atom: atom, closure: progress)
@@ -221,15 +222,15 @@ public final class RustPanoStitcher: PanoStitching {
         }
         do {
             let value = try await withTaskCancellationHandler {
-                try await Task.detached(priority: .userInitiated) { try body(atom, flag) }.value
+                try await Task.detached(priority: .userInitiated) { try body(atom, run.flag) }.value
             } onCancel: {
-                flag.requestCancel()
+                run.request()
             }
             await MainActor.run { poller.stop() }
             return value
         } catch {
             await MainActor.run { poller.stop() }
-            if Task.isCancelled { throw CancellationError() }
+            if Task.isCancelled || run.isRequested { throw CancellationError() }
             throw error
         }
     }
@@ -288,6 +289,23 @@ public final class RustPanoStitcher: PanoStitching {
         return targetDir.appendingPathComponent(name)
     }
 
+}
+
+// MARK: - PanoRunCancellation
+
+/// One run's Rust cancel flag, plus whether cancellation was asked for: the
+/// core reports a cancelled run with the same code as a failed one, so only
+/// this side knows which it was.
+final class PanoRunCancellation: Sendable {
+    let flag = CancelFlag()
+    private let requested = OSAllocatedUnfairLock(initialState: false)
+
+    var isRequested: Bool { requested.withLock { $0 } }
+
+    func request() {
+        requested.withLock { $0 = true }
+        flag.requestCancel()
+    }
 }
 
 // MARK: - PanoStage + FFI stage mapping

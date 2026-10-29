@@ -3,6 +3,7 @@
 import Foundation
 import MapleCloudKit
 import Testing
+import XCTest
 import os
 @testable import MapleCore
 
@@ -18,6 +19,7 @@ private final class FakePanoJobs: PanoServerJobs {
         var stitchRequests: [PanoServerRequest] = []
         var cancelled: [String] = []
         var previewRequests = 0
+        var polls = 0
     }
 
     private let calls: OSAllocatedUnfairLock<Calls>
@@ -37,11 +39,13 @@ private final class FakePanoJobs: PanoServerJobs {
     var stitchRequests: [PanoServerRequest] { calls.withLock { $0.stitchRequests } }
     var cancelled: [String] { calls.withLock { $0.cancelled } }
     var previewRequests: Int { calls.withLock { $0.previewRequests } }
+    var polls: Int { calls.withLock { $0.polls } }
     func script(_ replies: [Reply]) { calls.withLock { $0.replies = replies } }
 
     func stitch(_ body: PanoServerRequest) async throws -> String {
         calls.withLock { $0.stitchRequests.append(body) }
         whileCreating()
+        if Task.isCancelled { throw URLError(.cancelled) }
         return "job-\(stitchRequests.count)"
     }
 
@@ -56,7 +60,10 @@ private final class FakePanoJobs: PanoServerJobs {
     }
 
     func job(_ id: String) async throws -> PanoServerJob {
-        let reply = calls.withLock { $0.replies.isEmpty ? Reply.offline : $0.replies.removeFirst() }
+        let reply = calls.withLock { calls in
+            calls.polls += 1
+            return calls.replies.isEmpty ? Reply.offline : calls.replies.removeFirst()
+        }
         switch reply {
         case .job(let job): return job
         case .offline: throw URLError(.notConnectedToInternet)
@@ -104,6 +111,26 @@ private func cancelled(_ jobs: FakePanoJobs, count: Int) async throws -> [String
 
 /// The stitcher under test, reachable from the fake's create hook.
 private final class Box: @unchecked Sendable { var stitcher: ServerPanoStitcher? }
+
+/// The stitcher and the task running it, reachable from the create hook.
+private final class RunBox: @unchecked Sendable {
+    private let lock = OSAllocatedUnfairLock(initialState: ())
+    private var storedStitcher: ServerPanoStitcher?
+    private var storedRun: Task<PanoResult, any Error>?
+    var stitcher: ServerPanoStitcher? {
+        get { lock.withLock { storedStitcher } }
+        set { lock.withLock { storedStitcher = newValue } }
+    }
+    var run: Task<PanoResult, any Error>? {
+        get {
+            while true {
+                if let run = lock.withLock({ storedRun }) { return run }
+                Thread.sleep(forTimeInterval: 0.001)
+            }
+        }
+        set { lock.withLock { storedRun = newValue } }
+    }
+}
 
 @Suite("ServerPanoStitcher (#5488)")
 struct ServerPanoStitcherTests {
@@ -284,5 +311,71 @@ struct ServerPanoStitcherTests {
         }
         #expect(result.serverAssetID == "asset-7")
         #expect(jobs.previewRequests == 0)
+    }
+}
+
+/// The merge session drops a superseded preview by cancelling its task, not
+/// through `cancel()`; the server must still be told to stop it.
+final class ServerPanoPreviewSupersedeTests: XCTestCase {
+    private func runningPreview() async throws -> (FakePanoJobs, ServerPanoStitcher, Task<PanoPreview, any Error>) {
+        let jobs = FakePanoJobs(Array(repeating: job(.running, progress: 100), count: 10_000))
+        let stitcher = ServerPanoStitcher(jobs: jobs, pollInterval: .milliseconds(5), pollAttempts: 3)
+        let run = Task {
+            try await stitcher.preview(assets: frames, options: .default, alignment: nil, progress: { _, _ in })
+        }
+        while jobs.polls == 0 { try await Task.sleep(for: .milliseconds(2)) }
+        return (jobs, stitcher, run)
+    }
+
+    /// The server accepted the create, but the app's task was cancelled
+    /// (Stop) before the reply came back: the job must still be stopped.
+    func testStopWhileTheStitchIsBeingCreatedStillStopsItOnTheServer() async throws {
+        let box = RunBox()
+        let jobs = FakePanoJobs([job(.running)], whileCreating: {
+            box.stitcher?.cancel()
+            box.run?.cancel()
+        })
+        let stitcher = ServerPanoStitcher(jobs: jobs, pollInterval: .milliseconds(5), pollAttempts: 3)
+        box.stitcher = stitcher
+        let run = Task {
+            try await stitcher.stitch(
+                assets: frames, options: .default, alignment: nil, maxCanvasPixels: nil, progress: { _, _ in })
+        }
+        box.run = run
+
+        do {
+            _ = try await run.value
+            XCTFail("a stopped stitch returned")
+        } catch {
+            XCTAssertTrue(error is CancellationError, "expected CancellationError, got \(error)")
+        }
+        let stopped = try await cancelled(jobs, count: 1)
+        XCTAssertEqual(stopped, ["job-1"])
+    }
+
+    func testCancellingThePreviewTaskStopsThePreviewOnTheServer() async throws {
+        let (jobs, _, run) = try await runningPreview()
+
+        run.cancel()
+
+        do {
+            _ = try await run.value
+            XCTFail("a cancelled preview returned")
+        } catch {
+            XCTAssertTrue(error is CancellationError, "expected CancellationError, got \(error)")
+        }
+        let stopped = try await cancelled(jobs, count: 1)
+        XCTAssertEqual(stopped, ["preview-1"])
+    }
+
+    func testAPreviewStoppedThroughCancelIsStoppedOnlyOnce() async throws {
+        let (jobs, stitcher, run) = try await runningPreview()
+
+        stitcher.cancel()
+        run.cancel()
+        _ = try? await run.value
+        try await Task.sleep(for: .milliseconds(50))
+
+        XCTAssertEqual(jobs.cancelled, ["preview-1"])
     }
 }

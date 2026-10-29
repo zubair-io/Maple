@@ -104,10 +104,18 @@ public final class ServerPanoStitcher: PanoStitching {
     ) async throws -> PanoPreview {
         let generation = state.withLock { $0.generation }
         guard try await previewSupported() else { throw ServerPanoStitchError.previewUnsupported }
-        let jobID = try await jobs.preview(try Self.request(assets, options, alignment))
+        let request = try Self.request(assets, options, alignment)
+        let jobs = self.jobs
+        let jobID = try await Self.creatingJob { try await jobs.preview(request) }
         try claim(jobID, generation: generation) { $0.watchedPreviewJob = jobID }
         defer { state.withLock { if $0.watchedPreviewJob == jobID { $0.watchedPreviewJob = nil } } }
-        let job = try await watch(jobID, generation: generation, progress: progress)
+        let job: PanoServerJob
+        do {
+            job = try await watch(jobID, generation: generation, progress: progress)
+        } catch is CancellationError {
+            stopSupersededPreview(jobID)
+            throw CancellationError()
+        }
         let png = try await jobs.previewImage(jobID)
         guard let source = CGImageSourceCreateWithData(png as CFData, nil),
               let image = CGImageSourceCreateImageAtIndex(source, 0, nil)
@@ -177,6 +185,18 @@ public final class ServerPanoStitcher: PanoStitching {
 
     // MARK: - Private
 
+    /// A preview the session dropped by cancelling its task, not through
+    /// `cancel()`, is still running on the server; it would hold the
+    /// server's one stitching slot, so stop it there too.
+    private func stopSupersededPreview(_ jobID: String) {
+        let stillWatched = state.withLock { state -> Bool in
+            guard state.watchedPreviewJob == jobID else { return false }
+            state.watchedPreviewJob = nil
+            return true
+        }
+        if stillWatched { stop(jobID) }
+    }
+
     private func stop(_ jobID: String) {
         let jobs = self.jobs
         Task { try? await jobs.cancel(jobID) }
@@ -223,7 +243,15 @@ public final class ServerPanoStitcher: PanoStitching {
             if !over && last.request == request { return last.jobID }
             if !over { try? await jobs.cancel(last.jobID) }
         }
-        return try await jobs.stitch(request)
+        let jobs = self.jobs
+        return try await Self.creatingJob { try await jobs.stitch(request) }
+    }
+
+    /// A create request the server may already have accepted is not cut off
+    /// by a cancelled task: its id comes back, so `claim` or the watch loop
+    /// can stop the job instead of leaving it running unseen.
+    private static func creatingJob(_ create: @escaping @Sendable () async throws -> String) async throws -> String {
+        try await Task { try await create() }.value
     }
 
     private func watch(

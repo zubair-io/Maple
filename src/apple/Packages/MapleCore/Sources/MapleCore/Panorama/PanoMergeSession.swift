@@ -96,7 +96,7 @@ public final class PanoMergeSession {
     /// re-previews from that alignment with the new options.
     public var options: PanoOptions = .default {
         didSet {
-            guard options != oldValue, previewAssets.count >= 2 else { return }
+            guard options != oldValue, previewAssets.count >= 2, !isRunning else { return }
             if case .running = previewState, previewRunStrategy == options.strategy {
                 rePreviewWhenCurrentFinishes = true
                 return
@@ -148,6 +148,9 @@ public final class PanoMergeSession {
     private var runGeneration: UInt64 = 0
     private var previewGeneration: UInt64 = 0
     private var previewTask: Task<Void, Never>?
+    /// The latest stitch run; the next one waits for it to unwind so two
+    /// full stitches never hold their canvases at once.
+    private var runTask: Task<Void, Never>?
     private var previewAssets: [AssetRef] = []
     /// Geometry option the in-flight preview run solves for.
     private var previewRunStrategy: PanoOptions.Strategy?
@@ -168,8 +171,10 @@ public final class PanoMergeSession {
 
     /// Start the automatic preview for `assets` immediately. Later option
     /// changes re-run it (debounced) until `cancel()` or a stitch starts.
-    /// Fewer than two frames clears the preview.
+    /// Fewer than two frames clears the preview. Ignored while a stitch
+    /// runs: a preview beside it would compete for the same memory.
     public func preview(assets: [AssetRef]) {
+        guard !isRunning else { return }
         if assets.map(\.id) != previewAssets.map(\.id) {
             lastPreview = nil
             memoryFit = nil
@@ -185,7 +190,9 @@ public final class PanoMergeSession {
 
     private func schedulePreview(after delay: Duration) {
         rePreviewWhenCurrentFinishes = false
-        previewTask?.cancel()
+        let superseded = previewTask
+        superseded?.cancel()
+        let unwinding = [superseded, runTask].compactMap { $0 }
         previewGeneration &+= 1
         let gen = previewGeneration
         let assets = previewAssets
@@ -193,6 +200,7 @@ public final class PanoMergeSession {
         previewState = delay == .zero ? .running(stage: .decoding, overallFraction: 0) : .scheduled
 
         previewTask = Task { [weak self] in
+            for task in unwinding { await task.value }
             if delay > .zero {
                 do { try await Task.sleep(for: delay) } catch { return }
             }
@@ -255,7 +263,6 @@ public final class PanoMergeSession {
         rePreviewWhenCurrentFinishes = false
         previewGeneration &+= 1
         previewTask?.cancel()
-        previewTask = nil
         previewState = .idle
     }
 
@@ -267,9 +274,10 @@ public final class PanoMergeSession {
     /// thrown away; a pending re-preview is cancelled. A finished preview
     /// stays visible.
     ///
-    /// If a run is already in-flight it is cancelled first (the cancelled run's
-    /// state will NOT overwrite the new run's state — the generation counter
-    /// prevents it).
+    /// A run already in flight is cancelled first, and the new one waits for
+    /// it and any cancelled preview to unwind before stitching, so the
+    /// cancelled run's state never overwrites the new run's and two stitches
+    /// never run at once.
     public func start(assets: [AssetRef]) {
         guard assets.count >= 2 else { return }
 
@@ -279,6 +287,8 @@ public final class PanoMergeSession {
             if isPreviewing { cancelPreview() }
             stitcher.cancel()
         }
+        runTask?.cancel()
+        let unwinding = [runTask, previewTask].compactMap { $0 }
 
         runGeneration &+= 1
         let gen = runGeneration
@@ -290,11 +300,9 @@ public final class PanoMergeSession {
             ? .running(stage: .decoding, stageFraction: 0.0, overallFraction: 0.0)
             : .finishingAlignment
 
-        Task {
-            if let awaitedPreview {
-                await awaitedPreview.value
-                guard runGeneration == gen else { return }
-            }
+        runTask = Task {
+            for task in unwinding { await task.value }
+            guard runGeneration == gen else { return }
             do {
                 if needsFreshFit(for: capturedOptions) {
                     state = .finishingAlignment
@@ -347,6 +355,7 @@ public final class PanoMergeSession {
     /// alignment is kept so reopening the same frames can reuse it.
     public func cancel() {
         runGeneration &+= 1   // invalidate the in-flight progress callbacks
+        runTask?.cancel()
         stitcher.cancel()
         state = .idle
         previewAssets = []
