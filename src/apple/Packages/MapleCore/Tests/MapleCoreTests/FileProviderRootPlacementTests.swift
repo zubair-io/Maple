@@ -136,6 +136,89 @@ final class FileProviderRootPlacementTests: XCTestCase {
     XCTAssertTrue(observer.updates.isEmpty)
   }
 
+  private final class AnchorObserver: NSObject, NSFileProviderChangeObserver, @unchecked Sendable {
+    private let lock = NSLock()
+    private var items: [NSFileProviderItem] = []
+    private var anchor: NSFileProviderSyncAnchor?
+    private var failure: Error?
+    private var finished = false
+    var updates: [NSFileProviderItem] { lock.withLock { items } }
+    var finalAnchor: NSFileProviderSyncAnchor? { lock.withLock { anchor } }
+    var error: Error? { lock.withLock { failure } }
+    func didUpdate(_ updatedItems: [NSFileProviderItemProtocol]) {
+      lock.withLock { items += updatedItems as! [NSFileProviderItem] }
+    }
+    func didDeleteItems(withIdentifiers deletedItemIdentifiers: [NSFileProviderItemIdentifier]) {}
+    func finishEnumeratingChanges(upTo newAnchor: NSFileProviderSyncAnchor, moreComing: Bool) {
+      lock.withLock {
+        anchor = newAnchor
+        finished = true
+      }
+    }
+    func finishEnumeratingWithError(_ error: Error) {
+      lock.withLock {
+        failure = error
+        finished = true
+      }
+    }
+    func waitUntilFinished() async -> Bool {
+      for _ in 0..<100 {
+        if lock.withLock({ finished }) { return true }
+        try? await Task.sleep(for: .milliseconds(50))
+      }
+      return false
+    }
+  }
+
+  func testAChangeInALibraryAddedSinceTheListWasCachedIsDelivered() async throws {
+    let assetID = "000000000000000000000003"
+    let session = URLSession.stubbedSequence { req in
+      let ok = HTTPURLResponse(
+        url: req.url!, statusCode: 200, httpVersion: "HTTP/1.1",
+        headerFields: ["Content-Type": "application/json"])!
+      if req.url!.path.contains("/api/changes") {
+        let body = """
+          {"changes": [{"cursor": 8, "asset_id": "\(assetID)", "folder_id": "\(Self.libraryID)",
+            "relative_path": "2025/Sumac/0001/_84A9568.CR2",
+            "kind": "create", "abs_path": null, "at": "2026-10-28T22:00:00Z"}], "next_cursor": 8}
+          """
+        return (Data(body.utf8), ok)
+      }
+      let body = """
+        {"assets": [{"id": "\(assetID)", "folder_id": "\(Self.libraryID)", "filename": "_84A9568.CR2",
+          "abs_path": "/srv/photos/Maple/2025/Sumac/0001/_84A9568.CR2", "size": 1,
+          "mtime": 1758412800000, "rating": 0}]}
+        """
+      return (Data(body.utf8), ok)
+    }
+    let script = FetchScript([.success([]), .success([Self.library])])
+    let cache = rootCache { try script.next() }
+    _ = try await cache.roots()
+    let enumerator = workingSet(session: session, rootCache: cache)
+
+    let observer = AnchorObserver()
+
+    enumerator.enumerateChanges(for: observer, from: WorkingSetEnumerator.anchor(0))
+    let finished = await observer.waitUntilFinished()
+
+    XCTAssertTrue(finished)
+    XCTAssertNil(observer.error)
+    XCTAssertEqual(observer.updates.first?.parentItemIdentifier, Self.sumacFolder,
+                   "the change must be delivered before the anchor moves past it")
+    XCTAssertEqual(observer.finalAnchor.flatMap(WorkingSetEnumerator.parseAnchor), 8)
+  }
+
+  func testASeedEntryInALibraryAddedSinceTheListWasCachedIsListed() async throws {
+    let script = FetchScript([.success([]), .success([Self.library])])
+    let cache = rootCache { try script.next() }
+    _ = try await cache.roots()
+    let enumerator = workingSet(session: seedSession(folderID: Self.libraryID), rootCache: cache)
+
+    let observer = await enumerateSeed(enumerator)
+
+    XCTAssertEqual(Set(observer.batches.flatMap { $0 }.map(\.parentItemIdentifier)), [Self.sumacFolder])
+  }
+
   func testABareCursorAnchorExpiresSoTheWorkingSetIsListedAgain() async {
     let session = URLSession.stubbedSequence { req in
       XCTFail("an expired anchor must not reach the server: \(req.url!)")
