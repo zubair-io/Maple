@@ -326,6 +326,8 @@
         "src/workers/stages/cf-thumb-sync.ts",
         "src/workers/stages/describe.test.ts",
         "src/workers/stages/describe.fixtures.ts",
+        // #5514: stages a disposable preview under os.tmpdir() for a stub model server.
+        "src/workers/stages/describe.invalid-output-retry.test.ts",
         "src/workers/stages/describe.video-screenshot.test.ts",
         "src/workers/stages/describe.ts",
         "src/workers/stages/exif.test.ts",
