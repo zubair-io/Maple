@@ -16,7 +16,7 @@ import {
 import { setLibraryRootsForTests } from '../../indexer/libraries.cache.ts';
 import { describeHandler, setDescribeDepsForTests } from './describe.ts';
 import { videoDescribeHandler, setVideoDescribeDepsForTests } from './video-describe.ts';
-import { fakeDoc, stageDocIn, VALID_VISION } from './describe.fixtures.ts';
+import { fakeDoc, recordingCtx, stageDocIn, VALID_VISION } from './describe.fixtures.ts';
 
 afterEach(() => {
   setDescribeDepsForTests(null);
@@ -28,7 +28,7 @@ const FAILURE_CASES = [
   { scenario: 'truncated', imageCost: 0.006, videoCost: 0.018, terminal: true },
   { scenario: 'transport', imageCost: 0.004, videoCost: 0.004, terminal: false },
   { scenario: 'terminal', imageCost: 0.004, videoCost: 0.012, terminal: true },
-  { scenario: 'parse', imageCost: 0.005, videoCost: 0.005, terminal: false },
+  { scenario: 'parse', imageCost: 0.015, videoCost: 0.005, terminal: false },
   { scenario: 'empty', imageCost: 0.006, videoCost: 0.018, terminal: true },
 ] as const;
 type FailureCase = (typeof FAILURE_CASES)[number];
@@ -120,7 +120,7 @@ describe.each(['describe', 'video-describe'] as const)('%s failed-call billing',
           'UPDATE stage_state SET dead = 0, attempts = ?, claim_token = ?, next_attempt_at = ? WHERE asset_id = ? AND stage = ?',
           [attemptNo, 'lease', '2099-01-01T00:00:00.000Z', assetId, stage],
         );
-        const err = await handler(doc, {} as never).catch((error: unknown) => error);
+        const err = await handler(doc, recordingCtx().ctx).catch((error: unknown) => error);
         expect(err).toBeInstanceOf(Error);
         expect((err as { cost_usd: number }).cost_usd).toBeCloseTo(perAttempt, 10);
         const failure = stageFailureStatements({
@@ -150,7 +150,7 @@ describe.each(['describe', 'video-describe'] as const)('%s failed-call billing',
         .get(assetId);
       expect(detail).toEqual({ description: null, video_description: null, vision: null });
       recover();
-      const result = await handler(doc, {} as never);
+      const result = await handler(doc, recordingCtx().ctx);
       if (!('patch' in result)) throw new Error('expected successful description');
       await live.handle.transaction(result.patch);
       expect(readCost(live.db, assetId, video)).toBeCloseTo(perAttempt * 2 + 0.001, 10);

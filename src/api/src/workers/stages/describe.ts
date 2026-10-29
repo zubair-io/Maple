@@ -15,7 +15,9 @@ import { assignedAiPool } from '../../enrichment/ai-assigned-pool.ts';
  *   ocr_text          — mirrored from vision.text_visible
  *   ocr_meta          — { engine: "qwen2.5-vl", … } — qwen2.5-vl is the sole OCR source
  *
- * On a parse failure the handler re-throws `VisionParseError`; the runtime
+ * A parse failure is re-asked in-handler a bounded number of times
+ * (`describe-parse-retry.ts`); if every answer is invalid the handler
+ * re-throws the last `VisionParseError`, and the runtime
  * stamps the message into `stages.describe.last_error` and increments
  * `attempts`. When `attempts >= maxAttempts` the row is marked dead and
  * the operator triages it in `/settings/workers`.
@@ -62,6 +64,7 @@ import {
   VISION_DOC_JSON_SCHEMA,
 } from '../../enrichment/describe-providers/parse-vision-json.ts';
 import { PREVIEW_CACHE_SUFFIX } from '../../indexer/previewer.ts';
+import { retryInvalidModelOutput } from './describe-parse-retry.ts';
 import { maple } from 'maple';
 
 /**
@@ -293,26 +296,33 @@ async function describeAttempt(
   // on the least-loaded healthy endpoint and re-runs this on the next
   // server if the one it picked fails in a way that is the server's fault
   // (network / timeout / 5xx). A terminal 4xx propagates on the first try.
-  const { result, server } = await pool.run(async (provider, pickedServer) => ({
-    result: await costs.record(
-      provider.describe([jpegBytes], {
-        systemPrompt,
-        model: pickedServer.model ?? model,
-        // Constrain Ollama's output to the VisionDoc schema. Ollama 0.5+
-        // enforces this at decode time, so the model cannot emit out-of-enum
-        // values, drop required fields, or produce malformed JSON. The
-        // parse-vision-json synonym maps stay as defense in depth for older
-        // Ollama versions and edge cases.
-        format: provider.name === 'ollama' ? VISION_DOC_JSON_SCHEMA : undefined,
-      }),
-    ),
-    server: pickedServer,
-  }));
-
-  // Strict parse — throws VisionParseError on malformed output. The runtime
-  // dead-letters the row after maxAttempts; operators triage via
-  // /settings/workers and see the truncated raw snippet in last_error.
-  const vision = parseVisionJson(result.text);
+  //
+  // The strict parse runs outside `pool.run` on purpose: a server that
+  // answered with an invalid VisionDoc did its job, so its breaker records a
+  // success, and the bad answer is re-asked by `retryInvalidModelOutput`
+  // instead of reaching the runner's attempt ladder.
+  const { result, server, vision } = await retryInvalidModelOutput(
+    async () => {
+      const answer = await pool.run(async (provider, pickedServer) => ({
+        result: await costs.record(
+          provider.describe([jpegBytes], {
+            systemPrompt,
+            model: pickedServer.model ?? model,
+            // Constrain Ollama's output to the VisionDoc schema. Ollama 0.5+
+            // enforces this at decode time, so the model cannot emit out-of-enum
+            // values, drop required fields, or produce malformed JSON. The
+            // parse-vision-json synonym maps stay as defense in depth for older
+            // Ollama versions and edge cases.
+            format: provider.name === 'ollama' ? VISION_DOC_JSON_SCHEMA : undefined,
+          }),
+        ),
+        server: pickedServer,
+      }));
+      return { ...answer, vision: parseVisionJson(answer.result.text) };
+    },
+    ctx.log,
+    image._id.toHexString(),
+  );
   const isScreenshot = isVideo ? false : vision.is_screenshot;
 
   const now = new Date().toISOString();

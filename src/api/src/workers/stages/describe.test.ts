@@ -20,6 +20,7 @@ import {
   fakeDoc,
   mockProvider,
   patchFields,
+  recordingCtx,
   singleServerPool,
   stageDocIn,
 } from './describe.fixtures.ts';
@@ -43,7 +44,7 @@ async function stageDoc(absPath: string): Promise<ImageDoc> {
   return stageDocIn(absPath, libraryId, tmpRoot);
 }
 
-const fakeCtx = {} as never;
+const fakeCtx = recordingCtx().ctx;
 
 describe('describeHandler — cost across failover', () => {
   it('bills a truncated call on one server in addition to the answering server', async () => {
