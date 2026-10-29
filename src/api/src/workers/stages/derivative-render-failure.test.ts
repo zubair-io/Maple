@@ -83,18 +83,36 @@ function runStageOnce(stage: StageConfig, maxAttempts: number) {
   });
 }
 
-describe.each([
+async function runWithPool(stage: StageConfig, pool: unknown) {
+  const previous = _setFfiPoolForTests(pool as never);
+  try {
+    await runStageOnce(stage, 1);
+  } finally {
+    _setFfiPoolForTests(previous);
+  }
+}
+
+async function renameOriginal(filename: string) {
+  await writeFile(path.join(dir, filename), Buffer.alloc(1024));
+  run(live.db, `UPDATE asset_locations SET filename = ? WHERE asset_id = ?`, filename, assetId);
+}
+
+function resetStageRow(name: string) {
+  run(
+    live.db,
+    `INSERT OR REPLACE INTO stage_state (asset_id, stage, version) VALUES (?, ?, 0)`,
+    assetId,
+    name,
+  );
+}
+
+const STAGES = [
   ['thumb', thumbStage],
   ['preview', previewStage],
-] as const)('%s stage render outcomes', (name, stage) => {
-  beforeEach(() => {
-    run(
-      live.db,
-      `INSERT OR REPLACE INTO stage_state (asset_id, stage, version) VALUES (?, ?, 0)`,
-      assetId,
-      name,
-    );
-  });
+] as const;
+
+describe.each(STAGES)('%s stage render outcomes', (name, stage) => {
+  beforeEach(() => resetStageRow(name));
 
   it('stays below target with the decode error recorded, so it retries', async () => {
     await runStageOnce(stage as unknown as StageConfig, 5);
@@ -116,21 +134,6 @@ describe.each([
     expect(asset.damaged_since).not.toBeNull();
   });
 
-  it('defers a crashed child without tagging the original damaged', async () => {
-    const crashedChild = {
-      available: () => true,
-      poolSize: () => 1,
-      renderBitmapThumbToFile: () => Promise.resolve({ ok: false, error: 'child exited' }),
-    };
-    const previous = _setFfiPoolForTests(crashedChild as never);
-    try {
-      await runStageOnce(stage as unknown as StageConfig, 1);
-    } finally {
-      _setFfiPoolForTests(previous);
-    }
-    expectDeferredUndamaged(name, stage.targetVersion);
-  });
-
   it('defers a read-only cache directory without tagging the original damaged', async () => {
     await writeFile(path.join(dir, 'broken.jpg'), await solidJpeg(64, 48, [10, 120, 200]));
     const cacheRoot = path.join(dir, '.maple');
@@ -144,57 +147,6 @@ describe.each([
     expectDeferredUndamaged(name, stage.targetVersion);
   });
 
-  it('defers without spending an attempt while the native decoder is missing', async () => {
-    const previous = _setFfiPoolForTests({ available: () => false, poolSize: () => 1 } as never);
-    try {
-      await runStageOnce(stage as unknown as StageConfig, 1);
-    } finally {
-      _setFfiPoolForTests(previous);
-    }
-    const row = stageRow(name);
-    expect(row.version).toBeLessThan(stage.targetVersion);
-    expect(row.attempts).toBe(0);
-    expect(row.dead).toBe(0);
-  });
-
-  it('defers a RAW decode larger than the memory budget without spending an attempt', async () => {
-    await writeFile(path.join(dir, 'frame.cr2'), Buffer.alloc(1024));
-    run(live.db, `UPDATE asset_locations SET filename = 'frame.cr2' WHERE asset_id = ?`, assetId);
-    const overBudget = () => Promise.reject(new DecodeMemoryBudgetError(8 * 1024 ** 3, 1024 ** 3));
-    const previous = _setFfiPoolForTests({
-      available: () => true,
-      poolSize: () => 1,
-      renderThumbnailAvifToFile: overBudget,
-      renderDevelopJpegToFile: overBudget,
-    } as never);
-    try {
-      await runStageOnce(stage as unknown as StageConfig, 1);
-    } finally {
-      _setFfiPoolForTests(previous);
-    }
-    expectDeferredUndamaged(name, stage.targetVersion);
-    expect(stageRow(name).last_error).toContain('decode-exceeds-memory-budget');
-  });
-
-  it('defers an unsupported camera body without spending an attempt (#5499)', async () => {
-    await writeFile(path.join(dir, 'frame.3fr'), Buffer.alloc(1024));
-    run(live.db, `UPDATE asset_locations SET filename = 'frame.3fr' WHERE asset_id = ?`, assetId);
-    const previous = _setFfiPoolForTests({
-      available: () => true,
-      poolSize: () => 1,
-      renderThumbnailAvifToFile: () => Promise.reject(new Error('render-failed')),
-      renderDevelopJpegToFile: (rawPath: string) =>
-        Promise.reject(developRejection('unsupported camera: Hasselblad Hasselblad H2D', rawPath)),
-    } as never);
-    try {
-      await runStageOnce(stage as unknown as StageConfig, 1);
-    } finally {
-      _setFfiPoolForTests(previous);
-    }
-    expectDeferredUndamaged(name, stage.targetVersion);
-    expect(stageRow(name).last_error).toContain('camera-unsupported');
-  });
-
   it('records a render done even when the original carries a future mtime', async () => {
     const original = path.join(dir, 'broken.jpg');
     await writeFile(original, await solidJpeg(64, 48, [10, 120, 200]));
@@ -202,5 +154,55 @@ describe.each([
     await utimes(original, anHourAhead, anHourAhead);
     await runStageOnce(stage as unknown as StageConfig, 5);
     expect(stageRow(name).version).toBe(stage.targetVersion);
+  });
+});
+
+describe.each(STAGES)('%s stage deferrals from the native pool', (name, stage) => {
+  beforeEach(() => resetStageRow(name));
+
+  it('defers a crashed child without tagging the original damaged', async () => {
+    await runWithPool(stage as unknown as StageConfig, {
+      available: () => true,
+      poolSize: () => 1,
+      renderBitmapThumbToFile: () => Promise.resolve({ ok: false, error: 'child exited' }),
+    });
+    expectDeferredUndamaged(name, stage.targetVersion);
+  });
+
+  it('defers without spending an attempt while the native decoder is missing', async () => {
+    await runWithPool(stage as unknown as StageConfig, {
+      available: () => false,
+      poolSize: () => 1,
+    });
+    const row = stageRow(name);
+    expect(row.version).toBeLessThan(stage.targetVersion);
+    expect(row.attempts).toBe(0);
+    expect(row.dead).toBe(0);
+  });
+
+  it('defers a RAW decode larger than the memory budget without spending an attempt', async () => {
+    await renameOriginal('frame.cr2');
+    const overBudget = () => Promise.reject(new DecodeMemoryBudgetError(8 * 1024 ** 3, 1024 ** 3));
+    await runWithPool(stage as unknown as StageConfig, {
+      available: () => true,
+      poolSize: () => 1,
+      renderThumbnailAvifToFile: overBudget,
+      renderDevelopJpegToFile: overBudget,
+    });
+    expectDeferredUndamaged(name, stage.targetVersion);
+    expect(stageRow(name).last_error).toContain('decode-exceeds-memory-budget');
+  });
+
+  it('defers an unsupported camera body without spending an attempt (#5499)', async () => {
+    await renameOriginal('frame.3fr');
+    await runWithPool(stage as unknown as StageConfig, {
+      available: () => true,
+      poolSize: () => 1,
+      renderThumbnailAvifToFile: () => Promise.reject(new Error('render-failed')),
+      renderDevelopJpegToFile: (rawPath: string) =>
+        Promise.reject(developRejection('unsupported camera: Hasselblad Hasselblad H2D', rawPath)),
+    });
+    expectDeferredUndamaged(name, stage.targetVersion);
+    expect(stageRow(name).last_error).toContain('camera-unsupported');
   });
 });
