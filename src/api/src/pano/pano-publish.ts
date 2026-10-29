@@ -10,7 +10,7 @@
  * never holds partial bytes and an existing file is never replaced.
  */
 
-import { errnoCode } from '../fs/errno-code';
+import { errnoCode } from '../fs/errno-code.ts';
 import { filesIdentical } from '../fs/file-bytes.ts';
 import { constants, copyFile, link, lstat, rename, unlink } from '../fs/mirrored.ts';
 import {

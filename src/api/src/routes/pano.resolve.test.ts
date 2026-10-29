@@ -226,6 +226,36 @@ describe('POST /api/pano/stitch — path-based resolution (#1311)', () => {
     ]);
   });
 
+  it('keeps an offline library in the jail without letting it break resolution', async () => {
+    const alias = path.join(tmpDir, 'lib-alias');
+    await fs.rm(alias, { force: true });
+    await fs.symlink(path.join(tmpDir, 'lib'), alias);
+    insertFolder(live.db, { path: path.join(alias, 'offline', 'inner'), slug: 'pano-offline' });
+    invalidateLibraryRoots();
+    const png = Buffer.from(TINY_PNG_B64, 'base64');
+    const assetPaths = await Promise.all(
+      ['online-a.png', 'online-b.png'].map(async (name) => {
+        const filePath = path.join(tmpDir, 'lib', name);
+        await fs.writeFile(filePath, Buffer.concat([png, Buffer.from(name)]));
+        return filePath;
+      }),
+    );
+    try {
+      const res = await postJson('/api/pano/stitch', {
+        assetPaths,
+        libraryId: folderId,
+        options: { retention: 'keep', localAlign: 'mesh' },
+      });
+      expect(res.status).toBe(201);
+      const rows = live.db
+        .query(`SELECT library_id FROM asset_locations WHERE filename LIKE 'online-%'`)
+        .all();
+      expect(rows).toEqual([{ library_id: folderId }, { library_id: folderId }]);
+    } finally {
+      await fs.unlink(alias);
+    }
+  });
+
   it('refuses a file the library excludes with a 400, not a 500', async () => {
     const ignored = path.join(tmpDir, 'lib', 'ignored');
     await fs.mkdir(ignored, { recursive: true });
