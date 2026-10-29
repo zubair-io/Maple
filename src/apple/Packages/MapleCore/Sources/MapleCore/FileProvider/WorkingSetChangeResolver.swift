@@ -231,9 +231,16 @@ enum WorkingSetChangeResolver {
                                          meta: AssetMetadata?,
                                          roots: [LibraryRoot]) -> ChangeOutcome {
         guard let meta else { return .delete(AssetChangeItems.deleted(assetID: assetID)) }
-        let parent = WorkingSetEnumerator.resolveParent(folderID: meta.folderID,
-                                                        absPath: meta.absPath,
-                                                        roots: roots)
+        return outcome(for: meta, roots: roots)
+    }
+
+    /// The RAW and sidecar items for `meta` under their real folder. An
+    /// asset whose library isn't in `roots` is skipped, never parented at
+    /// the top level (#5503).
+    private static func outcome(for meta: AssetMetadata, roots: [LibraryRoot]) -> ChangeOutcome {
+        guard let parent = WorkingSetEnumerator.resolveParent(folderID: meta.folderID,
+                                                              absPath: meta.absPath,
+                                                              roots: roots) else { return .skip }
         let fanOut = AssetChangeItems.resolved(meta: meta, parent: parent)
         return .update(updates: fanOut.updates, deletes: fanOut.deletes)
     }
@@ -303,21 +310,21 @@ enum WorkingSetChangeResolver {
                 // OS an item whose content will 404 forever.
                 return .delete(AssetChangeItems.deleted(assetID: assetID))
             }
-            let parent = WorkingSetEnumerator.resolveParent(folderID: meta.folderID,
-                                                             absPath: meta.absPath,
-                                                             roots: roots)
-            let fanOut = AssetChangeItems.resolved(meta: meta, parent: parent)
-            return .update(updates: fanOut.updates, deletes: fanOut.deletes)
+            return outcome(for: meta, roots: roots)
         } catch {
             if Self.isNetworkUnreachable(error) {
                 log.notice("network unreachable resolving \(assetID, privacy: .public) during enumerateChanges")
                 return .networkUnreachable
             }
+            guard let folderID = ch.folderID, let relativePath = ch.relativePath else {
+                log.notice("getAsset failed for \(assetID, privacy: .public) during enumerateChanges and the row has no path; skipping: \(error.localizedDescription, privacy: .public)")
+                return .skip
+            }
             log.notice("getAsset failed for \(assetID, privacy: .public) during enumerateChanges, falling back to stub: \(error.localizedDescription, privacy: .public)")
             let stub = MapleItem(stubAssetID: assetID,
                                  cursor: ch.cursor,
-                                 folderID: ch.folderID,
-                                 relativePath: ch.relativePath)
+                                 folderID: folderID,
+                                 relativePath: relativePath)
             return .update(updates: [stub], deletes: [])
         }
     }

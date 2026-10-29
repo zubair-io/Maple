@@ -469,3 +469,8 @@ FileProviderUploadBurstTests
 RemoteCatalogETagByteBudgetTests
 FileProviderModifyItemMetadataTests
 WorkingSetSeedBoundTests
+
+# File Provider parents (#5503): no working-set item, change or item(for:) is
+# ever parented at the top level; legacy working-set anchors expire once;
+# indexed photos serve their server thumbnail.
+FileProviderRootPlacementTests

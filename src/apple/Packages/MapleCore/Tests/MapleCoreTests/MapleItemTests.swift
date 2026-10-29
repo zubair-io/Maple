@@ -65,7 +65,7 @@ final class MapleItemTests: XCTestCase {
   /// decode to nil so the modifyItem path treats them as "no
   /// precondition known" rather than silently using a bogus epoch.
   func testStubItemVersionDecodesToNil() throws {
-    let item = MapleItem(stubAssetID: "650a1b", cursor: 0)
+    let item = MapleItem(stubAssetID: "650a1b", cursor: 0, folderID: "fid", relativePath: "a.dng")
     // stub uses cursor as mtime; with cursor=0 the prior-mtime decoder
     // should bail (epoch > 0 guard).
     let decoded = MapleItem.decodePriorMtime(item.itemVersion.contentVersion)

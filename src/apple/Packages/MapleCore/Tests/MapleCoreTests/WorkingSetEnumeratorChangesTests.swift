@@ -69,7 +69,7 @@ final class WorkingSetEnumeratorChangesTests: XCTestCase {
     }
 
     private func anchor(_ cursor: Int64) -> NSFileProviderSyncAnchor {
-        NSFileProviderSyncAnchor(String(cursor).data(using: .utf8)!)
+        WorkingSetEnumerator.anchor(cursor)
     }
 
     /// The common path: the change-feed row lacks `relativePath` (a
@@ -170,10 +170,10 @@ final class WorkingSetEnumeratorChangesTests: XCTestCase {
                 let resp = HTTPURLResponse(url: req.url!, statusCode: 200,
                                            httpVersion: "HTTP/1.1",
                                            headerFields: ["Content-Type": "application/json"])!
-                // No folder_id / abs_path on this row — legacy payload.
                 let body = """
                 {"changes": [
-                  {"cursor": 9, "asset_id": "\(assetID)", "folder_id": null,
+                  {"cursor": 9, "asset_id": "\(assetID)", "folder_id": "F1",
+                   "relative_path": "2025/Sumac/0001/_84A9562.CR2",
                    "kind": "update", "abs_path": null, "at": "2026-05-16T00:00:00Z"}
                 ], "next_cursor": 9}
                 """
@@ -205,7 +205,8 @@ final class WorkingSetEnumeratorChangesTests: XCTestCase {
         }
         XCTAssertNotEqual(item.parentItemIdentifier, .workingSet,
                           ".workingSet is permanently noSuchItem — never a valid fallback parent")
-        XCTAssertEqual(item.parentItemIdentifier, .rootContainer)
+        XCTAssertEqual(item.parentItemIdentifier.rawValue,
+                       FileProviderIdentifier.folder(folderID: "F1", relativePath: "2025/Sumac/0001").rawValue)
     }
 
     /// Regression coverage for the jules BLOCKING finding on PR #2687:
@@ -429,8 +430,7 @@ final class WorkingSetEnumeratorChangesTests: XCTestCase {
 
         let reported = await withCheckedContinuation { (cont: CheckedContinuation<Int64, Never>) in
             enumerator.currentSyncAnchor { anchor in
-                let raw = anchor.flatMap { String(data: $0.rawValue, encoding: .utf8) }
-                cont.resume(returning: raw.flatMap(Int64.init) ?? -1)
+                cont.resume(returning: anchor.flatMap(WorkingSetEnumerator.parseAnchor) ?? -1)
             }
         }
         XCTAssertEqual(reported, 105,

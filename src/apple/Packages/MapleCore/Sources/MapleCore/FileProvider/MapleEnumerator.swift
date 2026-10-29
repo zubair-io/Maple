@@ -53,7 +53,7 @@ enum FileProviderPageCursor {
 /// those through and translates the rest (transport-level `URLError`s,
 /// decode failures) to `.serverUnreachable`, retaining the original error
 /// and its description for Console diagnostics.
-private func enumerationError(_ error: Error) -> NSError {
+func enumerationError(_ error: Error) -> NSError {
     let original = error as NSError
     if original.domain == NSCocoaErrorDomain || original.domain == NSFileProviderErrorDomain {
         return original
