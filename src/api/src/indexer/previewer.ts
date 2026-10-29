@@ -55,6 +55,7 @@ import { finalizeAvifRender } from '../thumbs/validate-avif.ts';
 import { renderRawSidecarDerivative } from '../thumbs/raw-sidecar-render.ts';
 import { assertDerivativeCacheDirectory, isDerivativeCacheFresh } from './derivative-cache.ts';
 import { child as childLogger } from '../log.ts';
+import { throttledWarn } from '../log-throttle.ts';
 import { DecodeMemoryBudgetError } from '../ffi/decode-memory-budget.ts';
 import { UnsupportedCameraError } from '../ffi/unsupported-camera.ts';
 
@@ -162,14 +163,10 @@ export async function generatePreview(
   if (RAW_EXTS.has(ext)) {
     renderOk = await renderRawPreviewToFile(absPath, tmpPath);
   } else if (isVideoFilename(absPath)) {
-    renderOk = await renderVideoPreviewToFile(absPath, tmpPath);
+    renderOk = await renderVideoPreviewToFile(absPath, tmpPath).catch(discardOnThrow(tmpPath));
   } else if (BITMAP_EXTENSIONS.has(extNoDot) || PSD_HDR_EXTENSIONS.has(extNoDot)) {
     renderOk = await renderBitmapPreviewToFile(absPath, tmpPath, extNoDot, true).catch(
-      async (e: unknown) => {
-        _failed++;
-        await fs.rm(tmpPath, { force: true });
-        throw e;
-      },
+      discardOnThrow(tmpPath),
     );
   } else {
     // Unknown format — no decode path can produce a genuine AVIF from these
@@ -198,10 +195,20 @@ export async function generatePreview(
     replicatePath(previewPath);
   } else {
     _failed++;
-    log.warn({ absPath }, 'failed');
+    throttledWarn(log, `preview-failed:${absPath}`, { absPath }, 'failed');
   }
   logTotals();
   return ok;
+}
+
+/** A render that threw (a typed source failure) still counts as failed and
+ * leaves no temp file behind; the error itself propagates to the caller. */
+function discardOnThrow(tmpPath: string): (e: unknown) => Promise<never> {
+  return async (e: unknown) => {
+    _failed++;
+    await fs.rm(tmpPath, { force: true });
+    throw e;
+  };
 }
 
 export async function isPreviewCacheFresh(previewPath: string, absPath: string): Promise<boolean> {
@@ -217,9 +224,15 @@ function logTotals(): void {
 
 /** Shared by every render-branch catch block below: log the failure with
  * context + a normalized error message, then return `false` so the caller
- * can `return logRenderFailure(...)` in one line. */
+ * can `return logRenderFailure(...)` in one line. A deferred render repeats
+ * every 30 minutes, so the same failure on the same file WARNs once a window. */
 function logRenderFailure(context: Record<string, unknown>, err: unknown, label: string): false {
-  log.warn({ ...context, err: err instanceof Error ? err.message : err }, label);
+  throttledWarn(
+    log,
+    `${label}:${JSON.stringify(context)}`,
+    { ...context, err: err instanceof Error ? err.message : err },
+    label,
+  );
   return false;
 }
 

@@ -82,7 +82,10 @@ export interface TrashGcSummary {
 interface PurgeOutcome {
   purged: boolean;
   errors: number;
+  noTrashCopy?: true;
 }
+
+const NO_TRASH_COPY_SAMPLE_SIZE = 5;
 
 /** Missing/reaped assets have no user Trash intent, even after the local GC clock expires. */
 async function purgeReapedRow(doc: TrashedAsset): Promise<PurgeOutcome> {
@@ -113,8 +116,7 @@ async function purgeTrashedAsset(
     // Leave the row alone: with no location inside `.maple/trash/` there is no
     // copy this purge is allowed to erase (#5403), and an unregistered library
     // is a condition that can be fixed, after which the next pass purges.
-    log.warn({ _id: doc._id.toHexString() }, 'purge skip — asset has no copy in Trash');
-    return { purged: false, errors: 1 };
+    return { purged: false, errors: 1, noTrashCopy: true };
   }
   const absPath = trashed.absPath;
 
@@ -205,6 +207,17 @@ function purgeCrashed(doc: TrashedAsset, err: unknown): PurgeOutcome {
   return { purged: false, errors: 1 };
 }
 
+/** Every pass re-finds the same rows, and each server start runs a pass, so
+ * one line per pass carries the count; sample ids are for debugging only. */
+function logAssetsWithoutTrashCopy(assetIds: readonly string[]): void {
+  if (assetIds.length === 0) return;
+  log.info({ count: assetIds.length }, 'purge skip — assets have no copy in Trash');
+  log.debug(
+    { sampleIds: assetIds.slice(0, NO_TRASH_COPY_SAMPLE_SIZE) },
+    'purge skip — sample assets with no copy in Trash',
+  );
+}
+
 let draining: Promise<void> | null = null;
 
 /** Drain owed purge unlinks; overlapping calls share the one in flight. */
@@ -235,6 +248,9 @@ export async function runTrashGcOnce(opts: TrashGcOptions = {}): Promise<TrashGc
       await purgeTrashedAsset(doc, libs).catch((err: unknown) => purgeCrashed(doc, err)),
     );
   }
+  logAssetsWithoutTrashCopy(
+    candidates.filter((_, i) => outcomes[i]?.noTrashCopy).map((doc) => doc._id.toHexString()),
+  );
 
   const summary = outcomes.reduce<TrashGcSummary>(
     (acc, outcome) => ({

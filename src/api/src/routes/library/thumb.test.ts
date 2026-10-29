@@ -21,6 +21,8 @@ import { invalidateLibraryRoots } from '../../indexer/libraries.cache.ts';
 import { registerLibrary, seedRouteAsset } from '../../../tests/helpers/assets-route-fixtures.ts';
 import { newObjectIdHex } from '../../db/object-id.ts';
 import { solidJpeg } from '../../test-support/synth-image.ts';
+import { audioOnlyVideo } from '../../test-support/synth-video.ts';
+import { ffmpegBinary } from '../../thumbs/video-poster.ts';
 import { _setFfiPoolForTests } from '../../ffi/ffi-pool.ts';
 import { developRejection } from '../../ffi/unsupported-camera.ts';
 import {
@@ -151,10 +153,22 @@ describe('GET /thumb/:slug/*', () => {
     await writeFile(src, 'fake-video-bytes');
 
     const res = await app.handle(new Request('http://localhost/thumb/thumblib/clip.mov'));
-    expect([404, 503]).toContain(res.status);
+    expect([404, 422, 503]).toContain(res.status);
     expect(res.status).not.toBe(200);
     expect(res.headers.get('Content-Type')).not.toBe('image/jpeg');
     expect(res.headers.get('Content-Type')).not.toBe('image/avif');
+  });
+
+  test('answers 404 no-video-stream for an audio-only video container (#5513)', async () => {
+    const ffmpeg = await ffmpegBinary();
+    const clip = ffmpeg && (await audioOnlyVideo(ffmpeg, path.join(tmpDir, 'take.mov')));
+    if (!clip) return;
+    const res = await app.handle(new Request('http://localhost/thumb/thumblib/take.mov'));
+    expect(res.status).toBe(404);
+    expect(await res.json()).toEqual({
+      error: 'This file has no video frame',
+      code: 'no-video-stream',
+    });
   });
 
   test('never serves corrupt indexed video bytes as an image', async () => {
@@ -169,7 +183,7 @@ describe('GET /thumb/:slug/*', () => {
     await writeFile(src, 'fake-video-bytes-2');
 
     const res = await app.handle(new Request('http://localhost/thumb/thumblib/indexed-clip.mp4'));
-    expect([404, 503]).toContain(res.status);
+    expect([404, 422, 503]).toContain(res.status);
     expect(res.status).not.toBe(200);
     expect(res.headers.get('Content-Type')).not.toBe('image/jpeg');
     expect(res.headers.get('Content-Type')).not.toBe('image/avif');

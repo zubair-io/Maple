@@ -26,6 +26,8 @@ import { _setFfiPoolForTests } from '../../ffi/ffi-pool.ts';
 import { DecodeMemoryBudgetError } from '../../ffi/decode-memory-budget.ts';
 import { developRejection } from '../../ffi/unsupported-camera.ts';
 import { solidJpeg } from '../../test-support/synth-image.ts';
+import { audioOnlyVideo } from '../../test-support/synth-video.ts';
+import { ffmpegBinary } from '../../thumbs/video-poster.ts';
 
 let live: LiveTestDatabase;
 let dir = '';
@@ -63,15 +65,26 @@ function stageRow(stage: string) {
     .get(assetId, stage) as { version: number; attempts: number; last_error: string; dead: number };
 }
 
+function damagedSince(): string | null {
+  const asset = live.db.query(`SELECT damaged_since FROM assets WHERE id = ?`).get(assetId) as {
+    damaged_since: string | null;
+  };
+  return asset.damaged_since;
+}
+
 function expectDeferredUndamaged(stage: string, targetVersion: number) {
   const row = stageRow(stage);
   expect(row.version).toBeLessThan(targetVersion);
   expect(row.attempts).toBe(0);
   expect(row.dead).toBe(0);
-  const asset = live.db.query(`SELECT damaged_since FROM assets WHERE id = ?`).get(assetId) as {
-    damaged_since: string | null;
-  };
-  expect(asset.damaged_since).toBeNull();
+  expect(damagedSince()).toBeNull();
+}
+
+function expectDeadAndDamaged(stage: string, targetVersion: number) {
+  const row = stageRow(stage);
+  expect(row.version).toBeLessThan(targetVersion);
+  expect(row.dead).toBe(1);
+  expect(damagedSince()).not.toBeNull();
 }
 
 function runStageOnce(stage: StageConfig, maxAttempts: number) {
@@ -125,13 +138,7 @@ describe.each(STAGES)('%s stage render outcomes', (name, stage) => {
 
   it('dead-letters and tags the asset damaged once out of attempts', async () => {
     await runStageOnce(stage as unknown as StageConfig, 1);
-    const row = stageRow(name);
-    expect(row.version).toBeLessThan(stage.targetVersion);
-    expect(row.dead).toBe(1);
-    const asset = live.db.query(`SELECT damaged_since FROM assets WHERE id = ?`).get(assetId) as {
-      damaged_since: string | null;
-    };
-    expect(asset.damaged_since).not.toBeNull();
+    expectDeadAndDamaged(name, stage.targetVersion);
   });
 
   it('defers a read-only cache directory without tagging the original damaged', async () => {
@@ -204,5 +211,44 @@ describe.each(STAGES)('%s stage deferrals from the native pool', (name, stage) =
     });
     expectDeferredUndamaged(name, stage.targetVersion);
     expect(stageRow(name).last_error).toContain('camera-unsupported');
+  });
+});
+
+describe.each(STAGES)('%s stage permanent source failures (#5513)', (name, stage) => {
+  beforeEach(() => resetStageRow(name));
+
+  it('dead-letters a .HEIC whose bytes are not HEIC and tags it damaged', async () => {
+    await renameOriginal('IMG_1097_Original.HEIC');
+    await runWithPool(stage as unknown as StageConfig, {
+      available: () => true,
+      poolSize: () => 1,
+      renderBitmapThumbToFile: () =>
+        Promise.resolve({ ok: false, error: 'input buffer is not a HEIC image' }),
+    });
+    expectDeadAndDamaged(name, stage.targetVersion);
+    expect(stageRow(name).last_error).toContain('input buffer is not a HEIC image');
+  });
+
+  it('dead-letters a truncated QuickTime file and tags it damaged', async () => {
+    if (!(await ffmpegBinary())) return;
+    await renameOriginal('Sequence 01.mov');
+    await runStageOnce(stage as unknown as StageConfig, 1);
+    expectDeadAndDamaged(name, stage.targetVersion);
+    expect(stageRow(name).last_error).toContain('moov atom not found');
+  });
+
+  it('marks an audio-only video handled without tagging it damaged', async () => {
+    const ffmpeg = await ffmpegBinary();
+    const clip = ffmpeg && (await audioOnlyVideo(ffmpeg, path.join(dir, '0008DD02.mov')));
+    if (!clip) return;
+    run(
+      live.db,
+      `UPDATE asset_locations SET filename = ? WHERE asset_id = ?`,
+      '0008DD02.mov',
+      assetId,
+    );
+    await runStageOnce(stage as unknown as StageConfig, 1);
+    expect(stageRow(name)).toMatchObject({ version: stage.targetVersion, attempts: 0, dead: 0 });
+    expect(damagedSince()).toBeNull();
   });
 });

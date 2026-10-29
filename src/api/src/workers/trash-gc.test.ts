@@ -17,7 +17,8 @@
  * and the one case where it must touch neither (#2977).
  */
 
-import { describe, it, expect, afterEach } from 'bun:test';
+import { describe, it, expect, afterEach, spyOn } from 'bun:test';
+import { otelLogStream } from '../otel-logs.ts';
 import { existsSync, mkdirSync, mkdtempSync, writeFileSync, chmodSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -80,6 +81,13 @@ function registerLibrary(db: Database, root: string): string {
 }
 
 const TRASH_REL = '.maple/trash';
+
+interface LogRecord {
+  component?: string;
+  level?: number;
+  msg?: string;
+  count?: number;
+}
 
 function trashedAsset(
   db: Database,
@@ -322,5 +330,30 @@ describe('runTrashGcOnce', () => {
     const summary = await runTrashGcOnce({ retentionDays: 30 });
     expect(summary).toEqual({ scanned: 1, purged: 0, errors: 1 });
     expect(assetIds(live.db)).toEqual([id]);
+  });
+
+  it('reports assets with no copy in Trash as one line per pass, not one per asset (#5513)', async () => {
+    using live = await createLiveTestDatabase();
+    const libraryId = insertFolder(live.db);
+    setLibraryRootsForTests(new Map());
+    const longAgo = new Date(Date.now() - 60 * DAY_MS).toISOString();
+    for (const filename of ['a.jpg', 'b.jpg', 'c.jpg']) {
+      trashedAsset(live.db, { libraryId, filename, deletedAt: longAgo });
+    }
+    const records: LogRecord[] = [];
+    const writeSpy = spyOn(otelLogStream, 'write').mockImplementation((line: string) => {
+      records.push(JSON.parse(line) as LogRecord);
+      return true;
+    });
+    try {
+      const summary = await runTrashGcOnce({ retentionDays: 30 });
+      expect(summary).toEqual({ scanned: 3, purged: 0, errors: 3 });
+    } finally {
+      writeSpy.mockRestore();
+    }
+    const noCopy = records.filter(
+      (r) => r.component === 'trash-gc' && r.msg === 'purge skip — assets have no copy in Trash',
+    );
+    expect(noCopy).toEqual([expect.objectContaining({ level: 30, count: 3 })]);
   });
 });

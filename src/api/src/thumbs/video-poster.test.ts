@@ -4,6 +4,8 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { maple } from 'maple';
 import { ffmpegBinary, extractVideoPosterJpeg } from './video-poster.ts';
+import { NoVideoStreamError, SourceDecodeError } from './source-failure.ts';
+import { audioOnlyVideo } from '../test-support/synth-video.ts';
 
 /**
  * Tests for poster-frame extraction (#1649).
@@ -68,14 +70,17 @@ describe('extractVideoPosterJpeg — contract (every host)', () => {
     await expect(stat(out)).rejects.toMatchObject({ code: 'ENOENT' });
   });
 
-  it('returns false and leaves no partial output for bytes that are not a video', async () => {
+  it('refuses bytes that are not a video and leaves no partial output', async () => {
     // The failure that matters: a zero-byte or truncated output left at the
     // caller's temp path would be handed to the imgdecode pool as if it were a
-    // real poster. Assert the path is clean, not merely that we returned false.
+    // real poster. Assert the path is clean, not merely that the call failed.
+    // With ffmpeg the refusal is the file's own (#5513); without, nothing ran.
     const src = path.join(dir, 'garbage.mov');
     await writeFile(src, Buffer.from('this is definitely not an mp4 container'));
     const out = path.join(dir, 'garbage.jpg');
-    expect(await extractVideoPosterJpeg(src, out)).toBe(false);
+    const extraction = extractVideoPosterJpeg(src, out);
+    if (ffmpeg) await expect(extraction).rejects.toBeInstanceOf(SourceDecodeError);
+    else expect(await extraction).toBe(false);
     await expect(stat(out)).rejects.toMatchObject({ code: 'ENOENT' });
   });
 });
@@ -106,6 +111,23 @@ describe('extractVideoPosterJpeg — real decode (needs host ffmpeg)', () => {
     const out = path.join(dir, 'short-poster.jpg');
     expect(await extractVideoPosterJpeg(shortClip, out)).toBe(true);
     expect((await maple(out).metadata()).format).toBe('jpeg');
+  });
+
+  it('throws NoVideoStreamError for an audio-only container', async () => {
+    if (!ffmpeg) return; // gated
+    const clip = await audioOnlyVideo(ffmpeg, path.join(dir, 'audio-only.mov'));
+    if (!clip) return;
+    const out = path.join(dir, 'audio-only.jpg');
+    await expect(extractVideoPosterJpeg(clip, out)).rejects.toBeInstanceOf(NoVideoStreamError);
+    await expect(stat(out)).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  it('throws SourceDecodeError for a truncated QuickTime file', async () => {
+    if (!sampleVideo) return; // gated
+    const truncated = path.join(dir, 'truncated.mov');
+    await writeFile(truncated, (await Bun.file(sampleVideo).bytes()).subarray(0, 16));
+    const out = path.join(dir, 'truncated.jpg');
+    await expect(extractVideoPosterJpeg(truncated, out)).rejects.toThrow(/moov atom not found/);
   });
 
   it('overwrites a stale output already at the target path', async () => {
