@@ -32,6 +32,12 @@ struct PanoDownloadSection: View {
         } icon: {
           MuiIcon(name: "check", size: .sm)
         }
+      case .removed:
+        Text("The downloaded frames were removed.")
+          .font(.caption)
+          .foregroundStyle(.secondary)
+        Button("Download Again", action: onRetry)
+          .accessibilityLabel("Download the frames again")
       case .failed(let message):
         Text(message)
           .font(.caption)

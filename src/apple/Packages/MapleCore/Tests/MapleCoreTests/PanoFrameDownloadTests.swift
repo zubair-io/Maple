@@ -13,6 +13,8 @@ private final class FakeFetcher: PanoFrameFetching {
   private struct Calls {
     var writes: [String] = []
     var released = false
+    var probing = 0
+    var mostProbing = 0
   }
 
   let sizes: [String: Int64]
@@ -33,9 +35,18 @@ private final class FakeFetcher: PanoFrameFetching {
   }
 
   var writes: [String] { calls.withLock { $0.writes } }
+  var mostConcurrentProbes: Int { calls.withLock { $0.mostProbing } }
   func release() { calls.withLock { $0.released = true } }
 
-  func size(of asset: AssetRef) async throws -> Int64 { sizes[asset.displayName] ?? 0 }
+  func size(of asset: AssetRef) async throws -> Int64 {
+    calls.withLock {
+      $0.probing += 1
+      $0.mostProbing = max($0.mostProbing, $0.probing)
+    }
+    defer { calls.withLock { $0.probing -= 1 } }
+    try await Task.sleep(for: .milliseconds(10))
+    return sizes[asset.displayName] ?? 0
+  }
 
   func write(
     _ asset: AssetRef, to destination: URL, progress: @escaping @Sendable (Int64) -> Void
@@ -217,10 +228,55 @@ private func temporaryRoot() -> URL {
     download.cancel()
     fetcher.release()
     try await Task.sleep(for: .milliseconds(50))
-    #expect(download.state == .idle)
+    #expect(download.state == .removed)
     #expect(download.localAssets == nil)
     let leftovers = (try? FileManager.default.contentsOfDirectory(atPath: root.path)) ?? []
     #expect(leftovers.isEmpty)
+
+    download.estimate(frames)
+    try await waitFor(download, isReady)
+    guard case .ready(let estimate) = download.state else {
+      Issue.record("no estimate after cancel: \(download.state)")
+      return
+    }
+    #expect(estimate.cachedBytes == 0)
+  }
+
+  @Test func sizeProbesRunAFewAtATime() async throws {
+    let many = (0..<21).map { cloudFrame("F\($0).dng") }
+    let fetcher = FakeFetcher(sizes: [:])
+    let download = PanoFrameDownload(fetcher: fetcher, root: temporaryRoot(), networkCost: { wifi })
+    download.estimate(many)
+    try await waitFor(download, isReady)
+    #expect(fetcher.mostConcurrentProbes <= PanoFrameDownload.sizeProbeConcurrency)
+    #expect(fetcher.mostConcurrentProbes > 1)
+  }
+
+  @Test func aServerNameCanOnlyNameOneFileInTheFramesDirectory() {
+    #expect(PanoFrameDownload.safeFileName("../../x.plist", index: 3) == "x.plist")
+    #expect(PanoFrameDownload.safeFileName("A.dng", index: 0) == "A.dng")
+    #expect(PanoFrameDownload.safeFileName("..", index: 2) == "frame-2")
+    #expect(PanoFrameDownload.safeFileName("dir/..", index: 2) == "frame-2")
+    #expect(PanoFrameDownload.safeFileName("", index: 1) == "frame-1")
+    #expect(PanoFrameDownload.safeFileName("/", index: 1) == "frame-1")
+    #expect(PanoFrameDownload.safeFileName("a\0b.dng", index: 0) == "ab.dng")
+  }
+
+  @Test func aTraversingNameDownloadsInsideTheRun() async throws {
+    let root = temporaryRoot()
+    let sneaky = cloudFrame("../../x.plist")
+    let download = PanoFrameDownload(
+      fetcher: FakeFetcher(sizes: ["../../x.plist": 10]), root: root, networkCost: { wifi })
+    download.estimate([sneaky, cloudFrame("A.dng")])
+    try await waitFor(download, isReady)
+    download.start()
+    try await waitFor(download) { $0 == .downloaded }
+    let file = try #require(download.localAssets?[0].primaryURL).standardizedFileURL
+    let run = file.deletingLastPathComponent().deletingLastPathComponent()
+    #expect(file.pathComponents.suffix(2) == ["0", "x.plist"])
+    #expect(run.deletingLastPathComponent().path == root.standardizedFileURL.path)
+    #expect(FileManager.default.fileExists(atPath: file.path))
+    #expect(!FileManager.default.fileExists(atPath: root.appending(path: "x.plist").path))
   }
 
   @Test func refusesToStartWhenTheFramesDoNotFit() {

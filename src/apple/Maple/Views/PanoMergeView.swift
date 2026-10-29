@@ -177,6 +177,7 @@ struct PanoMergeView: View {
   private var awaitingDownload: Bool {
     guard downloadsFrames, let route = session.downloadRoute else { return false }
     if case .done = session.state { return false }
+    if session.isRunning { return false }
     return route.download.state != .downloaded
   }
 
@@ -196,7 +197,10 @@ struct PanoMergeView: View {
     }
     guard let localFrames = route.download.localAssets else {
       session.cancel()
-      if case .idle = route.download.state { route.download.estimate(assets) }
+      switch route.download.state {
+      case .idle, .removed: route.download.estimate(assets)
+      default: break
+      }
       return
     }
     session.use(route.makeStitcher(assets, localFrames))

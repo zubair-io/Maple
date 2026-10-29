@@ -56,6 +56,7 @@ public struct PanoNetworkCost: Equatable, Sendable {
             return !done
           })
         else { return }
+        monitor.pathUpdateHandler = nil
         monitor.cancel()
         continuation.resume(
           returning: PanoNetworkCost(expensive: path.isExpensive, constrained: path.isConstrained))
@@ -107,6 +108,9 @@ public final class PanoFrameDownload {
     case ready(PanoDownloadEstimate)
     case downloading(PanoDownloadProgress)
     case downloaded
+    /// The cached frames were removed (Cancel, or cleanup after a stitch);
+    /// downloading again starts from a fresh estimate.
+    case removed
     case failed(String)
   }
 
@@ -194,7 +198,7 @@ public final class PanoFrameDownload {
     restart()
     try? FileManager.default.removeItem(at: directory)
     localAssets = nil
-    state = .idle
+    state = .removed
   }
 
   // MARK: - Private
@@ -262,7 +266,16 @@ public final class PanoFrameDownload {
   /// folders with the same name can't collide.
   private func fileURL(for index: Int) -> URL {
     directory.appending(path: "\(index)", directoryHint: .isDirectory)
-      .appending(path: assets[index].displayName)
+      .appending(path: Self.safeFileName(assets[index].displayName, index: index))
+  }
+
+  /// The name comes from the server, so it may only ever name one file
+  /// inside the frame's directory.
+  static func safeFileName(_ name: String, index: Int) -> String {
+    let leaf =
+      name.replacingOccurrences(of: "\0", with: "")
+      .split(separator: "/").last.map(String.init) ?? ""
+    return leaf.isEmpty || leaf == "." || leaf == ".." ? "frame-\(index)" : leaf
   }
 
   private func isCached(_ index: Int) -> Bool {
@@ -281,15 +294,23 @@ public final class PanoFrameDownload {
     (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? NSNumber)?.int64Value
   }
 
+  static let sizeProbeConcurrency = 4
+
   private static func sizes(of assets: [AssetRef], fetcher: any PanoFrameFetching) async throws
     -> [Int64]
   {
-    try await withThrowingTaskGroup(of: (Int, Int64).self) { group in
-      for (index, asset) in assets.enumerated() where asset.primaryURL == nil {
+    var pending = assets.enumerated().filter { $0.element.primaryURL == nil }.makeIterator()
+    return try await withThrowingTaskGroup(of: (Int, Int64).self) { group in
+      func addNext() {
+        guard let (index, asset) = pending.next() else { return }
         group.addTask { (index, try await fetcher.size(of: asset)) }
       }
+      for _ in 0..<sizeProbeConcurrency { addNext() }
       var sizes = [Int64](repeating: 0, count: assets.count)
-      for try await (index, size) in group { sizes[index] = size }
+      for try await (index, size) in group {
+        sizes[index] = size
+        addNext()
+      }
       return sizes
     }
   }
