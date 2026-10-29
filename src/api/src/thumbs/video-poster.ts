@@ -162,11 +162,9 @@ export async function extractVideoPosterJpeg(
   // and non-empty rather than on the exit code alone.
   const seeked = await runFfmpeg(bin, videoPath, outJpegPath, SEEK_SECONDS);
   if (seeked === null) return true;
-  await throwIfPermanentSourceFailure(seeked.stderr, videoPath);
   log.debug(seeked, 'ffmpeg produced no frame at seek — retrying from start');
   const fromStart = await runFfmpeg(bin, videoPath, outJpegPath, 0);
   if (fromStart === null) return true;
-  await throwIfPermanentSourceFailure(fromStart.stderr, videoPath);
   throttledWarn(log, `no-poster:${videoPath}`, fromStart, 'ffmpeg produced no poster frame');
   return false;
 }
@@ -215,50 +213,79 @@ function posterArgs(videoPath: string, outJpegPath: string, seekSeconds: number)
   ];
 }
 
-/** Null when a frame landed at `outJpegPath`, else why it did not. */
+/** What one ffmpeg invocation did, before any judgement of it. */
+export interface FfmpegRun {
+  timedOut: boolean;
+  exitCode: number | null;
+  stderr: string;
+  producedBytes: boolean;
+}
+
+/**
+ * Null when the run left a poster. Throws for a permanent source failure
+ * (`throwIfPermanentSourceFailure`); otherwise returns the failure to log.
+ * Exit code alone is not sufficient — see the short-clip note in
+ * `extractVideoPosterJpeg` — so success also needs real bytes on disk.
+ */
+export async function posterRunFailure(
+  run: FfmpegRun,
+  videoPath: string,
+  seekSeconds: number,
+): Promise<FfmpegFailure | null> {
+  if (run.timedOut) return { videoPath, exitCode: null, seekSeconds, stderr: 'timed out' };
+  if (run.exitCode === 0 && run.producedBytes) return null;
+  const stderr = run.stderr.trim().slice(0, 500);
+  await throwIfPermanentSourceFailure(stderr, videoPath);
+  return { videoPath, exitCode: run.exitCode, seekSeconds, stderr };
+}
+
+async function spawnFfmpeg(bin: string, args: string[], outJpegPath: string): Promise<FfmpegRun> {
+  const proc = Bun.spawn([bin, ...args], { stdout: 'ignore', stderr: 'pipe' });
+  const timedOut = { value: false };
+  const timer = setTimeout(() => {
+    timedOut.value = true;
+    proc.kill();
+  }, TIMEOUT_MS);
+  try {
+    const stderr = await new Response(proc.stderr).text();
+    const exitCode = await proc.exited;
+    return {
+      timedOut: timedOut.value,
+      exitCode,
+      stderr,
+      producedBytes: await hasBytes(outJpegPath),
+    };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function spawnThrew(videoPath: string, e: unknown): FfmpegRun {
+  const err = e instanceof Error ? e.message : String(e);
+  log.warn({ videoPath, err }, 'ffmpeg spawn threw');
+  return { timedOut: false, exitCode: null, stderr: err, producedBytes: false };
+}
+
+/** Null when a frame landed at `outJpegPath`, else why it did not. Nothing is
+ * left at `outJpegPath` on any failure, thrown or returned. */
 async function runFfmpeg(
   bin: string,
   videoPath: string,
   outJpegPath: string,
   seekSeconds: number,
 ): Promise<FfmpegFailure | null> {
-  const timedOut = { value: false };
-  try {
-    const proc = Bun.spawn([bin, ...posterArgs(videoPath, outJpegPath, seekSeconds)], {
-      stdout: 'ignore',
-      stderr: 'pipe',
-    });
-    const timer = setTimeout(() => {
-      timedOut.value = true;
-      proc.kill();
-    }, TIMEOUT_MS);
-
-    const [exitCode, stderr] = await (async () => {
-      try {
-        const text = await new Response(proc.stderr).text();
-        return [await proc.exited, text] as const;
-      } finally {
-        clearTimeout(timer);
-      }
-    })();
-
-    if (timedOut.value) {
-      log.warn({ videoPath, timeoutMs: TIMEOUT_MS }, 'ffmpeg timed out');
-      await discard(outJpegPath);
-      return { videoPath, exitCode: null, seekSeconds, stderr: 'timed out' };
-    }
-
-    // Exit code alone is not sufficient — see the short-clip note in
-    // `extractVideoPosterJpeg`. Require real bytes on disk.
-    if (exitCode === 0 && (await hasBytes(outJpegPath))) return null;
-    await discard(outJpegPath);
-    return { videoPath, exitCode, seekSeconds, stderr: stderr.trim().slice(0, 500) };
-  } catch (e) {
-    const err = e instanceof Error ? e.message : String(e);
-    log.warn({ videoPath, err }, 'ffmpeg spawn threw');
-    await discard(outJpegPath);
-    return { videoPath, exitCode: null, seekSeconds, stderr: err };
-  }
+  const run = await spawnFfmpeg(
+    bin,
+    posterArgs(videoPath, outJpegPath, seekSeconds),
+    outJpegPath,
+  ).catch((e: unknown) => spawnThrew(videoPath, e));
+  if (run.timedOut) log.warn({ videoPath, timeoutMs: TIMEOUT_MS }, 'ffmpeg timed out');
+  const failure = posterRunFailure(run, videoPath, seekSeconds);
+  await failure.then(
+    (outcome) => outcome && discard(outJpegPath),
+    () => discard(outJpegPath),
+  );
+  return failure;
 }
 
 async function hasBytes(p: string): Promise<boolean> {
