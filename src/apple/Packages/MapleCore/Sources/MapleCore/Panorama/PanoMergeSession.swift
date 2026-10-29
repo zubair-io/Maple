@@ -67,6 +67,10 @@ public final class PanoMergeSession {
     /// mismatched alignment itself, so offering it is always safe.
     public private(set) var alignment: PanoAlignment?
 
+    /// How cloud-only frames can still stitch on this device: download them
+    /// first (#5489). `nil` when the frames are not on a Maple server.
+    public var downloadRoute: PanoDownloadRoute?
+
     /// True while a stitch is in-flight. Derived from `state` so views don't
     /// need a switch to drive a spinner.
     public var isRunning: Bool {
