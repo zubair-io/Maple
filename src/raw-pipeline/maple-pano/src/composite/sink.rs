@@ -14,6 +14,43 @@ pub trait CanvasSink {
     fn rows(&mut self, strip: &PlanarImage) -> Result<(), PanoError>;
 }
 
+/// Forwards to `inner` until `is_cancelled` reports true, then fails the
+/// next strip with [`PanoError::Cancelled`] — the compositors' per-strip
+/// cancellation checkpoint.
+pub(crate) struct CancellableSink<'a> {
+    inner: &'a mut dyn CanvasSink,
+    is_cancelled: &'a dyn Fn() -> bool,
+}
+
+impl<'a> CancellableSink<'a> {
+    pub fn new(inner: &'a mut dyn CanvasSink, is_cancelled: &'a dyn Fn() -> bool) -> Self {
+        Self {
+            inner,
+            is_cancelled,
+        }
+    }
+
+    fn checkpoint(&self) -> Result<(), PanoError> {
+        if (self.is_cancelled)() {
+            Err(PanoError::Cancelled)
+        } else {
+            Ok(())
+        }
+    }
+}
+
+impl CanvasSink for CancellableSink<'_> {
+    fn begin(&mut self, width: u32, height: u32) -> Result<(), PanoError> {
+        self.checkpoint()?;
+        self.inner.begin(width, height)
+    }
+
+    fn rows(&mut self, strip: &PlanarImage) -> Result<(), PanoError> {
+        self.checkpoint()?;
+        self.inner.rows(strip)
+    }
+}
+
 /// Assembles the strips into one whole-canvas image, for callers that need
 /// it in memory (the quick preview, tests, evidence tools).
 pub struct CanvasCollector {
@@ -66,5 +103,35 @@ impl CanvasSink for CanvasCollector {
         }
         self.next_row += strip.height();
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::cell::Cell;
+
+    use super::*;
+
+    #[test]
+    fn a_cancelled_sink_refuses_the_next_strip_without_forwarding_it() {
+        let strip = PlanarImage::from_planes(
+            2,
+            1,
+            vec![0.5; 2],
+            vec![0.5; 2],
+            vec![0.5; 2],
+            ValidityMask::new_filled(2, 1, true),
+        );
+        let cancelled = Cell::new(false);
+        let is_cancelled = || cancelled.get();
+        let mut collector = CanvasCollector::default();
+        {
+            let mut sink = CancellableSink::new(&mut collector, &is_cancelled);
+            sink.begin(2, 2).expect("begin");
+            sink.rows(&strip).expect("first strip");
+            cancelled.set(true);
+            assert!(matches!(sink.rows(&strip), Err(PanoError::Cancelled)));
+        }
+        assert_eq!(collector.next_row, 1);
     }
 }

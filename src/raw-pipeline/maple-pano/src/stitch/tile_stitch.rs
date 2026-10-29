@@ -35,7 +35,7 @@ use std::collections::HashSet;
 use std::path::PathBuf;
 
 use crate::camera::Camera;
-use crate::composite::CanvasSink;
+use crate::composite::{CancellableSink, CanvasSink};
 use crate::features::FeatureSet;
 use crate::gain::LensGroups;
 use crate::graph::{
@@ -255,6 +255,9 @@ pub(super) fn tile_tail(
     let (mut refined_matches, mut fallback_matches) = (0usize, 0usize);
     let edge_count = graph.edges.len();
     for (ei, edge) in graph.edges.iter_mut().enumerate() {
+        if is_cancelled() {
+            return Err(StitchError::Cancelled);
+        }
         let get = |idx: usize| -> Result<_, StitchError> {
             cache.get(idx).map_err(|e| StitchError::Decode {
                 // `idx` here always comes from a graph edge, which stage 2
@@ -445,9 +448,9 @@ pub(super) fn place_and_composite(
         lenses,
         &Default::default(),
         None,
-        sink,
+        &mut CancellableSink::new(sink, is_cancelled),
     )
-    .map_err(|e| StitchError::Composite(e.to_string()))?;
+    .map_err(super::seam_gate::composite_error)?;
     let composite_s = t5.elapsed().as_secs_f64();
     progress(5, 1.0);
 

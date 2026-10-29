@@ -145,14 +145,22 @@ pub fn stitch_tile(
         &proxy_images,
         planar_gate.as_ref(),
         Some(&descriptor_topk),
-        |a, b| match pair_matcher.match_pair(&feature_sets[a], &feature_sets[b]) {
-            Ok(corrs) => corrs,
-            Err(e) => {
-                match_failures.push(format!("pair ({a},{b}): {e}"));
-                Vec::new()
+        |a, b| {
+            if is_cancelled() {
+                return Vec::new();
+            }
+            match pair_matcher.match_pair(&feature_sets[a], &feature_sets[b]) {
+                Ok(corrs) => corrs,
+                Err(e) => {
+                    match_failures.push(format!("pair ({a},{b}): {e}"));
+                    Vec::new()
+                }
             }
         },
     );
+    if is_cancelled() {
+        return Err(StitchError::Cancelled);
+    }
     if !match_failures.is_empty() {
         return Err(StitchError::MatchFailed(match_failures));
     }

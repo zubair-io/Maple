@@ -50,6 +50,9 @@ pub enum PanoError {
 
     #[error("seam constraints: {0}")]
     SeamConstraint(#[from] crate::seam::SeamConstraintError),
+
+    #[error("cancelled by caller")]
+    Cancelled,
 }
 
 impl PanoError {

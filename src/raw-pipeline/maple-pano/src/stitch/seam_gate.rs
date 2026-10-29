@@ -63,6 +63,7 @@ pub(super) fn for_kept_frames(
 pub(super) fn composite_error(e: PanoError) -> StitchError {
     match e {
         PanoError::SeamConstraint(c) => StitchError::SeamConstraint(c),
+        PanoError::Cancelled => StitchError::Cancelled,
         other => StitchError::Composite(other.to_string()),
     }
 }

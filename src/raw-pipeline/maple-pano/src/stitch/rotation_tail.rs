@@ -11,7 +11,7 @@ use std::time::Instant;
 use crate::ba::{self, BaOptions};
 use crate::camera::Camera;
 use crate::canvas::{auto_canvas, CanvasOptions, ProjectionMode};
-use crate::composite::{CanvasSink, CompositeReport};
+use crate::composite::{CancellableSink, CanvasSink, CompositeReport};
 use crate::leveling;
 use crate::local_align::LocalCorrection;
 use crate::robust::RobustOptions;
@@ -50,10 +50,14 @@ pub(super) fn rotation_tail(
     if is_cancelled() {
         return Err(StitchError::Cancelled);
     }
-    let refine_result =
-        refine_edges_lru(&mut graph, inputs, &proxy_scales, &full_images, |frac| {
-            progress(3, frac)
-        })?;
+    let refine_result = refine_edges_lru(
+        &mut graph,
+        inputs,
+        &proxy_scales,
+        &full_images,
+        |frac| progress(3, frac),
+        is_cancelled,
+    )?;
     let (refined_matches, fallback_matches) = (
         refine_result.refined_matches,
         refine_result.fallback_matches,
@@ -141,7 +145,7 @@ pub(super) fn rotation_tail(
         &canvas,
         opts,
         &seam_constraints,
-        sink,
+        &mut CancellableSink::new(sink, is_cancelled),
     )?;
     let comp_report = CompositeReport {
         falloff,

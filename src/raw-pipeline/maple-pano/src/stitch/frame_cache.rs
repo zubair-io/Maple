@@ -16,8 +16,10 @@ use crate::refine::{refine_correspondences, RefineGeometry, RefineOptions};
 use crate::stitch::types::StitchError;
 
 /// Decode a frame into the cache at `evict_slot`, replacing whatever was there.
+/// The old frame is dropped before decoding, so no more than two
+/// full-resolution frames are ever live at once.
 ///
-/// Returns `Err(message)` if the file fails to decode.
+/// Returns `Err(message)` if the file fails to decode, leaving the slot empty.
 pub(super) fn load_frame(
     cache: &mut [Option<(usize, PlanarImage)>; 2],
     idx: usize,
@@ -88,6 +90,7 @@ pub(super) fn refine_edges_lru(
     proxy_scales: &[(f64, f64)],
     full_images: &[GraphImage],
     mut progress: impl FnMut(f32),
+    is_cancelled: &dyn Fn() -> bool,
 ) -> Result<RefinePassResult, StitchError> {
     let mut cache: [Option<(usize, PlanarImage)>; 2] = [None, None];
     let edge_count = graph.edges.len();
@@ -97,6 +100,9 @@ pub(super) fn refine_edges_lru(
     let mut fallback_matches = 0usize;
 
     for ei in 0..edge_count {
+        if is_cancelled() {
+            return Err(StitchError::Cancelled);
+        }
         let (ia, ib) = edge_pairs[ei];
         let next_pair: Option<(usize, usize)> = edge_pairs.get(ei + 1).copied();
 
@@ -168,4 +174,58 @@ pub(super) fn refine_edges_lru(
         refined_matches,
         fallback_matches,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::graph::VerifiedEdge;
+    use crate::ingest::ValidityMask;
+    use crate::math::Mat3;
+
+    fn frame(value: f32) -> PlanarImage {
+        let plane = vec![value; 4];
+        PlanarImage::from_planes(
+            2,
+            2,
+            plane.clone(),
+            plane.clone(),
+            plane,
+            ValidityMask::new_filled(2, 2, true),
+        )
+    }
+
+    #[test]
+    fn the_evicted_frame_is_released_before_the_replacement_decodes() {
+        let mut cache = [Some((0, frame(0.1))), Some((1, frame(0.2)))];
+        let missing = PathBuf::from("/nonexistent/maple-pano-frame-cache.dng");
+        assert!(load_frame(&mut cache, 2, &missing, 0).is_err());
+        assert!(cache[0].is_none(), "slot 0 still holds its old frame");
+        assert_eq!(cache[1].as_ref().map(|c| c.0), Some(1));
+    }
+
+    #[test]
+    fn refinement_stops_before_decoding_once_cancelled() {
+        let mut graph = MatchGraph {
+            image_count: 2,
+            edges: vec![VerifiedEdge {
+                a: 0,
+                b: 1,
+                rotation: Mat3::identity(),
+                inlier_count: 0,
+                mean_residual_rad: 0.0,
+                inlier_matches: Vec::new(),
+            }],
+            rejected: Vec::new(),
+            components: vec![vec![0, 1]],
+            orphans: Vec::new(),
+        };
+        let inputs = [
+            PathBuf::from("/nonexistent/a.dng"),
+            PathBuf::from("/nonexistent/b.dng"),
+        ];
+        let outcome =
+            refine_edges_lru(&mut graph, &inputs, &[(1.0, 1.0); 2], &[], |_| {}, &|| true);
+        assert!(matches!(outcome, Err(StitchError::Cancelled)));
+    }
 }
