@@ -27,6 +27,7 @@ export const PROGRESS_TOTAL = PANO_STAGE_COUNT * PROGRESS_PER_STAGE;
 
 const PROGRESS_LINE = /^pano: progress (\d+) \S+ (\d+)%$/;
 const CANCEL_POLL_MS = 3_000;
+const KILL_GRACE_MS = 10_000;
 
 /** Progress units a `pano: progress` line stands for, or null for any other line. */
 export function progressFromLine(line: string): number | null {
@@ -110,6 +111,24 @@ async function drainAndDiscard(stream: ReadableStream<Uint8Array>): Promise<void
   while (!(await reader.read()).done);
 }
 
+/**
+ * Stop the CLI and wait until it has exited: SIGTERM, then SIGKILL once the
+ * grace period passes. Only an exited process has given its memory back.
+ */
+export async function terminateCli(
+  proc: Bun.Subprocess,
+  graceMs: number = KILL_GRACE_MS,
+): Promise<void> {
+  if (proc.exitCode !== null || proc.signalCode !== null) return;
+  proc.kill('SIGTERM');
+  const exitedInGrace = await Promise.race([
+    proc.exited.then(() => true),
+    Bun.sleep(graceMs).then(() => false),
+  ]);
+  if (!exitedInGrace) proc.kill('SIGKILL');
+  await proc.exited;
+}
+
 // The poll races the process exit so it wakes as soon as the CLI is done,
 // instead of adding a fixed tail of one poll interval to every job.
 async function killOnCancel(proc: Bun.Subprocess, ctx: JobHandlerContext): Promise<void> {
@@ -122,10 +141,7 @@ async function killOnCancel(proc: Bun.Subprocess, ctx: JobHandlerContext): Promi
       ),
     ]);
     if (tick === 'exited') return;
-    if (await ctx.shouldCancel()) {
-      proc.kill('SIGTERM');
-      return;
-    }
+    if (await ctx.shouldCancel()) return terminateCli(proc);
   }
 }
 
@@ -183,13 +199,19 @@ async function spawnPanoCli(
     progress = units;
     await ctx.reportProgress(progress, PROGRESS_TOTAL).catch(() => {});
   };
-  const [exitCode] = await Promise.all([
-    proc.exited,
-    drainLines(proc.stderr, onLine),
-    drainAndDiscard(proc.stdout),
-    killOnCancel(proc, ctx),
-  ]);
-  return { exitCode, cancelled: await ctx.shouldCancel(), stderrLines, progress };
+  // A lost lease makes shouldCancel throw mid-run; the CLI must still be
+  // stopped before the caller releases the memory budget it holds.
+  try {
+    const [exitCode] = await Promise.all([
+      proc.exited,
+      drainLines(proc.stderr, onLine),
+      drainAndDiscard(proc.stdout),
+      killOnCancel(proc, ctx),
+    ]);
+    return { exitCode, cancelled: await ctx.shouldCancel(), stderrLines, progress };
+  } finally {
+    await terminateCli(proc);
+  }
 }
 
 const log = childLogger('job:pano-cli');

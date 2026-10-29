@@ -35,8 +35,8 @@
  *   5. On non-zero exit or spawn error: fails the job with the last stderr
  *      content.
  *
- * Single-concurrent constraint: the route enforces this (409 when a
- * pano_stitch job is already running); the handler itself is stateless.
+ * Single-concurrent constraint: the job store's insert fence enforces this
+ * (`pano/pano-admission.ts`); the handler itself is stateless.
  */
 
 import { access, mkdir as mkdirTemp, readFile, rm, stat } from 'node:fs/promises';
@@ -112,6 +112,10 @@ function parseAlignmentIn(raw: unknown): string | null {
   const dir = ownedPreviewDir(path.dirname(raw));
   return dir === null ? null : path.join(dir, path.basename(raw));
 }
+
+/** The preview directory whose alignment this job reads, if any. */
+export const alignmentDir = (payload: PanoStitchPayload): string | null =>
+  payload.alignmentIn === null ? null : path.dirname(payload.alignmentIn);
 
 export async function readAlignmentVerdict(
   outputDir: string,
@@ -357,7 +361,7 @@ export const panoStitchHandler: JobHandler = {
           'pano_stitch: failed to remove temp dir',
         );
       });
-      await sweepStalePreviews();
+      await sweepStalePreviews(alignmentDir(payload));
     }
   },
 };

@@ -234,6 +234,25 @@ describe('POST /api/pano/stitch with alignmentFrom', () => {
     }
   });
 
+  it('cancels the previews it supersedes so they do not hold the runner', async () => {
+    await configure(previewCli);
+    const queued = insertJob('pano_preview', 'queued', { outputDir: newPreviewDir() });
+    const running = insertJob('pano_preview', 'running', { outputDir: newPreviewDir() });
+    const res = await send('POST', '/api/pano/stitch', BODY());
+    expect(res.status).toBe(201);
+    for (const id of [queued, running]) {
+      expect((await getJob(new ObjectId(id)))?.cancel_requested).toBe(true);
+    }
+  });
+
+  it('keeps the previews when the stitch is refused', async () => {
+    await configure(previewCli);
+    insertJob('pano_stitch', 'running', { assetIds: ['other'] });
+    const preview = insertJob('pano_preview', 'queued', { outputDir: newPreviewDir() });
+    expect((await send('POST', '/api/pano/stitch', BODY())).status).toBe(409);
+    expect((await getJob(new ObjectId(preview)))?.cancel_requested).toBe(false);
+  });
+
   it('never offers an alignment to a binary without the preview flags', async () => {
     await configure(legacyCli);
     const { id, dir } = await donePreview();

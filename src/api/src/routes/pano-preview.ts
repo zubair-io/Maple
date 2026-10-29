@@ -19,13 +19,11 @@
 import { Elysia } from 'elysia';
 import path from 'node:path';
 import { child as childLogger } from '../log.ts';
-import { createJob, listJobs, requestCancel } from '../job-runner/jobs.repo.ts';
 import { newPreviewDir, ownedPreviewDir, PREVIEW_FILES } from '../pano/pano-previews.ts';
+import { activePanoJob, admitPanoPreview, panoJobRunning } from '../pano/pano-admission.ts';
 import {
-  activePanoJob,
   findPanoJob,
   panoJobPayload,
-  panoJobRunning,
   planStitch,
   resolveStitchInputs,
   StitchBody,
@@ -34,16 +32,6 @@ import {
 const log = childLogger('pano:preview-routes');
 
 const PREVIEW_KIND: ReadonlySet<string> = new Set(['pano_preview']);
-
-async function supersedeActivePreviews(): Promise<number> {
-  const active = await listJobs({
-    kind: 'pano_preview',
-    statuses: ['queued', 'running'],
-    limit: 50,
-  });
-  await Promise.all(active.map((job) => requestCancel(job._id)));
-  return active.length;
-}
 
 export const panoPreviewRoutes = new Elysia({ prefix: '/api/pano' })
   .post(
@@ -71,16 +59,20 @@ export const panoPreviewRoutes = new Elysia({ prefix: '/api/pano' })
         set.status = inputs.status;
         return inputs.rejection;
       }
-      const superseded = await supersedeActivePreviews();
       const payload = await panoJobPayload(stitchPlan, body, inputs.uniqueIds, newPreviewDir());
-      const doc = await createJob({ kind: 'pano_preview', payload });
+      const admitted = await admitPanoPreview(payload);
+      if ('running' in admitted) {
+        set.status = 409;
+        return panoJobRunning(admitted.running._id);
+      }
+      const { created, superseded } = admitted;
       log.info(
-        { jobId: doc._id.toHexString(), superseded, alignmentIn: payload.alignmentIn },
+        { jobId: created._id.toHexString(), superseded, alignmentIn: payload.alignmentIn },
         'pano preview queued',
       );
       set.status = 201;
       return {
-        id: doc._id.toHexString(),
+        id: created._id.toHexString(),
         ...(inputs.indexedCount > 0 ? { indexing: inputs.indexedCount } : {}),
       };
     },

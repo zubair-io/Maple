@@ -51,6 +51,25 @@ const NO_ACTIVE_BATCH_OVERLAP = `
        AND os.value IN (SELECT value FROM json_each(json(?))))`;
 
 /**
+ * Any queued or running panorama stitch. A stitch peaks at tens of GB, so one
+ * may be active at a time, and a preview is not admitted beside it either.
+ */
+const NO_ACTIVE_PANO_STITCH = `
+  NOT EXISTS (
+    SELECT 1 FROM jobs o
+     WHERE o.kind = 'pano_stitch'
+       AND o.status IN ('queued', 'running'))`;
+
+/** Which admission rule an insert is checked against, in the same statement. */
+export type JobInsertFence = 'none' | 'batch_scopes' | 'pano_stitch';
+
+const FENCE_PREDICATES: Record<JobInsertFence, string> = {
+  none: '1 = 1',
+  batch_scopes: NO_ACTIVE_BATCH_OVERLAP,
+  pano_stitch: NO_ACTIVE_PANO_STITCH,
+};
+
+/**
  * Insert one queued job.
  *
  * `INSERT … SELECT … WHERE` rather than `INSERT … VALUES`, because the fence
@@ -62,11 +81,11 @@ const NO_ACTIVE_BATCH_OVERLAP = `
  * Both a blocked fence and a re-used id report zero rows changed, which is why
  * the repository distinguishes them by reading rather than by the count.
  */
-export function insertJobSql(fenced: boolean): string {
+export function insertJobSql(fence: JobInsertFence): string {
   return `
     INSERT INTO jobs (${JOB_COLUMNS})
     SELECT ${placeholders(15)}
-     WHERE ${fenced ? NO_ACTIVE_BATCH_OVERLAP : '1 = 1'}
+     WHERE ${FENCE_PREDICATES[fence]}
     ON CONFLICT (id) DO NOTHING`;
 }
 

@@ -48,7 +48,7 @@ import {
 } from '../pano/pano-config.repo.ts';
 import { invalidatePanoCliProbe, probePanoCli } from '../pano/pano-cli-probe.ts';
 import { planPanoEngine, withExistingMlPaths } from '../pano/pano-engine.ts';
-import { createJob, getJob, listJobs, requestCancel } from '../job-runner/jobs.repo.ts';
+import { getJob, requestCancel } from '../job-runner/jobs.repo.ts';
 import { ownedPreviewDir, PREVIEW_FILES } from '../pano/pano-previews.ts';
 import type { JobWithId } from '../db/schema.ts';
 import {
@@ -56,7 +56,7 @@ import {
   type AssetLocationsRow,
 } from '../db/repos/assets.by-filename.ts';
 import { loadLibraryRoots } from '../indexer/libraries.cache.ts';
-import { repeatsRunningStitch } from '../pano/pano-stitch-rejoin.ts';
+import { admitPanoStitch, panoJobRunning } from '../pano/pano-admission.ts';
 import { isUnderRoot } from '../fs/browse.ts';
 
 const log = childLogger('pano:routes');
@@ -399,19 +399,6 @@ export async function resolveStitchInputs(body: {
     : { uniqueIds, indexedCount: fromPaths.indexedCount };
 }
 
-export async function activePanoJob(kind: 'pano_stitch' | 'pano_preview') {
-  const [active] = await listJobs({ kind, statuses: ['queued', 'running'], limit: 1 });
-  return active ?? null;
-}
-
-export function panoJobRunning(jobId: ObjectId) {
-  return {
-    error: 'pano_job_running',
-    message: 'A panorama job is already running or queued. Wait for it to finish.',
-    jobId: jobId.toHexString(),
-  };
-}
-
 /**
  * The alignment file of a finished preview, or null when the id does not name
  * one — the stitch then simply solves its own alignment. The path is rebuilt
@@ -491,34 +478,23 @@ export const panoRoutes = new Elysia({ prefix: '/api/pano' })
         return inputs.rejection;
       }
 
-      // Queued counts as active too: close-together requests would otherwise
-      // enqueue several stitches, and concurrent runs (tens of GB RSS) OOM the box.
-      const active = await activePanoJob('pano_stitch');
-      if (active !== null) {
-        const repeat = repeatsRunningStitch(active, {
-          assetIds: inputs.uniqueIds,
-          libraryId: body.libraryId,
-          retention: body.options.retention,
-          localAlign: body.options.localAlign,
-          strategy: body.options.strategy ?? null,
-        });
-        if (!repeat) {
-          set.status = 409;
-          return panoJobRunning(active._id);
-        }
-        return {
-          id: active._id.toHexString(),
-          alignmentReused: active.payload.alignmentIn != null,
-        };
-      }
-
       // The handler removes this temp dir after importing the result.
       const outputDir = path.join(os.tmpdir(), `maple-pano-${randomBytes(8).toString('hex')}`);
       const payload = await panoJobPayload(stitchPlan, body, inputs.uniqueIds, outputDir);
-      const doc = await createJob({ kind: 'pano_stitch', payload });
+      const admitted = await admitPanoStitch(payload);
+      if ('running' in admitted) {
+        set.status = 409;
+        return panoJobRunning(admitted.running._id);
+      }
+      if ('rejoined' in admitted) {
+        return {
+          id: admitted.rejoined._id.toHexString(),
+          alignmentReused: admitted.rejoined.payload.alignmentIn != null,
+        };
+      }
       set.status = 201;
       return {
-        id: doc._id.toHexString(),
+        id: admitted.created._id.toHexString(),
         alignmentReused: payload.alignmentIn !== null,
         ...(inputs.indexedCount > 0 ? { indexing: inputs.indexedCount } : {}),
       };
