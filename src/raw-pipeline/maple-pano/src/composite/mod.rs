@@ -43,6 +43,7 @@ mod sink;
 mod tiled;
 
 pub use owner::OwnerRuns;
+pub(crate) use sink::CancellableSink;
 pub use sink::{CanvasCollector, CanvasSink};
 pub use tiled::{composite_tiled, composite_tiled_frames};
 

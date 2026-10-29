@@ -292,6 +292,9 @@ pub(super) fn solve_alignment(
             // Candidates arrive in ascending (a, b) order, so the first index
             // is a monotone (if uneven) measure of how far matching has got.
             progress(2, a as f32 / metas.len() as f32);
+            if is_cancelled() {
+                return Vec::new();
+            }
             let corrs = match pair_matcher.match_pair(&feature_sets[a], &feature_sets[b]) {
                 Ok(corrs) => corrs,
                 Err(e) => {
@@ -303,6 +306,9 @@ pub(super) fn solve_alignment(
             corrs
         },
     );
+    if is_cancelled() {
+        return Err(StitchError::Cancelled);
+    }
     if !match_failures.is_empty() {
         return Err(StitchError::MatchFailed(match_failures));
     }
@@ -322,8 +328,21 @@ pub(super) fn solve_alignment(
         &mut raw_matches_cache,
         rotation_gate.as_ref(),
         Some(&descriptor_topk),
-        |a, b| pair_matcher.match_pair(&feature_sets[a], &feature_sets[b]),
-    )?;
+        |a, b| {
+            if is_cancelled() {
+                Err("cancelled by caller".into())
+            } else {
+                pair_matcher.match_pair(&feature_sets[a], &feature_sets[b])
+            }
+        },
+    )
+    .map_err(|e| {
+        if is_cancelled() {
+            StitchError::Cancelled
+        } else {
+            e
+        }
+    })?;
     pair_matcher.release();
     // Timed after refinement, not just the bootstrap build, so the stage
     // duration covers any fallback rebuild work too.
