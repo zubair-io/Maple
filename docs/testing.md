@@ -535,7 +535,7 @@ Nothing has to be running first. The library database is a file each test makes 
 [`src/api/src/db/sqlite/test-sqlite.test-helpers.ts`](../src/api/src/db/sqlite/test-sqlite.test-helpers.ts) gives each test its own database with the schema already applied, and disposes of it when the test's block exits:
 
 ```ts
-test("rejects a duplicate filename", async () => {
+test('rejects a duplicate filename', async () => {
   using handle = await createTestDatabase();
   const db = handle.db;
   // …
