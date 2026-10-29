@@ -3,6 +3,7 @@ import { DecodeMemoryBudgetError } from '../../ffi/decode-memory-budget.ts';
 import { UnsupportedCameraError } from '../../ffi/unsupported-camera.ts';
 import { stat } from '../../fs/mirrored.ts';
 import { child as childLogger } from '../../log.ts';
+import { NoVideoStreamError } from '../../thumbs/source-failure.ts';
 import type { StageResult } from '../stage-config.ts';
 
 const log = childLogger('workers:derivative-render');
@@ -28,9 +29,10 @@ export function deferWhileDecoderMissing(): StageResult | null {
 }
 
 /**
- * A render that published nothing must not be recorded as done (#5474). The
+ * A render that published nothing must not be recorded as done (#5474). A
  * decoder refusing the original is thrown as `SourceDecodeError` before this
- * point, so it alone reaches the retry → dead-letter → damaged path. Any other
+ * point (`thumbs/source-failure.ts` lists the signatures), so only it reaches
+ * the retry → dead-letter → damaged path. Any other
  * failure — a full or read-only cache volume, an encode fault, a crashed
  * child — says nothing about the original, so it defers and resumes once the
  * server recovers. A vanished original rethrows its own ENOENT so the runner
@@ -65,6 +67,15 @@ export function unsupportedCameraDeferral(err: unknown, sourcePath: string): Sta
       retryAt: new Date(Date.now() + UNSUPPORTED_CAMERA_RETRY_MS),
     },
   };
+}
+
+/**
+ * A video container with no video stream (an audio-only MXF, #5513) has no
+ * frame for any build to render: the stage is done with nothing to publish,
+ * and the original is not damaged.
+ */
+export function noVideoStreamOutcome(err: unknown): StageResult | null {
+  return err instanceof NoVideoStreamError ? { skip: 'no-video-stream' } : null;
 }
 
 /**

@@ -42,6 +42,7 @@ import { generateThumb } from '../../indexer/thumbnailer.ts';
 import {
   deferWhileDecoderMissing,
   memoryBudgetDeferral,
+  noVideoStreamOutcome,
   unrenderedOutcome,
   unsupportedCameraDeferral,
 } from './derivative-render-outcome.ts';
@@ -161,6 +162,7 @@ const thumbStage = defineStage({
     if (decoderMissing) return decoderMissing;
     const rendered = await generateThumb(absPath, thumbPath).catch(
       (err: unknown) =>
+        noVideoStreamOutcome(err) ??
         memoryBudgetDeferral(err, absPath) ??
         unsupportedCameraDeferral(err, absPath) ??
         Promise.reject(err),

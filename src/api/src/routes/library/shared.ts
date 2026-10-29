@@ -9,7 +9,7 @@ import { isVideoFilename } from '../../indexer/media-types.ts';
 import { ffmpegBinary } from '../../thumbs/video-poster.ts';
 import { ffiPool } from '../../ffi/ffi-pool.ts';
 import { AuthoredSidecarRenderError } from '../../thumbs/raw-sidecar-render.ts';
-import { SourceDecodeError } from '../../thumbs/bitmap-pool.ts';
+import { NoVideoStreamError, SourceDecodeError } from '../../thumbs/source-failure.ts';
 import { UnsupportedCameraError } from '../../ffi/unsupported-camera.ts';
 import type { Stats } from 'node:fs';
 import { t, type Context } from 'elysia';
@@ -395,7 +395,7 @@ export async function derivativeDecoderUnavailable(sourcePath: string): Promise<
 /** Authored edits that cannot be developed (#5231), an original the decoder
  * refuses (#5474) and a camera body it does not know (#5499) are properties
  * of the asset, not server faults, so they answer 422 rather than the generic
- * 500. */
+ * 500. A video container with no video stream has no frame at all: 404. */
 export function derivativeGenerationFailure(
   error: unknown,
   set: Context['set'],
@@ -415,6 +415,10 @@ export function derivativeGenerationFailure(
   if (error instanceof UnsupportedCameraError) {
     set.status = 422;
     return { error: 'This camera is not supported yet', code: 'camera-unsupported' };
+  }
+  if (error instanceof NoVideoStreamError) {
+    set.status = 404;
+    return { error: 'This file has no video frame', code: 'no-video-stream' };
   }
   set.status = 500;
   return { error: fallback };

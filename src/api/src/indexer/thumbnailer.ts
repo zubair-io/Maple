@@ -40,6 +40,7 @@ import { finalizeAvifRender } from '../thumbs/validate-avif.ts';
 import { renderRawSidecarDerivative } from '../thumbs/raw-sidecar-render.ts';
 import { assertDerivativeCacheDirectory, isDerivativeCacheFresh } from './derivative-cache.ts';
 import { child as childLogger } from '../log.ts';
+import { throttledWarn } from '../log-throttle.ts';
 import { DecodeMemoryBudgetError } from '../ffi/decode-memory-budget.ts';
 import { UnsupportedCameraError } from '../ffi/unsupported-camera.ts';
 
@@ -151,7 +152,7 @@ export async function generateThumb(absPath: string, thumbPathOverride?: string)
     replicatePath(thumbPath);
   } else {
     _failed++;
-    log.warn({ absPath }, 'failed');
+    throttledWarn(log, `thumb-failed:${absPath}`, { absPath }, 'failed');
   }
   logTotals();
   return ok;
@@ -278,7 +279,9 @@ async function developRawThumbToFile(
       // extraction failure, and the pool flattens rc 8 ("no embedded
       // preview") and an infra error into the same generic message — so
       // asserting a cause here would mislead triage.
-      log.warn(
+      throttledWarn(
+        log,
+        `develop-failed:${rawPath}`,
         { rawPath, extractError },
         'thumb extraction failed and demosaic fallback also failed',
       );
@@ -287,7 +290,9 @@ async function developRawThumbToFile(
     return await renderBitmapThumbToFile(jpegPath, outPath, 'jpg');
   } catch (e) {
     if (e instanceof DecodeMemoryBudgetError || e instanceof UnsupportedCameraError) throw e;
-    log.warn(
+    throttledWarn(
+      log,
+      `develop-threw:${rawPath}`,
       { rawPath, extractError, err: e instanceof Error ? e.message : e },
       'demosaic fallback threw',
     );
@@ -362,7 +367,9 @@ async function renderBitmapThumbToFile(
   });
   if (result === null) return false;
   if (!result.ok) {
-    log.warn(
+    throttledWarn(
+      log,
+      `child-error:${srcPath}`,
       { srcPath, err: result.error ?? 'FFI bitmap render failed' },
       'FFI child returned error',
     );

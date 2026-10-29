@@ -12,7 +12,7 @@ import { maple } from 'maple';
 import { generateThumb } from './thumbnailer.ts';
 import { generatePreview, PREVIEW_LONG_EDGE_PX } from './previewer.ts';
 import { THUMB_LONG_EDGE_PX } from '../thumbs/render.ts';
-import { SourceDecodeError } from '../thumbs/bitmap-pool.ts';
+import { SourceDecodeError } from '../thumbs/source-failure.ts';
 import { solidJpeg } from '../test-support/synth-image.ts';
 
 const PANORAMA_WIDTH = 19_000;

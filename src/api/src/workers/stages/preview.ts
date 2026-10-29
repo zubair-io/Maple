@@ -35,6 +35,7 @@ import { noResolvableLocation } from './no-resolvable-location.ts';
 import {
   deferWhileDecoderMissing,
   memoryBudgetDeferral,
+  noVideoStreamOutcome,
   unrenderedOutcome,
   unsupportedCameraDeferral,
 } from './derivative-render-outcome.ts';
@@ -116,6 +117,7 @@ const previewStage = defineStage({
         generatePreview(absPath, previewPath),
       ).catch(
         (err: unknown) =>
+          noVideoStreamOutcome(err) ??
           memoryBudgetDeferral(err, absPath) ??
           unsupportedCameraDeferral(err, absPath) ??
           Promise.reject(err),
