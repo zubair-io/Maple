@@ -422,6 +422,13 @@ PanoMergePreviewTests
 PanoMemoryModelTests
 PanoOutputSizeSessionTests
 
+# Panorama stop/cancel/restart: no zombie run, no overlapping stitches, a
+# cancelled FFI run is CancellationError, a superseded server preview is
+# stopped there.
+PanoMergeCancellationTests
+RustPanoStitcherCancellationTests
+ServerPanoPreviewSupersedeTests
+
 # RGB bias precision (#4667): generated large images, no external fixtures.
 CIEDE2000BiasTests
 
