@@ -42,8 +42,9 @@
 import { mkdir as mkdirTemp, readFile, rm, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { ObjectId } from '../../db/object-id.ts';
-import { lstat, mkdir } from '../../fs/mirrored.ts';
-import { errnoCode, publishExclusive } from '../../fs/relocate-publish.ts';
+import { lstat, mkdir, withMirrorRoot } from '../../fs/mirrored.ts';
+import { errnoCode } from '../../fs/relocate-publish.ts';
+import { publishWhole } from '../../pano/pano-publish.ts';
 import { isWithinRoot, resolveRealPathThroughAncestors } from '../../fs/root.ts';
 import { recordAndPublishAssetChange } from '../../db/changes.repo.ts';
 import { upsertAssetByMapleId } from '../../db/repos/assets.upsert.ts';
@@ -215,15 +216,24 @@ async function importOutput(libraryId: string, location: PanoOutputLocation): Pr
     mapleId: fileIdentity.maple_id,
     sha1Head: fileIdentity.sha1_head,
   });
+  return upserted.id.toHexString();
+}
+
+/** Tell open clients a freshly stitched panorama exists. */
+async function announceCreated(
+  libraryId: string,
+  assetId: string,
+  libraryAbsPath: string,
+  location: PanoOutputLocation,
+): Promise<void> {
   await recordAndPublishAssetChange({
     kind: 'create',
-    asset_id: upserted.id,
+    asset_id: new ObjectId(assetId),
     folder_id: new ObjectId(libraryId),
-    abs_path: location.absPath,
+    abs_path: libraryAbsPath,
     relative_path:
       location.relDir === '' ? location.filename : `${location.relDir}/${location.filename}`,
   });
-  return upserted.id.toHexString();
 }
 
 /** `location` with its folder resolved through symlinks, refused unless that
@@ -257,16 +267,21 @@ async function alreadyMade(absPath: string): Promise<boolean> {
 }
 
 /** Publish the stitched PNG under its name without following a link there or
- * replacing whatever holds the name; the folder is re-checked once it exists. */
+ * replacing whatever holds the name; the folder is re-checked once it exists.
+ * The bytes are copied and verified beside the name first, so a crash never
+ * leaves a truncated panorama that a retry would take as already made. Mirrors
+ * are addressed through the library's registered spelling. */
 async function publishIntoLibrary(
   outputPng: string,
-  realRoot: string,
+  root: { real: string; registered: string },
   location: PanoOutputLocation,
 ): Promise<PanoOutputLocation> {
-  await mkdir(path.dirname(location.absPath), { recursive: true });
-  const placed = await containedLocation(realRoot, location);
-  await publishExclusive(outputPng, placed.absPath);
-  return placed;
+  return withMirrorRoot(root.real, root.registered, async () => {
+    await mkdir(path.dirname(location.absPath), { recursive: true });
+    const placed = await containedLocation(root.real, location);
+    await publishWhole(outputPng, placed.absPath);
+    return placed;
+  });
 }
 
 async function fileStamp(p: string): Promise<string> {
@@ -283,14 +298,13 @@ export const panoStitchHandler: JobHandler = {
     await mkdirTemp(payload.outputDir, { recursive: true });
     // The outputDir is a temp dir created by the route for this job. It must
     // be cleaned up in a finally block regardless of success or failure.
-    // The rename path leaves the dir empty after success; the copyFile fallback
-    // leaves the source temp PNG behind — that is handled below.
 
     try {
       const inputPaths = await resolveInputPaths(payload.assetIds);
       const libPath = (await loadLibraryRoots()).get(payload.libraryId);
       if (!libPath) throw new Error(`pano_stitch: library ${payload.libraryId} not found`);
       const realRoot = await resolveRealPathThroughAncestors(libPath);
+      const registeredPath = (p: string) => path.join(libPath, path.relative(realRoot, p));
       const location = await containedLocation(
         realRoot,
         panoOutputLocation(realRoot, inputPaths, {
@@ -307,7 +321,7 @@ export const panoStitchHandler: JobHandler = {
         await ctx.reportProgress(PROGRESS_TOTAL, PROGRESS_TOTAL);
         const result: PanoStitchResult = {
           outputAssetId: await importOutput(payload.libraryId, location),
-          outputPath: location.absPath,
+          outputPath: registeredPath(location.absPath),
           stagesCompleted: PROGRESS_TOTAL / PROGRESS_PER_STAGE,
           alignment: null,
           error: null,
@@ -365,9 +379,14 @@ export const panoStitchHandler: JobHandler = {
       // ── 4. Import result PNG into the library ─────────────────────────────
       await ctx.reportProgress(PROGRESS_TOTAL, PROGRESS_TOTAL);
 
-      const placed = await publishIntoLibrary(outputPng, realRoot, location);
+      const placed = await publishIntoLibrary(
+        outputPng,
+        { real: realRoot, registered: libPath },
+        location,
+      );
       const outputAssetId = await importOutput(payload.libraryId, placed);
-      const destAbs = placed.absPath;
+      const destAbs = registeredPath(placed.absPath);
+      await announceCreated(payload.libraryId, outputAssetId, destAbs, placed);
 
       log.info({ outputAssetId, destAbs }, 'pano stitch complete');
 
@@ -385,10 +404,8 @@ export const panoStitchHandler: JobHandler = {
         result: result as unknown as Record<string, unknown>,
       };
     } finally {
-      // Remove the temp dir created by the route for this job. On success the
-      // rename path has already emptied it; on the copy-fallback path we
-      // unlinked the temp PNG above; on error any partial files are cleaned up.
-      // Never remove anything outside the job's own outputDir.
+      // Remove the temp dir created by the route for this job, stitched PNG
+      // included. Never remove anything outside the job's own outputDir.
       await rm(payload.outputDir, { recursive: true, force: true }).catch((e) => {
         log.warn(
           { err: e, outputDir: payload.outputDir },

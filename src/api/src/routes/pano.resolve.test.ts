@@ -249,6 +249,37 @@ describe('POST /api/pano/stitch — path-based resolution (#1311)', () => {
     expect(((await res.json()) as { error: string }).error).toBe('path_excluded');
   });
 
+  it('refuses a file held only by a trashed photo instead of reviving it', async () => {
+    const png = Buffer.from(TINY_PNG_B64, 'base64');
+    const assetPaths = await Promise.all(
+      ['trashed-a.png', 'trashed-b.png'].map(async (name) => {
+        const filePath = path.join(tmpDir, 'lib', name);
+        await fs.writeFile(filePath, Buffer.concat([png, Buffer.from(name)]));
+        return filePath;
+      }),
+    );
+    const trashed = seedIndexed('trashed-a.png', 'seed-trashed-a');
+    run(
+      live.db,
+      `UPDATE assets SET deleted_at = ? WHERE id = ?`,
+      new Date().toISOString(),
+      trashed,
+    );
+
+    const res = await postJson('/api/pano/stitch', {
+      assetPaths,
+      libraryId: folderId,
+      options: { retention: 'keep', localAlign: 'mesh' },
+    });
+
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { error: string }).error).toBe('path_trashed');
+    const row = live.db.query(`SELECT deleted_at FROM assets WHERE id = ?`).get(trashed) as {
+      deleted_at: string | null;
+    };
+    expect(row.deleted_at).not.toBeNull();
+  });
+
   it('rejects a path that is outside every registered library root (security)', async () => {
     const res = await postJson('/api/pano/stitch', {
       // /etc/passwd is never under a registered library root.

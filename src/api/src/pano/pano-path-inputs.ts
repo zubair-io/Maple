@@ -7,7 +7,8 @@
  * never be indexed or stitched. A path with no live asset is indexed on demand
  * through the discover watcher's own per-file path (a skeleton row; enrichment
  * stays with the normal stages), unless the library excludes it (`.mapleignore`,
- * or a reserved tree such as `.maple/`), which is a 400 the user can act on.
+ * or a reserved tree such as `.maple/`) or the file belongs to a trashed photo;
+ * both are a 400 the user can act on.
  */
 
 import fs from '../fs/mirrored.ts';
@@ -78,15 +79,30 @@ async function normalizePath(rawPath: string, canon: CanonicalRoots): Promise<No
   };
 }
 
-/** The live asset whose live location is exactly `p`, or null. */
-function liveAssetAt(p: NormalizedPath, docs: readonly AssetLocationsRow[], canon: CanonicalRoots) {
+/** The asset whose live location is exactly `p`, or null when none is. A
+ * path held only by a trashed asset is refused: indexing it again would revive
+ * that asset from the trash as a side effect of a stitch request. */
+function assetAt(
+  p: NormalizedPath,
+  docs: readonly AssetLocationsRow[],
+  canon: CanonicalRoots,
+): string | null {
   const matches = (entry: AssetLocationsRow['fileinfo'][number]) => {
     if (entry.filename !== p.filename || entry.deleted_at || entry.missing_since) return false;
     const libRoot = canon.byFolderId.get(entry.library_id.toHexString());
     const segments = entry.path === '' ? [] : entry.path.split('/');
     return libRoot !== undefined && path.join(libRoot, ...segments, entry.filename) === p.absPath;
   };
-  return docs.find((doc) => doc.fileinfo.some(matches))?._id.toHexString() ?? null;
+  const holders = docs.filter((doc) => doc.fileinfo.some(matches));
+  const live = holders.find((doc) => doc.deleted_at === null);
+  if (live) return live._id.toHexString();
+  if (holders.length > 0) {
+    throw pathError(
+      `This file's photo is in the trash; restore it before stitching: ${p.absPath}`,
+      'path_trashed',
+    );
+  }
+  return null;
 }
 
 async function indexOnDemand(p: NormalizedPath, canon: CanonicalRoots): Promise<string> {
@@ -103,7 +119,7 @@ async function indexOnDemand(p: NormalizedPath, canon: CanonicalRoots): Promise<
   log.info({ absPath: p.absPath }, 'pano/stitch: indexing file on-demand');
   const { handleEvent } = await import('../workers/discover/index.ts');
   await handleEvent(event, p.owningFolderId, p.owningRoot);
-  const id = liveAssetAt(p, await findAssetLocationsByFilenames([p.filename]), canon);
+  const id = assetAt(p, await findAssetLocationsByFilenames([p.filename]), canon);
   if (id === null) {
     throw Object.assign(new Error(`Failed to index file on-demand: ${p.absPath}`), {
       status: 500,
@@ -122,12 +138,11 @@ export async function resolveAssetPaths(
   const candidates = await findAssetLocationsByFilenames([
     ...new Set(normalized.map((p) => p.filename)),
   ]);
+  const found = normalized.map((p) => assetAt(p, candidates, canon));
   const resolvedIds: string[] = [];
-  let indexedCount = 0;
-  for (const p of normalized) {
-    const found = liveAssetAt(p, candidates, canon);
-    if (found === null) indexedCount++;
-    resolvedIds.push(found ?? (await indexOnDemand(p, canon)));
+  // Sequential, as the discover watcher handles one file event at a time.
+  for (const [i, p] of normalized.entries()) {
+    resolvedIds.push(found[i] ?? (await indexOnDemand(p, canon)));
   }
-  return { resolvedIds, indexedCount };
+  return { resolvedIds, indexedCount: found.filter((id) => id === null).length };
 }

@@ -62,11 +62,9 @@ async function idsByFilenames(
 }
 
 /**
- * The shape the three asset-row lookups below share: resolve the basenames
- * once, run one projection over exactly the ids that came back, and hand each
- * row its own `fileinfo[]`. (The fourth, {@link findAssetLocationsByFilenames},
- * needs no projection — the basename lookup already holds everything it
- * answers with.)
+ * The shape the asset-row lookups below share: resolve the basenames once,
+ * run one projection over exactly the ids that came back, and hand each row its
+ * own `fileinfo[]`.
  *
  * That order is the semi-join rule from the module comment, made structural
  * rather than restated per function. The basename query is the only thing that
@@ -92,34 +90,36 @@ async function projectByFilenames<Row extends { id: string }, Result>(
   return rows.map((row) => build(row, toFileInfo(locations.get(row.id) ?? [])));
 }
 
-/** An asset reduced to what a path reconciliation needs: its id and its copies. */
+/** An asset reduced to what a path reconciliation needs: its id, its copies,
+ * and whether it is in the trash. */
 export interface AssetLocationsRow {
   _id: ObjectId;
   fileinfo: FileInfo[];
+  deleted_at: string | null;
 }
 
 /**
- * Every asset not in the trash holding a location with one of these basenames,
- * as id plus locations.
+ * Every asset holding a location with one of these basenames, as id plus
+ * locations plus trash state.
  *
  * `pano/pano-path-inputs.ts` uses this to turn a list of absolute paths into
- * asset ids before it queues a stitch.
+ * asset ids before it queues a stitch. A trashed asset comes back marked rather
+ * than left out: indexing its path again would revive it from the trash.
  */
-export async function findAssetLocationsByFilenames(
+export function findAssetLocationsByFilenames(
   filenames: readonly string[],
   dbOverride?: SqliteDb,
 ): Promise<AssetLocationsRow[]> {
-  const db = sqliteDb(dbOverride);
-  const { ids, locations } = await idsByFilenames(db, filenames);
-  if (ids.length === 0) return [];
-  const live = await db.read<{ id: string }>(
-    `SELECT id FROM assets WHERE id IN (${placeholders(ids.length)}) AND deleted_at IS NULL`,
-    ids,
+  return projectByFilenames(
+    filenames,
+    dbOverride,
+    (db, ids) =>
+      db.read<{ id: string; deleted_at: string | null }>(
+        `SELECT id, deleted_at FROM assets WHERE id IN (${placeholders(ids.length)})`,
+        ids,
+      ),
+    (row, fileinfo) => ({ _id: toObjectId(row.id), fileinfo, deleted_at: row.deleted_at }),
   );
-  return live.map(({ id }) => ({
-    _id: toObjectId(id),
-    fileinfo: toFileInfo(locations.get(id) ?? []),
-  }));
 }
 
 /**

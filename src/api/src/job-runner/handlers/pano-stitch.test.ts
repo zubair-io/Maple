@@ -304,13 +304,13 @@ describe('panoStitchHandler output location (#5488)', () => {
       return fs.readdir(path.join(mirrorPath(), 'Panoramas')).catch(() => []);
     };
 
-    it('replicates the panorama a same-mount rename puts in place', async () => {
+    it('replicates the panorama a hard link puts in place', async () => {
       const outcome = await panoStitchHandler.run(basePayload(), handlerContext());
       const { outputPath } = outcome.result as { outputPath: string };
       expect(await mirroredEntries()).toEqual([path.basename(outputPath)]);
     });
 
-    it('replicates the panorama a cross-mount copy puts in place, never its temp file', async () => {
+    it('replicates the panorama on a volume that cannot hard-link, never its temp file', async () => {
       const crossMount = Object.assign(new Error('cross-device link'), { code: 'EXDEV' });
       const link = spyOn(mirrored, 'link').mockRejectedValueOnce(crossMount);
       try {
@@ -323,6 +323,23 @@ describe('panoStitchHandler output location (#5488)', () => {
         expect(beside.filter((name) => name.includes('.tmp.'))).toEqual([]);
       } finally {
         link.mockRestore();
+      }
+    });
+
+    it('replicates through a library registered by a symlinked path', async () => {
+      const alias = path.join(tmpDir, 'lib-alias');
+      await fs.rm(alias, { force: true });
+      await fs.symlink(libPath(), alias);
+      run(live.db, `UPDATE folders SET path = ? WHERE id = ?`, alias, folderId);
+      invalidateLibraryRoots();
+      setMirrorRoots({ [alias]: [mirrorPath()] });
+      try {
+        const outcome = await panoStitchHandler.run(basePayload(), handlerContext());
+        const { outputPath } = outcome.result as { outputPath: string };
+        expect(path.dirname(outputPath)).toBe(path.join(alias, 'Panoramas'));
+        expect(await mirroredEntries()).toEqual([path.basename(outputPath)]);
+      } finally {
+        await fs.unlink(alias);
       }
     });
   });
@@ -389,6 +406,34 @@ describe('panoStitchHandler containment', () => {
         handlerContext(),
       ),
     ).rejects.toThrow('models_dir must not point inside a library root');
+  });
+
+  it('leaves nothing at the panorama name when the copy dies part-way', async () => {
+    const copy = spyOn(mirrored, 'copyFile').mockImplementationOnce(async (_src, dest) => {
+      await fs.writeFile(String(dest), 'trunc');
+      throw new Error('disk vanished');
+    });
+    try {
+      await expect(panoStitchHandler.run(basePayload(), handlerContext())).rejects.toThrow(
+        'disk vanished',
+      );
+    } finally {
+      copy.mockRestore();
+    }
+    expect(await fs.readdir(path.join(libPath(), 'Panoramas'))).toEqual([]);
+    const retry = await panoStitchHandler.run(basePayload(), handlerContext());
+    const { outputPath } = retry.result as { outputPath: string };
+    expect(await fs.readFile(outputPath)).toEqual(Buffer.from(TINY_PNG_B64, 'base64'));
+  });
+
+  it('announces a panorama once, not again when a retry finds it made', async () => {
+    const first = await panoStitchHandler.run(basePayload(), handlerContext());
+    await panoStitchHandler.run(basePayload(), handlerContext());
+    const { outputAssetId } = first.result as { outputAssetId: string };
+    const changes = live.db
+      .query(`SELECT kind FROM asset_changes WHERE asset_id = ?`)
+      .all(outputAssetId);
+    expect(changes).toEqual([{ kind: 'create' }]);
   });
 
   it('announces the imported panorama on the change feed', async () => {

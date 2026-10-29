@@ -1,6 +1,6 @@
 /**
  * `findAssetLocationsByFilenames` — the lookup a pano request uses to turn the
- * paths it names into asset ids. An asset in the trash is never an answer.
+ * paths it names into asset ids. A trashed holder comes back marked.
  */
 
 import { expect, test } from 'bun:test';
@@ -14,7 +14,7 @@ import {
 } from '../sqlite/test-sqlite.test-helpers.ts';
 import { findAssetLocationsByFilenames } from './assets.by-filename.ts';
 
-test('answers live assets and leaves trashed ones out', async () => {
+test('answers every holder of the name and marks the trashed one', async () => {
   using handle = await createTestDatabase();
   const library = insertFolder(handle.db);
   const live = insertAsset(handle.db);
@@ -30,7 +30,13 @@ test('answers live assets and leaves trashed ones out', async () => {
 
   const found = await findAssetLocationsByFilenames(['a.dng'], testSqliteDb(handle.db));
 
-  expect(found.map((row) => row._id.toHexString())).toEqual([live]);
+  const state = new Map(found.map((row) => [row._id.toHexString(), row.deleted_at !== null]));
+  expect(state).toEqual(
+    new Map([
+      [live, false],
+      [trashed, true],
+    ]),
+  );
 });
 
 test('answers nothing when no location carries the name', async () => {
