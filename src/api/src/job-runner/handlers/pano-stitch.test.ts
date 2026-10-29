@@ -39,14 +39,16 @@ beforeAll(async () => {
 printf '%s\\n' "$0" > "${spawnedPathLog}"
 printf '%s\\n' "$@" > "${argsLog}"
 printf '%s\\n' "MAPLE_PANO_MODELS=$MAPLE_PANO_MODELS" "ORT_DYLIB_PATH=$ORT_DYLIB_PATH" >> "${argsLog}"
-OUT=""
+LINEAR=""; DISPLAY=""
 while [ $# -gt 0 ]; do
-  if [ "$1" = "--out" ]; then
-    shift; OUT="$1"
-  fi
+  case "$1" in
+    --out) shift; LINEAR="$1";;
+    --display) shift; DISPLAY="$1";;
+  esac
   shift
 done
-echo '${TINY_PNG_B64}' | base64 -d > "$OUT"
+[ -n "$LINEAR" ] && echo 'scene-linear carrier' > "$LINEAR"
+[ -n "$DISPLAY" ] && echo '${TINY_PNG_B64}' | base64 -d > "$DISPLAY"
 exit 0
 `,
   );
@@ -266,6 +268,15 @@ describe('panoStitchHandler output location (#5488)', () => {
       outputPath: (first.result as { outputPath: string }).outputPath,
     });
     expect(await fs.stat(spawnedPathLog).catch(() => null)).toBeNull();
+  });
+
+  it('imports the display-encoded PNG and never asks for the scene-linear one', async () => {
+    const outcome = await panoStitchHandler.run(basePayload(), handlerContext());
+    const args = (await fs.readFile(argsLog, 'utf8')).split('\n');
+    expect(args).not.toContain('--out');
+    expect(flagValue(args, '--display')).toBeDefined();
+    const { outputPath } = outcome.result as { outputPath: string };
+    expect(await fs.readFile(outputPath)).toEqual(Buffer.from(TINY_PNG_B64, 'base64'));
   });
 
   it('gives different options a panorama of their own', async () => {

@@ -13,7 +13,9 @@
 //!
 //! Two modes:
 //!
-//! - **Single set** (positional frames + `--out`): the operator flow.
+//! - **Single set** (positional frames + `--out` and/or `--display`): the
+//!   operator flow. `--display` alone writes only the finished display PNG,
+//!   which is what the Self Hosted server imports into the library.
 //!   `--max-mean-px` / `--max-residual-px` can relax the spec §5.3
 //!   acceptance gate for input with uncorrected lens distortion (#1159).
 //! - **Batch** (`--manifest` + `--out-dir`): the regression-harness
@@ -93,11 +95,21 @@ pub fn run(cmd: PanoCmd) -> Result<(), String> {
 /// Where one stitched set's artifacts go.
 struct SetOutputs {
     /// Scene-linear 16-bit PNG.
-    linear: PathBuf,
+    linear: Option<PathBuf>,
     /// sRGB-encoded 16-bit PNG.
     display: Option<PathBuf>,
     /// Report JSON.
     report: Option<PathBuf>,
+}
+
+impl SetOutputs {
+    /// The PNG the run is reported as having written.
+    fn written(&self) -> &Path {
+        self.display
+            .as_deref()
+            .or(self.linear.as_deref())
+            .expect("SetOutputs has at least one PNG")
+    }
 }
 
 fn run_stitch(args: StitchArgs) -> Result<(), String> {
@@ -124,17 +136,15 @@ fn run_stitch(args: StitchArgs) -> Result<(), String> {
         inputs.sort();
         return preview::run_preview(&inputs, preview_out, &args);
     }
-    let out = args
-        .out
-        .as_ref()
-        .ok_or("single-set mode requires --out")?
-        .clone();
+    if args.out.is_none() && args.display.is_none() {
+        return Err("single-set mode requires --out or --display".into());
+    }
     let mut inputs = args.inputs.clone();
     inputs.sort();
     let report = stitch_set(
         &inputs,
         &SetOutputs {
-            linear: out,
+            linear: args.out.clone(),
             display: args.display.clone(),
             report: args.report.clone(),
         },
@@ -190,7 +200,7 @@ fn stitch_manifest(manifest_path: &Path, out_dir: &Path, args: &StitchArgs) -> R
         }
         eprintln!("pano[{name}]: stitching {} frames ...", frames.len());
         let outs = SetOutputs {
-            linear: out_dir.join(format!("{name}.linear.png")),
+            linear: Some(out_dir.join(format!("{name}.linear.png"))),
             display: Some(out_dir.join(format!("{name}.png"))),
             report: Some(out_dir.join(format!("{name}.report.json"))),
         };
@@ -261,7 +271,7 @@ fn stitch_set(
         meta: display_png_meta(inputs),
         sidecars: false,
     });
-    let mut sink = PngCanvasSink::new(display, Some(outs.linear.clone()));
+    let mut sink = PngCanvasSink::new(display, outs.linear.clone());
 
     let opts = stitch_options(args, gate_budgets)?;
 
@@ -312,7 +322,7 @@ fn stitch_set(
             }
             eprintln!(
                 "pano: wrote {} ({}x{}) in {:.1}s",
-                outs.linear.display(),
+                outs.written().display(),
                 width,
                 height,
                 t0.elapsed().as_secs_f64()
@@ -372,7 +382,7 @@ fn stitch_set(
         // unit-focal cameras, full-res decode for NCC, planar composite).
         StitchSuccess::Tile(tile_outcome) => tile::run_tile_from_outcome(tile::TileOutcomeArgs {
             outcome: tile_outcome,
-            outs_linear: &outs.linear,
+            written: outs.written(),
             inputs,
             write_s,
             t0,
