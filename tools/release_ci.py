@@ -13,7 +13,6 @@ REQUIRED_WORKFLOWS = {
     "Android": ("pull_request", "push", "merge_group"),
     "apple": ("pull_request", "merge_group"),
     "cross": ("pull_request", "push", "merge_group"),
-    "Jules PR Review": ("pull_request",),
     "Maple package types": ("pull_request", "push", "merge_group"),
     "publish-package": ("pull_request", "merge_group"),
     "web": ("pull_request", "push", "merge_group"),
