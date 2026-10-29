@@ -97,7 +97,7 @@ fn frame_from_scene(cam: &Camera, blob: bool) -> PlanarImage {
 
 #[test]
 fn unconstrained_labels_match_pre_constraint_golden() {
-    let labels = compute_labels(&three_band_layers(), &SeamPins::none());
+    let labels = compute_labels(&three_band_layers(), &SeamPins::none()).unwrap();
     let hash = fnv1a(labels.iter().flat_map(|l| l.to_le_bytes()));
     assert_eq!(hash, 0x0453_179b_0a4f_44a5);
 }
@@ -150,6 +150,7 @@ impl Ring {
             &self.canvas,
             constraints,
         )
+        .map(|masks| masks.expect("solved seam"))
     }
 
     /// `(frame with the least, frame with the most)` unconstrained weight
@@ -208,14 +209,14 @@ const BLOB: CanvasRect = CanvasRect {
 #[test]
 fn force_include_region_is_entirely_labelled_with_its_frame() {
     let layers = three_band_layers();
-    let free = compute_labels(&layers, &SeamPins::none());
+    let free = compute_labels(&layers, &SeamPins::none()).unwrap();
     assert!(
         labels_in(&free, 48, BLOB).iter().any(|&l| l != 0),
         "the unconstrained cut must not already give frame 0 the whole region"
     );
     let pins = rasterize(&[SeamConstraint::ForceInclude(0, BLOB)], &layers, 1.0, 1.0)
         .expect("satisfiable");
-    let pinned = compute_labels(&layers, &pins);
+    let pinned = compute_labels(&layers, &pins).unwrap();
     assert!(labels_in(&pinned, 48, BLOB).iter().all(|&l| l == 0));
 }
 
@@ -228,7 +229,7 @@ fn force_exclude_region_contains_no_pixel_of_its_frame() {
         width: 8,
         height: 20,
     };
-    let free = compute_labels(&layers, &SeamPins::none());
+    let free = compute_labels(&layers, &SeamPins::none()).unwrap();
     assert!(labels_in(&free, 48, region).contains(&1));
     let pins = rasterize(
         &[SeamConstraint::ForceExclude(1, region)],
@@ -237,7 +238,7 @@ fn force_exclude_region_contains_no_pixel_of_its_frame() {
         1.0,
     )
     .expect("satisfiable");
-    let pinned = compute_labels(&layers, &pins);
+    let pinned = compute_labels(&layers, &pins).unwrap();
     let inside = labels_in(&pinned, 48, region);
     assert!(inside.iter().all(|&l| l == 2), "got {inside:?}");
 }

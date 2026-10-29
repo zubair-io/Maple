@@ -1,7 +1,7 @@
 //! Correctness tests for [`super::BkGraph`], ported (trimmed) from the
-//! `pano-core` prototype (PR #17). Covers the textbook min-cut cases plus
-//! one heterogeneous-capacity probe that exercises the parent-edge-cycle
-//! mitigation documented on the parent module.
+//! `pano-core` prototype (PR #17). Covers the textbook min-cut cases, the
+//! iteration cap, and random heterogeneous grids checked against a dense
+//! Edmonds–Karp reference.
 
 use super::BkGraph;
 
@@ -11,7 +11,7 @@ fn trivial_single_node_equal_caps() {
     let a = g.add_node();
     g.add_terminal(a, 10, 10);
     g.finalize();
-    assert_eq!(g.solve(), 10);
+    assert_eq!(g.solve(), Some(10));
 }
 
 /// S --10--> A --5--> B --10--> T. Max flow = 5.
@@ -24,7 +24,7 @@ fn two_node_edge_bottleneck() {
     g.add_terminal(b, 0, 10);
     g.add_edge(a, b, 5, 0);
     g.finalize();
-    assert_eq!(g.solve(), 5);
+    assert_eq!(g.solve(), Some(5));
     assert!(g.is_in_source(a));
     assert!(!g.is_in_source(b));
 }
@@ -39,7 +39,7 @@ fn two_node_symmetric_edge() {
     g.add_terminal(b, 0, 100);
     g.add_edge(a, b, 5, 5);
     g.finalize();
-    assert_eq!(g.solve(), 5);
+    assert_eq!(g.solve(), Some(5));
 }
 
 /// Diamond: pre-flow=5, augment 3 -> total 8.
@@ -52,7 +52,7 @@ fn diamond_graph() {
     g.add_terminal(b, 0, 7);
     g.add_edge(a, b, 3, 0);
     g.finalize();
-    assert_eq!(g.solve(), 8);
+    assert_eq!(g.solve(), Some(8));
 }
 
 /// n x n grid, unit-capacity horizontal/vertical edges, source on row 0,
@@ -80,7 +80,7 @@ fn grid_horizontal_cut(n: usize) -> i64 {
         }
     }
     g.finalize();
-    g.solve()
+    g.solve().expect("uncapped solve")
 }
 
 #[test]
@@ -106,7 +106,7 @@ fn all_source_no_sink() {
     g.add_edge(a, b, 10, 10);
     g.add_edge(b, c, 10, 10);
     g.finalize();
-    assert_eq!(g.solve(), 0);
+    assert_eq!(g.solve(), Some(0));
     assert!(g.is_in_source(a));
     assert!(g.is_in_source(b));
     assert!(g.is_in_source(c));
@@ -122,7 +122,7 @@ fn chain_with_bypass() {
     g.add_terminal(b, 0, 100);
     g.add_edge(a, b, 3, 0);
     g.finalize();
-    assert_eq!(g.solve(), 5);
+    assert_eq!(g.solve(), Some(5));
 }
 
 /// No edges, single node: pre-flow = min(7,3) = 3, no augmenting path.
@@ -132,24 +132,21 @@ fn no_edges_single_node() {
     let a = g.add_node();
     g.add_terminal(a, 7, 3);
     g.finalize();
-    assert_eq!(g.solve(), 3);
+    assert_eq!(g.solve(), Some(3));
 }
 
 #[test]
 fn empty_graph() {
     let mut g = BkGraph::with_capacity(0, 0);
     g.finalize();
-    assert_eq!(g.solve(), 0);
+    assert_eq!(g.solve(), Some(0));
 }
 
 /// Heterogeneous-capacity probe: a mostly-uniform grid (unit edges) with
 /// one small interior rectangle whose edges are ~1e6x larger, plus
 /// near-infinite terminal edges on the boundary columns — the exact
 /// pattern the pairwise seam finder's `INF_CAP` terminals + gradient-cost
-/// edges produce. Exercises the module doc's documented parent-edge-cycle
-/// mitigation: without it this shape can loop; with it, `solve()`
-/// terminates within a small multiple of the min-cut value (one unit
-/// edge per row = `rows`).
+/// edges produce. The min cut is one unit edge per row.
 #[test]
 fn heterogeneous_capacity_grid_terminates_within_iter_bound() {
     let (cols, rows): (u32, u32) = (16, 8);
@@ -184,22 +181,26 @@ fn heterogeneous_capacity_grid_terminates_within_iter_bound() {
             }
         }
     }
-    // Generous but finite bound: real min-cut is `rows` augmenting paths
-    // in the ideal case; allow a large multiple for the defensive
-    // cycle-break bookkeeping without letting a true infinite loop pass.
     g.set_iter_limit(rows as u64 * 1000);
     g.finalize();
-    let flow = g.solve();
-    assert!(
-        g.augment_iters() < rows as u64 * 1000,
-        "solve() hit the iteration cap — the cycle mitigation did not terminate the search"
-    );
-    assert!(
-        flow > 0,
-        "expected positive flow through the grid, got {flow}"
-    );
+    assert_eq!(g.solve(), Some(rows as i64));
 }
 
+#[test]
+fn a_solve_stopped_by_the_iteration_cap_reports_no_flow() {
+    let mut g = BkGraph::with_capacity(3, 2);
+    let ids: Vec<super::NodeId> = (0..3).map(|_| g.add_node()).collect();
+    g.add_terminal(ids[0], 10, 0);
+    g.add_terminal(ids[1], 10, 0);
+    g.add_terminal(ids[2], 0, 20);
+    g.add_edge(ids[0], ids[2], 10, 0);
+    g.add_edge(ids[1], ids[2], 10, 0);
+    g.set_iter_limit(1);
+    g.finalize();
+    assert_eq!(g.solve(), None);
+}
+
+#[derive(Clone)]
 struct ReferenceNetwork {
     cap: Vec<Vec<i64>>,
 }
@@ -219,9 +220,9 @@ impl ReferenceNetwork {
             prev[source] = source;
             let mut queue = std::collections::VecDeque::from([source]);
             while let Some(u) = queue.pop_front() {
-                for v in 0..n {
-                    if prev[v] == usize::MAX && self.cap[u][v] > 0 {
-                        prev[v] = u;
+                for (v, p) in prev.iter_mut().enumerate() {
+                    if *p == usize::MAX && self.cap[u][v] > 0 {
+                        *p = u;
                         queue.push_back(v);
                     }
                 }
@@ -244,7 +245,12 @@ impl ReferenceNetwork {
     }
 }
 
-fn random_heterogeneous_grid(seed: u64, cols: usize, rows: usize) -> (BkGraph, ReferenceNetwork) {
+fn random_heterogeneous_grid(
+    seed: u64,
+    cols: usize,
+    rows: usize,
+    edge_copies: usize,
+) -> (BkGraph, ReferenceNetwork) {
     let mut rng = crate::prng::SplitMix64::new(seed);
     let n = cols * rows;
     let mut g = BkGraph::with_capacity(n, n * 2);
@@ -261,7 +267,8 @@ fn random_heterogeneous_grid(seed: u64, cols: usize, rows: usize) -> (BkGraph, R
         for x in 0..cols {
             let idx = y * cols + x;
             let neighbours = [(x + 1 < cols, idx + 1), (y + 1 < rows, idx + cols)];
-            for (_, other) in neighbours.into_iter().filter(|&(exists, _)| exists) {
+            let pairs = neighbours.into_iter().filter(|&(exists, _)| exists);
+            for (_, other) in pairs.flat_map(|pair| std::iter::repeat_n(pair, edge_copies)) {
                 let (fwd, rev) = (capacity(), capacity());
                 g.add_edge(ids[idx], ids[other], fwd, rev);
                 reference.cap[idx][other] += fwd;
@@ -277,20 +284,47 @@ fn random_heterogeneous_grid(seed: u64, cols: usize, rows: usize) -> (BkGraph, R
     (g, reference)
 }
 
+fn cut_capacity(g: &BkGraph, reference: &ReferenceNetwork) -> i64 {
+    let n = reference.cap.len();
+    let (source, sink) = (n - 2, n - 1);
+    let in_source = |v: usize| v == source || (v != sink && g.is_in_source(v as super::NodeId));
+    (0..n)
+        .filter(|&u| in_source(u))
+        .flat_map(|u| (0..n).filter(|&v| !in_source(v)).map(move |v| (u, v)))
+        .map(|(u, v)| reference.cap[u][v])
+        .sum()
+}
+
+fn grids_off_the_true_max_flow(edge_copies: usize) -> Vec<(u64, i64, i64, i64)> {
+    (0..400u64)
+        .filter_map(|seed| {
+            let (mut g, reference) = random_heterogeneous_grid(seed, 9, 7, edge_copies);
+            let expected = reference.clone().max_flow();
+            g.set_iter_limit(100_000);
+            let got = g.solve().unwrap_or(-1);
+            let cut = cut_capacity(&g, &reference);
+            (got != expected || cut != expected).then_some((seed, got, cut, expected))
+        })
+        .collect()
+}
+
 #[test]
 fn heterogeneous_random_grids_reach_the_true_max_flow() {
-    let mismatches: Vec<(u64, i64, i64)> = (0..400u64)
-        .filter_map(|seed| {
-            let (mut g, reference) = random_heterogeneous_grid(seed, 9, 7);
-            let expected = reference.max_flow();
-            g.set_iter_limit(100_000);
-            let got = g.solve();
-            (got != expected).then_some((seed, got, expected))
-        })
-        .collect();
+    let mismatches = grids_off_the_true_max_flow(1);
     assert!(
         mismatches.is_empty(),
-        "BK under-augmented on {} of 400 grids (seed, got, expected): {:?}",
+        "BK missed the max flow on {} of 400 grids (seed, flow, cut, expected): {:?}",
+        mismatches.len(),
+        &mismatches[..mismatches.len().min(8)]
+    );
+}
+
+#[test]
+fn parallel_edges_reach_the_true_max_flow() {
+    let mismatches = grids_off_the_true_max_flow(2);
+    assert!(
+        mismatches.is_empty(),
+        "BK missed the max flow on {} of 400 parallel-edge grids (seed, flow, cut, expected): {:?}",
         mismatches.len(),
         &mismatches[..mismatches.len().min(8)]
     );

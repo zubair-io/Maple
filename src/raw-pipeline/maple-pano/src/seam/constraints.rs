@@ -107,6 +107,8 @@ pub enum SeamConstraintError {
     IncludeExcluded { frame: usize, x: u32, y: u32 },
     #[error("ForceExclude regions leave no frame to show near canvas pixel ({x}, {y})")]
     NoCandidate { x: u32, y: u32 },
+    #[error("the constrained graph-cut seam did not converge within its iteration bound")]
+    Unsolved,
 }
 
 /// Per-seam-pixel pins. Empty planes mean "unconstrained", so the

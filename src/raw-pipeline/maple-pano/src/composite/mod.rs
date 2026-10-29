@@ -17,7 +17,8 @@
 //!   (`crate::seam::masks`) and sampled back at full resolution.
 //!
 //! [`CompositeReport::seam_strategy`] records which one a given run
-//! actually used, and both `maple-cli pano stitch`'s report JSON and the
+//! actually used — Voronoi when a graph-cut pair solve hit its iteration
+//! bound without seam constraints (with constraints that is an error), and both `maple-cli pano stitch`'s report JSON and the
 //! `StitchReport` surface it (spec §6).
 //!
 //! # Memory-bounded tiled path (`composite_tiled`, M6-D #1248)
@@ -152,15 +153,15 @@ pub fn composite(
         .collect();
 
     let (voronoi, min_overlap) = voronoi_masks(&layers, cameras, &canvas);
-    let masks = match opts.seam_strategy {
-        SeamStrategy::Voronoi => voronoi,
+    let graph_cut_labels = match opts.seam_strategy {
+        SeamStrategy::Voronoi => None,
         SeamStrategy::GraphCut => {
-            // All layers are already resident at full canvas resolution
-            // here (unlike the memory-bounded tiled path), so the label
-            // solve runs directly on them — no downsampled seam canvas
-            // needed for this entry point.
-            let labels =
-                seam::labels::compute_labels(&layers, &seam::constraints::SeamPins::none());
+            seam::labels::compute_labels(&layers, &seam::constraints::SeamPins::none())
+        }
+    };
+    let (masks, seam_strategy) = match graph_cut_labels {
+        None => (voronoi, SeamStrategy::Voronoi),
+        Some(labels) => {
             let mut masks = seam::labels::labels_to_masks(&labels, layers.len());
             seam::labels::feather_masks(
                 &mut masks,
@@ -168,7 +169,7 @@ pub fn composite(
                 canvas.height,
                 seam::masks::FEATHER_RADIUS_PX,
             );
-            masks
+            (masks, SeamStrategy::GraphCut)
         }
     };
     let levels = opts
@@ -186,7 +187,7 @@ pub fn composite(
             falloff: solved.falloff,
             blend_levels: levels,
             min_overlap_width_px: min_overlap,
-            seam_strategy: opts.seam_strategy,
+            seam_strategy,
             exposure_field: None,
             owner: None,
         },

@@ -7,7 +7,8 @@
 use super::{TileCanvasSpec, TileConstraint, TilePose};
 
 /// Weighted scalar least-squares with anchor constraint (log-scale or
-/// rotation; rotation residuals are unwrapped against `init`). Solves for `x` in `Ax = b` where the anchor row is an
+/// rotation; rotation residuals are unwrapped against `init`). Solves for
+/// `x` in `Ax = b` where the anchor row is an
 /// identity constraint `x[anchor] = init[anchor]` (= 0 for the anchor
 /// itself, or the spanning-tree init value).
 ///

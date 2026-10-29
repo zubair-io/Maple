@@ -50,8 +50,7 @@
 //! g.add_terminal(b, 0, 10); // b -> sink: 10
 //! g.add_edge(a, b, 5, 0);
 //! g.finalize();
-//! let flow = g.solve();
-//! assert_eq!(flow, 5);
+//! assert_eq!(g.solve(), Some(5));
 //! assert!(g.is_in_source(a));
 //! assert!(!g.is_in_source(b));
 //! ```
@@ -92,7 +91,7 @@ struct Edge {
 struct Node {
     first_adj: u32,
     adj_count: u32,
-    /// Parent edge with tree-specific conventions (see module docs).
+    /// The child -> parent arc in either tree, or a marker (see module docs).
     parent_edge: u32,
     dist: u32,
     timestamp: u32,
@@ -122,15 +121,6 @@ pub struct BkGraph {
     orphans: VecDeque<NodeId>,
     timestamp: u32,
     flow: i64,
-    /// Number of outer-loop (grow -> augment -> adopt) iterations the
-    /// last `solve()` call performed. Useful for diagnosing perf
-    /// pathologies where heterogeneous edge capacities make BK iterate
-    /// orders of magnitude more than the min-cut value would suggest.
-    /// Zero before the first `solve()`.
-    augment_iters: u64,
-    /// Maximum iteration cap for `solve()`. Defaults to `u64::MAX` (no
-    /// cap). Set lower in tests / for instrumentation to bail before
-    /// runaway loops eat the wall clock.
     iter_limit: u64,
 }
 
@@ -145,23 +135,14 @@ impl BkGraph {
             orphans: VecDeque::with_capacity(64),
             timestamp: 0,
             flow: 0,
-            augment_iters: 0,
             iter_limit: u64::MAX,
         }
     }
 
-    /// Set a cap on the number of `(grow -> augment -> adopt)` outer-loop
-    /// iterations `solve()` will perform. When the cap is hit, `solve()`
-    /// returns the partial flow with the cut state as it stands. Default
-    /// is `u64::MAX` (no cap) — production callers shouldn't touch this.
+    /// Cap on the `(grow -> augment -> adopt)` iterations one `solve()`
+    /// may run. Default `u64::MAX` (no cap).
     pub fn set_iter_limit(&mut self, limit: u64) {
         self.iter_limit = limit;
-    }
-
-    /// Number of outer-loop iterations executed by the most recent
-    /// `solve()` call.
-    pub fn augment_iters(&self) -> u64 {
-        self.augment_iters
     }
 
     pub fn add_node(&mut self) -> NodeId {
@@ -261,23 +242,19 @@ impl BkGraph {
         }
     }
 
-    pub fn solve(&mut self) -> i64 {
-        self.augment_iters = 0;
-        loop {
-            if self.augment_iters >= self.iter_limit {
-                break;
-            }
-            match self.grow() {
-                Some((s_edge, t_edge)) => {
-                    self.augment_iters += 1;
-                    self.augment(s_edge, t_edge);
-                    self.timestamp += 1;
-                    self.adopt();
-                }
-                None => break,
-            }
+    /// The maximum flow, or `None` when the iteration cap stopped the
+    /// solve first: the trees then describe no minimum cut, so
+    /// [`Self::is_in_source`] must not be read as one.
+    pub fn solve(&mut self) -> Option<i64> {
+        for _ in 0..self.iter_limit {
+            let Some((s_edge, t_edge)) = self.grow() else {
+                return Some(self.flow);
+            };
+            self.augment(s_edge, t_edge);
+            self.timestamp += 1;
+            self.adopt();
         }
-        self.flow
+        self.grow().is_none().then_some(self.flow)
     }
 
     pub fn is_in_source(&self, node: NodeId) -> bool {
