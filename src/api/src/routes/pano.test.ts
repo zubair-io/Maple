@@ -6,7 +6,7 @@
  * A fake maple-cli shell script stands in for the real binary so tests
  * never need ML models. The fake:
  *   - Prints 6 pano: <stage> progress lines to stderr.
- *   - Writes a 1×1 white PNG to the path given via --out.
+ *   - Writes a 1×1 white PNG to the path given via --display.
  *   - Exits 0.
  *
  * Tests cover:
@@ -71,11 +71,11 @@ beforeAll(async () => {
     fakeCli,
     `#!/bin/sh
 # Fake maple-cli for pano route tests.
-# Parses --out <path> and writes a tiny PNG there; prints progress to stderr.
+# Parses --display <path> and writes a tiny PNG there; prints progress to stderr.
 case " $* " in *" --help "*) echo "      --features-engine <FEATURES_ENGINE>"; exit 0;; esac
 OUT=""
 while [ $# -gt 0 ]; do
-  if [ "$1" = "--out" ]; then
+  if [ "$1" = "--display" ]; then
     shift; OUT="$1"
   fi
   shift

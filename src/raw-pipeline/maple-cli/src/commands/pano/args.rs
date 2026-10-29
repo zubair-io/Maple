@@ -15,10 +15,12 @@ pub struct StitchArgs {
     /// capture order. Mutually exclusive with --manifest.
     #[arg(num_args = 0..)]
     pub(super) inputs: Vec<PathBuf>,
-    /// Output PNG path (16-bit, scene-linear; single-set mode).
+    /// Scene-linear 16-bit PNG path (single-set mode). Optional when
+    /// --display is given; at least one of the two is required.
     #[arg(long)]
     pub(super) out: Option<PathBuf>,
-    /// Also write an sRGB-encoded 16-bit preview PNG here (single-set).
+    /// The finished panorama: AgX view transform, sRGB, 16-bit, with the
+    /// first frame's EXIF (single-set mode). This is the library file.
     #[arg(long)]
     pub(super) display: Option<PathBuf>,
     /// Write the stitch report JSON here (always printed to stderr).

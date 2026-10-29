@@ -2,7 +2,7 @@
  * A fake `maple-cli` for the pano preview tests (#4580). It answers `--help`
  * with or without the preview flags (always with `--features-engine`, so the
  * classical matcher runs without ML paths), prints `pano: progress` lines, writes
- * whichever of `--out`, `--preview-out`, `--alignment-out` and `--report` it is
+ * whichever of `--display`, `--preview-out`, `--alignment-out` and `--report` it is
  * given, and reports `reused` when handed `--alignment-in`. Every invocation's
  * arguments are appended to `<cli>.args`, one line per run.
  */
@@ -32,10 +32,10 @@ export async function writeFakePanoCli(dir: string, opts: FakeCliOptions): Promi
     `#!/bin/sh
 echo "$*" >> "$0.args"
 case "$*" in *--help*) echo "Usage: maple-cli pano stitch ${helpFlags}"; exit 0;; esac
-OUT=""; PREVIEW=""; ALIGN_OUT=""; ALIGN_IN=""; REPORT=""
+DISPLAY=""; PREVIEW=""; ALIGN_OUT=""; ALIGN_IN=""; REPORT=""
 while [ $# -gt 0 ]; do
   case "$1" in
-    --out) shift; OUT="$1";;
+    --display) shift; DISPLAY="$1";;
     --preview-out) shift; PREVIEW="$1";;
     --alignment-out) shift; ALIGN_OUT="$1";;
     --alignment-in) shift; ALIGN_IN="$1";;
@@ -51,7 +51,7 @@ done
 echo "pano: progress 5 composite 100%" >&2
 if [ ${opts.exitCode ?? 0} -ne 0 ]; then echo "pano: boom" >&2; exit ${opts.exitCode ?? 0}; fi
 STATUS=solved; [ -n "$ALIGN_IN" ] && STATUS=reused
-[ -n "$OUT" ] && echo '${TINY_PNG_B64}' | base64 -d > "$OUT"
+[ -n "$DISPLAY" ] && echo '${TINY_PNG_B64}' | base64 -d > "$DISPLAY"
 [ -n "$PREVIEW" ] && echo '${TINY_PNG_B64}' | base64 -d > "$PREVIEW"
 [ -n "$ALIGN_OUT" ] && echo '{"format_version":1}' > "$ALIGN_OUT"
 [ -n "$REPORT" ] && echo "{\\"width\\":2047,\\"height\\":722,\\"alignment\\":{\\"status\\":\\"$STATUS\\",\\"stale_reason\\":null},\\"timings_s\\":{\\"total\\":1.5}}" > "$REPORT"

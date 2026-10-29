@@ -25,7 +25,8 @@ use super::io::{tile_stitch_report, TileReportContext};
 /// the report tail; the PNGs streamed out during the composite (#5452).
 pub(super) struct TileOutcomeArgs<'a> {
     pub outcome: TileStitchOutcome,
-    pub outs_linear: &'a Path,
+    /// The PNG reported as written: the display PNG when one was asked for.
+    pub written: &'a Path,
     pub inputs: &'a [PathBuf],
     /// Seconds spent closing the streamed PNGs after the composite.
     pub write_s: f64,
@@ -42,7 +43,7 @@ pub(super) fn run_tile_from_outcome(
 ) -> Result<serde_json::Value, String> {
     let TileOutcomeArgs {
         outcome,
-        outs_linear,
+        written,
         inputs,
         write_s,
         t0,
@@ -113,7 +114,7 @@ pub(super) fn run_tile_from_outcome(
     });
     eprintln!(
         "pano[tile]: wrote {} ({width}x{height}) in {:.1}s",
-        outs_linear.display(),
+        written.display(),
         t0.elapsed().as_secs_f64()
     );
     Ok(report)

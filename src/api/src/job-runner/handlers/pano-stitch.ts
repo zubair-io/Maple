@@ -20,7 +20,7 @@
  *
  * The handler:
  *   1. Resolves the absolute paths for the selected assets.
- *   2. Spawns `maple-cli pano stitch <inputs...> --out <output.png>
+ *   2. Spawns `maple-cli pano stitch <inputs...> --display <output.png>
  *      --report <report.json> --retention <r> --local-align <l>
  *      [--features-engine <e>] [--strategy <s>] [--models-dir <d>]
  *      [--alignment-in <a>]` via Bun.spawn. A null engine means a
@@ -284,7 +284,9 @@ export const panoStitchHandler: JobHandler = {
       const args = [
         'pano',
         'stitch',
-        '--out',
+        // The display PNG (AgX + sRGB + EXIF) is the library file; `--out`
+        // would be the scene-linear carrier, which reads back flat and dark.
+        '--display',
         outputPng,
         '--report',
         reportPath(payload.outputDir),
