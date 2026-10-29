@@ -23,7 +23,7 @@
 //! Back-projection (pixel → world) is the exact inverse chain, using the
 //! Newton inverse of the distortion polynomial.
 
-use crate::distortion::{distort, undistort};
+use crate::distortion::{distort_in_domain, undistort};
 use crate::math::{axis_angle_to_matrix, Mat3, Vec3};
 
 /// A posed pinhole camera with radial distortion.
@@ -109,7 +109,9 @@ impl Camera {
     /// Project a world direction to a continuous pixel coordinate.
     ///
     /// Returns `None` for directions at or behind the camera plane
-    /// (`z_cam ≤ 0`). The returned pixel may lie outside the image bounds —
+    /// (`z_cam ≤ 0`) or past the lens model's fold radius, where the
+    /// polynomial would bring them back inside the frame. The returned
+    /// pixel may lie outside the image bounds —
     /// callers decide what "inside the frame" means (e.g. with a margin).
     pub fn world_dir_to_pixel(&self, d_world: Vec3) -> Option<(f64, f64)> {
         let d_cam = self.rotation.transpose().mul_vec(d_world);
@@ -118,7 +120,7 @@ impl Camera {
         }
         let x = d_cam.x / d_cam.z;
         let y = d_cam.y / d_cam.z;
-        let (xd, yd) = distort(x, y, self.k1, self.k2);
+        let (xd, yd) = distort_in_domain(x, y, self.k1, self.k2)?;
         let (cx, cy) = self.principal_point();
         Some((self.focal_px * xd + cx, self.focal_px * yd + cy))
     }
@@ -210,6 +212,17 @@ mod tests {
         let cam = Camera::new([0.0; 3], 500.0, 0.0, 0.0, 800, 600);
         assert!(cam.world_dir_to_pixel(Vec3::new(0.0, 0.0, -1.0)).is_none());
         assert!(cam.world_dir_to_pixel(Vec3::new(1.0, 0.0, 0.0)).is_none());
+    }
+
+    #[test]
+    fn rays_past_the_lens_fold_do_not_land_inside_the_frame() {
+        // The distortion solved for a DJI Hasselblad L3D-100c 6144×4096
+        // pano (#5501): k2 < 0 folds the model about 58° off axis.
+        let cam = Camera::new([0.0; 3], 5100.25, 0.021, -0.0355, 6144, 4096);
+        let far = Vec3::new(2.2, 0.0, 1.0);
+        assert_eq!(cam.world_dir_to_pixel(far), None);
+        let near = cam.world_dir_to_pixel(Vec3::new(0.5, 0.2, 1.0)).unwrap();
+        assert!(cam.pixel_in_bounds(near.0, near.1, 0.0));
     }
 
     #[test]

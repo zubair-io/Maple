@@ -25,6 +25,39 @@ pub fn distort(x: f64, y: f64, k1: f64, k2: f64) -> (f64, f64) {
     (x * f, y * f)
 }
 
+/// Squared ideal radius at which [`distort`] stops growing with the radius;
+/// `None` when it grows everywhere.
+///
+/// Past this radius the polynomial folds back: a ray far outside the frame
+/// lands on a pixel inside it again. A solved `k2 < 0` folds at a finite
+/// radius, so a projection that ignored it would make every frame claim a
+/// ring of the panorama it never saw (#5501).
+pub fn fold_radius_sq(k1: f64, k2: f64) -> Option<f64> {
+    // d/dr [r·(1 + k1·r² + k2·r⁴)] = 1 + 3·k1·s + 5·k2·s², with s = r².
+    let (a, b) = (5.0 * k2, 3.0 * k1);
+    if a == 0.0 {
+        return (b < 0.0).then(|| -1.0 / b);
+    }
+    let disc = b * b - 4.0 * a;
+    if disc < 0.0 {
+        return None;
+    }
+    let root = disc.sqrt();
+    [(-b - root) / (2.0 * a), (-b + root) / (2.0 * a)]
+        .into_iter()
+        .filter(|s| *s > 0.0)
+        .min_by(f64::total_cmp)
+}
+
+/// [`distort`] where the model is one-to-one; `None` beyond its fold radius.
+#[inline]
+pub fn distort_in_domain(x: f64, y: f64, k1: f64, k2: f64) -> Option<(f64, f64)> {
+    match fold_radius_sq(k1, k2) {
+        Some(limit) if x * x + y * y >= limit => None,
+        _ => Some(distort(x, y, k1, k2)),
+    }
+}
+
 /// Inverse of [`distort`]: distorted normalized coords → ideal.
 ///
 /// Newton iteration on the radius: solve `g(r) = r·(1 + k1·r² + k2·r⁴) − r_d
@@ -94,6 +127,35 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn fold_radius_is_where_the_distorted_radius_peaks() {
+        let (k1, k2) = (0.021, -0.0355);
+        let s = fold_radius_sq(k1, k2).expect("k2 < 0 folds");
+        let radial = |r: f64| distort(r, 0.0, k1, k2).0;
+        let r = s.sqrt();
+        assert!(radial(r - 1e-3) < radial(r) && radial(r + 1e-3) < radial(r));
+        assert_eq!(fold_radius_sq(0.08, 0.01), None);
+        assert_eq!(fold_radius_sq(0.0, 0.0), None);
+        assert!((fold_radius_sq(-0.06, 0.0).unwrap() - 1.0 / 0.18).abs() < 1e-12);
+        // k2 > 0 with strong barrel has two turning points; the first is the fold.
+        let s = fold_radius_sq(-0.5, 0.05).unwrap();
+        let radial = |r: f64| r * (1.0 - 0.5 * r * r + 0.05 * r.powi(4));
+        let r = s.sqrt();
+        assert!(radial(r - 1e-3) < radial(r) && radial(r + 1e-3) < radial(r));
+    }
+
+    #[test]
+    fn distort_in_domain_refuses_folded_rays() {
+        let (k1, k2) = (0.021, -0.0355);
+        assert_eq!(
+            distort_in_domain(0.5, 0.2, k1, k2),
+            Some(distort(0.5, 0.2, k1, k2))
+        );
+        // 2.2 is past the fold; the plain polynomial lands it back at 0.6.
+        assert!(distort(2.2, 0.0, k1, k2).0 < 0.7);
+        assert_eq!(distort_in_domain(2.2, 0.0, k1, k2), None);
     }
 
     #[test]
