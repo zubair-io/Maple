@@ -193,6 +193,56 @@ fn behind_camera_blocks_are_invalid_and_penalized() {
 }
 
 #[test]
+fn destination_rays_past_the_lens_fold_are_penalized() {
+    // The #5501 lens folds about 58° off axis; the destination looks 65°
+    // away, so the source's centre ray reaches it past the fold.
+    let (k1, k2) = (0.021, -0.0355);
+    let state = State {
+        rotations: vec![
+            Mat3::identity(),
+            axis_angle_to_matrix([0.0, 65f64.to_radians(), 0.0]),
+        ],
+        shared_focal: 700.0,
+        focal_overrides: vec![None, None],
+        k1,
+        k2,
+    };
+    let frames = vec![
+        FrameMeta {
+            cx: 512.0,
+            cy: 384.0
+        };
+        2
+    ];
+    let block = Block {
+        src: 0,
+        dst: 1,
+        p_src: (512.0, 384.0),
+        p_dst: (512.0, 384.0),
+    };
+    assert!(eval_residual(&state, &frames, &block).is_none());
+    let cost = total_cost(&[block], &frames, &state, 2.0);
+    assert_eq!(cost, huber_cost(2.0, INVALID_BLOCK_RESIDUAL_PX));
+    let unfolded = State {
+        k1: 0.0,
+        k2: 0.0,
+        ..state
+    };
+    assert!(eval_residual(&unfolded, &frames, &block).is_some());
+}
+
+#[test]
+fn a_lens_that_folds_inside_the_frame_does_not_reach_its_corners() {
+    let (state, frames, _) = test_setup(0.021, -0.0355, false);
+    assert!(lens_reaches_corners(&state, &frames));
+    let (state, frames, _) = test_setup(0.0, 0.0, false);
+    assert!(lens_reaches_corners(&state, &frames));
+    // Strong barrel folds at r ≈ 0.65, short of the 0.91 corner radius.
+    let (state, frames, _) = test_setup(-0.8, 0.0, false);
+    assert!(!lens_reaches_corners(&state, &frames));
+}
+
+#[test]
 fn assemble_matches_a_direct_dense_computation() {
     // Cross-check H, g, cost from `assemble` against an explicit
     // dense JᵀWJ / JᵀWr built column-by-column from the same
