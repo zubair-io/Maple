@@ -49,13 +49,26 @@ pub fn fold_radius_sq(k1: f64, k2: f64) -> Option<f64> {
         .min_by(f64::total_cmp)
 }
 
+/// Whether squared ideal radius `s` lies inside [`fold_radius_sq`], where
+/// [`distort`] still grows. Needs no square root, so it is cheap enough
+/// for per-pixel use.
+#[inline]
+pub fn before_fold(s: f64, k1: f64, k2: f64) -> bool {
+    let (a, b) = (5.0 * k2, 3.0 * k1);
+    // The derivative 1 + b·t + a·t² is 1 at t = 0, so it stays positive on
+    // [0, s] exactly when its minimum there is positive.
+    let t = if a > 0.0 {
+        (-b / (2.0 * a)).max(0.0).min(s)
+    } else {
+        s
+    };
+    1.0 + b * t + a * t * t > 0.0
+}
+
 /// [`distort`] where the model is one-to-one; `None` beyond its fold radius.
 #[inline]
 pub fn distort_in_domain(x: f64, y: f64, k1: f64, k2: f64) -> Option<(f64, f64)> {
-    match fold_radius_sq(k1, k2) {
-        Some(limit) if x * x + y * y >= limit => None,
-        _ => Some(distort(x, y, k1, k2)),
-    }
+    before_fold(x * x + y * y, k1, k2).then(|| distort(x, y, k1, k2))
 }
 
 /// Inverse of [`distort`]: distorted normalized coords → ideal.
@@ -144,6 +157,27 @@ mod tests {
         let radial = |r: f64| r * (1.0 - 0.5 * r * r + 0.05 * r.powi(4));
         let r = s.sqrt();
         assert!(radial(r - 1e-3) < radial(r) && radial(r + 1e-3) < radial(r));
+    }
+
+    #[test]
+    fn before_fold_agrees_with_the_fold_radius() {
+        let coefficients = [
+            (0.021, -0.0355),
+            (-0.5, 0.05),
+            (-0.06, 0.0),
+            (0.08, 0.01),
+            (-0.15, 0.05),
+            (0.0, 0.0),
+        ];
+        for (k1, k2) in coefficients {
+            let limit = fold_radius_sq(k1, k2).unwrap_or(f64::INFINITY);
+            for i in 0..400 {
+                let s = f64::from(i) * 0.025;
+                assert_eq!(before_fold(s, k1, k2), s < limit, "k1={k1} k2={k2} s={s}");
+            }
+            // A NaN ray must not panic; the projection carries the NaN on.
+            let _ = before_fold(f64::NAN, k1, k2);
+        }
     }
 
     #[test]

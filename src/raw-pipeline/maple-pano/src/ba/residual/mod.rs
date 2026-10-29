@@ -59,7 +59,7 @@
 use rayon::prelude::*;
 
 use crate::ba::linalg::PackedSymmetric;
-use crate::distortion::{fold_radius_sq, undistort};
+use crate::distortion::{before_fold, fold_radius_sq, undistort};
 use crate::math::{Mat3, Vec3};
 
 /// Residual magnitude (px) charged for a block whose projection chain is
@@ -111,6 +111,21 @@ impl State {
     pub fn focal(&self, frame: usize) -> f64 {
         self.focal_overrides[frame].unwrap_or(self.shared_focal)
     }
+}
+
+/// Whether every frame's corners are still reachable under the state's
+/// lens model. A fold inside the frame leaves its outer pixels with no ray
+/// at all, so a solve that puts it there is rejected rather than accepted
+/// as a frame that silently loses its corners (#5501).
+pub(crate) fn lens_reaches_corners(state: &State, frames: &[FrameMeta]) -> bool {
+    let Some(s) = fold_radius_sq(state.k1, state.k2) else {
+        return true;
+    };
+    let reach = s.sqrt() * (1.0 + state.k1 * s + state.k2 * s * s);
+    frames
+        .iter()
+        .enumerate()
+        .all(|(i, m)| m.cx.hypot(m.cy) / state.focal(i) < reach)
 }
 
 /// Maps state components to parameter-vector columns for one LM stage.
@@ -258,9 +273,10 @@ fn eval_block(
     // Destination projection.
     let n = (v.x / v.z, v.y / v.z);
     let rho = n.0 * n.0 + n.1 * n.1;
-    // A destination ray past the fold would still land near its match and
-    // let an outlier pull k2 further negative (#5501).
-    if fold_radius_sq(k1, k2).is_some_and(|limit| rho >= limit) {
+    // Past the fold the polynomial lands the ray back near its match, so an
+    // outlier would score a small residual there and pull k2 further
+    // negative. It is charged the invalid-block penalty instead (#5501).
+    if !before_fold(rho, k1, k2) {
         return None;
     }
     let d_t = 1.0 + k1 * rho + k2 * rho * rho;
