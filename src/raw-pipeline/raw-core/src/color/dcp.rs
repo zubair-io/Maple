@@ -234,7 +234,7 @@ fn normalize_to_y1(xyz: crate::math::Vec3) -> crate::math::Vec3 {
 /// concern, not a pipeline concern. The bundled profile set (`#324` /
 /// `profile_loader`) strips PLT and PTC at bundle-build time; HSM stays.
 ///
-/// Two paths inside `apply_with_post_pro`:
+/// Two paths inside `apply_colorimetry_in_place`:
 ///
 /// * **FM path** — when `profile.forward_matrix` is `Some` AND
 ///   `profile.wb_already_baked` is `true` (i.e. the pipeline's
@@ -266,7 +266,9 @@ fn normalize_to_y1(xyz: crate::math::Vec3) -> crate::math::Vec3 {
 /// lift doesn't introduce an Adobe-rendering-intent dependency; it's a
 /// gamut-correctness guard).
 pub fn apply_colorimetry(camera: &Image, profile: &DcpProfile) -> crate::Result<Image> {
-    apply_with_post_pro(camera, profile)
+    let mut image = camera.clone();
+    apply_colorimetry_in_place(&mut image, profile)?;
+    Ok(image)
 }
 
 /// Back-compat alias for [`apply_colorimetry`] — older internal callers and
@@ -309,7 +311,7 @@ fn soft_floor(p: [f32; 3]) -> [f32; 3] {
 /// fallback (`inv(M_pro) · bradford(scene_white → D50) · inv(CM)`). Kept as
 /// a named helper so [`camera_to_rec2020_matrix`] (the #1780 WB-scale
 /// migration's probe of the develop chain's linear rendering transform)
-/// shares the exact dispatch `apply_with_post_pro` renders with — a second
+/// shares the exact dispatch `apply_colorimetry_in_place` renders with — a second
 /// hand-rolled copy of this match would drift.
 pub(crate) fn camera_to_prophoto_matrix(profile: &DcpProfile) -> crate::Result<Matrix3> {
     camera_to_prophoto_with_forward(profile, profile.forward_matrix)
@@ -379,8 +381,11 @@ pub(crate) fn scene_white_anchor(camera: &Image, profile: &DcpProfile) -> crate:
     ))
 }
 
-fn apply_with_post_pro(camera: &Image, profile: &DcpProfile) -> crate::Result<Image> {
-    camera.assert_space(ColorSpace::CameraNativeLinearRgb);
+/// [`apply_colorimetry`] on `image`'s own buffer: every pass is per-pixel,
+/// so the result is bit-identical without a second full-frame image
+/// (the pano ingest's memory peak, #5453).
+pub fn apply_colorimetry_in_place(image: &mut Image, profile: &DcpProfile) -> crate::Result<()> {
+    image.assert_space(ColorSpace::CameraNativeLinearRgb);
 
     // Camera RGB → ProPhoto D50.
     //
@@ -422,41 +427,34 @@ fn apply_with_post_pro(camera: &Image, profile: &DcpProfile) -> crate::Result<Im
         // tone mapping. See the `apply_colorimetry` doc-comment for the full
         // rationale and `grey_dcp_phase1::profile_tone_curve_is_noop_under_colorimetry_only`
         // for the test that pins this contract.
-        let mut pro = camera.empty_in_space(ColorSpace::CameraNativeLinearRgb);
-        pro.pixels
+        image
+            .pixels
             .par_iter_mut()
-            .zip(camera.pixels.par_iter())
-            .for_each(|(o, p)| {
-                *o = cam_to_pro.mul_vec(*p);
-            });
+            .for_each(|p| *p = cam_to_pro.mul_vec(*p));
         if let Some(table) = profile.hsm.as_ref() {
-            hsm::apply(&mut pro, table);
+            hsm::apply(image, table);
         }
         if let Some(table) = profile.look_table.as_ref() {
-            apply_look_table(&mut pro, table);
+            apply_look_table(image, table);
         }
         let exit = m_pro_to_rec2020();
-        let mut out = camera.empty_in_space(ColorSpace::SceneLinearRec2020);
-        out.pixels
+        image
+            .pixels
             .par_iter_mut()
-            .zip(pro.pixels.par_iter())
-            .for_each(|(o, p)| {
-                *o = soft_floor(exit.mul_vec(*p));
-            });
-        return Ok(out);
+            .for_each(|p| *p = soft_floor(exit.mul_vec(*p)));
+        image.space = ColorSpace::SceneLinearRec2020;
+        return Ok(());
     }
 
     // Fast path: no HSM. Fold cam_to_pro and exit into one matrix.
     let exit = m_pro_to_rec2020();
     let m = exit.mul_mat(&cam_to_pro);
-    let mut out = camera.empty_in_space(ColorSpace::SceneLinearRec2020);
-    out.pixels
+    image
+        .pixels
         .par_iter_mut()
-        .zip(camera.pixels.par_iter())
-        .for_each(|(o, p)| {
-            *o = soft_floor(m.mul_vec(*p));
-        });
-    Ok(out)
+        .for_each(|p| *p = soft_floor(m.mul_vec(*p)));
+    image.space = ColorSpace::SceneLinearRec2020;
+    Ok(())
 }
 
 // ── Dual-illuminant reciprocal-CCT interpolation ─────────────────────────────

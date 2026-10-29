@@ -24,6 +24,7 @@ pub(super) fn load_frame(
     path: &PathBuf,
     evict_slot: usize,
 ) -> Result<(), String> {
+    cache[evict_slot] = None;
     let frame = crate::ingest::ingest_file(path).map_err(|e| e.to_string())?;
     cache[evict_slot] = Some((idx, frame.image));
     Ok(())
