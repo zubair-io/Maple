@@ -67,6 +67,9 @@ struct PanoMergeView: View {
   @State private var thumbnails = ThumbnailProvider.local()
   /// Why the frames' server can't stitch; `nil` when it can or is unchecked.
   @State private var serverUnavailable: String?
+  /// The server check has answered. Until then Run On and Create are held,
+  /// so the check can't switch stitchers under a run the user just started.
+  @State private var serverChecked = false
   /// For cloud-only frames: stitch on the server rather than downloading.
   @State private var prefersServer = true
 
@@ -106,10 +109,11 @@ struct PanoMergeView: View {
       }
       .formStyle(.grouped)
       .task {
-        if let serverStitcher, let reason = await serverStitcher.unavailableReason() {
-          serverUnavailable = reason
-          if canRunOnDevice { session.use(deviceStitcher) }
+        if let serverStitcher {
+          serverUnavailable = await serverStitcher.unavailableReason()
         }
+        serverChecked = true
+        if serverUnavailable != nil, canRunOnDevice { session.use(deviceStitcher) }
         if downloadsFrames { followRoute() } else { session.preview(assets: assets) }
       }
       .onChange(of: session.downloadRoute?.download.state) { _, state in
@@ -144,7 +148,7 @@ struct PanoMergeView: View {
             Button("Create Panorama") {
               session.start(assets: assets)
             }
-            .disabled(assets.count < 2 || awaitingDownload || blockedByPhotosFrames)
+            .disabled(assets.count < 2 || !serverChecked || awaitingDownload || blockedByPhotosFrames)
             .accessibilityLabel(
               session.alignment == nil
                 ? "Create the full panorama from \(assets.count) selected frames"
@@ -207,6 +211,10 @@ struct PanoMergeView: View {
     session.preview(assets: assets)
   }
 
+  private var runOnLocked: Bool {
+    session.isRunning || !serverChecked || serverUnavailable != nil
+  }
+
   @ViewBuilder
   private var runOnSection: some View {
     if let serverStitcher {
@@ -225,7 +233,7 @@ struct PanoMergeView: View {
             Text("This Device").tag(false)
             Text("Server").tag(true)
           }
-          .disabled(session.isRunning || serverUnavailable != nil)
+          .disabled(runOnLocked)
           .accessibilityLabel("Where the panorama is stitched")
         } else if canRunOnDevice {
           Picker(
@@ -238,7 +246,7 @@ struct PanoMergeView: View {
             Text("This Device").tag(false)
             Text("Server").tag(true)
           }
-          .disabled(session.isRunning || serverUnavailable != nil)
+          .disabled(runOnLocked)
           .accessibilityLabel("Where the panorama is stitched")
         } else {
           HStack(spacing: 8) {
