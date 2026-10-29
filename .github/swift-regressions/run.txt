@@ -429,6 +429,12 @@ PanoMergeCancellationTests
 RustPanoStitcherCancellationTests
 ServerPanoPreviewSupersedeTests
 
+# Panorama ML paths and alignment hand-off: Maple's own env export never
+# reads as a user override, a half-installed models dir is not ready, an
+# alignment is offered only for the frames it was solved for.
+PanoMLEnvironmentTests
+PanoAlignmentHandoffTests
+
 # RGB bias precision (#4667): generated large images, no external fixtures.
 CIEDE2000BiasTests
 

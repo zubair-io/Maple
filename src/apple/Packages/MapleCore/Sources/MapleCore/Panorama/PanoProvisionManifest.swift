@@ -104,4 +104,12 @@ enum PanoProvisionManifest {
         return nil
         #endif
     }
+
+    /// The file names the core looks for in the models directory.
+    static var modelFilenames: [String] {
+        models.compactMap { spec in
+            guard case .modelFile(let filename) = spec.kind else { return nil }
+            return filename
+        }
+    }
 }

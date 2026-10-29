@@ -2,87 +2,63 @@
 //
 // Split out of RustPanoStitcher.swift (file-budget). Resolves the models dir
 // and ONNX Runtime dylib via PanoProvisioning (Settings → env → app-support),
-// `setenv`s them for the Rust core, and re-verifies the auto-provisioned ORT
-// dylib's pinned SHA-256 immediately before it is loaded.
+// exports them for the Rust core (PanoMLEnvironment), and re-verifies the
+// auto-provisioned ORT dylib's pinned SHA-256 immediately before it is loaded.
 
 import Foundation
 
 extension RustPanoStitcher {
-    /// Set `MAPLE_PANO_MODELS` and `ORT_DYLIB_PATH` in the process environment
-    /// so the Rust `maple_pano` crate can locate the ONNX Runtime dylib and
-    /// model files.
+    /// Export `MAPLE_PANO_MODELS` and `ORT_DYLIB_PATH` for the Rust core,
+    /// which reads the ML paths only from the process environment.
     ///
-    /// Resolution order (via `PanoProvisioning`): Settings → env var →
-    /// default app-support location. When a tier above the env var provides
-    /// the path we `setenv` it; when the env var is already set we leave it.
+    /// Every run resolves afresh (Settings → launch environment → default
+    /// app-support location) and exports the result, so a path cleared in
+    /// Settings falls back to the next tier instead of the last export.
     ///
-    /// Throws `PanoStitcherError.modelsNotInstalled` if no tier yields a path
-    /// that exists on disk, or if the auto-provisioned ORT dylib fails its
-    /// load-time integrity check.
+    /// Throws `PanoStitcherError.modelsNotInstalled` if the resolved models
+    /// directory lacks a model or the ORT dylib is missing, or if the
+    /// auto-provisioned ORT dylib fails its load-time integrity check.
     func provisionMLEnvironment() throws {
-        let fm = FileManager.default
-
-        // ── Models directory ───────────────────────────────────────────────
-        let modelsDir = provisioning.resolvedModelsDir()
-        let settingsModels = UserDefaults.standard.string(forKey: PanoProvisioningDefaults.modelsDirKey)
-        let hasSettingsModels = !(settingsModels?.isEmpty ?? true)
-        let hasEnvModels = !(ProcessInfo.processInfo.environment["MAPLE_PANO_MODELS"]?.isEmpty ?? true)
-
-        if hasSettingsModels || !hasEnvModels {
-            guard let dir = modelsDir, fm.fileExists(atPath: dir.path) else {
-                throw PanoStitcherError.modelsNotInstalled(
-                    "Panorama models are not installed. Open Settings → Pano to download them, " +
-                    "or set the Models Directory to a folder containing aliked.onnx + lightglue.onnx."
-                )
-            }
-            setenv("MAPLE_PANO_MODELS", dir.path, 1)
+        let status = provisioning.status()
+        guard let modelsDir = status.modelsDir, status.modelsDirExists else {
+            throw PanoStitcherError.modelsNotInstalled(
+                "Panorama models are not installed. Open Settings → Pano to download them, " +
+                "or set the Models Directory to a folder containing \(PanoProvisioning.modelFilenameList)."
+            )
         }
+        PanoMLEnvironment.export(PanoProvisioningDefaults.modelsDirEnv, modelsDir.path)
 
-        // ── ORT dylib (macOS only) ─────────────────────────────────────────
-        // iOS links ONNX Runtime STATICALLY (the `ml-static` Rust feature →
+        // iOS links ONNX Runtime statically (the `ml-static` Rust feature →
         // `ort::init()`, no dlopen), so there is no dylib to resolve and the
-        // Rust core never reads `ORT_DYLIB_PATH` on iOS. Resolving/requiring it
-        // here on iOS wrongly threw "ONNX Runtime is not installed …" at merge
-        // time even after the models downloaded and Settings showed ready —
-        // because `isReady`/`canAutoProvision`/the downloader are all already
-        // `#if os(macOS)`-gated and this one site was not. iOS needs only the
-        // models (set above); the static ORT is embedded at build time.
+        // core never reads `ORT_DYLIB_PATH` there.
         #if os(macOS)
-        let ortPath = provisioning.resolvedOrtDylibPath()
-        let settingsOrt = UserDefaults.standard.string(forKey: PanoProvisioningDefaults.ortDylibPathKey)
-        let hasSettingsOrt = !(settingsOrt?.isEmpty ?? true)
-        let hasEnvOrt = !(ProcessInfo.processInfo.environment["ORT_DYLIB_PATH"]?.isEmpty ?? true)
-
-        if hasSettingsOrt || !hasEnvOrt {
-            guard let dylib = ortPath, fm.fileExists(atPath: dylib.path) else {
+        guard let dylib = status.ortDylibPath, status.ortDylibExists else {
+            throw PanoStitcherError.modelsNotInstalled(
+                "ONNX Runtime is not installed. Open Settings → Pano to download it, or set " +
+                "the ONNX Runtime Dylib Path to libonnxruntime.dylib (version ≥ 1.23)."
+            )
+        }
+        // Load-time integrity for the AUTO-PROVISIONED dylib only. The app runs
+        // with disable-library-validation and the dylib lives in a user-writable
+        // location, so re-verify its pinned SHA-256 immediately before dlopen.
+        // A Settings or launch-environment override is the user's own dylib.
+        if status.ortDylibSource == .appSupport {
+            switch PanoProvisioner.verifyOrtDylibIntegrity(at: dylib) {
+            case .ok, .notApplicable:
+                break
+            case .mismatch:
                 throw PanoStitcherError.modelsNotInstalled(
-                    "ONNX Runtime is not installed. Open Settings → Pano to download it, or set " +
-                    "the ONNX Runtime Dylib Path to libonnxruntime.dylib (version ≥ 1.23)."
+                    "The installed ONNX Runtime failed its integrity check and won't be loaded " +
+                    "(it may be corrupt or modified). Re-download it from Settings → Pano."
+                )
+            case .unreadable:
+                throw PanoStitcherError.modelsNotInstalled(
+                    "The installed ONNX Runtime couldn't be read for verification. " +
+                    "Re-download it from Settings → Pano."
                 )
             }
-            // Load-time integrity for the AUTO-PROVISIONED dylib only (no
-            // Settings/env override). The app runs with disable-library-validation
-            // and the dylib lives in a user-writable location, so re-verify its
-            // pinned SHA-256 immediately before dlopen and refuse a tampered file.
-            // A user-specified override is the user's own dylib — not pin-checked.
-            if !hasSettingsOrt && !hasEnvOrt {
-                switch PanoProvisioner.verifyOrtDylibIntegrity(at: dylib) {
-                case .ok, .notApplicable:
-                    break
-                case .mismatch:
-                    throw PanoStitcherError.modelsNotInstalled(
-                        "The installed ONNX Runtime failed its integrity check and won't be loaded " +
-                        "(it may be corrupt or modified). Re-download it from Settings → Pano."
-                    )
-                case .unreadable:
-                    throw PanoStitcherError.modelsNotInstalled(
-                        "The installed ONNX Runtime couldn't be read for verification. " +
-                        "Re-download it from Settings → Pano."
-                    )
-                }
-            }
-            setenv("ORT_DYLIB_PATH", dylib.path, 1)
         }
+        PanoMLEnvironment.export(PanoProvisioningDefaults.ortDylibPathEnv, dylib.path)
         #endif
     }
 }

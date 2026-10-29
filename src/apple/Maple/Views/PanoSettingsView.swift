@@ -257,7 +257,7 @@ struct PanoSettingsView: View {
         .accessibilityLabel("Panorama models directory path")
         .accessibilityIdentifier("pano.settings.modelsDir")
         Text(
-          "Directory containing aliked.onnx and lightglue.onnx. "
+          "Directory containing \(PanoProvisioning.modelFilenameList). "
             + "Leave blank to use the MAPLE_PANO_MODELS environment variable or "
             + "the default Application Support location."
         )

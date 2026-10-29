@@ -113,6 +113,7 @@ struct PanoPreviewSection: View {
     .accessibilityLabel("Panorama preview failed: \(error.message)")
 
     Button("Retry Preview", action: onRetry)
+      .disabled(session.isRunning)
       .accessibilityLabel("Build the panorama preview again")
   }
 }
