@@ -78,6 +78,14 @@ private func cloudFrame(_ name: String) -> AssetRef {
 private let wifi = PanoNetworkCost(expensive: false, constrained: false)
 
 @MainActor
+private func waitUntil(_ done: () -> Bool) async throws {
+  for _ in 0..<1000 where !done() {
+    try await Task.sleep(for: .milliseconds(5))
+  }
+  #expect(done(), "timed out")
+}
+
+@MainActor
 private func waitFor(
   _ download: PanoFrameDownload, _ done: (PanoFrameDownload.State) -> Bool
 ) async throws {
@@ -306,15 +314,19 @@ private func temporaryRoot() -> URL {
 /// Remembers the frames it was handed; returns a fixed result.
 private final class LocalCopyRecorder: PanoStitching {
   private let handed = OSAllocatedUnfairLock<[URL?]>(initialState: [])
+  private let output: URL
   var frames: [URL?] { handed.withLock { $0 } }
+
+  init(output: URL = URL(fileURLWithPath: "/cache/0/Panoramas/p.png")) {
+    self.output = output
+  }
 
   func stitch(
     assets: [AssetRef], options: PanoOptions, alignment: PanoAlignment?, maxCanvasPixels: Int?,
     progress: @escaping @MainActor (PanoStage, Double) -> Void
   ) async throws -> PanoResult {
     handed.withLock { $0 = assets.map(\.primaryURL) }
-    return PanoResult(
-      outputURL: URL(fileURLWithPath: "/cache/0/Panoramas/p.png"), reportSummary: "")
+    return PanoResult(outputURL: output, reportSummary: "")
   }
 
   func preview(
@@ -393,6 +405,91 @@ private final class LocalCopyRecorder: PanoStitching {
     #expect(result.serverAssetID == nil)
     #expect(result.outputURL.path.hasPrefix("/srv/Panoramas/"))
     #expect(finished.withLock { $0 })
+  }
+
+  @Test func stoppingDuringTheUploadAddsNothingAndKeepsTheCache() async throws {
+    let cloud = ["A.dng", "B.dng"].map(cloudFrame)
+    let root = temporaryRoot()
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    let output = root.appending(path: "p.png")
+    try Data([1]).write(to: output)
+    let events = OSAllocatedUnfairLock(
+      initialState: (uploading: false, uploadCancelled: false, finished: false))
+    let stitcher = DownloadedFramesStitcher(
+      device: LocalCopyRecorder(output: output), cloudFrames: cloud,
+      localFrames: cloud.map { _ in AssetRef(url: URL(fileURLWithPath: "/cache/x.dng")) },
+      addToLibrary: { result in
+        events.withLock { $0.uploading = true }
+        for _ in 0..<1000 where !Task.isCancelled {
+          try? await Task.sleep(for: .milliseconds(5))
+        }
+        events.withLock { $0.uploadCancelled = Task.isCancelled }
+        return result
+      },
+      finished: { events.withLock { $0.finished = true } })
+    let running = Task {
+      try await stitcher.stitch(
+        assets: cloud, options: .default, alignment: nil, maxCanvasPixels: nil,
+        progress: { _, _ in })
+    }
+    try await waitUntil { events.withLock { $0.uploading } }
+    stitcher.cancel()
+    await #expect(throws: CancellationError.self) { _ = try await running.value }
+    #expect(events.withLock { $0.uploadCancelled && !$0.finished })
+    #expect(!FileManager.default.fileExists(atPath: output.path))
+    #expect(FileManager.default.fileExists(atPath: root.path))
+  }
+
+  @Test func aSupersededRunNeverRemovesTheNewerRunsCache() async throws {
+    let cloud = ["A.dng", "B.dng"].map(cloudFrame)
+    let calls = OSAllocatedUnfairLock(
+      initialState: (uploads: 0, staleCancelled: false, finished: 0))
+    let stitcher = DownloadedFramesStitcher(
+      device: LocalCopyRecorder(), cloudFrames: cloud,
+      localFrames: cloud.map { _ in AssetRef(url: URL(fileURLWithPath: "/cache/x.dng")) },
+      addToLibrary: { result in
+        let first = calls.withLock { state in
+          state.uploads += 1
+          return state.uploads == 1
+        }
+        guard first else { return result }
+        for _ in 0..<1000 where !Task.isCancelled {
+          try? await Task.sleep(for: .milliseconds(5))
+        }
+        calls.withLock { $0.staleCancelled = Task.isCancelled }
+        return result
+      },
+      finished: { calls.withLock { $0.finished += 1 } })
+    let stale = Task {
+      try await stitcher.stitch(
+        assets: cloud, options: .default, alignment: nil, maxCanvasPixels: nil,
+        progress: { _, _ in })
+    }
+    try await waitUntil { calls.withLock { $0.uploads } > 0 }
+    _ = try await stitcher.stitch(
+      assets: cloud, options: .default, alignment: nil, maxCanvasPixels: nil,
+      progress: { _, _ in })
+    await #expect(throws: CancellationError.self) { _ = try await stale.value }
+    #expect(calls.withLock { $0.staleCancelled && $0.finished == 1 })
+  }
+
+  @Test func aMixedSelectionWritesItsPanoramaInsideTheCache() throws {
+    let root = temporaryRoot()
+    let originals = root.appending(path: "originals", directoryHint: .isDirectory)
+    try FileManager.default.createDirectory(at: originals, withIntermediateDirectories: true)
+    let localFirst = originals.appending(path: "AAA_0001.DNG")
+    try Data().write(to: localFirst)
+    let download = PanoFrameDownload(
+      fetcher: FakeFetcher(sizes: [:]), root: root.appending(path: "cache"),
+      networkCost: { wifi })
+    let output = RustPanoStitcher(outputDirectory: download.outputDirectory)
+      .outputURL(near: localFirst)
+    #expect(output.deletingLastPathComponent() == download.outputDirectory)
+    #expect(
+      try FileManager.default.contentsOfDirectory(atPath: originals.path) == ["AAA_0001.DNG"])
+    try Data().write(to: output)
+    download.cancel()
+    #expect(!FileManager.default.fileExists(atPath: output.path))
   }
 
   @Test func aFrameWithoutALocalCopyFails() async {

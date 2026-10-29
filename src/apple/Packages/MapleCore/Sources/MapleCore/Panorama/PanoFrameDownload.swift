@@ -187,6 +187,12 @@ public final class PanoFrameDownload {
     }
   }
 
+  /// Where a stitch of these frames writes its panorama: inside this run's
+  /// cache, on the volume the estimate checked, and removed with it.
+  public var outputDirectory: URL {
+    directory.appending(path: "output", directoryHint: .isDirectory)
+  }
+
   /// Stops any download, keeping the frames already cached for a later try.
   public func stop() {
     restart()
