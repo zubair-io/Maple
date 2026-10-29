@@ -3,6 +3,7 @@
 // writes nothing into the user's folder.
 
 import XCTest
+import os
 @testable import MapleCore
 
 final class PanoOutputDestinationTests: XCTestCase {
@@ -33,6 +34,23 @@ final class PanoOutputDestinationTests: XCTestCase {
 
         XCTAssertEqual(first.lastPathComponent, "panorama-1800000000.png")
         XCTAssertEqual(second.lastPathComponent, "panorama-1800000000-2.png")
+    }
+
+    func testConcurrentStitchesNeverShareAName() throws {
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let stitchCount = 64
+        let results = OSAllocatedUnfairLock<[URL]>(initialState: [])
+        let directory = dir!
+        let instant = now
+        DispatchQueue.concurrentPerform(iterations: stitchCount) { _ in
+            guard let url = try? PanoOutputDestination.reserve(in: directory, now: instant) else { return }
+            results.withLock { $0.append(url) }
+        }
+        let urls = results.withLock { $0 }
+        reserved.append(contentsOf: urls)
+
+        XCTAssertEqual(urls.count, stitchCount)
+        XCTAssertEqual(Set(urls).count, stitchCount)
     }
 
     func testAnExistingFileOrUnfinishedPartialKeepsItsName() throws {
