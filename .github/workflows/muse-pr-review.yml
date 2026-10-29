@@ -16,9 +16,8 @@ on:
 
 concurrency:
   group: muse-review-${{ github.event.pull_request.number }}
-  # Unlike Jules (cancel-in-progress: false — its recover-session job shares the
-  # group), this run is inline and a stale review is worthless, so a new push
-  # cancels the superseded run instead of posting out of order.
+  # This run is inline and a stale review is worthless, so a new push cancels
+  # the superseded run instead of posting out of order.
   cancel-in-progress: true
 
 jobs:

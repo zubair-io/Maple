@@ -95,7 +95,7 @@ copies and rotate any credential that was ever repo-level:
 `publish-package.yml` holds no long-lived secret (npm uses OIDC provenance
 via `id-token`), so it needs no environment. Remove the repo-level `JULES_GH`
 owner PAT entirely — `version-sync` no longer falls back to it — and revoke
-the old PAT when rotating `VERSION_SYNC_TOKEN`. Bot accounts (Jules, Codex)
+the old PAT when rotating `VERSION_SYNC_TOKEN`. Bot accounts (Codex)
 must not hold a token with the `workflow` scope, so a bot push cannot add or
 modify a workflow under `.github/workflows/`.
 
