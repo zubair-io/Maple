@@ -56,6 +56,29 @@ describe('admitPanoStitch behind a racing request', () => {
     expect('running' in loser).toBe(true);
   });
 
+  it('admits the request when the winner finishes before it is read back', async () => {
+    const refusal = new jobsRepo.JobConflictError('pano_stitch slot taken');
+    const insert = spyOn(jobsRepo, 'createJob').mockRejectedValueOnce(refusal);
+    try {
+      const admitted = await admitPanoStitch(stitchPayload(['a', 'b']));
+      expect('created' in admitted).toBe(true);
+      expect(insert).toHaveBeenCalledTimes(2);
+    } finally {
+      insert.mockRestore();
+    }
+  });
+
+  it('gives up with the fence refusal after a bounded number of attempts', async () => {
+    const refusal = new jobsRepo.JobConflictError('pano_stitch slot taken');
+    const insert = spyOn(jobsRepo, 'createJob').mockRejectedValue(refusal);
+    try {
+      await expect(admitPanoStitch(stitchPayload(['a', 'b']))).rejects.toBe(refusal);
+      expect(insert).toHaveBeenCalledTimes(3);
+    } finally {
+      insert.mockRestore();
+    }
+  });
+
   it('propagates a failure that is not the fence', async () => {
     const create = spyOn(jobsRepo, 'createJob').mockRejectedValueOnce(new Error('disk full'));
     await expect(admitPanoStitch(stitchPayload(['a', 'b']))).rejects.toThrow('disk full');
@@ -68,6 +91,17 @@ describe('admitPanoPreview', () => {
     await admitPanoStitch(stitchPayload(['a', 'b']));
     const preview = await admitPanoPreview(stitchPayload(['a', 'b']));
     expect('running' in preview).toBe(true);
+  });
+
+  it('is admitted when the stitch that refused it finishes before it is read back', async () => {
+    const refusal = new jobsRepo.JobConflictError('pano_stitch slot taken');
+    const insert = spyOn(jobsRepo, 'createJob').mockRejectedValueOnce(refusal);
+    try {
+      const preview = await admitPanoPreview(stitchPayload(['a', 'b']));
+      expect('created' in preview).toBe(true);
+    } finally {
+      insert.mockRestore();
+    }
   });
 
   it('supersedes the previews already queued', async () => {

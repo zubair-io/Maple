@@ -4,7 +4,7 @@
  * is handed back only once the process has exited.
  */
 
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, spyOn } from 'bun:test';
 import fs from '../../fs/mirrored.ts';
 import os from 'node:os';
 import path from 'node:path';
@@ -69,6 +69,26 @@ describe('terminateCli', () => {
     const proc = Bun.spawn(['sleep', '30']);
     await terminateCli(proc, 5_000);
     expect(proc.signalCode).toBe('SIGTERM');
+  });
+
+  it('clears the grace timer once the CLI has exited', async () => {
+    const graceMs = 60_000;
+    const armed = spyOn(globalThis, 'setTimeout');
+    const cleared = spyOn(globalThis, 'clearTimeout');
+    try {
+      await terminateCli(Bun.spawn(['sleep', '30']), graceMs);
+      const graceTimers = armed.mock.calls
+        .map((call, i) => ({
+          delay: call[1],
+          id: armed.mock.results[i]?.value as ReturnType<typeof setTimeout>,
+        }))
+        .filter(({ delay }) => delay === graceMs);
+      expect(graceTimers).toHaveLength(1);
+      expect(cleared.mock.calls.map(([id]) => id)).toContain(graceTimers[0]?.id);
+    } finally {
+      armed.mockRestore();
+      cleared.mockRestore();
+    }
   });
 
   it('leaves an exited CLI alone', async () => {
