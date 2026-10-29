@@ -267,6 +267,7 @@ pub fn ingest_file(path: &Path) -> Result<IngestedFrame, PanoError> {
             context: path.display().to_string(),
             source,
         })?;
+    drop(bytes);
     let image = PlanarImage::from_scene_linear(&decoded.image);
     let priors = FramePriors::from_metadata(&decoded.metadata);
     Ok(IngestedFrame {
