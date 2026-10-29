@@ -27,7 +27,11 @@ struct PanoDownloadSection: View {
       case .downloading(let progress):
         downloading(progress)
       case .downloaded:
-        Label("Frames downloaded", systemImage: "checkmark.circle")
+        Label {
+          Text("Frames downloaded")
+        } icon: {
+          MuiIcon(name: "check", size: .sm)
+        }
       case .failed(let message):
         Text(message)
           .font(.caption)
