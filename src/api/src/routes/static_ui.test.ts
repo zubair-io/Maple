@@ -153,6 +153,27 @@ describe('static_ui /pkg asset-path 404 (#2408)', () => {
   });
 });
 
+describe('static_ui /film-luts asset-path 404 (#5507)', () => {
+  it('404s a missing film LUT instead of masking it as index.html', async () => {
+    const res = await get('/film-luts/does-not-exist.mlut');
+    expect(res.status).toBe(404);
+    expect(res.headers.get('content-type')).not.toContain('html');
+  });
+
+  it('404s the bare /film-luts directory', async () => {
+    const res = await get('/film-luts');
+    expect(res.status).toBe(404);
+  });
+
+  it('serves an existing film LUT as bytes', async () => {
+    await Bun.write(path.join(distDir, 'film-luts', 'slide_fuji_velvia_50.mlut'), 'MLUT-bytes');
+    const res = await get('/film-luts/slide_fuji_velvia_50.mlut');
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type')).toBe('application/octet-stream');
+    expect(await res.text()).toBe('MLUT-bytes');
+  });
+});
+
 for (const retired of ['/api/fs/thumb', '/api/fs/preview', '/api/fs/dir-fast']) {
   it(`retired ${retired} is absent from the assembled router and cannot return SPA HTML`, async () => {
     const { authedApi } = await import('./authed-api.ts');

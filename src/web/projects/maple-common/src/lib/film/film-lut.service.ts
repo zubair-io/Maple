@@ -6,10 +6,13 @@
 // serves them from `resources/film-luts/*.mlut` under `/film-luts/`, and
 // `ngsw-config*.json` caches them lazily (`dataGroups`, `performance`
 // strategy) so the service worker only ever downloads a look once per
-// device. `getLattice` adds a second, faster tier in front of that: an
-// IndexedDB write-through cache (`FilmLutIdbCache`) so a same-session
-// re-selection of a look never round-trips through the network stack at
-// all, not even to the SW cache.
+// device. Its `version: 2` (#5507) drops the v1 cache, which could hold a
+// server's SPA fallback HTML for a missing `.mlut`.
+//
+// `getLattice` adds a second, faster tier in front of that: an IndexedDB
+// write-through cache (`FilmLutIdbCache`) so a same-session re-selection of
+// a look never round-trips through the network stack at all, not even to the
+// SW cache.
 //
 // Never throws: a missing/broken `.mlut` degrades to "no look applied"
 // (`null` + a console warning) rather than breaking the render — the
@@ -34,12 +37,17 @@ export class FilmLutService {
    * A 404 (retired/renamed catalog id) or any fetch failure resolves `null`
    * and logs a warning — never throws, so a stale sidecar referencing a
    * look this build no longer ships can't break the render.
+   *
+   * Only bytes carrying the `.mlut` magic are cached or returned (#5507): a
+   * server that answered a missing `.mlut` with its SPA `index.html` (HTTP
+   * 200) once got that HTML stored as the lattice. A cached entry without the
+   * magic is a miss, so the re-fetch overwrites it.
    */
   async getLattice(lookId: string): Promise<ArrayBuffer | null> {
     if (!lookId) return null;
 
     const cached = await this.cache.get(lookId);
-    if (cached) return cached;
+    if (cached && hasMlutMagic(cached)) return cached;
 
     try {
       const response = await fetch(`/film-luts/${lookId}.mlut`);
@@ -48,6 +56,10 @@ export class FilmLutService {
         return null;
       }
       const bytes = await response.arrayBuffer();
+      if (!hasMlutMagic(bytes)) {
+        console.warn(`[film-lut] ${lookId}.mlut response is not a .mlut file`);
+        return null;
+      }
       await this.cache.put(lookId, bytes);
       return bytes;
     } catch (err) {
@@ -55,6 +67,13 @@ export class FilmLutService {
       return null;
     }
   }
+}
+
+const MLUT_MAGIC = [0x4d, 0x4c, 0x55, 0x54] as const;
+
+function hasMlutMagic(bytes: ArrayBuffer): boolean {
+  const head = new Uint8Array(bytes, 0, Math.min(bytes.byteLength, MLUT_MAGIC.length));
+  return head.length === MLUT_MAGIC.length && MLUT_MAGIC.every((byte, i) => head[i] === byte);
 }
 
 /**
