@@ -19,6 +19,7 @@ import {
   type AssetLocationsRow,
 } from '../db/repos/assets.by-filename.ts';
 import { isUnderRoot } from '../fs/browse.ts';
+import { resolveRealPathThroughAncestors } from '../fs/root.ts';
 import { loadLibraryRoots } from '../indexer/libraries.cache.ts';
 import { child as childLogger } from '../log.ts';
 import { refusesIgnoredTreeEvent } from '../workers/discover/folder-ignore.ts';
@@ -33,13 +34,14 @@ interface CanonicalRoots {
   byFolderId: Map<string, string>;
 }
 
-// A root that does not exist on disk is kept as stored — an offline volume is
-// not a reason to drop a library out of the jail.
+// A root that does not exist on disk resolves through its deepest existing
+// ancestor rather than failing — an offline volume is not a reason to drop a
+// library out of the jail. The stitch job resolves roots the same way.
 async function canonicaliseRoots(libs: ReadonlyMap<string, string>): Promise<CanonicalRoots> {
   const entries = await Promise.all(
     [...libs].map(async ([id, root]) => ({
       id,
-      canonRoot: await fs.realpath(root).catch(() => root),
+      canonRoot: await resolveRealPathThroughAncestors(root),
     })),
   );
   return {
