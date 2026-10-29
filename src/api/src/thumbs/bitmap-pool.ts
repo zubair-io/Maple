@@ -9,12 +9,12 @@ import { ffiPool } from '../ffi/ffi-pool.ts';
 import { throwIfPermanentSourceFailure } from './source-failure.ts';
 
 /** Throw when a bitmap render failed because the decoder rejected the source. */
-export function throwIfSourceRejected(
+export async function throwIfSourceRejected(
   result: { ok: boolean; error?: string },
   srcPath: string,
-): void {
+): Promise<void> {
   if (!result.ok && result.error !== undefined) {
-    throwIfPermanentSourceFailure(result.error, srcPath);
+    await throwIfPermanentSourceFailure(result.error, srcPath);
   }
 }
 

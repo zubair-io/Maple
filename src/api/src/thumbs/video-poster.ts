@@ -162,11 +162,11 @@ export async function extractVideoPosterJpeg(
   // and non-empty rather than on the exit code alone.
   const seeked = await runFfmpeg(bin, videoPath, outJpegPath, SEEK_SECONDS);
   if (seeked === null) return true;
-  throwIfPermanentSourceFailure(seeked.stderr, videoPath);
+  await throwIfPermanentSourceFailure(seeked.stderr, videoPath);
   log.debug(seeked, 'ffmpeg produced no frame at seek — retrying from start');
   const fromStart = await runFfmpeg(bin, videoPath, outJpegPath, 0);
   if (fromStart === null) return true;
-  throwIfPermanentSourceFailure(fromStart.stderr, videoPath);
+  await throwIfPermanentSourceFailure(fromStart.stderr, videoPath);
   throttledWarn(log, `no-poster:${videoPath}`, fromStart, 'ffmpeg produced no poster frame');
   return false;
 }

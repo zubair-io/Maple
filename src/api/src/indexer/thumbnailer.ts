@@ -373,7 +373,7 @@ async function renderBitmapThumbToFile(
       { srcPath, err: result.error ?? 'FFI bitmap render failed' },
       'FFI child returned error',
     );
-    if (isOriginal) throwIfSourceRejected(result, srcPath);
+    if (isOriginal) await throwIfSourceRejected(result, srcPath);
     return false;
   }
   return true;

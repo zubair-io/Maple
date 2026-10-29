@@ -14,6 +14,7 @@ import { generatePreview, PREVIEW_LONG_EDGE_PX } from './previewer.ts';
 import { THUMB_LONG_EDGE_PX } from '../thumbs/render.ts';
 import { SourceDecodeError } from '../thumbs/source-failure.ts';
 import { solidJpeg } from '../test-support/synth-image.ts';
+import { writeSettledFile } from '../test-support/settled-file.ts';
 
 const PANORAMA_WIDTH = 19_000;
 const PANORAMA_HEIGHT = 8;
@@ -27,7 +28,7 @@ beforeAll(async () => {
   panorama = path.join(dir, 'DJI_0483_D.JPG');
   await fs.writeFile(panorama, await solidJpeg(PANORAMA_WIDTH, PANORAMA_HEIGHT, [90, 140, 200]));
   undecodable = path.join(dir, 'broken.jpg');
-  await fs.writeFile(undecodable, Buffer.from('\xff\xd8not a jpeg scan', 'latin1'));
+  await writeSettledFile(undecodable, Buffer.from('\xff\xd8not a jpeg scan', 'latin1'));
 });
 
 afterAll(async () => {

@@ -6,6 +6,7 @@ import { maple } from 'maple';
 import { ffmpegBinary, extractVideoPosterJpeg } from './video-poster.ts';
 import { NoVideoStreamError, SourceDecodeError } from './source-failure.ts';
 import { audioOnlyVideo } from '../test-support/synth-video.ts';
+import { writeSettledFile } from '../test-support/settled-file.ts';
 
 /**
  * Tests for poster-frame extraction (#1649).
@@ -76,7 +77,7 @@ describe('extractVideoPosterJpeg — contract (every host)', () => {
     // real poster. Assert the path is clean, not merely that the call failed.
     // With ffmpeg the refusal is the file's own (#5513); without, nothing ran.
     const src = path.join(dir, 'garbage.mov');
-    await writeFile(src, Buffer.from('this is definitely not an mp4 container'));
+    await writeSettledFile(src, Buffer.from('this is definitely not an mp4 container'));
     const out = path.join(dir, 'garbage.jpg');
     const extraction = extractVideoPosterJpeg(src, out);
     if (ffmpeg) await expect(extraction).rejects.toBeInstanceOf(SourceDecodeError);
@@ -125,7 +126,7 @@ describe('extractVideoPosterJpeg — real decode (needs host ffmpeg)', () => {
   it('throws SourceDecodeError for a truncated QuickTime file', async () => {
     if (!sampleVideo) return; // gated
     const truncated = path.join(dir, 'truncated.mov');
-    await writeFile(truncated, (await Bun.file(sampleVideo).bytes()).subarray(0, 16));
+    await writeSettledFile(truncated, (await Bun.file(sampleVideo).bytes()).subarray(0, 16));
     const out = path.join(dir, 'truncated.jpg');
     await expect(extractVideoPosterJpeg(truncated, out)).rejects.toThrow(/moov atom not found/);
   });

@@ -27,6 +27,7 @@ import { DecodeMemoryBudgetError } from '../../ffi/decode-memory-budget.ts';
 import { developRejection } from '../../ffi/unsupported-camera.ts';
 import { solidJpeg } from '../../test-support/synth-image.ts';
 import { audioOnlyVideo } from '../../test-support/synth-video.ts';
+import { writeSettledFile } from '../../test-support/settled-file.ts';
 import { ffmpegBinary } from '../../thumbs/video-poster.ts';
 
 let live: LiveTestDatabase;
@@ -38,7 +39,7 @@ beforeEach(async () => {
   dir = await mkdtemp(path.join(os.tmpdir(), 'derivative-failure-'));
   const libraryId = insertFolder(live.db, { path: dir });
   invalidateLibraryRoots();
-  await writeFile(path.join(dir, 'broken.jpg'), Buffer.from('\xff\xd8not a jpeg', 'latin1'));
+  await writeSettledFile(path.join(dir, 'broken.jpg'), Buffer.from('\xff\xd8not a jpeg', 'latin1'));
   assetId = insertAsset(live.db);
   insertLocation(live.db, { assetId, libraryId, path: '', filename: 'broken.jpg' });
   for (const stage of ['exif', 'thumb']) {
@@ -106,7 +107,7 @@ async function runWithPool(stage: StageConfig, pool: unknown) {
 }
 
 async function renameOriginal(filename: string) {
-  await writeFile(path.join(dir, filename), Buffer.alloc(1024));
+  await writeSettledFile(path.join(dir, filename), Buffer.alloc(1024));
   run(live.db, `UPDATE asset_locations SET filename = ? WHERE asset_id = ?`, filename, assetId);
 }
 
@@ -235,6 +236,20 @@ describe.each(STAGES)('%s stage permanent source failures (#5513)', (name, stage
     await runStageOnce(stage as unknown as StageConfig, 1);
     expectDeadAndDamaged(name, stage.targetVersion);
     expect(stageRow(name).last_error).toContain('moov atom not found');
+  });
+
+  it('defers a truncated QuickTime file modified within the hour, as a copy in progress', async () => {
+    if (!(await ffmpegBinary())) return;
+    await renameOriginal('Sequence 01.mov');
+    await writeFile(path.join(dir, 'Sequence 01.mov'), Buffer.alloc(1024));
+    await runStageOnce(stage as unknown as StageConfig, 1);
+    expectDeferredUndamaged(name, stage.targetVersion);
+  });
+
+  it('defers a truncated JPEG modified within the hour without spending an attempt', async () => {
+    await writeFile(path.join(dir, 'broken.jpg'), Buffer.from('\xff\xd8not a jpeg', 'latin1'));
+    await runStageOnce(stage as unknown as StageConfig, 1);
+    expectDeferredUndamaged(name, stage.targetVersion);
   });
 
   it('marks an audio-only video handled without tagging it damaged', async () => {

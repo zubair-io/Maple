@@ -19,6 +19,7 @@ import * as path from 'node:path';
 import { previewRoutes } from './preview.ts';
 import { invalidateLibraryRoots } from '../../indexer/libraries.cache.ts';
 import { registerLibrary, seedRouteAsset } from '../../../tests/helpers/assets-route-fixtures.ts';
+import { writeSettledFile } from '../../test-support/settled-file.ts';
 import { newObjectIdHex } from '../../db/object-id.ts';
 import {
   createLiveTestDatabase,
@@ -116,7 +117,10 @@ describe('GET /preview/:slug/*', () => {
       filename: 'broken.jpg',
       mapleId: newObjectIdHex(),
     });
-    await writeFile(path.join(tmpDir, 'broken.jpg'), Buffer.from('\xff\xd8not a jpeg', 'latin1'));
+    await writeSettledFile(
+      path.join(tmpDir, 'broken.jpg'),
+      Buffer.from('\xff\xd8not a jpeg', 'latin1'),
+    );
     const res = await app.handle(new Request('http://localhost/preview/prevlib/broken.jpg'));
     expect(res.status).toBe(422);
     expect(await res.json()).toEqual({

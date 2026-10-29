@@ -22,6 +22,7 @@ import { registerLibrary, seedRouteAsset } from '../../../tests/helpers/assets-r
 import { newObjectIdHex } from '../../db/object-id.ts';
 import { solidJpeg } from '../../test-support/synth-image.ts';
 import { audioOnlyVideo } from '../../test-support/synth-video.ts';
+import { writeSettledFile } from '../../test-support/settled-file.ts';
 import { ffmpegBinary } from '../../thumbs/video-poster.ts';
 import { _setFfiPoolForTests } from '../../ffi/ffi-pool.ts';
 import { developRejection } from '../../ffi/unsupported-camera.ts';
@@ -290,7 +291,10 @@ describe('GET /thumb/:slug/*', () => {
     }, 60_000);
 
     test('answers 422 source-undecodable when the decoder refuses the original', async () => {
-      await writeFile(path.join(tmpDir, 'broken.jpg'), Buffer.from('\xff\xd8not a jpeg', 'latin1'));
+      await writeSettledFile(
+        path.join(tmpDir, 'broken.jpg'),
+        Buffer.from('\xff\xd8not a jpeg', 'latin1'),
+      );
       const res = await app.handle(new Request('http://localhost/thumb/thumblib/broken.jpg'));
       expect(res.status).toBe(422);
       expect(await res.json()).toEqual({
