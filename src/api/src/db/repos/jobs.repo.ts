@@ -48,6 +48,7 @@ import {
   CLAIM_CANDIDATES_SQL,
   CLAIM_JOB_SQL,
   insertJobSql,
+  type JobInsertFence,
   JOB_BY_ID_SQL,
   listJobsSql,
   RESUME_BATCH_JOB_SQL,
@@ -89,6 +90,16 @@ export class JobConflictError extends Error {
 /** What an operator is told when another settings batch holds the same library. */
 const BATCH_ACTIVE_MESSAGE =
   'Another settings batch is active in this library. Wait for it or cancel it first.';
+
+const PANO_STITCH_ACTIVE_MESSAGE =
+  'A panorama job is already running or queued. Wait for it to finish.';
+
+const FENCED_PANO_KINDS: ReadonlySet<string> = new Set(['pano_stitch', 'pano_preview']);
+
+function insertFence(kind: string, scopes: string[] | undefined): JobInsertFence {
+  if (scopes !== undefined && scopes.length > 0) return 'batch_scopes';
+  return FENCED_PANO_KINDS.has(kind) ? 'pano_stitch' : 'none';
+}
 
 /**
  * The user-facing message for a conflict, or `undefined` when the error is
@@ -169,7 +180,8 @@ function insertParams(
  *    stored job alone, and the read finds it. A replay of the *same* request is
  *    honest and returns that job; a different kind or payload under the same id
  *    is a caller error.
- *  - **Another settings batch holds one of these roots.** The fence blocked the
+ *  - **Another settings batch holds one of these roots**, or (for a pano job) a
+ *    panorama stitch is already queued or running. The fence blocked the
  *    insert, so no row with this id exists.
  */
 export async function createJob(
@@ -180,12 +192,19 @@ export async function createJob(
 ): Promise<JobWithId> {
   const db = sqliteDb(dbOverride);
   const id = input.requestId ?? newObjectIdHex();
-  const fenced = scopes !== undefined && scopes.length > 0;
+  const fence = insertFence(input.kind, scopes);
   const params = insertParams(id, input, scopes, now().toISOString());
-  await db.write(insertJobSql(fenced), fenced ? [...params, JSON.stringify(scopes)] : params);
+  await db.write(
+    insertJobSql(fence),
+    fence === 'batch_scopes' ? [...params, JSON.stringify(scopes)] : params,
+  );
 
   const row = await readJobRow(db, id);
-  if (row === null) throw new JobConflictError(BATCH_ACTIVE_MESSAGE);
+  if (row === null) {
+    throw new JobConflictError(
+      fence === 'pano_stitch' ? PANO_STITCH_ACTIVE_MESSAGE : BATCH_ACTIVE_MESSAGE,
+    );
+  }
   const doc = toJobDoc(row);
   if (doc.kind !== input.kind || !isDeepStrictEqual(doc.payload, input.payload)) {
     throw new JobConflictError('The request id already belongs to a different job');

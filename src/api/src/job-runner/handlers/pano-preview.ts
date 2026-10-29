@@ -27,6 +27,7 @@ import {
   runPanoCli,
 } from './pano-cli-process.ts';
 import {
+  alignmentDir,
   matcherUsed,
   parsePayload,
   readAlignmentVerdict,
@@ -64,7 +65,7 @@ const cancelled = (): JobHandlerResult => ({
 export const panoPreviewHandler: JobHandler = {
   async run(rawPayload, ctx) {
     const payload = parsePayload(rawPayload);
-    await sweepStalePreviews();
+    await sweepStalePreviews(alignmentDir(payload));
     // A superseded preview is cancelled while still queued; skip it outright.
     if (await ctx.shouldCancel()) {
       await removePreviewDir(payload.outputDir);

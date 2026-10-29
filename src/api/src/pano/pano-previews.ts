@@ -7,7 +7,7 @@
  * that consumed an alignment removes that preview's directory once it lands;
  * anything left behind (an abandoned dialog, a server restart) is swept once it
  * is older than {@link PREVIEW_TTL_MS} whenever another preview starts or a
- * stitch finishes.
+ * stitch finishes — except the one whose alignment that job reads.
  */
 
 import { readdir, rm, stat } from 'node:fs/promises';
@@ -49,12 +49,18 @@ export async function removePreviewDir(dir: string): Promise<void> {
   });
 }
 
-export async function sweepStalePreviews(now: number = Date.now()): Promise<number> {
+/** `inUse` is the directory of the alignment the calling job is about to read. */
+export async function sweepStalePreviews(
+  inUse: string | null = null,
+  now: number = Date.now(),
+): Promise<number> {
   const root = previewsRoot();
   const names = await readdir(root).catch(() => [] as string[]);
+  const kept = inUse === null ? null : ownedPreviewDir(inUse);
   const stale = await Promise.all(
     names.map(async (name) => {
       const dir = path.join(root, name);
+      if (dir === kept) return null;
       const mtime = await stat(dir)
         .then((s) => s.mtimeMs)
         .catch(() => now);

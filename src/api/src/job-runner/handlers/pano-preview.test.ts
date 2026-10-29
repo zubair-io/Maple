@@ -233,6 +233,20 @@ describe('preview directories', () => {
     expect(await exists(fresh)).toBe(true);
     await fs.rm(fresh, { recursive: true, force: true });
   });
+
+  it('keeps a stale directory whose alignment the sweeping job is about to read', async () => {
+    const inUse = newPreviewDir();
+    const other = newPreviewDir();
+    await Promise.all([fs.mkdir(inUse, { recursive: true }), fs.mkdir(other, { recursive: true })]);
+    const old = new Date(Date.now() - PREVIEW_TTL_MS - 60_000);
+    await Promise.all([fs.utimes(inUse, old, old), fs.utimes(other, old, old)]);
+
+    await sweepStalePreviews(inUse);
+
+    expect(await exists(inUse)).toBe(true);
+    expect(await exists(other)).toBe(false);
+    await fs.rm(inUse, { recursive: true, force: true });
+  });
 });
 
 describe('pano and the decode memory budget (#5467)', () => {
