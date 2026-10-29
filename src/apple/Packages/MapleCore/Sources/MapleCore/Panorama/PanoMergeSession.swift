@@ -63,9 +63,12 @@ public final class PanoMergeSession {
     public private(set) var lastPreview: PanoPreview?
 
     /// The most recent solved alignment, offered to the next preview and the
-    /// full stitch. Kept even when a later preview fails: the core rejects a
-    /// mismatched alignment itself, so offering it is always safe.
+    /// full stitch of the same frames. Kept even when a later preview fails:
+    /// the core rejects a mismatched alignment itself, so offering it is
+    /// always safe. Dropped when other frames are previewed, which it could
+    /// never match.
     public private(set) var alignment: PanoAlignment?
+    private var alignmentFrames: [AssetRef.ID] = []
 
     /// How cloud-only frames can still stitch on this device: download them
     /// first (#5489). `nil` when the frames are not on a Maple server.
@@ -175,6 +178,7 @@ public final class PanoMergeSession {
     /// runs: a preview beside it would compete for the same memory.
     public func preview(assets: [AssetRef]) {
         guard !isRunning else { return }
+        if assets.map(\.id) != alignmentFrames { alignment = nil }
         if assets.map(\.id) != previewAssets.map(\.id) {
             lastPreview = nil
             memoryFit = nil
@@ -220,7 +224,7 @@ public final class PanoMergeSession {
                     }
                 )
                 guard self.previewGeneration == gen else { return }
-                self.adopt(preview, solvedFor: capturedOptions)
+                self.adopt(preview, of: assets, solvedFor: capturedOptions)
                 self.previewState = .ready
             } catch is CancellationError {
                 return
@@ -234,8 +238,9 @@ public final class PanoMergeSession {
         }
     }
 
-    private func adopt(_ preview: PanoPreview, solvedFor options: PanoOptions) {
+    private func adopt(_ preview: PanoPreview, of assets: [AssetRef], solvedFor options: PanoOptions) {
         alignment = preview.alignment
+        alignmentFrames = assets.map(\.id)
         lastPreview = preview
         memoryFit = preview.stitchSizes.flatMap {
             memoryModel.fit(sizes: $0, availableBytes: availableMemory())
@@ -309,7 +314,7 @@ public final class PanoMergeSession {
                     let preview = try await capturedStitcher.preview(
                         assets: assets, options: capturedOptions, alignment: alignment, progress: { _, _ in })
                     guard runGeneration == gen else { return }
-                    adopt(preview, solvedFor: capturedOptions)
+                    adopt(preview, of: assets, solvedFor: capturedOptions)
                     previewState = .ready
                 }
                 state = .running(stage: .decoding, stageFraction: 0.0, overallFraction: 0.0)

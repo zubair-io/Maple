@@ -34,6 +34,14 @@ private func withEnvVar(_ key: String, value: String?, in block: () throws -> Vo
     try block()
 }
 
+/// The model files the core loads, as placeholders: status only checks
+/// that they are there.
+private func installModelFiles(in dir: URL) throws {
+    for filename in PanoProvisionManifest.modelFilenames {
+        try Data("model".utf8).write(to: dir.appendingPathComponent(filename))
+    }
+}
+
 // MARK: - Resolution order tests
 
 /// Tests that mutate the process environment are inherently not safe to run
@@ -178,6 +186,7 @@ struct PanoProvisioningStatusTests {
         let dir = FileManager.default.temporaryDirectory
             .appendingPathComponent("pano-status-models-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        try installModelFiles(in: dir)
         defer { try? FileManager.default.removeItem(at: dir) }
 
         let dylib = FileManager.default.temporaryDirectory
@@ -225,6 +234,7 @@ struct PanoFeatureEngineSelectionTests {
     private func provisionedSuite(in dir: URL) throws -> UserDefaults {
         let models = dir.appendingPathComponent("models", isDirectory: true)
         try FileManager.default.createDirectory(at: models, withIntermediateDirectories: true)
+        try installModelFiles(in: models)
         let dylib = dir.appendingPathComponent("libonnxruntime.dylib")
         FileManager.default.createFile(atPath: dylib.path, contents: Data())
         let suite = makeSuite()

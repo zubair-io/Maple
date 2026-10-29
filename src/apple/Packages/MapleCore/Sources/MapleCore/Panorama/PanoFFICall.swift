@@ -106,6 +106,16 @@ enum PanoFFICall {
         raw.replacingOccurrences(of: #"^maple_[a-z_]+:\s*"#, with: "", options: .regularExpression)
     }
 
+    /// The core words the whole outcome (`alignment not reused (<reason>);
+    /// matching re-ran`); `PanoAlignmentOutcome.summary` adds its own frame,
+    /// so only the reason is kept.
+    static func staleReason(fromCoreMessage message: String) -> String {
+        guard let match = message.firstMatch(of: #/^alignment not reused \((.+)\); matching re-ran$/#) else {
+            return message
+        }
+        return String(match.1)
+    }
+
     private static func outcome(rc: Int32, call: String, offered: Bool) throws -> PanoAlignmentOutcome {
         let raw = maple_last_error().map { String(cString: $0) } ?? "Something went wrong while merging."
         let message = userMessage(fromCoreError: raw)
@@ -113,7 +123,7 @@ enum PanoFFICall {
         case 0:
             return offered ? .reused : .solved
         case staleAlignmentCode:
-            return .stale(reason: message)
+            return .stale(reason: staleReason(fromCoreMessage: message))
         default:
             panoFFILog.error("\(call, privacy: .public) FAILED rc=\(rc): \(raw, privacy: .public)")
             switch rc {

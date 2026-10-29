@@ -10,6 +10,8 @@
 //   Priority 2 — Process environment variables (dev / CI):
 //     MAPLE_PANO_MODELS
 //     ORT_DYLIB_PATH
+//     Maple itself exports the resolved paths into these variables for the
+//     core (PanoMLEnvironment); that export never reads back as this tier.
 //
 //   Priority 3 — Default app-support locations:
 //     ~/Library/Application Support/app.justmaple.aperture/pano-models/
@@ -19,8 +21,8 @@
 // that in-app settings take precedence over shell env vars.
 //
 // `PanoProvisioningStatus` provides a lightweight "provisioned or not?"
-// indicator for the settings UI — it checks whether the resolved paths
-// exist on disk (does NOT validate model file contents).
+// indicator for the settings UI — it checks whether both model files and
+// the ORT dylib exist on disk (does NOT validate their contents).
 //
 // follow-up: #1234 M6 — auto-download / bundle ONNX models and
 //   libonnxruntime.dylib so users don't need to configure paths manually.
@@ -28,6 +30,7 @@
 // Ticket: #1241 / Part of #1234
 
 import Foundation
+import os
 
 // MARK: - UserDefaults keys
 
@@ -38,6 +41,42 @@ public enum PanoProvisioningDefaults {
     public static let modelsDirKey   = "maple.pano.settings.modelsDir.v1"
     public static let ortDylibPathKey = "maple.pano.settings.ortDylibPath.v1"
     public static let useMLMatcherKey = "maple.pano.settings.useMLMatcher.v1"
+    static let modelsDirEnv = "MAPLE_PANO_MODELS"
+    static let ortDylibPathEnv = "ORT_DYLIB_PATH"
+}
+
+// MARK: - PanoMLEnvironment
+
+/// The core reads the ML paths only from the process environment, so the
+/// resolved paths are exported there before each ML run. Each export
+/// remembers the value it replaced, so while a variable still holds Maple's
+/// own export the environment tier reads the value from before it: the
+/// export never poses as a path the user set.
+enum PanoMLEnvironment {
+    private struct Export {
+        let replaced: String?
+        let value: String
+    }
+
+    private static let exports = OSAllocatedUnfairLock<[String: Export]>(initialState: [:])
+
+    /// The variable as the user or the launching process set it.
+    static func userValue(_ name: String) -> String? {
+        exports.withLock { exports in
+            let current = ProcessInfo.processInfo.environment[name]
+            guard let export = exports[name], export.value == current else { return current }
+            return export.replaced
+        }
+    }
+
+    static func export(_ name: String, _ value: String) {
+        exports.withLock { exports in
+            let current = ProcessInfo.processInfo.environment[name]
+            let replaced = exports[name].map { $0.value == current ? $0.replaced : current } ?? current
+            exports[name] = Export(replaced: replaced, value: value)
+            setenv(name, value, 1)
+        }
+    }
 }
 
 // MARK: - PanoProvisioningStatus
@@ -61,14 +100,15 @@ public struct PanoProvisioningStatus: Sendable, Equatable {
     public let modelsDir: URL?
     /// Where `modelsDir` came from.
     public let modelsDirSource: Source
-    /// Whether `modelsDir` actually exists on disk right now.
+    /// Whether `modelsDir` holds every model file the core loads right now.
     public let modelsDirExists: Bool
 
     /// Resolved ORT dylib URL (may not exist on disk).
     public let ortDylibPath: URL?
     /// Where `ortDylibPath` came from.
     public let ortDylibSource: Source
-    /// Whether `ortDylibPath` actually exists on disk right now.
+    /// Whether `ortDylibPath` exists on disk right now and, when it is the
+    /// auto-provisioned one, still matches its pinned digest.
     public let ortDylibExists: Bool
 
     /// `true` when both paths resolve to something that exists on disk.
@@ -108,34 +148,30 @@ public struct PanoProvisioning: @unchecked Sendable {
     /// practice — the app-support tier always constructs a URL even if the
     /// directory doesn't exist yet).
     public func resolvedModelsDir() -> URL? {
-        // 1. Settings
-        if let saved = defaults.string(forKey: PanoProvisioningDefaults.modelsDirKey),
-           !saved.isEmpty {
-            return URL(fileURLWithPath: saved, isDirectory: true)
-        }
-        // 2. Environment
-        if let envVal = ProcessInfo.processInfo.environment["MAPLE_PANO_MODELS"],
-           !envVal.isEmpty {
-            return URL(fileURLWithPath: envVal, isDirectory: true)
-        }
-        // 3. Default app-support
-        return Self.defaultModelsDir()
+        resolvedModels().url
     }
 
     /// Resolved ORT dylib path. Priority: settings → env → app-support.
     public func resolvedOrtDylibPath() -> URL? {
-        // 1. Settings
-        if let saved = defaults.string(forKey: PanoProvisioningDefaults.ortDylibPathKey),
-           !saved.isEmpty {
-            return URL(fileURLWithPath: saved)
-        }
-        // 2. Environment
-        if let envVal = ProcessInfo.processInfo.environment["ORT_DYLIB_PATH"],
-           !envVal.isEmpty {
-            return URL(fileURLWithPath: envVal)
-        }
-        // 3. Default app-support
-        return Self.defaultOrtDylibPath()
+        resolvedOrtDylib().url
+    }
+
+    private func resolvedModels() -> (url: URL?, source: PanoProvisioningStatus.Source) {
+        resolveWithSource(
+            settingsKey: PanoProvisioningDefaults.modelsDirKey,
+            envKey: PanoProvisioningDefaults.modelsDirEnv,
+            isDirectory: true,
+            defaultURL: Self.defaultModelsDir()
+        )
+    }
+
+    private func resolvedOrtDylib() -> (url: URL?, source: PanoProvisioningStatus.Source) {
+        resolveWithSource(
+            settingsKey: PanoProvisioningDefaults.ortDylibPathKey,
+            envKey: PanoProvisioningDefaults.ortDylibPathEnv,
+            isDirectory: false,
+            defaultURL: Self.defaultOrtDylibPath()
+        )
     }
 
     // MARK: - Engine selection
@@ -167,32 +203,13 @@ public struct PanoProvisioning: @unchecked Sendable {
     // MARK: - Status snapshot (for Settings → Pano UI)
 
     /// Snapshot of the current resolution state — which paths resolved and
-    /// whether they exist on disk.  Cheap to call from a SwiftUI `.task`.
+    /// whether they exist on disk. On macOS an auto-provisioned ORT dylib is
+    /// also checked against its pinned digest, hashed once per file version.
     public func status() -> PanoProvisioningStatus {
-        let fm = FileManager.default
-
-        let (modelsDir, modelsSource) = resolveWithSource(
-            settingsKey: PanoProvisioningDefaults.modelsDirKey,
-            envKey: "MAPLE_PANO_MODELS",
-            isDirectory: true,
-            defaultURL: Self.defaultModelsDir()
-        )
-        let modelsDirExists: Bool
-        if let dir = modelsDir {
-            var isDirFlag: ObjCBool = false
-            let exists = fm.fileExists(atPath: dir.path, isDirectory: &isDirFlag)
-            modelsDirExists = exists && isDirFlag.boolValue
-        } else {
-            modelsDirExists = false
-        }
-
-        let (ortPath, ortSource) = resolveWithSource(
-            settingsKey: PanoProvisioningDefaults.ortDylibPathKey,
-            envKey: "ORT_DYLIB_PATH",
-            isDirectory: false,
-            defaultURL: Self.defaultOrtDylibPath()
-        )
-        let ortExists = ortPath.map { fm.fileExists(atPath: $0.path) } ?? false
+        let (modelsDir, modelsSource) = resolvedModels()
+        let modelsDirExists = modelsDir.map(Self.holdsEveryModel) ?? false
+        let (ortPath, ortSource) = resolvedOrtDylib()
+        let ortExists = ortPath.map { Self.isUsableOrtDylib($0, source: ortSource) } ?? false
 
         return PanoProvisioningStatus(
             modelsDir:       modelsDir,
@@ -218,7 +235,7 @@ public struct PanoProvisioning: @unchecked Sendable {
             return (URL(fileURLWithPath: saved, isDirectory: isDirectory), .settings)
         }
         // 2. Env
-        if let envVal = ProcessInfo.processInfo.environment[envKey], !envVal.isEmpty {
+        if let envVal = PanoMLEnvironment.userValue(envKey), !envVal.isEmpty {
             return (URL(fileURLWithPath: envVal, isDirectory: isDirectory), .environment)
         }
         // 3. Default
@@ -226,6 +243,51 @@ public struct PanoProvisioning: @unchecked Sendable {
             return (def, .appSupport)
         }
         return (nil, .notSet)
+    }
+
+    /// A directory that exists but lacks a model (an interrupted download)
+    /// is not installed: the core would refuse it at merge time.
+    private static func holdsEveryModel(_ dir: URL) -> Bool {
+        PanoProvisionManifest.modelFilenames.allSatisfy { filename in
+            var isDirectory: ObjCBool = false
+            let exists = FileManager.default.fileExists(
+                atPath: dir.appendingPathComponent(filename).path, isDirectory: &isDirectory)
+            return exists && !isDirectory.boolValue
+        }
+    }
+
+    /// The auto-provisioned dylib must also match its pinned digest: a
+    /// corrupt one then reads as not installed, so Settings offers the
+    /// download that replaces it. A user's own dylib only has to exist.
+    private static func isUsableOrtDylib(_ url: URL, source: PanoProvisioningStatus.Source) -> Bool {
+        guard let attributes = try? FileManager.default.attributesOfItem(atPath: url.path) else { return false }
+        guard source == .appSupport else { return true }
+        let identity = OrtDylibIdentity(
+            path: url.path,
+            modified: attributes[.modificationDate] as? Date,
+            size: attributes[.size] as? Int)
+        if let known = verifiedOrtDylibs.withLock({ $0[identity] }) { return known }
+        let usable = switch PanoProvisioner.verifyOrtDylibIntegrity(at: url) {
+        case .ok, .notApplicable: true
+        case .mismatch, .unreadable: false
+        }
+        verifiedOrtDylibs.withLock { $0[identity] = usable }
+        return usable
+    }
+
+    /// Hashing the dylib takes tens of milliseconds and Settings asks on
+    /// every view update, so a verdict holds until the file changes.
+    private struct OrtDylibIdentity: Hashable {
+        let path: String
+        let modified: Date?
+        let size: Int?
+    }
+
+    private static let verifiedOrtDylibs = OSAllocatedUnfairLock<[OrtDylibIdentity: Bool]>(initialState: [:])
+
+    /// The model file names as the user reads them in Settings and errors.
+    public static var modelFilenameList: String {
+        PanoProvisionManifest.modelFilenames.joined(separator: " and ")
     }
 
     // MARK: - Default app-support locations
