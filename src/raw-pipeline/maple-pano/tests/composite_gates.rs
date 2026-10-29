@@ -354,8 +354,9 @@ fn graph_cut_tiling_is_strip_invariant_multiband() {
         "gate must exercise a real pyramid"
     );
 
-    let seam =
-        build_from_frames(&frames, &cams, &report.photometry, &[], canvas, &[]).expect("seam");
+    let seam = build_from_frames(&frames, &cams, &report.photometry, &[], canvas, &[])
+        .expect("seam")
+        .expect("solved seam");
     let layers: Vec<PlanarImage> = frames
         .iter()
         .zip(&cams)

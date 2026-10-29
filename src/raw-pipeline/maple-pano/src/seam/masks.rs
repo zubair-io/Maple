@@ -36,7 +36,7 @@ use crate::ingest::{ingest_file, PlanarImage};
 use crate::local_align::LocalCorrection;
 use crate::warp::warp_to_canvas;
 
-use super::constraints::{self, SeamConstraint};
+use super::constraints::{self, SeamConstraint, SeamConstraintError};
 use super::labels;
 
 /// Total pixel cap for the seam canvas ("downsampled overlaps, <= ~2MP"
@@ -44,9 +44,8 @@ use super::labels;
 /// one pairwise overlap is a fraction, so 1MP keeps every real pairwise
 /// BK graph well under the ~2MP ticket figure with headroom — measured
 /// down from an initial 4MP after a real 6-frame pano_01 overlap's BK
-/// solve took minutes even with [`crate::seam::pairwise`]'s iteration
-/// cap in place; smaller graphs both hit that cap less often and explore
-/// more of the graph per iteration when they do.
+/// solve took minutes; smaller graphs need fewer augmenting paths, which
+/// [`crate::seam::pairwise`] bounds per cut.
 pub const SEAM_CANVAS_MAX_PX: usize = 1_000_000;
 
 /// Feather radius in seam-canvas pixels applied to the hard label masks
@@ -112,27 +111,34 @@ fn sample_bilinear(plane: &[f32], w: u32, h: u32, x: f64, y: f64) -> f32 {
 
 /// Shared tail: rasterize the user constraints, run the n-way label solve
 /// over already-warped seam-canvas layers, feather, and package as
-/// [`SeamMasks`].
+/// [`SeamMasks`]. `None` when a pairwise cut hit its iteration bound and no
+/// constraint forbids the caller's Voronoi fallback.
 fn finish(
     layers: Vec<PlanarImage>,
     seam_canvas: &CanvasSpec,
     full_canvas: &CanvasSpec,
     seam_constraints: &[SeamConstraint],
-) -> Result<SeamMasks, PanoError> {
+) -> Result<Option<SeamMasks>, PanoError> {
     let (sw, sh) = (seam_canvas.width, seam_canvas.height);
     let scale_x = sw as f64 / full_canvas.width as f64;
     let scale_y = sh as f64 / full_canvas.height as f64;
     let pins = constraints::rasterize(seam_constraints, &layers, scale_x, scale_y)?;
-    let labels = labels::compute_labels(&layers, &pins);
+    let Some(labels) = labels::compute_labels(&layers, &pins) else {
+        return if seam_constraints.is_empty() {
+            Ok(None)
+        } else {
+            Err(SeamConstraintError::Unsolved.into())
+        };
+    };
     let mut masks = labels::labels_to_masks(&labels, layers.len());
     labels::feather_masks(&mut masks, sw, sh, FEATHER_RADIUS_PX);
-    Ok(SeamMasks {
+    Ok(Some(SeamMasks {
         seam_width: sw,
         seam_height: sh,
         masks,
         scale_x,
         scale_y,
-    })
+    }))
 }
 
 /// Build [`SeamMasks`] by decoding each source frame from disk, warping
@@ -148,7 +154,7 @@ pub fn build_from_paths(
     local_corrections: &[Option<LocalCorrection>],
     full_canvas: &CanvasSpec,
     seam_constraints: &[SeamConstraint],
-) -> Result<SeamMasks, PanoError> {
+) -> Result<Option<SeamMasks>, PanoError> {
     if paths.len() != cameras.len() || paths.len() != photometry.len() {
         return Err(PanoError::InvalidOptions(format!(
             "seam::masks::build_from_paths: {} paths, {} cameras, {} photometry",
@@ -187,7 +193,7 @@ pub fn build_from_frames(
     local_corrections: &[Option<LocalCorrection>],
     full_canvas: &CanvasSpec,
     seam_constraints: &[SeamConstraint],
-) -> Result<SeamMasks, PanoError> {
+) -> Result<Option<SeamMasks>, PanoError> {
     assert_eq!(
         frames.len(),
         cameras.len(),
@@ -279,8 +285,9 @@ mod tests {
             .expect("canvas");
         let photometry = vec![FramePhotometry::IDENTITY; cams.len()];
         let no_lc: Vec<Option<LocalCorrection>> = vec![None; cams.len()];
-        let seam =
-            build_from_frames(&frames, &cams, &photometry, &no_lc, &canvas, &[]).expect("seam");
+        let seam = build_from_frames(&frames, &cams, &photometry, &no_lc, &canvas, &[])
+            .expect("seam")
+            .expect("solved seam");
 
         // Sample a grid of full-canvas points. Total weight across frames
         // must never exceed ~1 (feathering only softens a boundary, never

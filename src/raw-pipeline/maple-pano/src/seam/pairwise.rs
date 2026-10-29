@@ -22,7 +22,7 @@
 //!   there.
 //!
 //! After [`super::bk::BkGraph::solve`], pixels on the source side keep
-//! `a`; the rest take `b`.
+//! `a`; the rest take `b`. A solve stopped by [`MAX_ITER`] yields `None`.
 //!
 //! # Cost function
 //!
@@ -58,31 +58,14 @@ use super::bk::BkGraph;
 /// cut — large enough to dominate any real edge cost, small enough that
 /// summing a handful of them can't overflow `i64`.
 const INF_CAP: i64 = i64::MAX / 4;
-/// Integer scale for converting `f32` edge costs to BK capacities.
-///
-/// Deliberately coarse (not `1_000_000` — measured too fine on real
-/// photo content): `bk`'s documented heterogeneous-capacity pathology
-/// (see its module doc, "Known correctness limitation") is sensitive to
-/// how many *distinct* capacity levels the graph has, not just their
-/// ratio — a real overlap's gradient-domain data term spans a wide,
-/// continuously-varying range on real texture (unlike the synthetic
-/// tests' few discrete values), and scaling that by 1e6 produced graphs
-/// that took multiple minutes to solve on a real pano_01 overlap. `1_000`
-/// keeps ~3 significant digits of the cost ordering (which is all
-/// min-cut needs) while cutting the flow-granularity a thousandfold.
+/// Integer scale for converting `f32` edge costs to BK capacities:
+/// ~3 significant digits of the cost ordering, which is all min-cut needs,
+/// at a thousandth of the flow granularity `1e6` produced (multi-minute
+/// real pano_01 overlaps before the solver was corrected).
 const COST_SCALE: f64 = 1_000.0;
-/// Absolute cap on BK `solve()` augmenting-path iterations.
-///
-/// Fixed, **not** scaled by node count: a per-node multiplier looks
-/// "generous" but is unbounded at seam-canvas scale (a few-million-node
-/// graph turns any positive per-node factor into a cap that still lets a
-/// pathological solve run for minutes — measured on real pano_01
-/// content, see [`COST_SCALE`]'s doc). BK on a well-conditioned grid
-/// graph converges in a small multiple of the node count, so this cap
-/// only bites on the documented heterogeneous-capacity pathology; when
-/// it does, `solve()` returns the partial flow with the cut state as it
-/// stands (still a valid partition, just not necessarily the global
-/// minimum) rather than running unbounded.
+/// Fixed (not node-count-scaled) bound on one cut's BK iterations. A cut
+/// that reaches it is reported as unsolved instead of being read as a
+/// minimum cut.
 const MAX_ITER: u64 = 20_000;
 /// Weight on the local-contrast discount in [`edge_cost`]. Not exposed
 /// as a tunable — the ticket asks for the two named terms (gradient-
@@ -181,8 +164,9 @@ fn edge_cost(fields: &CostFields, p: usize, q: usize) -> i64 {
 ///
 /// `a` and `b` must have equal dimensions (both warped onto the same
 /// canvas). Returns an all-`false` (defaults to `a`) partition when
-/// there's no overlap — nothing to cut.
-pub fn cut(a: &PlanarImage, b: &PlanarImage) -> Vec<bool> {
+/// there's no overlap — nothing to cut — and `None` when the solve hit
+/// [`MAX_ITER`] before reaching the minimum cut.
+pub fn cut(a: &PlanarImage, b: &PlanarImage) -> Option<Vec<bool>> {
     cut_pinned(a, b, |_| Pin::Free)
 }
 
@@ -197,7 +181,20 @@ pub enum Pin {
 /// [`cut`] with `pin(canvas_index)` wiring constrained overlap pixels to
 /// their terminal at [`INF_CAP`]; a pin replaces the validity-border
 /// anchoring at that pixel so the two never fight over one node.
-pub fn cut_pinned(a: &PlanarImage, b: &PlanarImage, pin: impl Fn(usize) -> Pin) -> Vec<bool> {
+pub fn cut_pinned(
+    a: &PlanarImage,
+    b: &PlanarImage,
+    pin: impl Fn(usize) -> Pin,
+) -> Option<Vec<bool>> {
+    cut_within(a, b, pin, MAX_ITER)
+}
+
+fn cut_within(
+    a: &PlanarImage,
+    b: &PlanarImage,
+    pin: impl Fn(usize) -> Pin,
+    iter_limit: u64,
+) -> Option<Vec<bool>> {
     assert_eq!(
         (a.width(), a.height()),
         (b.width(), b.height()),
@@ -219,7 +216,7 @@ pub fn cut_pinned(a: &PlanarImage, b: &PlanarImage, pin: impl Fn(usize) -> Pin) 
     }
 
     let Some((x_min, x_max, y_min, y_max)) = overlap_bbox(a, b) else {
-        return use_b;
+        return Some(use_b);
     };
     let ov_w = (x_max - x_min + 1) as usize;
     let ov_h = (y_max - y_min + 1) as usize;
@@ -238,7 +235,7 @@ pub fn cut_pinned(a: &PlanarImage, b: &PlanarImage, pin: impl Fn(usize) -> Pin) 
         }
     }
     if n_valid == 0 {
-        return use_b;
+        return Some(use_b);
     }
 
     let fields = build_cost_fields(a, b);
@@ -305,9 +302,9 @@ pub fn cut_pinned(a: &PlanarImage, b: &PlanarImage, pin: impl Fn(usize) -> Pin) 
         }
     }
 
-    g.set_iter_limit(MAX_ITER);
+    g.set_iter_limit(iter_limit);
     g.finalize();
-    g.solve();
+    g.solve()?;
 
     for oy in 0..ov_h as u32 {
         for ox in 0..ov_w as u32 {
@@ -321,7 +318,7 @@ pub fn cut_pinned(a: &PlanarImage, b: &PlanarImage, pin: impl Fn(usize) -> Pin) 
             use_b[canvas_idx(x, y)] = !g.is_in_source(nid);
         }
     }
-    use_b
+    Some(use_b)
 }
 
 /// Total [`edge_cost`] summed over every 4-connected pixel pair whose
@@ -380,14 +377,20 @@ mod tests {
             b.g[i] = (b.g[i] + 0.3 * vb).clamp(0.0, 1.0);
             b.b[i] = (b.b[i] + 0.3 * vb).clamp(0.0, 1.0);
         }
+        for y in 0..h {
+            for x in 0..w {
+                a.validity.set(x, y, x < w - 200);
+                b.validity.set(x, y, x >= 200);
+            }
+        }
         let t0 = std::time::Instant::now();
-        let _use_b = cut(&a, &b);
+        let _solved_or_capped = cut(&a, &b);
         let elapsed = t0.elapsed();
         eprintln!("perf_probe_realistic_textured_overlap: {elapsed:?} for {w}x{h}");
         assert!(
             elapsed.as_secs() < 30,
             "graph-cut took {elapsed:?} on a {w}x{h} noisy overlap — regression vs the \
-             COST_SCALE/iter-limit fix for the pano_01 real-content slowdown"
+             COST_SCALE fix for the pano_01 real-content slowdown"
         );
     }
 
@@ -404,6 +407,21 @@ mod tests {
             vec![b; n],
             ValidityMask::new_filled(w, h, true),
         )
+    }
+
+    #[test]
+    fn a_cut_stopped_by_the_iteration_cap_is_reported_unsolved() {
+        let (w, h) = (24u32, 12u32);
+        let mut a = gradient_image(w, h);
+        let mut b = gradient_image(w, h);
+        for y in 0..h {
+            for x in 0..w {
+                a.validity.set(x, y, x < 16);
+                b.validity.set(x, y, x >= 8);
+            }
+        }
+        assert!(cut_within(&a, &b, |_| Pin::Free, 1).is_none());
+        assert!(cut_within(&a, &b, |_| Pin::Free, MAX_ITER).is_some());
     }
 
     /// A smooth gradient so `grad_mag` sees real (non-degenerate) local
@@ -436,7 +454,7 @@ mod tests {
                 b.validity.set(x, y, x >= w / 2);
             }
         }
-        let use_b = cut(&a, &b);
+        let use_b = cut(&a, &b).unwrap();
         for y in 0..h {
             for x in 0..w {
                 let idx = (y * w + x) as usize;
@@ -457,7 +475,7 @@ mod tests {
     fn identical_content_has_zero_gradient_domain_data_term() {
         let (w, h) = (16, 12);
         let img = gradient_image(w, h);
-        let use_b = cut(&img, &img.clone());
+        let use_b = cut(&img, &img.clone()).unwrap();
         // Every pixel's data term must be zero (both images are literally
         // the same buffer, so grad(diff) == 0 everywhere).
         let fields = build_cost_fields(&img, &img);
@@ -516,7 +534,7 @@ mod tests {
             }
         }
 
-        let use_b = cut(&a, &b);
+        let use_b = cut(&a, &b).unwrap();
 
         // The seam must not thread through the blob's interior: every
         // pixel strictly inside it (avoiding its own border, where an

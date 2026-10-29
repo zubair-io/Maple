@@ -59,14 +59,26 @@ pub(super) fn composite_tiled_graph_cut(
         local_corrections.len(),
     )?;
 
-    let seam = seam::masks::build_from_paths(
+    let Some(seam) = seam::masks::build_from_paths(
         paths,
         cameras,
         photometry,
         local_corrections,
         canvas,
         seam_constraints,
-    )?;
+    )?
+    else {
+        return super::composite_tiled_voronoi(
+            paths,
+            cameras,
+            photometry,
+            local_corrections,
+            exposure_field,
+            canvas,
+            tile_rows,
+            sink,
+        );
+    };
 
     graph_cut_blend(
         cameras,
@@ -120,14 +132,26 @@ pub(super) fn composite_tiled_frames_graph_cut(
         local_corrections.len(),
     )?;
 
-    let seam = seam::masks::build_from_frames(
+    let Some(seam) = seam::masks::build_from_frames(
         frames,
         cameras,
         photometry,
         local_corrections,
         canvas,
         seam_constraints,
-    )?;
+    )?
+    else {
+        return super::composite_tiled_frames_voronoi(
+            frames,
+            cameras,
+            photometry,
+            local_corrections,
+            exposure_field,
+            canvas,
+            tile_rows,
+            sink,
+        );
+    };
 
     graph_cut_blend(
         cameras,
