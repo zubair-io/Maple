@@ -48,6 +48,20 @@ describe('SelfHostedBrowseController', () => {
     expect(controller.panoAssetIds()).toEqual([]);
   });
 
+  it('refetches the open folder when a stitched panorama lands in the library (#5517)', () => {
+    Object.defineProperty(state, 'selectedSourceId', {
+      value: signal('photos:2026/trip'),
+      configurable: true,
+    });
+    const loadFolderTree = vi.spyOn(state, 'loadFolderTree').mockImplementation(() => {});
+    const reopen = vi.spyOn(state, 'openSelfHostedSubfolder').mockImplementation(() => {});
+
+    controller.onPanoCreated();
+
+    expect(loadFolderTree).toHaveBeenCalledTimes(1);
+    expect(reopen).toHaveBeenCalledWith('2026/trip', 'photos:2026/trip');
+  });
+
   it('fetches batch metadata by Maple address and opens the server panel', () => {
     const asset = { id: 'photos:2026/a.dng' } as Asset;
     Object.defineProperty(state, 'selectedAssetIds', {
