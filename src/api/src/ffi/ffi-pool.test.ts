@@ -15,6 +15,7 @@ import {
   type PoolWorker,
   type WorkerFactory,
 } from './ffi-pool.ts';
+import { UnsupportedCameraError } from './unsupported-camera.ts';
 
 /** A posted request as the fake worker records it. `type` is a plain string
  * rather than `'renderThumb'`: the pool posts several request types and the
@@ -271,6 +272,30 @@ describe('FfiWorkerPool — protocol mismatch', () => {
     await expect(Promise.race([p, hung])).rejects.toThrow(/mismatched response type/);
     // The slot is still released so the next request is not starved.
     expect(pool.stats().busy).toBe(0);
+  });
+});
+
+describe('FfiWorkerPool — unsupported camera (#5499)', () => {
+  it('types a render rejection the child reports as an unsupported camera', async () => {
+    const { factory, workers } = freshFactory();
+    const pool = _createFfiPoolForTests({ workerFactory: factory });
+    const p = render(pool);
+    workers[0].respondWith({
+      type: 'renderThumb',
+      ok: false,
+      error: 'unsupported camera: Hasselblad Hasselblad H2D',
+    });
+    await expect(p).rejects.toBeInstanceOf(UnsupportedCameraError);
+  });
+
+  it('keeps every other render failure a plain error', async () => {
+    const { factory, workers } = freshFactory();
+    const pool = _createFfiPoolForTests({ workerFactory: factory });
+    const p = render(pool);
+    workers[0].respondWith({ type: 'renderThumb', ok: false, error: 'render-failed' });
+    const err = await p.catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(Error);
+    expect(err).not.toBeInstanceOf(UnsupportedCameraError);
   });
 });
 

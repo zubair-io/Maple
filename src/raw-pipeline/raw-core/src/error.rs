@@ -22,6 +22,13 @@ pub enum Error {
     #[error("panicked while decoding {path}: {reason}")]
     DecodePanicked { path: PathBuf, reason: String },
 
+    /// The decoder has no definition for this camera body, so its sensor data
+    /// cannot be developed (#5499). The file itself is intact — the same bytes
+    /// develop once the body is supported — so hosts must not treat this as
+    /// a damaged original.
+    #[error("unsupported camera: {make} {model}")]
+    UnsupportedCamera { make: String, model: String },
+
     #[error("unsupported CFA pattern: {0:?}")]
     UnsupportedCfa(String),
 

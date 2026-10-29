@@ -36,6 +36,7 @@ import {
   deferWhileDecoderMissing,
   memoryBudgetDeferral,
   unrenderedOutcome,
+  unsupportedCameraDeferral,
 } from './derivative-render-outcome.ts';
 import { defineStage, runStage, type RunStageHandle, type StageResult } from '../run-stage.ts';
 
@@ -113,7 +114,12 @@ const previewStage = defineStage({
       if (decoderMissing) return decoderMissing;
       const rendered = await runBackgroundPreviewRender(previewPath, () =>
         generatePreview(absPath, previewPath),
-      ).catch((err: unknown) => memoryBudgetDeferral(err, absPath) ?? Promise.reject(err));
+      ).catch(
+        (err: unknown) =>
+          memoryBudgetDeferral(err, absPath) ??
+          unsupportedCameraDeferral(err, absPath) ??
+          Promise.reject(err),
+      );
       if (typeof rendered !== 'boolean') return rendered;
       const unrendered = await unrenderedOutcome(rendered, absPath);
       if (unrendered) return unrendered;

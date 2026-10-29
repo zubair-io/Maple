@@ -30,6 +30,8 @@ const log = childLogger('raw-ffi');
 
 /** Bins per channel in a Maple RGB histogram (8-bit → 256 levels). */
 const HISTOGRAM_BIN_COUNT = 256;
+/** `maple_render_develop_jpeg_to_file`: no decoder definition for the body. */
+const RC_UNSUPPORTED_CAMERA = 15;
 
 /**
  * Decode the channel-major `u32` histogram buffer that `maple_histogram_file`
@@ -115,7 +117,9 @@ export interface RawFfi {
    * neutral), downscale to `maxPx`, JPEG-encode, and write atomically to
    * `outAbsPath`. The DEVELOPED counterpart to `renderThumbnailAvifToFile`
    * (embedded-preview extraction, no adjustments). Used for headless
-   * develop-to-JPEG rendering of edited assets. Same file-output rationale. */
+   * develop-to-JPEG rendering of edited assets. Same file-output rationale.
+   * Throws raw-core's "unsupported camera: …" message when the decoder has no
+   * definition for the body (#5499). */
   renderDevelopJpegToFile(
     rawAbsPath: string,
     xmpAbsPath: string | null,
@@ -365,6 +369,11 @@ function loadFfi(): RawFfi | null {
           quality & 0xff,
           ptr(outPathBuf),
         ) as number;
+        if (rc === RC_UNSUPPORTED_CAMERA) {
+          // Reaches the pool as the rejection message, where it becomes an
+          // `UnsupportedCameraError` the stages defer on (#5499).
+          throw new Error(String(lib.symbols.maple_last_error() ?? 'unsupported camera: unknown'));
+        }
         if (rc !== 0) {
           const errStr = lib.symbols.maple_last_error() as unknown as string | null;
           log.error({ rc, err: errStr }, 'maple_render_develop_jpeg_to_file failed');

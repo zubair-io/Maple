@@ -49,8 +49,11 @@ use crate::Result;
 /// [`crate::view::auto_profile::preview::is_tiff_container`]) — a byte scan
 /// for the largest embedded color JPEG (#2413: X3F's rawler decoder
 /// implements none of the three slots above, so this tier is the only one
-/// that ever produces a preview for it). Returns [`Error::Preview`] if none
-/// exists — callers may fall through to a full pipeline render, or
+/// that ever produces a preview for it). When rawler has no decoder for the
+/// body at all (an unknown camera model, #5499), the preview is read straight
+/// from the container instead — see [`decoder_free_preview`]. Returns
+/// [`Error::Preview`] if none exists — callers may fall through to a full
+/// pipeline render, or
 /// (browser/no filesystem) surface the error to the user.
 ///
 /// Also returns the source's EXIF orientation so the caller can bake the
@@ -82,8 +85,13 @@ pub fn extract_embedded_preview(
     let extract = std::panic::catch_unwind(AssertUnwindSafe(|| {
         let source = rawler::rawsource::RawSource::new_from_slice(raw_bytes)
             .with_path(std::path::Path::new(&hint_path));
-        let decoder = rawler::get_decoder(&source)
-            .map_err(|e| Error::Preview(format!("get_decoder: {}", e)))?;
+        let decoder = match rawler::get_decoder(&source) {
+            Ok(decoder) => decoder,
+            Err(e) => {
+                return decoder_free_preview(raw_bytes)
+                    .ok_or_else(|| Error::Preview(format!("get_decoder: {}", e)))
+            }
+        };
         let params = rawler::decoders::RawDecodeParams::default();
 
         // EXIF orientation. Pull from `raw_metadata().exif.orientation` — the
@@ -144,6 +152,67 @@ pub fn extract_embedded_preview(
     }
 }
 
+/// The embedded preview of a RAW whose body rawler does not know (#5499).
+///
+/// A camera definition only matters for decoding the sensor data; the
+/// camera-rendered preview sits in the container regardless. For a TIFF-based
+/// RAW, every IFD (chained and SubIFDs) is considered and the largest 8-bit RGB
+/// or YCbCr image wins — a sensor IFD is CFA or linear-raw, so it can never be
+/// mistaken for a preview. Other containers take the existing byte scan.
+fn decoder_free_preview(raw_bytes: &[u8]) -> Option<(image::DynamicImage, ExifOrientation)> {
+    if !crate::view::auto_profile::preview::is_tiff_container(raw_bytes) {
+        return crate::view::auto_profile::preview::largest_embedded_jpeg(raw_bytes)
+            .map(|image| (image, ExifOrientation::Normal));
+    }
+    use rawler::formats::tiff::reader::TiffReader;
+    use rawler::tags::TiffCommonTag;
+    let tiff =
+        rawler::formats::tiff::GenericTiffReader::new_with_buffer(raw_bytes, 0, 0, None).ok()?;
+    let orientation = tiff
+        .root_ifd()
+        .get_entry(TiffCommonTag::Orientation)
+        .map(|entry| ExifOrientation::from_u16(entry.force_u16(0)))
+        .unwrap_or(ExifOrientation::Normal);
+    let source = rawler::rawsource::RawSource::new_from_slice(raw_bytes);
+    tiff.find_ifds_with_filter(|_| true)
+        .into_iter()
+        .filter_map(|ifd| ifd_display_image(ifd, &source))
+        .max_by_key(|image| u64::from(image.width()) * u64::from(image.height()))
+        .map(|image| (image, orientation))
+}
+
+/// Decode one IFD when it holds a display image: a single strip of 3-sample
+/// RGB/YCbCr, either uncompressed 8-bit or baseline JPEG.
+fn ifd_display_image(
+    ifd: &rawler::formats::tiff::IFD,
+    source: &rawler::rawsource::RawSource<'_>,
+) -> Option<image::DynamicImage> {
+    use rawler::tags::TiffCommonTag;
+    const PHOTOMETRIC_RGB: u16 = 2;
+    const PHOTOMETRIC_YCBCR: u16 = 6;
+    const UNCOMPRESSED: u16 = 1;
+    let tag = |t: TiffCommonTag| ifd.get_entry(t).map(|entry| entry.force_u32(0));
+    let photometric = tag(TiffCommonTag::PhotometricInt)? as u16;
+    let displayable = matches!(photometric, PHOTOMETRIC_RGB | PHOTOMETRIC_YCBCR)
+        && tag(TiffCommonTag::SamplesPerPixel) == Some(3)
+        && ifd.contains_singlestrip_image();
+    if !displayable {
+        return None;
+    }
+    let strip = ifd.singlestrip_data_rawsource(source).ok()?;
+    if tag(TiffCommonTag::Compression).map_or(UNCOMPRESSED, |c| c as u16) != UNCOMPRESSED {
+        return image::load_from_memory_with_format(strip, image::ImageFormat::Jpeg).ok();
+    }
+    let width = tag(TiffCommonTag::ImageWidth)?;
+    let height = tag(TiffCommonTag::ImageLength)?;
+    let len = usize::try_from(u64::from(width) * u64::from(height) * 3).ok()?;
+    let eight_bit = tag(TiffCommonTag::BitsPerSample) == Some(8);
+    (photometric == PHOTOMETRIC_RGB && eight_bit && strip.len() >= len)
+        .then(|| image::RgbImage::from_raw(width, height, strip[..len].to_vec()))
+        .flatten()
+        .map(image::DynamicImage::ImageRgb8)
+}
+
 /// Resize `img` so the long edge is at most `max_px`, preserving aspect
 /// ratio, never upscaling. Triangle filter: cheap and visually fine at
 /// thumbnail/preview resolutions; Lanczos would be sharper but ~3× slower
@@ -179,6 +248,34 @@ mod tests {
                 "unexpected message: {msg}"
             ),
             other => panic!("expected Error::Preview, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn unknown_body_falls_back_to_the_container_preview() {
+        use crate::test_support::synth_unknown_body::*;
+        let bytes = unknown_body_3fr();
+        let source = rawler::rawsource::RawSource::new_from_slice(&bytes);
+        let rawler_err = rawler::get_decoder(&source)
+            .err()
+            .expect("the synthetic body must be unknown to rawler");
+        assert!(rawler_err.to_string().contains("Unknown camera"));
+
+        let (img, orientation) = extract_embedded_preview(&bytes, "3fr").unwrap();
+        assert_eq!(orientation, ExifOrientation::Rotate90);
+        let rgb = img.to_rgb8();
+        assert_eq!(rgb.dimensions(), (PREVIEW_WIDTH, PREVIEW_HEIGHT));
+        assert_eq!(rgb.as_raw(), &preview_rgb());
+    }
+
+    #[test]
+    fn unknown_body_develop_is_a_typed_unsupported_camera_error() {
+        use crate::test_support::synth_unknown_body::*;
+        match crate::decode::decode_bytes(&unknown_body_3fr(), "3fr").unwrap_err() {
+            Error::UnsupportedCamera { make, model } => {
+                assert_eq!((make.as_str(), model.as_str()), ("Hasselblad", MODEL));
+            }
+            other => panic!("expected Error::UnsupportedCamera, got {other:?}"),
         }
     }
 

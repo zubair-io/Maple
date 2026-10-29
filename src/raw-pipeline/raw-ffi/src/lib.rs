@@ -337,6 +337,8 @@ mod scene_linear_tests;
 #[cfg(test)]
 #[path = "thumbnail_tests.rs"]
 mod thumbnail_tests;
+#[cfg(test)]
+mod unsupported_camera_tests;
 
 #[cfg(test)]
 mod scope_inspection_tests;

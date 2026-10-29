@@ -41,6 +41,7 @@ import { renderRawSidecarDerivative } from '../thumbs/raw-sidecar-render.ts';
 import { assertDerivativeCacheDirectory, isDerivativeCacheFresh } from './derivative-cache.ts';
 import { child as childLogger } from '../log.ts';
 import { DecodeMemoryBudgetError } from '../ffi/decode-memory-budget.ts';
+import { UnsupportedCameraError } from '../ffi/unsupported-camera.ts';
 
 const log = childLogger('thumbnailer');
 
@@ -79,7 +80,9 @@ let _failed = 0;
  *
  * Resolves true when a fresh thumb is on disk (already cached or just
  * published). Throws `SourceDecodeError` when the decoder rejects the
- * original; every other failure resolves false.
+ * original, and `UnsupportedCameraError` when a RAW has no embedded preview
+ * and its camera body is unknown to the decoder; every other failure resolves
+ * false.
  */
 export async function generateThumb(absPath: string, thumbPathOverride?: string): Promise<boolean> {
   const ext = path.extname(absPath).toLowerCase();
@@ -283,7 +286,7 @@ async function developRawThumbToFile(
     }
     return await renderBitmapThumbToFile(jpegPath, outPath, 'jpg');
   } catch (e) {
-    if (e instanceof DecodeMemoryBudgetError) throw e;
+    if (e instanceof DecodeMemoryBudgetError || e instanceof UnsupportedCameraError) throw e;
     log.warn(
       { rawPath, extractError, err: e instanceof Error ? e.message : e },
       'demosaic fallback threw',

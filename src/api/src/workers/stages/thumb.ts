@@ -43,6 +43,7 @@ import {
   deferWhileDecoderMissing,
   memoryBudgetDeferral,
   unrenderedOutcome,
+  unsupportedCameraDeferral,
 } from './derivative-render-outcome.ts';
 import { THUMB_TARGET_VERSION } from '../derivative-versions.ts';
 import { resolveThumbPathForAsset } from '../../fs/xmp.ts';
@@ -159,7 +160,10 @@ const thumbStage = defineStage({
     const decoderMissing = deferWhileDecoderMissing();
     if (decoderMissing) return decoderMissing;
     const rendered = await generateThumb(absPath, thumbPath).catch(
-      (err: unknown) => memoryBudgetDeferral(err, absPath) ?? Promise.reject(err),
+      (err: unknown) =>
+        memoryBudgetDeferral(err, absPath) ??
+        unsupportedCameraDeferral(err, absPath) ??
+        Promise.reject(err),
     );
     if (typeof rendered !== 'boolean') return rendered;
     const unrendered = await unrenderedOutcome(rendered, absPath);

@@ -21,6 +21,8 @@ import { invalidateLibraryRoots } from '../../indexer/libraries.cache.ts';
 import { registerLibrary, seedRouteAsset } from '../../../tests/helpers/assets-route-fixtures.ts';
 import { newObjectIdHex } from '../../db/object-id.ts';
 import { solidJpeg } from '../../test-support/synth-image.ts';
+import { _setFfiPoolForTests } from '../../ffi/ffi-pool.ts';
+import { developRejection } from '../../ffi/unsupported-camera.ts';
 import {
   createLiveTestDatabase,
   type LiveTestDatabase,
@@ -281,6 +283,29 @@ describe('GET /thumb/:slug/*', () => {
         error: 'This photo cannot be decoded',
         code: 'source-undecodable',
       });
+    });
+
+    test('answers 422 camera-unsupported for a RAW the decoder has no body for (#5499)', async () => {
+      await writeFile(path.join(tmpDir, 'frame.3fr'), Buffer.alloc(1024));
+      const previous = _setFfiPoolForTests({
+        available: () => true,
+        poolSize: () => 1,
+        renderThumbnailAvifToFile: () => Promise.reject(new Error('render-failed')),
+        renderDevelopJpegToFile: (rawPath: string) =>
+          Promise.reject(
+            developRejection('unsupported camera: Hasselblad Hasselblad H2D', rawPath),
+          ),
+      } as never);
+      try {
+        const res = await app.handle(new Request('http://localhost/thumb/thumblib/frame.3fr'));
+        expect(res.status).toBe(422);
+        expect(await res.json()).toEqual({
+          error: 'This camera is not supported yet',
+          code: 'camera-unsupported',
+        });
+      } finally {
+        _setFfiPoolForTests(previous);
+      }
     });
 
     test('still answers 404 when an indexed original is gone from disk', async () => {
