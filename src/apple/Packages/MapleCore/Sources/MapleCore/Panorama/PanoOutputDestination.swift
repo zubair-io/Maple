@@ -31,12 +31,9 @@ enum PanoOutputDestination {
         let candidates = (1...999).lazy.map { attempt in
             directory.appendingPathComponent(attempt == 1 ? "\(stem).png" : "\(stem)-\(attempt).png")
         }
-        let free = claimed.withLock { claimed -> URL? in
-            guard let url = candidates.first(where: { isFree($0, claimed: claimed) }) else { return nil }
-            claimed.insert(url.path)
-            return url
+        guard let free = candidates.first(where: { isAbsentOnDisk($0) && claim($0) }) else {
+            throw ReserveError.noFreeName(directory)
         }
-        guard let free else { throw ReserveError.noFreeName(directory) }
         return free
     }
 
@@ -44,10 +41,15 @@ enum PanoOutputDestination {
         _ = claimed.withLock { $0.remove(url.path) }
     }
 
-    private static func isFree(_ url: URL, claimed: Set<String>) -> Bool {
+    // Disk checks stay outside the lock: on a network folder each one can
+    // block, and the lock also guards `release` and every other stitch.
+    private static func isAbsentOnDisk(_ url: URL) -> Bool {
         let partial = url.deletingLastPathComponent().appendingPathComponent(url.lastPathComponent + ".partial")
-        return !claimed.contains(url.path)
-            && !FileManager.default.fileExists(atPath: url.path)
+        return !FileManager.default.fileExists(atPath: url.path)
             && !FileManager.default.fileExists(atPath: partial.path)
+    }
+
+    private static func claim(_ url: URL) -> Bool {
+        claimed.withLock { $0.insert(url.path).inserted }
     }
 }
