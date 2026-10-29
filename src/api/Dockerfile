@@ -104,6 +104,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends python3 \
     && rm -rf /var/lib/apt/lists/* \
     && bash scripts/sync-raw-wasm.sh
 
+# angular.json copies the film-look LUTs from `../../resources/film-luts`
+# (repo root, two levels above src/web) into the bundle's /film-luts, where the
+# browser fetches them (#5497). The same WORKDIR-relative `../..` puts them
+# where that input resolves: both Docker and Node clamp `..` at `/`, so from
+# WORKDIR /build each side lands on /resources/film-luts.
+COPY resources/film-luts/ ../../resources/film-luts/
+
 # Invoke ng directly to skip the `prebuild:maple` npm-lifecycle hook, which
 # tries to rebuild raw-wasm — already produced by the wasm-builder stage and
 # copied in above. The path it expects (../raw-pipeline/raw-wasm/build.sh)

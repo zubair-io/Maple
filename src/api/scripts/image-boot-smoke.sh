@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # Boot a built Maple Self Hosted image with its library volume mounted at the
 # image's own /app/data, wait for GET /api/health to report a connected
-# database, and check the bundled UI is served (#5495). The image never runs in
-# any other CI job, so a server source file the Dockerfile forgets to COPY only
-# shows up here. Native decode helpers start lazily and are not exercised.
+# database, and check the bundled UI and its film LUTs are served (#5495,
+# #5497). The image never runs in any other CI job, so a server source file the
+# Dockerfile forgets to COPY only shows up here. Native decode helpers start
+# lazily and are not exercised.
 #
 # Usage: src/api/scripts/image-boot-smoke.sh [image] [timeout-seconds] [host-port]
 #   image            defaults to maple:ci
@@ -20,19 +21,26 @@ container="maple-boot-smoke-$$"
 data_dir="$(mktemp -d)"
 base_url="http://127.0.0.1:${host_port}"
 health_url="${base_url}/api/health"
+film_lut_id="color_negative_kodak_portra_400"
+film_lut_source="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)/resources/film-luts/${film_lut_id}.mlut"
 
 command -v jq >/dev/null || {
 	echo "image-boot-smoke: jq is required" >&2
+	exit 2
+}
+[[ -s "$film_lut_source" ]] || {
+	echo "image-boot-smoke: $film_lut_source is missing" >&2
 	exit 2
 }
 
 # Lets the runner user delete the root-owned database files the container
 # leaves behind.
 chmod 0777 "$data_dir"
+served_lut="$(mktemp)"
 
 cleanup() {
 	docker rm -f "$container" >/dev/null 2>&1 || true
-	rm -rf "$data_dir" 2>/dev/null || true
+	rm -rf "$data_dir" "$served_lut" 2>/dev/null || true
 }
 trap cleanup EXIT
 
@@ -89,4 +97,12 @@ body="$(health_body)" || status=$?
 [[ -f "${data_dir}/maple.sqlite" ]] || fail "no database file was created at MAPLE_SQLITE_PATH"
 index_html="$(curl -fs --max-time 10 "${base_url}/")" || index_html=""
 [[ "$index_html" == *"<html"* ]] || fail "GET / did not serve the bundled UI's index.html"
-echo "still healthy ${settle_seconds}s later; database created; UI served"
+
+# A LUT missing from the UI bundle is not a 404: the SPA fallback answers it
+# with index.html, so compare the served bytes with the repository's copy.
+lut_url="${base_url}/film-luts/${film_lut_id}.mlut"
+lut_content_type="$(curl -fs --max-time 10 -o "$served_lut" -w '%{content_type}' "$lut_url")" ||
+	fail "GET $lut_url failed"
+[[ "$lut_content_type" != *html* ]] || fail "GET $lut_url served HTML, not the LUT: the UI bundle has no film-luts"
+cmp -s "$served_lut" "$film_lut_source" || fail "GET $lut_url did not serve the bytes of $film_lut_source"
+echo "still healthy ${settle_seconds}s later; database created; UI and film LUTs served"
