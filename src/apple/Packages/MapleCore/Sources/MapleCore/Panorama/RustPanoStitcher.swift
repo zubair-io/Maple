@@ -81,9 +81,15 @@ public final class RustPanoStitcher: PanoStitching {
     ///
     /// Pass a custom `PanoProvisioning` in tests to inject controlled paths
     /// without touching process environment or UserDefaults.
-    public init(provisioning: PanoProvisioning = PanoProvisioning()) {
+    public init(provisioning: PanoProvisioning = PanoProvisioning(), outputDirectory: URL? = nil) {
         self.provisioning = provisioning
+        self.outputDirectory = outputDirectory
     }
+
+    /// Where every panorama goes instead of beside its first frame — the
+    /// download cache for a stitch of downloaded frames (#5489), so a local
+    /// frame's folder never gets one.
+    private let outputDirectory: URL?
 
     // MARK: - PanoStitching
 
@@ -99,7 +105,7 @@ public final class RustPanoStitcher: PanoStitching {
         progress: @escaping @MainActor (PanoStage, Double) -> Void
     ) async throws -> PanoResult {
         let inputURLs = try collectInputURLs(from: assets)
-        let outputURL = makeOutputURL(near: inputURLs[0])
+        let outputURL = self.outputURL(near: inputURLs[0])
         let (outcome, matcher) = try await runWithFallback { engine in
             try await self.runOffMain(progress: progress) { atom, flag in
                 try PanoFFICall.stitch(
@@ -253,10 +259,16 @@ public final class RustPanoStitcher: PanoStitching {
 
     // MARK: - Output URL
 
-    /// Writes the panorama PNG into a `Panoramas/` subdirectory next to the
-    /// first input file's parent. Falls back to Application Support if the
+    /// Writes the panorama PNG into `outputDirectory` when one was given,
+    /// otherwise into a `Panoramas/` subdirectory next to the first input
+    /// file's parent. Falls back to Application Support if the
     /// directory isn't writable. NEVER touches or overwrites source RAWs.
-    private func makeOutputURL(near firstInput: URL) -> URL {
+    func outputURL(near firstInput: URL) -> URL {
+        let name = "panorama-\(Int(Date().timeIntervalSince1970)).png"
+        if let outputDirectory {
+            try? FileManager.default.createDirectory(at: outputDirectory, withIntermediateDirectories: true)
+            return outputDirectory.appendingPathComponent(name)
+        }
         let parentDir = firstInput.deletingLastPathComponent()
         let panoDir = parentDir.appendingPathComponent("Panoramas", isDirectory: true)
         try? FileManager.default.createDirectory(at: panoDir, withIntermediateDirectories: true)
@@ -273,8 +285,6 @@ public final class RustPanoStitcher: PanoStitching {
             try? FileManager.default.createDirectory(at: appSupport, withIntermediateDirectories: true)
             targetDir = appSupport
         }
-
-        let name = "panorama-\(Int(Date().timeIntervalSince1970)).png"
         return targetDir.appendingPathComponent(name)
     }
 

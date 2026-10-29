@@ -3,8 +3,8 @@
 //
 // The merge sheet keeps handing over the cloud frames it shows; this swaps
 // each for its cached copy and runs the on-device stitcher. The panorama is
-// written beside those copies, inside the cache, so `addToLibrary` moves it
-// somewhere lasting before `finished` lets the cache go.
+// written inside the cache (never beside a local frame), so `addToLibrary`
+// moves it somewhere lasting before `finished` lets the cache go.
 
 import Foundation
 import MapleCloudKit
@@ -33,7 +33,11 @@ public final class DownloadedFramesStitcher: PanoStitching {
   private let localFrames: [UUID: AssetRef]
   private let addToLibrary: @Sendable (PanoResult) async throws -> PanoResult
   private let finished: @MainActor @Sendable () -> Void
-  private let cancelled = OSAllocatedUnfairLock(initialState: false)
+  /// The current run, whether it was stopped, and its upload. A run that is
+  /// stopped or superseded has its upload cancelled and never calls
+  /// `finished`, which would remove the cache a newer run is reading.
+  private let run = OSAllocatedUnfairLock(
+    initialState: (id: UInt64(0), cancelled: false, upload: Task<PanoResult, any Error>?.none))
 
   /// `cloudFrames` and `localFrames` are the same selection, in order.
   public init(
@@ -67,21 +71,64 @@ public final class DownloadedFramesStitcher: PanoStitching {
     maxCanvasPixels: Int?,
     progress: @escaping @MainActor (PanoStage, Double) -> Void
   ) async throws -> PanoResult {
-    cancelled.withLock { $0 = false }
+    let (id, superseded) = run.withLock { state in
+      let superseded = state.upload
+      state = (state.id &+ 1, false, nil)
+      return (state.id, superseded)
+    }
+    superseded?.cancel()
     let stitched = try await device.stitch(
       assets: local(assets), options: options, alignment: alignment,
       maxCanvasPixels: maxCanvasPixels, progress: progress)
     await progress(.writing, 1)
-    if cancelled.withLock({ $0 }) { throw CancellationError() }
+    do {
+      return try await upload(stitched, run: id)
+    } catch {
+      if run.withLock({ $0.id != id || $0.cancelled }) {
+        try? FileManager.default.removeItem(at: stitched.outputURL)
+      }
+      throw error
+    }
+  }
+
+  private func upload(_ stitched: PanoResult, run id: UInt64) async throws -> PanoResult {
     try Task.checkCancellation()
-    let added = try await addToLibrary(stitched)
-    await finished()
+    let addToLibrary = self.addToLibrary
+    let upload = Task { try await addToLibrary(stitched) }
+    guard run.withLock({ state in
+      guard state.id == id, !state.cancelled else { return false }
+      state.upload = upload
+      return true
+    })
+    else {
+      upload.cancel()
+      throw CancellationError()
+    }
+    let added = try await withTaskCancellationHandler {
+      try await upload.value
+    } onCancel: {
+      upload.cancel()
+    }
+    // Stop runs on the main actor, so checking there keeps a Stop from
+    // landing between the check and the cleanup.
+    try await MainActor.run {
+      try ensureCurrent(id)
+      finished()
+    }
     return added
   }
 
   public func cancel() {
-    cancelled.withLock { $0 = true }
+    let upload = run.withLock { state in
+      state.cancelled = true
+      return state.upload
+    }
+    upload?.cancel()
     device.cancel()
+  }
+
+  private func ensureCurrent(_ id: UInt64) throws {
+    if run.withLock({ $0.id != id || $0.cancelled }) { throw CancellationError() }
   }
 
   private func local(_ assets: [AssetRef]) throws -> [AssetRef] {

@@ -75,7 +75,7 @@ extension AppShell {
     let http = makeAuthenticatedHTTPClient(server: first.serverID)
     let remote = RemoteCatalog(http: http, server: effective)
     let folders = CloudFoldersClient(server: effective, httpClient: http)
-    let device = panoDeviceStitcher
+    let device = RustPanoStitcher(outputDirectory: download.outputDirectory)
     return PanoDownloadRoute(download: download) { cloudFrames, localFrames in
       DownloadedFramesStitcher(
         device: device, cloudFrames: cloudFrames, localFrames: localFrames,
