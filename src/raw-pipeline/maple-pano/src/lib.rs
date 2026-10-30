@@ -192,3 +192,8 @@ pub mod seam;
 // and the rotation strategy's per-view exposure field. Appended after
 // seam — keep lib.rs append-only.
 pub(crate) mod screened_cg;
+
+// --- Disk-backed decoded source frames (#5553, epic #5450): each frame is
+// developed once in row bands into a per-stitch scratch file and read back
+// by row window. Appended after screened_cg — keep lib.rs append-only.
+pub mod frame_store;
