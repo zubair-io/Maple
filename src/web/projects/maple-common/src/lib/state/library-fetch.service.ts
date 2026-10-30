@@ -23,7 +23,12 @@ import {
   type FolderListing,
   type ImageEntry,
 } from '../addressing/library-source';
-import { parseAddress, formatAddress, type MapleAddress } from '../addressing/maple-address';
+import {
+  parseAddress,
+  formatAddress,
+  siblingAddress,
+  type MapleAddress,
+} from '../addressing/maple-address';
 import { MapleCacheService } from '../maple-cache/maple-cache.service';
 import { AuthService } from '../auth/auth.service';
 import { XmpParserService } from '../xmp/xmp-parser.service';
@@ -85,8 +90,11 @@ const ASSET_RENDER_KEYS: readonly (keyof Asset)[] = [
   'capturedAt',
 ];
 
+const sameLivePhoto = (a: Asset['livePhoto'], b: Asset['livePhoto']): boolean =>
+  a?.role === b?.role && a?.partnerId === b?.partnerId;
+
 const assetsEqualForRender = (a: Asset, b: Asset): boolean =>
-  shallowEqualByKeys(a, b, ASSET_RENDER_KEYS);
+  shallowEqualByKeys(a, b, ASSET_RENDER_KEYS) && sameLivePhoto(a.livePhoto, b.livePhoto);
 
 /** Preserve the indexed fields already present in the Self-Hosted folder response. */
 export function selfHostedAssetFromImage(img: ImageEntry, sourceId: string): Asset {
@@ -103,6 +111,14 @@ export function selfHostedAssetFromImage(img: ImageEntry, sourceId: string): Ass
     ...(img.width != null ? { width: img.width } : {}),
     ...(img.height != null ? { height: img.height } : {}),
     ...(img.isVideo ? { isVideo: true as const } : {}),
+    ...(img.livePhoto
+      ? {
+          livePhoto: {
+            role: img.livePhoto.role,
+            partnerId: siblingAddress(img.address, img.livePhoto.partner),
+          },
+        }
+      : {}),
     ...selfHostedCameraFields(img.exif),
     ...selfHostedExposureFields(img.exif),
     ...(img.exif?.gps ? { gps: { lat: img.exif.gps.lat, lon: img.exif.gps.lng } } : {}),

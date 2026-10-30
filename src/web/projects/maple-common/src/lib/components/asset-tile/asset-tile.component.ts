@@ -1,8 +1,9 @@
 // Grid-cell asset tile — the browse grid's per-photo cell. Composed from
 // `<mui-media-cell layout="overlay">` (image, selection ring, corner-badge
 // slots, readonly rating/flags row) plus this component's own overlay
-// content: the HIDDEN badge, no-preview badge, select-mode checkbox,
-// edited-XMP checkmark, and the hover-reveal inline-rename field.
+// content: the HIDDEN badge, no-preview badge, Live Photo badge and clip Play
+// button, select-mode checkbox, edited-XMP checkmark, and the hover-reveal
+// inline-rename field.
 //
 // Split out of `<maple-asset-thumb>` (MW6, ticket #3047) once the grid
 // variant moved onto Maple UI composition — `asset-thumb` now renders only
@@ -19,7 +20,16 @@
 // contract, same recycle/destroy cleanup rationale, extracted to a shared
 // function rather than duplicated between the two components verbatim.
 
-import { ChangeDetectionStrategy, Component, computed, inject, input, output } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  computed,
+  inject,
+  input,
+  output,
+  signal,
+} from '@angular/core';
+import { parseAddress, toApiPath } from '../../addressing/maple-address';
 import { MapleIconComponent } from '../../icons/maple-icon.component';
 import { Asset } from '../../models/asset';
 import { LibraryStateService } from '../../state/library-state.service';
@@ -27,6 +37,10 @@ import { createAssetThumbnailUrlSignal } from '../../state/asset-thumbnail-url-s
 import { noPreviewBadgeLabel as computeNoPreviewBadgeLabel } from '../../state/no-preview-extensions';
 import { ASSET_RENAME_CAPABILITY } from '../../rename/asset-rename-capability';
 import { InlineRenameFieldComponent } from '../inline-rename-field/inline-rename-field.component';
+import {
+  mediaRouteUrl,
+  PREVIEW_VIDEO_ACCESS,
+} from '../../shells/preview-shell/preview-video-access';
 import { MuiMediaCellComponent } from '../../ui/media-cell/mui-media-cell.component';
 import type { MuiRatingFlagState } from '../../ui/rating-flags/mui-rating-flags.component';
 
@@ -65,6 +79,30 @@ export class AssetTileComponent {
   /** Why rename is unavailable for this asset, or '' when it's allowed —
    * surfaced as the filename bar's `title` tooltip. */
   readonly renameDisabledReason = computed(() => this.renameSvc.disabledReason(this.asset()) ?? '');
+
+  private readonly videoAccess = inject(PREVIEW_VIDEO_ACCESS);
+
+  readonly livePhoto = computed(() => this.asset().livePhoto);
+
+  /** Tokenized clip URL while this tile plays its Live Photo clip inline; minted on Play so the token is current. */
+  readonly clipSrc = signal<string | undefined>(undefined);
+
+  onPlayClip(event: Event): void {
+    event.stopPropagation();
+    this.clipSrc.set(this.clipSrc() ? undefined : this.mintClipUrl());
+  }
+
+  stopClip(event?: Event): void {
+    event?.stopPropagation();
+    this.clipSrc.set(undefined);
+  }
+
+  private mintClipUrl(): string | undefined {
+    const address = parseAddress(this.asset().id);
+    return address.slug && address.relPath
+      ? mediaRouteUrl(this.videoAccess, 'video', toApiPath(address))
+      : undefined;
+  }
 
   onFilenameDblClick(event: MouseEvent): void {
     event.stopPropagation();
