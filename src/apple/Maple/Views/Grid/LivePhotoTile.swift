@@ -1,4 +1,5 @@
 import MapleCore
+import MapleUI
 import SwiftUI
 
 /// The text pills stacked in a tile's top-leading corner: HIDDEN and the Live Photo badge.
@@ -51,8 +52,7 @@ struct LivePhotoClipOverlay: View {
         Button {
           isPlaying.toggle()
         } label: {
-          Image(systemName: isPlaying ? "stop.fill" : "play.fill")
-            .font(.system(size: 14, weight: .bold))
+          MuiIcon(name: isPlaying ? "stop" : "play_arrow", size: .sm, filled: true)
             .foregroundStyle(.white)
             .frame(width: 32, height: 32)
             .background(Color.black.opacity(0.55), in: Circle())
