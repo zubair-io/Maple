@@ -64,7 +64,12 @@ impl FrameStore {
         available_bytes: impl Fn(&Path) -> std::io::Result<u64>,
     ) -> Result<Self, PanoError> {
         io::sweep_orphans(parent, DIR_PREFIX);
-        let needed_bytes = required_bytes(frame_dims);
+        let needed_bytes = required_bytes(frame_dims).ok_or_else(|| {
+            PanoError::InvalidOptions(format!(
+                "frame store: {} planned frames need more than u64::MAX bytes",
+                frame_dims.len()
+            ))
+        })?;
         let available = available_bytes(parent).map_err(|e| PanoError::io(parent, e))?;
         if available < needed_bytes {
             return Err(PanoError::InsufficientScratchSpace {
@@ -303,11 +308,12 @@ impl Drop for FrameStore {
     }
 }
 
-fn required_bytes(frame_dims: &[(u32, u32)]) -> u64 {
-    let pixels = |&(w, h): &(u32, u32)| w as u64 * h as u64;
-    let frames: u64 = frame_dims.iter().map(pixels).sum();
+fn required_bytes(frame_dims: &[(u32, u32)]) -> Option<u64> {
+    let pixels = |&(w, h): &(u32, u32)| w as u128 * h as u128;
+    let frames: u128 = frame_dims.iter().map(pixels).sum();
     let largest = frame_dims.iter().map(pixels).max().unwrap_or(0);
-    (frames + largest * SCRATCH_RESERVE_EIGHTHS / 8) * BYTES_PER_PIXEL
+    let reserve = largest * SCRATCH_RESERVE_EIGHTHS as u128 / 8;
+    u64::try_from((frames + reserve) * BYTES_PER_PIXEL as u128).ok()
 }
 
 fn create_file(path: &Path) -> Result<File, PanoError> {

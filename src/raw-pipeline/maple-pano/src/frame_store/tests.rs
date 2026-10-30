@@ -135,7 +135,7 @@ fn planar_windows_outside_the_frame_are_typed_errors() {
 fn low_disk_fails_the_preflight_with_a_typed_error() {
     let parent = tempfile::tempdir().unwrap();
     let dims = [(1000, 500), (1000, 500)];
-    let needed = required_bytes(&dims);
+    let needed = required_bytes(&dims).unwrap();
     assert_eq!(needed, (1_000_000 + 500_000 * 9 / 8) * 12);
     let err = FrameStore::create_with(parent.path(), &dims, |_| Ok(needed - 1))
         .err()
@@ -159,6 +159,22 @@ fn low_disk_fails_the_preflight_with_a_typed_error() {
     let store =
         FrameStore::create_with(parent.path(), &dims, |_| Ok(needed)).expect("exactly enough");
     assert_eq!(store.needed_bytes, needed);
+}
+
+#[test]
+fn unrepresentable_frame_sizes_are_typed_errors() {
+    let parent = tempfile::tempdir().unwrap();
+    let max = (u32::MAX, u32::MAX);
+    for dims in [vec![max], vec![max, max], vec![(1, 1), max]] {
+        assert!(
+            matches!(
+                FrameStore::create_with(parent.path(), &dims, |_| Ok(u64::MAX)),
+                Err(PanoError::InvalidOptions(_))
+            ),
+            "{dims:?} must be rejected, not overflow"
+        );
+    }
+    assert_eq!(std::fs::read_dir(parent.path()).unwrap().count(), 0);
 }
 
 #[test]
