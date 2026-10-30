@@ -444,6 +444,7 @@ public final class BrowseViewModel {
             absPath: img.path,
             address: nil
           ),
+          livePhoto: img.livePhoto,
           originalFileWriter: { destination in
             try await capturedSource.writeOriginal(for: capturedRef, to: destination)
           },

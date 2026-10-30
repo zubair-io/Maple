@@ -11,6 +11,7 @@
 //     on demand for PhotoKit / Self-Hosted assets.
 
 import Foundation
+import MapleCloudKit
 
 // MARK: - CatalogRef
 
@@ -171,6 +172,9 @@ public struct AssetRef: Identifiable, Sendable, Equatable, Hashable {
   /// PhotoKit assets. Powers the info pane's rich-detail fetch, the "Path"
   /// row, and the reveal-containing-folder action. See `CatalogRef`.
   public let catalog: CatalogRef?
+
+  /// The Live Photo half this Self Hosted listing entry is, with its partner's filename (#5448).
+  public let livePhoto: LivePhotoLink?
 
   /// The listed share-relative SMB location. Content ids are shared by
   /// byte-identical copies, so SMB mutations must name the file (#4705).
@@ -368,6 +372,7 @@ public struct AssetRef: Identifiable, Sendable, Equatable, Hashable {
     self.explicitIsRaw = nil
     self.thumbnailProvenance = nil
     self.catalog = nil
+    self.livePhoto = nil
     self.smbPath = nil
     self.smbSourceID = nil
   }
@@ -398,6 +403,7 @@ public struct AssetRef: Identifiable, Sendable, Equatable, Hashable {
     thumbnailProvenance: ThumbnailProvenance? = nil,
     displayPreviewProvider: DisplayPreviewProvider? = nil,
     catalog: CatalogRef? = nil,
+    livePhoto: LivePhotoLink? = nil,
     smbPath: String? = nil,
     smbSourceID: UUID? = nil,
     originalFileWriter: OriginalFileWriter? = nil,
@@ -416,6 +422,7 @@ public struct AssetRef: Identifiable, Sendable, Equatable, Hashable {
     self.explicitIsRaw = explicitIsRaw
     self.thumbnailProvenance = thumbnailProvenance
     self.catalog = catalog
+    self.livePhoto = livePhoto
     self.smbPath = smbPath
     self.smbSourceID = smbSourceID
   }

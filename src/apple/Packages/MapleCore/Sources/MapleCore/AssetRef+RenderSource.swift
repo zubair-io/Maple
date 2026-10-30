@@ -19,6 +19,7 @@ extension AssetRef {
     explicitIsRaw = asset.explicitIsRaw
     thumbnailProvenance = asset.thumbnailProvenance
     catalog = asset.catalog
+    livePhoto = asset.livePhoto
     smbPath = asset.smbPath
     smbSourceID = asset.smbSourceID
     selectedSidecarURL = asset.selectedSidecarURL

@@ -255,7 +255,9 @@ struct PreviewView: View {
           }
           .buttonStyle(.plain)
           .foregroundStyle(ProTokens.text)
-          .accessibilityLabel(playsMotionClip ? "Show still photo" : "Play Motion Photo")
+          .accessibilityLabel(
+            playsMotionClip ? "Show still photo" : PreviewMotionClip.playLabel(for: asset)
+          )
           .accessibilityIdentifier("preview-motion")
         }
 
