@@ -13,7 +13,7 @@ import { describe, it, expect, afterEach } from 'bun:test';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { createLiveTestDatabase } from '../db/sqlite/test-sqlite.test-helpers.ts';
+import { createLiveTestDatabase, insertLocation } from '../db/sqlite/test-sqlite.test-helpers.ts';
 import {
   SLUG,
   clearLibraryCache,
@@ -371,5 +371,93 @@ describe('library-relocate end-to-end — Live Photo clip (#5543)', () => {
     ]);
     expect(locationOf(live.db, next.assetId)?.path).toBe(BERKELEY_REL);
     expect(locationOf(live.db, nextClip.assetId)?.path).toBe(BERKELEY_REL);
+  });
+
+  it('moves the copy of a multi-location clip that sits beside the still, even when it is not the first', async () => {
+    using live = await createLiveTestDatabase();
+    const root = await stageFolder('relocate-live-multi-', {
+      'IMG_10.HEIC': 'still-pixels',
+      'IMG_10.MOV': 'clip-frames',
+    });
+    const still = seedRelocatableAsset(live.db, {
+      root,
+      relPath: OLD_REL,
+      filename: 'IMG_10.HEIC',
+      mapleId: 'live-multi-still',
+      metadataOverride: usPlaceText(),
+      liveContentId: 'LIVE-PAIR-10',
+    });
+    const clip = seedRelocatableAsset(live.db, {
+      root,
+      relPath: '2024/Elsewhere',
+      filename: 'IMG_10.MOV',
+      mapleId: 'live-multi-clip',
+      libraryId: still.libraryId,
+      liveContentId: 'LIVE-PAIR-10',
+    });
+    insertLocation(live.db, {
+      assetId: clip.assetId,
+      libraryId: still.libraryId,
+      ordinal: 1,
+      path: OLD_REL,
+      filename: 'IMG_10.MOV',
+    });
+
+    const results = await resultsOf(await postRelocate([`${SLUG}:${OLD_REL}/IMG_10.HEIC`]));
+
+    expect(results).toHaveLength(1);
+    expect(results[0]).toMatchObject({ ok: true, outcome: 'moved' });
+    expect(await fs.readFile(path.join(root, BERKELEY_REL, 'IMG_10.MOV'), 'utf8')).toBe(
+      'clip-frames',
+    );
+    expect(await exists(path.join(root, OLD_REL, 'IMG_10.MOV'))).toBe(false);
+    const paths = (
+      live.db
+        .query(`SELECT path FROM asset_locations WHERE asset_id = ? ORDER BY ordinal`)
+        .all(clip.assetId) as { path: string }[]
+    ).map((row) => row.path);
+    expect(paths).toEqual(['2024/Elsewhere', BERKELEY_REL]);
+  });
+
+  it('pairs a restored half that still carries a missing tag', async () => {
+    using live = await createLiveTestDatabase();
+    const root = await stageFolder('relocate-live-missing-', {
+      'IMG_11.HEIC': 'still-pixels',
+      'IMG_11.MOV': 'clip-frames',
+    });
+    const missingSince = new Date().toISOString();
+    const still = seedRelocatableAsset(live.db, {
+      root,
+      relPath: OLD_REL,
+      filename: 'IMG_11.HEIC',
+      mapleId: 'live-missing-still',
+      metadataOverride: usPlaceText(),
+      liveContentId: 'LIVE-PAIR-11',
+      missingSince,
+    });
+    const clip = seedRelocatableAsset(live.db, {
+      root,
+      relPath: OLD_REL,
+      filename: 'IMG_11.MOV',
+      mapleId: 'live-missing-clip',
+      libraryId: still.libraryId,
+      metadataOverride: {
+        ...usPlaceText(),
+        place_text: { city: 'Paris', country: 'France', country_code: 'fr' },
+      },
+      liveContentId: 'LIVE-PAIR-11',
+      missingSince,
+    });
+    const both = [`${SLUG}:${OLD_REL}/IMG_11.HEIC`, `${SLUG}:${OLD_REL}/IMG_11.MOV`];
+
+    expect(await countOf(both)).toBe(1);
+
+    const results = await resultsOf(await postRelocate(both));
+    expect(results).toHaveLength(1);
+    expect(locationOf(live.db, still.assetId)?.path).toBe(BERKELEY_REL);
+    expect(locationOf(live.db, clip.assetId)).toMatchObject({
+      path: BERKELEY_REL,
+      missing_since: null,
+    });
   });
 });

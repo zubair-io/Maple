@@ -267,6 +267,33 @@ export async function listDirectoryAssets(
   }));
 }
 
+/** One file in a directory that may be one half of a Live Photo. */
+export interface LivePhotoDirectoryCandidate {
+  id: string;
+  filename: string;
+  live_content_id: string | null;
+}
+
+/**
+ * The files in one directory a Live Photo pairing considers, for the relocate
+ * flow. Unlike {@link listDirectoryAssets} this keeps a location tagged
+ * `missing_since`: relocation accepts a restored file that still carries the
+ * tag, so pairing has to see it too.
+ */
+export async function listDirectoryLivePhotoCandidates(
+  libraryId: ObjectId,
+  relPath: string,
+  dbOverride?: SqliteDb,
+): Promise<LivePhotoDirectoryCandidate[]> {
+  return sqliteDb(dbOverride).read<LivePhotoDirectoryCandidate>(
+    `SELECT a.id AS id, l.filename AS filename, a.live_content_id AS live_content_id
+       FROM asset_locations l
+       JOIN assets a ON a.id = l.asset_id
+      WHERE l.library_id = ? AND l.path = ? AND l.deleted_at IS NULL AND a.deleted_at IS NULL`,
+    [libraryId.toHexString(), relPath],
+  );
+}
+
 /** Soft-deleted rows reserve their old names until relocation/discover has
  * caught up. A remaining file must not return as a new, unindexed asset. */
 export async function listTrashedDirectoryFilenames(
