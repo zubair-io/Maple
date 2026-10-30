@@ -23,6 +23,10 @@
  * full-name convention videos use (`clip.mov` → `clip.mov.xmp`). Videos are
  * relocation candidates the same as any other asset (#1678).
  *
+ * A still's Live Photo clip (paired by Apple content identifier, #5448) follows
+ * it into the same folder with its sidecar; a paired clip is never a relocation
+ * candidate on its own and is left out of the count (#5543).
+ *
  * Does NOT stamp `backup_layout_version` — that marker belongs to the bulk
  * geo-migration sweep, not targeted on-demand relocates.
  *
@@ -55,6 +59,12 @@ function assetActiveFileInfo(asset: Pick<AssetDoc, 'fileinfo'>): FileInfo | null
 import { backupLocationSegments } from '../backup/location-segments.ts';
 import { sanitizeLocationSegments, SCREENSHOT_DIR_SEGMENT } from '../backup/path-formatter.ts';
 import { relocateGeoAsset } from '../library/relocate-geo.ts';
+import {
+  clipAddressBesideStill,
+  planLiveClips,
+  relocateLiveClip,
+  type LiveClipPlan,
+} from '../library/relocate-live-clip.ts';
 import { child as childLogger } from '../log.ts';
 import type { AssetDoc, AssetWithId } from '../db/schema.ts';
 import type { ObjectId } from '../db/object-id.ts';
@@ -270,6 +280,20 @@ async function didRename(id: ObjectId, originalFilename: string): Promise<boolea
   return primary != null && primary.filename !== originalFilename;
 }
 
+/** The Live Photo pairing of a batch: which clips follow their still instead of relocating by themselves. */
+function planLiveClipsFor(
+  docs: readonly AssetWithId[],
+  libs: ReadonlyMap<string, string>,
+): Promise<LiveClipPlan> {
+  return planLiveClips(
+    docs.flatMap((doc) => {
+      const primary = assetActiveFileInfo(doc);
+      return primary ? [{ id: doc._id.toHexString(), primary }] : [];
+    }),
+    libs,
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Shared request schema
 // ---------------------------------------------------------------------------
@@ -322,7 +346,10 @@ export const libraryRelocateRoutes = new Elysia({ name: 'libraryRelocate' })
       // simply doesn't surface, rather than 500-ing the panel.
       try {
         const docs = await findGeoDocs(absPaths, libs);
-        const count = docs.filter(wouldRelocate).length;
+        const { followerClipIds } = await planLiveClipsFor(docs, libs);
+        const count = docs.filter(
+          (doc) => !followerClipIds.has(doc._id.toHexString()) && wouldRelocate(doc),
+        ).length;
         return { count };
       } catch (err: unknown) {
         log.warn(
@@ -387,7 +414,18 @@ export const libraryRelocateRoutes = new Elysia({ name: 'libraryRelocate' })
         libs = new Map();
       }
 
-      const docs = await findGeoDocs(absPaths, libs);
+      const allDocs = await findGeoDocs(absPaths, libs);
+      const livePlan = await planLiveClipsFor(allDocs, libs);
+      const docs = allDocs.filter((doc) => !livePlan.followerClipIds.has(doc._id.toHexString()));
+      const clipDocByAbsPath = new Map(
+        (await findGeoDocs([...livePlan.clipAbsPathByStillId.values()], libs)).flatMap((clip) => {
+          const clipPrimary = assetActiveFileInfo(clip);
+          const clipRoot = clipPrimary && libs.get(clipPrimary.library_id.toHexString());
+          return clipPrimary && clipRoot
+            ? [[nodePath.join(clipRoot, clipPrimary.path, clipPrimary.filename), clip] as const]
+            : [];
+        }),
+      );
 
       const results: Array<{
         address: string;
@@ -458,6 +496,24 @@ export const libraryRelocateRoutes = new Elysia({ name: 'libraryRelocate' })
               ? 'library-relocate: asset relocated'
               : 'library-relocate: no move needed',
           );
+          const clipDoc = clipDocByAbsPath.get(
+            livePlan.clipAbsPathByStillId.get(doc._id.toHexString()) ?? '',
+          );
+          const clipPrimary = clipDoc && assetActiveFileInfo(clipDoc);
+          if (outcome === 'moved' && clipDoc && clipPrimary) {
+            const clipResult = await relocateLiveClip(clipDoc, clipPrimary, libRoot, newDir);
+            if (!clipResult.ok) {
+              results.push({
+                address: clipAddressBesideStill(
+                  representativeAddress,
+                  primary!.filename,
+                  clipPrimary.filename,
+                ),
+                ok: false,
+                error: clipResult.error,
+              });
+            }
+          }
         } catch (err: unknown) {
           const msg = err instanceof Error ? err.message : String(err);
           log.warn({ _id: String(doc._id), err: msg }, 'library-relocate: move failed');
