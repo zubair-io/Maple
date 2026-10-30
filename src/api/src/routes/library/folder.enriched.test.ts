@@ -33,6 +33,7 @@ interface Entry {
   isStub?: boolean;
   isAudio?: boolean;
   isMotionPhoto?: boolean;
+  livePhoto?: { role: 'still' | 'clip'; partner: string };
 }
 interface Listing {
   address: string;
@@ -216,6 +217,24 @@ describe('unified enriched folder listing #4001', () => {
     expect(body.images.find((entry) => entry.name === 'plain.jpg')).not.toHaveProperty(
       'isMotionPhoto',
     );
+  });
+  test('links a still and clip whose content identifiers match and leaves the rest independent (#5448)', async () => {
+    const identify = (id: string, contentId: string) =>
+      run(live.db, 'UPDATE assets SET live_content_id = ? WHERE id = ?', contentId, id);
+    identify(seed('IMG_1.HEIC'), 'AAAAAAAA-1111-2222-3333-444444444444');
+    identify(seed('IMG_1.MOV'), 'AAAAAAAA-1111-2222-3333-444444444444');
+    identify(seed('IMG_2.JPG'), 'BBBBBBBB-1111-2222-3333-444444444444');
+    identify(seed('IMG_2.MOV'), 'CCCCCCCC-1111-2222-3333-444444444444');
+    seed('IMG_3.HEIC');
+    identify(seed('IMG_3.MOV'), 'DDDDDDDD-1111-2222-3333-444444444444');
+    const body = await listing();
+    const livePhoto = (name: string) => body.images.find((entry) => entry.name === name)?.livePhoto;
+    expect(livePhoto('IMG_1.HEIC')).toEqual({ role: 'still', partner: 'IMG_1.MOV' });
+    expect(livePhoto('IMG_1.MOV')).toEqual({ role: 'clip', partner: 'IMG_1.HEIC' });
+    expect(livePhoto('IMG_2.JPG')).toBeUndefined();
+    expect(livePhoto('IMG_2.MOV')).toBeUndefined();
+    expect(livePhoto('IMG_3.HEIC')).toBeUndefined();
+    expect(livePhoto('IMG_3.MOV')).toBeUndefined();
   });
   test('pairs canonical, conflict and full-name video XMP across pages', async () => {
     const photo = seed('photo.dng');

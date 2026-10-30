@@ -27,6 +27,7 @@ import { authorizeSidecarRead, readSidecarNoFollow } from '../fs/sidecar-io.ts';
 import { readFileWithFailover } from '../fs/mirror-read.ts';
 import { errnoCode } from '../fs/relocate-publish.ts';
 import { parseFolderCulling } from './folder-culling.ts';
+import { pairLivePhotos, type LivePhotoLink } from './live-photo-pairs.ts';
 
 const log = childLogger('library/folder-listing');
 const IMAGE_EXTENSIONS = new Set([...RAW_EXTENSIONS, ...BITMAP_EXTENSIONS, ...PSD_HDR_EXTENSIONS]);
@@ -88,6 +89,7 @@ interface ImageEntry extends Entry {
   isAudio?: true;
   isStub?: true;
   isMotionPhoto?: true;
+  livePhoto?: LivePhotoLink;
   edited?: boolean;
   rating?: number;
   flag?: 'pick' | 'reject';
@@ -158,10 +160,12 @@ async function scanEntry(
     realPath: real,
   };
 }
-function imageEntry(scanned: Scanned): ImageEntry {
+function imageEntry(scanned: Scanned, livePairs: ReadonlyMap<string, LivePhotoLink>): ImageEntry {
   const { entry, catalog } = scanned;
+  const livePhoto = catalog ? livePairs.get(entry.name) : undefined;
   return {
     ...entry,
+    ...(livePhoto ? { livePhoto } : {}),
     ...mediaFlags(entry.name),
     mapleId: catalog?.maple_id ?? null,
     indexed: catalog !== undefined,
@@ -222,11 +226,12 @@ async function directoryState(resolved: ResolvedAddress, relPath: string) {
   const hidden = new Set(trashed);
   const byName = new Map(rows.map((row) => [row.filename, row]));
   const byBase = sidecarCandidates(rows);
+  const livePairs = pairLivePhotos(rows.filter((row) => !hidden.has(row.filename)));
   const onDisk = new Set(names);
   const allNames = [...new Set([...names, ...rows.map((row) => row.filename)])]
     .filter((name) => visibleName(name) && !hidden.has(name))
     .sort();
-  return { allNames, byName, byBase, onDisk, resolveChild };
+  return { allNames, byName, byBase, livePairs, onDisk, resolveChild };
 }
 type FolderState = Awaited<ReturnType<typeof directoryState>>;
 interface FolderEntries {
@@ -282,7 +287,7 @@ async function appendEntry(
     return;
   }
   if (isMedia(child.entry.name) || child.catalog) {
-    entries.images.push({ ...imageEntry(child), ...culling });
+    entries.images.push({ ...imageEntry(child, state.livePairs), ...culling });
     return;
   }
   if (child.entry.ext !== 'xmp') {

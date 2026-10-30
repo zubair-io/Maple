@@ -67,6 +67,14 @@ export const STAGE_META: Record<string, StageMeta> = {
     description:
       'Finds the short video Android phones embed in Motion Photo JPEG and HEIC stills and records where it sits, so it can play in Full image. Reads metadata only; originals are never changed.',
   },
+  'live-photo': {
+    id: 'live-photo',
+    group: 'Ingest',
+    icon: 'image',
+    enrichment: null,
+    description:
+      "Reads the content identifier Apple writes into a Live Photo's still and its video clip, so the two show as a pair only when the identifiers match. Reads metadata only; originals are never changed.",
+  },
   describe: {
     id: 'describe',
     group: 'Enrich',

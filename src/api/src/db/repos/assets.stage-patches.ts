@@ -321,6 +321,17 @@ export function videoDescriptionStatements(
   ];
 }
 
+/**
+ * The `live-photo` stage's output: the Apple content identifier read from the
+ * file. `null` clears it, so a re-run over an edited original retires an
+ * identifier the file no longer carries.
+ */
+export function liveContentIdStatements(assetId: string, contentId: string | null): SqlStatement[] {
+  return [
+    { sql: 'UPDATE assets SET live_content_id = ? WHERE id = ?', params: [contentId, assetId] },
+  ];
+}
+
 /** What the `motion-photo` stage verified: the clip's byte range inside the original. */
 /**
  * The `motion-photo` stage's output. `null` clears all four columns, which is

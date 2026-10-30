@@ -375,7 +375,7 @@ Pause and config changes are written to the `worker_config` table; the worker ch
 | GET    | `/api/change-log-gc/status`                | bearer | Change-log retention: config, last sweep, estimated `asset_changes` rows |
 | PUT    | `/api/change-log-gc/config`                | bearer | Patch that config (`enabled`, `retention_days`)                          |
 
-Stage names accepted by the `:name` routes come from `workers/stages/manifest.ts` — `exif`, `thumb`, `preview`, `face-detect`, `face-embed`, `describe`, `geocode`, `search-blob`, `sidecar-metadata-index`, `cf-thumb-sync`, `transcribe`, `motion-photo` — plus the non-stage controllers `missing-reaper`, `migration`, `deduplicate`, and `discover`.
+Stage names accepted by the `:name` routes come from `workers/stages/manifest.ts` — `exif`, `thumb`, `preview`, `face-detect`, `face-embed`, `describe`, `geocode`, `search-blob`, `sidecar-metadata-index`, `cf-thumb-sync`, `transcribe`, `motion-photo`, `live-photo` — plus the non-stage controllers `missing-reaper`, `migration`, `deduplicate`, and `discover`.
 
 ## Settings
 

@@ -27,6 +27,7 @@ import cloudBackupStage, { startCloudBackupStage } from './cloud-backup.ts';
 import embedStage, { startEmbedStage } from './embed.ts';
 import personSegmentationStage, { startPersonSegmentationStage } from './person-segmentation.ts';
 import motionPhotoStage, { startMotionPhotoStage } from './motion-photo.ts';
+import livePhotoStage, { startLivePhotoStage } from './live-photo.ts';
 import type { RunStageHandle, StageConfig } from '../run-stage.ts';
 import { ALL_STAGE_NAMES, assertCompleteStageNames, type StageName } from './stage-names.ts';
 
@@ -57,6 +58,7 @@ export const stageRegistrations = {
     definition: motionPhotoStage,
     start: startMotionPhotoStage,
   },
+  'live-photo': { definition: livePhotoStage, start: startLivePhotoStage },
 } satisfies Record<StageName, { definition: StageConfig; start: () => Promise<RunStageHandle> }>;
 
 export const stageManifest = ALL_STAGE_NAMES.map((name) => stageRegistrations[name].definition);
