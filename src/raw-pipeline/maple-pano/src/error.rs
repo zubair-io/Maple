@@ -53,6 +53,19 @@ pub enum PanoError {
 
     #[error("cancelled by caller")]
     Cancelled,
+
+    /// The frame store's free-space preflight (or a write that hit a full
+    /// volume) found too little room under `path` (#5553). Callers can offer
+    /// the smaller-output option instead.
+    #[error(
+        "not enough free space for the pano frame store under {path}: \
+         needs {needed} bytes, {available} available"
+    )]
+    InsufficientScratchSpace {
+        path: PathBuf,
+        needed: u64,
+        available: u64,
+    },
 }
 
 impl PanoError {

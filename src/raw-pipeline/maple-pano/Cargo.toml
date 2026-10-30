@@ -188,7 +188,20 @@ name = "classical_gates"
 path = "tests/classical_gates.rs"
 required-features = ["classical-features", "testkit"]
 
+# Frame store (#5553): `statvfs` for the free-space preflight and
+# `kill(pid, 0)` for the orphan sweep. Already in the tree via raw-core's
+# `avif` feature.
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+# Frame store on Windows: `GetDiskFreeSpaceExW` for the preflight and
+# `OpenProcess`/`GetExitCodeProcess` for the orphan sweep. Same version
+# raw-core already uses.
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_Storage_FileSystem", "Win32_System_Threading"] }
+
 [dev-dependencies]
+tempfile = "3"
 # `SyntheticGreyDng` for the #3230 rejected-DNG ingest gate — a file rawler
 # panics on (caught at the raw-core boundary) must surface as a typed
 # `PanoError::RawDecode`, never unwind through `ingest_bytes`.
