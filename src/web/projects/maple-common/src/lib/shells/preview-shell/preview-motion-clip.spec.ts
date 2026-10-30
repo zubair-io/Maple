@@ -80,6 +80,17 @@ describe('PreviewMotionClip', () => {
     expect(motion.available()).toBe(true);
   });
 
+  it('keeps playing and does not re-probe when only the still’s metadata changes', async () => {
+    const { focused, probe, motion } = setup(true);
+    await settle();
+    motion.toggle();
+    focused.set(asset({ rating: 4 }));
+    await settle();
+    expect(motion.playing()).toBe(true);
+    expect(motion.available()).toBe(true);
+    expect(probe).toHaveBeenCalledTimes(1);
+  });
+
   it('plays a Live Photo still through its partner clip with no probe', async () => {
     const { probe, motion } = setup(
       false,

@@ -61,7 +61,9 @@ export class PreviewMotionClip {
     private readonly access: PreviewVideoAccess | null,
     probe: MotionClipProbe = headProbe,
   ) {
-    this.source = computed(() => clipSource(asset()));
+    this.source = computed(() => clipSource(asset()), {
+      equal: (a, b) => a?.route === b?.route && a?.apiPath === b?.apiPath,
+    });
     effect((onCleanup) => {
       const source = this.source();
       const url = this.urlFor(source);
