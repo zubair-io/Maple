@@ -294,6 +294,46 @@ function planLiveClipsFor(
   );
 }
 
+async function loadClipDocsByAbsPath(
+  plan: LiveClipPlan,
+  libs: ReadonlyMap<string, string>,
+): Promise<ReadonlyMap<string, AssetWithId>> {
+  const clipDocs = await findGeoDocs([...plan.clipAbsPathByStillId.values()], libs);
+  return new Map(
+    clipDocs.flatMap((clip) => {
+      const primary = assetActiveFileInfo(clip);
+      const root = primary && libs.get(primary.library_id.toHexString());
+      return primary && root
+        ? [[nodePath.join(root, primary.path, primary.filename), clip] as const]
+        : [];
+    }),
+  );
+}
+
+/** Moves the still's clip after the still has moved; a failed move comes back as the clip's own failed result entry. */
+async function moveClipBesideStill(input: {
+  clipDoc: AssetWithId | undefined;
+  stillAddress: string;
+  stillFilename: string;
+  libRoot: string;
+  newDir: string;
+}): Promise<{ address: string; ok: false; error: string } | null> {
+  const clipPrimary = input.clipDoc && assetActiveFileInfo(input.clipDoc);
+  if (!input.clipDoc || !clipPrimary) return null;
+  const moved = await relocateLiveClip(input.clipDoc, clipPrimary, input.libRoot, input.newDir);
+  return moved.ok
+    ? null
+    : {
+        address: clipAddressBesideStill(
+          input.stillAddress,
+          input.stillFilename,
+          clipPrimary.filename,
+        ),
+        ok: false,
+        error: moved.error,
+      };
+}
+
 // ---------------------------------------------------------------------------
 // Shared request schema
 // ---------------------------------------------------------------------------
@@ -417,15 +457,7 @@ export const libraryRelocateRoutes = new Elysia({ name: 'libraryRelocate' })
       const allDocs = await findGeoDocs(absPaths, libs);
       const livePlan = await planLiveClipsFor(allDocs, libs);
       const docs = allDocs.filter((doc) => !livePlan.followerClipIds.has(doc._id.toHexString()));
-      const clipDocByAbsPath = new Map(
-        (await findGeoDocs([...livePlan.clipAbsPathByStillId.values()], libs)).flatMap((clip) => {
-          const clipPrimary = assetActiveFileInfo(clip);
-          const clipRoot = clipPrimary && libs.get(clipPrimary.library_id.toHexString());
-          return clipPrimary && clipRoot
-            ? [[nodePath.join(clipRoot, clipPrimary.path, clipPrimary.filename), clip] as const]
-            : [];
-        }),
-      );
+      const clipDocByAbsPath = await loadClipDocsByAbsPath(livePlan, libs);
 
       const results: Array<{
         address: string;
@@ -496,24 +528,19 @@ export const libraryRelocateRoutes = new Elysia({ name: 'libraryRelocate' })
               ? 'library-relocate: asset relocated'
               : 'library-relocate: no move needed',
           );
-          const clipDoc = clipDocByAbsPath.get(
-            livePlan.clipAbsPathByStillId.get(doc._id.toHexString()) ?? '',
-          );
-          const clipPrimary = clipDoc && assetActiveFileInfo(clipDoc);
-          if (outcome === 'moved' && clipDoc && clipPrimary) {
-            const clipResult = await relocateLiveClip(clipDoc, clipPrimary, libRoot, newDir);
-            if (!clipResult.ok) {
-              results.push({
-                address: clipAddressBesideStill(
-                  representativeAddress,
-                  primary!.filename,
-                  clipPrimary.filename,
-                ),
-                ok: false,
-                error: clipResult.error,
-              });
-            }
-          }
+          const clipFailure =
+            outcome === 'moved'
+              ? await moveClipBesideStill({
+                  clipDoc: clipDocByAbsPath.get(
+                    livePlan.clipAbsPathByStillId.get(doc._id.toHexString()) ?? '',
+                  ),
+                  stillAddress: representativeAddress,
+                  stillFilename: primary!.filename,
+                  libRoot,
+                  newDir,
+                })
+              : null;
+          if (clipFailure) results.push(clipFailure);
         } catch (err: unknown) {
           const msg = err instanceof Error ? err.message : String(err);
           log.warn({ _id: String(doc._id), err: msg }, 'library-relocate: move failed');
