@@ -61,9 +61,11 @@ import { sanitizeLocationSegments, SCREENSHOT_DIR_SEGMENT } from '../backup/path
 import { relocateGeoAsset } from '../library/relocate-geo.ts';
 import {
   clipAddressBesideStill,
+  loadPlannedClips,
   planLiveClips,
   relocateLiveClip,
   type LiveClipPlan,
+  type LoadedClip,
 } from '../library/relocate-live-clip.ts';
 import { child as childLogger } from '../log.ts';
 import type { AssetDoc, AssetWithId } from '../db/schema.ts';
@@ -281,53 +283,32 @@ async function didRename(id: ObjectId, originalFilename: string): Promise<boolea
 }
 
 /** The Live Photo pairing of a batch: which clips follow their still instead of relocating by themselves. */
-function planLiveClipsFor(
-  docs: readonly AssetWithId[],
-  libs: ReadonlyMap<string, string>,
-): Promise<LiveClipPlan> {
+function planLiveClipsFor(docs: readonly AssetWithId[]): Promise<LiveClipPlan> {
   return planLiveClips(
     docs.flatMap((doc) => {
       const primary = assetActiveFileInfo(doc);
       return primary ? [{ id: doc._id.toHexString(), primary }] : [];
-    }),
-    libs,
-  );
-}
-
-async function loadClipDocsByAbsPath(
-  plan: LiveClipPlan,
-  libs: ReadonlyMap<string, string>,
-): Promise<ReadonlyMap<string, AssetWithId>> {
-  const clipDocs = await findGeoDocs([...plan.clipAbsPathByStillId.values()], libs);
-  return new Map(
-    clipDocs.flatMap((clip) => {
-      const primary = assetActiveFileInfo(clip);
-      const root = primary && libs.get(primary.library_id.toHexString());
-      return primary && root
-        ? [[nodePath.join(root, primary.path, primary.filename), clip] as const]
-        : [];
     }),
   );
 }
 
 /** Moves the still's clip after the still has moved; a failed move comes back as the clip's own failed result entry. */
 async function moveClipBesideStill(input: {
-  clipDoc: AssetWithId | undefined;
+  clip: LoadedClip | undefined;
   stillAddress: string;
   stillFilename: string;
   libRoot: string;
   newDir: string;
 }): Promise<{ address: string; ok: false; error: string } | null> {
-  const clipPrimary = input.clipDoc && assetActiveFileInfo(input.clipDoc);
-  if (!input.clipDoc || !clipPrimary) return null;
-  const moved = await relocateLiveClip(input.clipDoc, clipPrimary, input.libRoot, input.newDir);
+  if (!input.clip) return null;
+  const moved = await relocateLiveClip(input.clip, input.libRoot, input.newDir);
   return moved.ok
     ? null
     : {
         address: clipAddressBesideStill(
           input.stillAddress,
           input.stillFilename,
-          clipPrimary.filename,
+          input.clip.location.filename,
         ),
         ok: false,
         error: moved.error,
@@ -386,7 +367,7 @@ export const libraryRelocateRoutes = new Elysia({ name: 'libraryRelocate' })
       // simply doesn't surface, rather than 500-ing the panel.
       try {
         const docs = await findGeoDocs(absPaths, libs);
-        const { followerClipIds } = await planLiveClipsFor(docs, libs);
+        const { followerClipIds } = await planLiveClipsFor(docs);
         const count = docs.filter(
           (doc) => !followerClipIds.has(doc._id.toHexString()) && wouldRelocate(doc),
         ).length;
@@ -455,9 +436,9 @@ export const libraryRelocateRoutes = new Elysia({ name: 'libraryRelocate' })
       }
 
       const allDocs = await findGeoDocs(absPaths, libs);
-      const livePlan = await planLiveClipsFor(allDocs, libs);
+      const livePlan = await planLiveClipsFor(allDocs);
       const docs = allDocs.filter((doc) => !livePlan.followerClipIds.has(doc._id.toHexString()));
-      const clipDocByAbsPath = await loadClipDocsByAbsPath(livePlan, libs);
+      const loadedClips = await loadPlannedClips(livePlan);
 
       const results: Array<{
         address: string;
@@ -531,9 +512,7 @@ export const libraryRelocateRoutes = new Elysia({ name: 'libraryRelocate' })
           const clipFailure =
             outcome === 'moved'
               ? await moveClipBesideStill({
-                  clipDoc: clipDocByAbsPath.get(
-                    livePlan.clipAbsPathByStillId.get(doc._id.toHexString()) ?? '',
-                  ),
+                  clip: loadedClips.get(doc._id.toHexString()),
                   stillAddress: representativeAddress,
                   stillFilename: primary!.filename,
                   libRoot,
