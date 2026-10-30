@@ -52,31 +52,12 @@ pub(in crate::pipeline) fn crop_to_default(
     crop: CropRect,
     quality_divisor: u32,
 ) -> Option<Image> {
-    // Sensor-coords → buffer-coords. Preview's demosaic halves both axes;
-    // round DOWN on the origin (lose no in-frame pixels to off-by-one)
-    // and round DOWN on the size (drop the trailing half-pixel rather
-    // than reaching into post-crop sensor territory).
-    let qd = quality_divisor.max(1);
-    let cx = crop.x / qd;
-    let cy = crop.y / qd;
-    let cw = crop.w / qd;
-    let ch = crop.h / qd;
-    // Clamp to the actual buffer extent. Defensive: a half-res Preview of
-    // a sensor whose crop touches the bottom-right edge can lose a row
-    // to integer rounding above; let the buffer's true (w, h) win.
-    let cw = cw.min(image.width.saturating_sub(cx));
-    let ch = ch.min(image.height.saturating_sub(cy));
-    if cw == 0 || ch == 0 {
-        // Defensive no-op — caller logged the malformed-crop case at
-        // decode time and we kept Some(rect), but if it survived to here
-        // with degenerate post-divisor dims (e.g. a 1×1 crop on a Preview
-        // path), keep the original buffer.
-        return None;
-    }
-    if cx == 0 && cy == 0 && cw == image.width && ch == image.height {
-        // The crop covers the entire buffer; no-op.
-        return None;
-    }
+    let CropRect {
+        x: cx,
+        y: cy,
+        w: cw,
+        h: ch,
+    } = default_crop_window(image.width, image.height, crop, quality_divisor)?;
     let mut out = Image::new(cw, ch, image.space);
     out.nr_sampling_scale = image.nr_sampling_scale;
     out.whites_anchor_ev = image.whites_anchor_ev;
@@ -91,6 +72,48 @@ pub(in crate::pipeline) fn crop_to_default(
             .copy_from_slice(&image.pixels[src_row_start..src_row_start + cw_us]);
     }
     Some(out)
+}
+
+/// The buffer rectangle [`crop_to_default`] keeps, `None` when it would keep
+/// the whole `width × height` buffer (or the rect degenerates). Shared with
+/// the banded pano develop (#5552), which crops band by band.
+pub(in crate::pipeline) fn default_crop_window(
+    width: u32,
+    height: u32,
+    crop: CropRect,
+    quality_divisor: u32,
+) -> Option<CropRect> {
+    // Sensor-coords → buffer-coords. Preview's demosaic halves both axes;
+    // round DOWN on the origin (lose no in-frame pixels to off-by-one)
+    // and round DOWN on the size (drop the trailing half-pixel rather
+    // than reaching into post-crop sensor territory).
+    let qd = quality_divisor.max(1);
+    let cx = crop.x / qd;
+    let cy = crop.y / qd;
+    let cw = crop.w / qd;
+    let ch = crop.h / qd;
+    // Clamp to the actual buffer extent. Defensive: a half-res Preview of
+    // a sensor whose crop touches the bottom-right edge can lose a row
+    // to integer rounding above; let the buffer's true (w, h) win.
+    let cw = cw.min(width.saturating_sub(cx));
+    let ch = ch.min(height.saturating_sub(cy));
+    if cw == 0 || ch == 0 {
+        // Defensive no-op — caller logged the malformed-crop case at
+        // decode time and we kept Some(rect), but if it survived to here
+        // with degenerate post-divisor dims (e.g. a 1×1 crop on a Preview
+        // path), keep the original buffer.
+        return None;
+    }
+    if cx == 0 && cy == 0 && cw == width && ch == height {
+        // The crop covers the entire buffer; no-op.
+        return None;
+    }
+    Some(CropRect {
+        x: cx,
+        y: cy,
+        w: cw,
+        h: ch,
+    })
 }
 
 /// Per-quality divisor between raw-sensor coordinates and the post-demosaic
