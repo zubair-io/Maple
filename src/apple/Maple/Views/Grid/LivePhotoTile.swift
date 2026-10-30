@@ -63,6 +63,7 @@ struct LivePhotoClipOverlay: View {
         .accessibilityLabel(isPlaying ? "Stop Live Photo clip" : "Play Live Photo clip")
         .accessibilityIdentifier("grid-live-play-\(item.displayName)")
       }
+      .onDisappear { isPlaying = false }
     }
   }
 
