@@ -22,6 +22,7 @@ export const ALL_STAGE_NAMES = [
   'person-segmentation',
   'embed',
   'motion-photo',
+  'live-photo',
 ] as const;
 
 export type StageName = (typeof ALL_STAGE_NAMES)[number];

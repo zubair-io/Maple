@@ -224,6 +224,7 @@ export interface DirectoryAsset {
   mtime: number;
   exif: AssetExif | null;
   motion_photo: boolean;
+  live_content_id: string | null;
 }
 
 /**
@@ -252,7 +253,8 @@ export async function listDirectoryAssets(
             json_extract(a.exif, '$.width') AS width,
             json_extract(a.exif, '$.height') AS height,
             a.size AS size, a.mtime AS mtime, a.exif AS exif,
-            a.motion_video_length IS NOT NULL AS motion_photo
+            a.motion_video_length IS NOT NULL AS motion_photo,
+            a.live_content_id AS live_content_id
        FROM asset_locations l
        JOIN assets a ON a.id = l.asset_id
       WHERE l.library_id = ? AND l.path = ? AND ${LIVE_ENTRY} AND a.deleted_at IS NULL`,
