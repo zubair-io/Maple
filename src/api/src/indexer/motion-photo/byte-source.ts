@@ -1,4 +1,4 @@
-import type { FileHandle } from '../../fs/mirrored.ts';
+import { open, stat, type FileHandle } from '../../fs/mirrored.ts';
 
 /**
  * Positioned reads over one opened original, against the size it had when it
@@ -17,7 +17,7 @@ const READ_BUDGET_BYTES = 8 * 1024 * 1024;
 /** The file shrank or grew under an open read: the copy is still in flight, so retry later. */
 export class SourceChangedError extends Error {
   constructor(absPath: string) {
-    super(`${absPath} changed while its motion photo metadata was being read`);
+    super(`${absPath} changed while its embedded metadata was being read`);
     this.name = 'SourceChangedError';
   }
 }
@@ -64,4 +64,33 @@ export function fileByteSource(
       return buffer;
     },
   };
+}
+
+/**
+ * Run `use` over one opened original and fail with {@link SourceChangedError}
+ * when the file's size, mtime or identity differs after the read, so a caller
+ * never records what a half-copied file happened to satisfy. A path that is
+ * not a regular file yields `notRegular`.
+ */
+export async function withStableSource<T>(
+  absPath: string,
+  signal: AbortSignal,
+  notRegular: T,
+  use: (source: ByteSource) => Promise<T>,
+): Promise<T> {
+  const handle = await open(absPath, 'r');
+  try {
+    const before = await handle.stat();
+    if (!before.isFile()) return notRegular;
+    const result = await use(fileByteSource(handle, absPath, before.size, signal));
+    const [afterHandle, afterPath] = await Promise.all([handle.stat(), stat(absPath)]);
+    const unchanged = [afterHandle, afterPath].every(
+      (after) =>
+        after.size === before.size && after.mtimeMs === before.mtimeMs && after.ino === before.ino,
+    );
+    if (!unchanged) throw new SourceChangedError(absPath);
+    return result;
+  } finally {
+    await handle.close();
+  }
 }

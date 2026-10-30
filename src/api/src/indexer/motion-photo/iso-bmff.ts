@@ -52,3 +52,41 @@ export async function startsWithFtyp(
   };
   return visit(start, 0);
 }
+
+/** A box inside a buffered region: its type and payload span (header excluded). */
+export interface Span {
+  type: string;
+  start: number;
+  end: number;
+}
+
+export function uintAt(buf: Buffer, offset: number, width: number): number | null {
+  if (offset < 0 || offset + width > buf.length) return null;
+  if (width === 0) return 0;
+  if (width === 2) return buf.readUInt16BE(offset);
+  if (width === 4) return buf.readUInt32BE(offset);
+  if (width === 8) {
+    const big = buf.readBigUInt64BE(offset);
+    return big > BigInt(Number.MAX_SAFE_INTEGER) ? null : Number(big);
+  }
+  return null;
+}
+
+/** Child boxes of a buffer region; stops at the first malformed header. */
+// Uncapped: a tiled HEIC lists hundreds of items, and every box is at least 8 bytes.
+export function childBoxes(buf: Buffer, start: number, end: number): Span[] {
+  const found: Span[] = [];
+  for (let offset = start; end - offset >= 8; ) {
+    const size = buf.readUInt32BE(offset);
+    const headerSize = size === 1 ? 16 : 8;
+    const total = size === 1 ? uintAt(buf, offset + 8, 8) : size === 0 ? end - offset : size;
+    if (total === null || total < headerSize || total > end - offset) return found;
+    found.push({
+      type: buf.toString('latin1', offset + 4, offset + 8),
+      start: offset + headerSize,
+      end: offset + total,
+    });
+    offset += total;
+  }
+  return found;
+}

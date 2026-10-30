@@ -1,9 +1,9 @@
-import { open, stat } from '../../fs/mirrored.ts';
-import { fileByteSource, SourceChangedError, type ByteSource } from './byte-source.ts';
+import { open } from '../../fs/mirrored.ts';
+import { fileByteSource, withStableSource, type ByteSource } from './byte-source.ts';
 import { detectContainer } from './container.ts';
-import { readHeifXmp } from './heif-xmp.ts';
+import { readHeifXmp } from './heif-items.ts';
 import { startsWithFtyp } from './iso-bmff.ts';
-import { readJpegXmp } from './jpeg-xmp.ts';
+import { readJpegXmp } from './jpeg-app1.ts';
 import { detectMicroVideo } from './micro-video.ts';
 import { detectSamsungSef } from './samsung-sef.ts';
 import {
@@ -48,27 +48,21 @@ async function detectInSource(source: ByteSource): Promise<MotionDetection> {
  * the caller retries once the write settles, instead of recording a range that
  * a half-copied file happened to satisfy.
  */
-export async function detectMotionPhoto(
+export function detectMotionPhoto(
   absPath: string,
   signal: AbortSignal,
 ): Promise<FileMotionDetection> {
-  const handle = await open(absPath, 'r');
-  try {
-    const before = await handle.stat();
-    if (!before.isFile()) return still('not a regular file');
-    const detection = await detectInSource(fileByteSource(handle, absPath, before.size, signal));
-    const [afterHandle, afterPath] = await Promise.all([handle.stat(), stat(absPath)]);
-    const unchanged = [afterHandle, afterPath].every(
-      (after) =>
-        after.size === before.size && after.mtimeMs === before.mtimeMs && after.ino === before.ino,
-    );
-    if (!unchanged) throw new SourceChangedError(absPath);
-    return 'motion' in detection
-      ? { motion: { ...detection.motion, sourceSize: before.size } }
-      : detection;
-  } finally {
-    await handle.close();
-  }
+  return withStableSource<FileMotionDetection>(
+    absPath,
+    signal,
+    still('not a regular file'),
+    async (source) => {
+      const detection = await detectInSource(source);
+      return 'motion' in detection
+        ? { motion: { ...detection.motion, sourceSize: source.size } }
+        : detection;
+    },
+  );
 }
 
 /**
