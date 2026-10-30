@@ -19,8 +19,11 @@
 //! owning process is gone. Source RAWs and sidecars are only ever read.
 
 mod io;
+mod rows;
 #[cfg(test)]
 mod tests;
+
+pub use rows::{FrameRows, InMemory, Subset};
 
 use std::fs::{File, OpenOptions};
 use std::path::{Path, PathBuf};
@@ -95,6 +98,24 @@ impl FrameStore {
             scratch_path,
             needed_bytes,
         })
+    }
+
+    /// Test-only: a store under `parent` holding each of `paths` developed
+    /// as the frame of the same index, sized from their headers.
+    #[cfg(test)]
+    pub(crate) fn of_files(parent: &Path, paths: &[PathBuf]) -> Self {
+        let dims: Vec<(u32, u32)> = paths
+            .iter()
+            .map(|p| {
+                let [w, h] = raw_core::raw_dimensions::from_file(p).expect("dimensions");
+                (w, h)
+            })
+            .collect();
+        let mut store = Self::create(parent, &dims).expect("frame store");
+        for (idx, path) in paths.iter().enumerate() {
+            store.ingest_file(idx, path, 64).expect("develop");
+        }
+        store
     }
 
     /// Output dimensions of frame `idx`, once it has been stored.

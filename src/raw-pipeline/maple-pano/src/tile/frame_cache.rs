@@ -1,7 +1,8 @@
-//! Thread-safe, capacity-bounded, on-demand decode cache for the tile
-//! strategy's full-resolution frame access (#3090, redone under #3197
-//! after the first attempt — #3146 — was reverted for serializing the
-//! whole tile tail).
+//! Thread-safe, capacity-bounded, on-demand cache for the tile strategy's
+//! full-resolution frame access (#3090, redone under #3197 after the first
+//! attempt — #3146 — was reverted for serializing the whole tile tail).
+//! Since #5554 a miss reads the frame from the stitch's frame store rather
+//! than decoding the RAW; the history below says "decode" for that load.
 //!
 //! ## What went wrong the first time (#3197)
 //!
@@ -49,10 +50,10 @@
 //! decoding work AND how much of it can run in parallel.
 
 use std::collections::HashMap;
-use std::path::PathBuf;
 use std::sync::{Arc, Mutex, OnceLock};
 
 use crate::error::PanoError;
+use crate::frame_store::FrameRows;
 use crate::ingest::PlanarImage;
 
 /// A decode result, memoized behind a [`OnceLock`] so concurrent callers
@@ -91,8 +92,8 @@ impl CacheState {
 /// See the module docs for the locking model.
 pub(crate) struct TileFrameCache<'a> {
     /// `None` only for a [`Self::from_frames`] / [`Self::with_decoder`]
-    /// test cache — production caches are always backed by real paths.
-    inputs: Option<&'a [PathBuf]>,
+    /// cache — a production stitch cache is always backed by its store.
+    frames: Option<&'a dyn FrameRows>,
     /// Test-only override of the decode step, so cache concurrency and
     /// eviction properties can be tested with a synthetic, instrumented
     /// "decoder" instead of real fixture files (#3197).
@@ -106,9 +107,9 @@ impl<'a> TileFrameCache<'a> {
     /// `capacity` is clamped to at least 1 — a cache that could hold
     /// nothing would re-decode on every single access, including within
     /// one edge's two-frame refine.
-    pub(crate) fn new(inputs: &'a [PathBuf], capacity: usize) -> Self {
+    pub(crate) fn new(frames: &'a dyn FrameRows, capacity: usize) -> Self {
         Self {
-            inputs: Some(inputs),
+            frames: Some(frames),
             #[cfg(test)]
             test_decoder: None,
             capacity: capacity.max(1),
@@ -135,7 +136,7 @@ impl<'a> TileFrameCache<'a> {
             order.push(i);
         }
         Self {
-            inputs: None,
+            frames: None,
             #[cfg(test)]
             test_decoder: None,
             capacity,
@@ -153,7 +154,7 @@ impl<'a> TileFrameCache<'a> {
         decoder: impl Fn(usize) -> Result<PlanarImage, String> + Send + Sync + 'a,
     ) -> Self {
         Self {
-            inputs: None,
+            frames: None,
             test_decoder: Some(Box::new(decoder)),
             capacity: capacity.max(1),
             state: Mutex::new(CacheState {
@@ -255,14 +256,12 @@ impl<'a> TileFrameCache<'a> {
         if let Some(decoder) = &self.test_decoder {
             return decoder(idx).map(Arc::new);
         }
-        let inputs = self
-            .inputs
-            .expect("TileFrameCache::get miss with no backing inputs");
-        let path = inputs
-            .get(idx)
-            .ok_or_else(|| format!("index {idx} out of range for {} inputs", inputs.len()))?;
-        crate::ingest::ingest_file(path)
-            .map(|f| Arc::new(f.image))
+        let frames = self
+            .frames
+            .expect("TileFrameCache::get miss with no backing frames");
+        frames
+            .read_frame(idx)
+            .map(Arc::new)
             .map_err(|e| e.to_string())
     }
 }
@@ -270,6 +269,7 @@ impl<'a> TileFrameCache<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::frame_store::InMemory;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Barrier;
     use std::time::Duration;
@@ -287,8 +287,8 @@ mod tests {
 
     #[test]
     fn capacity_is_clamped_to_at_least_one() {
-        let inputs: Vec<PathBuf> = vec![];
-        let cache = TileFrameCache::new(&inputs, 0);
+        let frames = InMemory(&[]);
+        let cache = TileFrameCache::new(&frames, 0);
         assert_eq!(cache.capacity, 1);
     }
 
@@ -300,11 +300,11 @@ mod tests {
     }
 
     /// Out-of-range access returns a typed error, not a panic — checked
-    /// against a real (empty) `inputs` backing, no fixtures needed.
+    /// against a real (empty) backing, no fixtures needed.
     #[test]
     fn get_rejects_out_of_range_idx() {
-        let inputs: Vec<PathBuf> = vec![];
-        let cache = TileFrameCache::new(&inputs, 4);
+        let frames = InMemory(&[]);
+        let cache = TileFrameCache::new(&frames, 4);
         assert!(cache.get(0).is_err());
     }
 
@@ -460,11 +460,11 @@ mod tests {
     }
 
     /// End-to-end real-file sanity check (fixture-gated, soft-skips
-    /// without `test-fixtures/raws/pano_00/`): the production decode
-    /// path (`ingest_file`, not the synthetic decoder) actually works
-    /// through the cache.
+    /// without `test-fixtures/raws/pano_00/`): a frame developed into a
+    /// real frame store, not the synthetic decoder, resolves through the
+    /// cache.
     #[test]
-    fn real_decode_path_resolves_a_real_frame() {
+    fn store_backed_cache_resolves_a_real_frame() {
         let dir = std::path::Path::new(concat!(
             env!("CARGO_MANIFEST_DIR"),
             "/../../test-fixtures/raws/pano_00"
@@ -473,7 +473,7 @@ mod tests {
             eprintln!("skipping: {} not present", dir.display());
             return;
         }
-        let mut inputs: Vec<PathBuf> = std::fs::read_dir(dir)
+        let mut inputs: Vec<std::path::PathBuf> = std::fs::read_dir(dir)
             .expect("read_dir")
             .filter_map(|e| e.ok().map(|e| e.path()))
             .filter(|p| {
@@ -488,8 +488,10 @@ mod tests {
             eprintln!("skipping: no .dng found in {}", dir.display());
             return;
         }
-        let cache = TileFrameCache::new(&inputs, 4);
+        let parent = tempfile::tempdir().expect("tempdir");
+        let store = crate::frame_store::FrameStore::of_files(parent.path(), &inputs[..1]);
+        let cache = TileFrameCache::new(&store, 4);
         let img = cache.get(0).unwrap();
-        assert!(img.width() > 0 && img.height() > 0);
+        assert_eq!(Some((img.width(), img.height())), store.dims(0));
     }
 }

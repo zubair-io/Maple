@@ -7,7 +7,8 @@
 //!
 //! - [`stitch_tile`]: the full stand-alone tile pipeline (stages 0–5). Used
 //!   for testing and any caller that wants a self-contained tile entry point.
-//!   It runs its own decode + ML + match graph, then calls [`tile_tail`].
+//!   It runs its own stage 0 (develop into the frame store) + ML + match
+//!   graph, then calls [`tile_tail`].
 //!
 //! - [`tile_tail`]: the tile-specific tail (stages 3–5: NCC refine +
 //!   placement solve + composite). Called by [`super::stitch`] when
@@ -18,7 +19,7 @@
 //! # Stage ordinals (progress callback)
 //!
 //! ```text
-//! 0 — decode + priors
+//! 0 — develop into the frame store + proxies + priors
 //! 1 — ML load + proxy feature extraction
 //! 2 — match graph construction
 //! 3 — full-resolution NCC refinement (no rotation reverification)
@@ -37,6 +38,7 @@ use std::path::PathBuf;
 use crate::camera::Camera;
 use crate::composite::{CancellableSink, CanvasSink};
 use crate::features::FeatureSet;
+use crate::frame_store::FrameRows;
 use crate::gain::LensGroups;
 use crate::graph::{
     DescriptorTopKProvider, GraphImage, GridLayout, LoopClosureCheck, LoopClosureGate, MatchGraph,
@@ -53,7 +55,7 @@ use crate::twoview::PixelCorrespondence;
 
 use super::types::{StitchError, StitchOptions, TileStitchOutcome};
 
-/// Cap on frames the tile tail's on-demand decode cache keeps resident at
+/// Cap on frames the tile tail's on-demand frame cache keeps resident at
 /// once (#3090, redone under #3197 after the first attempt — #3146 —
 /// was reverted for serializing the whole tile tail).
 ///
@@ -88,8 +90,8 @@ const TILE_CACHE_CAPACITY: usize = 6;
 pub(super) struct TileEarlyState<'a> {
     /// Per-frame full-resolution pixel dimensions — a cheap metadata-only
     /// fact from stage 0's `FrameMeta`, not a decode (#3197). Pixels
-    /// themselves are decoded on demand through the `TileFrameCache`
-    /// `tile_tail` builds from `inputs`.
+    /// themselves are read on demand through the `TileFrameCache`
+    /// `tile_tail` builds over `frames`.
     pub full_dims: Vec<(u32, u32)>,
     /// Per-frame proxy dimensions `(width, height)`.
     pub proxy_dims: Vec<(u32, u32)>,
@@ -104,10 +106,12 @@ pub(super) struct TileEarlyState<'a> {
     pub focal_seed_source: Option<super::FocalSeedSource>,
     /// Wall-clock times for stages 0, 1, 2 (seconds).
     pub stage_timings_012: [f64; 3],
-    /// Path list parallel to `full_dims` — used both for the stitch
-    /// report and to build the on-demand decode cache `tile_tail`'s
-    /// stage 3–5 work reads frames through (#3197).
+    /// Path list parallel to `full_dims`, for the stitch report and read
+    /// errors.
     pub inputs: &'a [PathBuf],
+    /// The stitch's developed frames, parallel to `inputs`, behind the
+    /// on-demand cache `tile_tail`'s stage 3–5 work reads through (#3197).
+    pub frames: &'a dyn FrameRows,
     /// Lens identity per input frame for the blind vignette estimate
     /// (#4522), parallel to `full_dims`.
     pub lenses: LensGroups,
@@ -229,18 +233,19 @@ pub(super) fn tile_tail(
         focal_seed_source,
         stage_timings_012: [decode_s, features_s, graph_s],
         inputs,
+        frames,
         lenses,
     } = state;
     let match_graph = graph.summary();
 
-    // #3197: on-demand decode cache — at most TILE_CACHE_CAPACITY frames
+    // #3197: on-demand frame cache — at most TILE_CACHE_CAPACITY frames
     // resident at once, instead of every input frame up front. Shared by
     // stage 3 (sequential edge-pair refine below), the photometric solve,
     // and the composite tile loop (both inside `composite_tile`). See
     // `TILE_CACHE_CAPACITY`'s doc comment for how that number was chosen,
     // and `tile::frame_cache` for the per-frame locking that lets a miss
-    // on one frame decode without blocking any other frame's access.
-    let cache = TileFrameCache::new(inputs, TILE_CACHE_CAPACITY);
+    // on one frame read without blocking any other frame's access.
+    let cache = TileFrameCache::new(frames, TILE_CACHE_CAPACITY);
 
     // ── stage 3: full-resolution NCC refinement ───────────────────────────
     // No rotation geometry for the tile path — pass `None` for geometry.
@@ -415,7 +420,7 @@ pub(super) fn place_and_composite(
 
     let poses_placed = poses.len();
     // #3197: `poses[i].frame_idx` identifies which original frame each pose
-    // covers, and `composite_tile` decodes it on demand through `cache`.
+    // covers, and `composite_tile` reads it on demand through `cache`.
     let reachable_set: HashSet<usize> = poses.iter().map(|p| p.frame_idx).collect();
     let component_edges: Vec<crate::tile::TileEdge> = tile_edges
         .iter()

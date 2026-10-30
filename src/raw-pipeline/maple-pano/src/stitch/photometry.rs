@@ -1,14 +1,13 @@
 //! Rotation-path photometry: the memory-bounded streaming gain solve with
 //! the blind per-lens vignette fallback (#1254, #4522).
 //!
-//! Each surviving frame is decoded once, its overlap samples accumulated,
-//! and its pixels dropped before the next decode — at most one
+//! Each surviving frame is read once, its overlap samples accumulated,
+//! and its pixels dropped before the next read — at most one
 //! full-resolution frame is resident (cloning every frame was the ~18 GB
 //! driver on pano_01).
 
-use std::path::PathBuf;
-
 use crate::camera::Camera;
+use crate::frame_store::FrameRows;
 use crate::gain::{
     solve_photometry_streaming, FramePhotometry, GainMode, GainOptions, LensFalloff, LensGroups,
 };
@@ -19,13 +18,13 @@ use super::StitchError;
 /// frames mapped back to input indices. `lenses` covers every input frame;
 /// `kept_inputs[k]` is the input index of kept frame `k`.
 pub(super) fn solve_kept_photometry(
-    kept_paths: &[PathBuf],
+    kept_frames: &dyn FrameRows,
     kept_cams: &[Camera],
     lenses: &LensGroups,
     kept_inputs: &[usize],
 ) -> Result<(Vec<FramePhotometry>, Vec<LensFalloff>), StitchError> {
     let solved = solve_photometry_streaming(
-        kept_paths,
+        kept_frames,
         kept_cams,
         &lenses.for_frames(kept_inputs),
         &GainOptions {

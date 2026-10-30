@@ -90,7 +90,17 @@ pub fn preview(
             )
         }
         None => {
-            let head = super::solve_alignment(inputs, opts, key, &mut progress, &is_cancelled)?;
+            let t0 = Instant::now();
+            let metas =
+                super::decode_proxies(inputs, opts.proxy_long_edge, &mut progress, &is_cancelled)?;
+            let head = super::solve_alignment(
+                metas,
+                t0.elapsed().as_secs_f64(),
+                opts,
+                key,
+                &mut progress,
+                &is_cancelled,
+            )?;
             (head.alignment, head.metas, head.stage_timings_012)
         }
     };

@@ -1,9 +1,9 @@
 //! Memory-bounded tiled composite functions (M6-D, #1248).
 //!
-//! [`composite_tiled`] and [`composite_tiled_frames`] composite the canvas
-//! strip by strip, decoding (or re-using) source frames one at a time so at
-//! most one full-resolution frame is resident per strip pass. See the parent
-//! module doc for the measured memory reality and the #1254 deferral.
+//! [`composite_tiled`] composites the canvas strip by strip, reading for each
+//! frame only the source rows that strip's warp taps (#5554), so no
+//! full-resolution frame is resident. [`composite_tiled_frames`] runs it
+//! over frames already in memory.
 //!
 //! Both dispatch on [`SeamStrategy`] (#1179) and both multi-band blend
 //! (#4524) through [`strips`]: Voronoi weights each frame by hard ownership
@@ -21,11 +21,12 @@ use crate::blend::levels_for_overlap_width;
 use crate::camera::Camera;
 use crate::canvas::CanvasSpec;
 use crate::error::PanoError;
+use crate::frame_store::{FrameRows, InMemory};
 use crate::gain::{ExposureField, FramePhotometry};
-use crate::ingest::{ingest_file, PlanarImage};
+use crate::ingest::PlanarImage;
 use crate::local_align::LocalCorrection;
 use crate::seam::{SeamConstraint, SeamConstraintError, SeamStrategy};
-use crate::warp::warp_to_canvas_strip;
+use crate::warp::warp_window_to_canvas_strip;
 
 use super::{CanvasCollector, CanvasSink, CompositeReport};
 
@@ -155,10 +156,10 @@ fn min_overlap_width(
     }
 }
 
-/// Memory-bounded tiled compositing: decode each source frame on demand,
-/// warp it into one strip's blend window, fold it into that window's
-/// multi-band accumulator, and free it before the next frame. The gain
-/// solution is pre-computed by the caller.
+/// Memory-bounded tiled compositing: for each strip, read just the source
+/// rows each frame's warp taps from `frames`, warp them into the strip's
+/// blend window, and fold them into that window's multi-band accumulator.
+/// The gain solution is pre-computed by the caller.
 ///
 /// Dispatches on `seam_strategy` (#1179): [`SeamStrategy::Voronoi`]
 /// (default) weights by per-pixel ownership from camera geometry alone (no
@@ -168,11 +169,11 @@ fn min_overlap_width(
 /// and is reported in [`CompositeReport::blend_levels`].
 ///
 /// # Errors
-/// Returns `PanoError` if any frame fails to decode or if camera/path
-/// slices are inconsistent.
+/// Returns `PanoError` if any frame read fails or if camera/frame counts
+/// are inconsistent.
 #[allow(clippy::too_many_arguments)]
 pub fn composite_tiled(
-    paths: &[std::path::PathBuf],
+    frames: &dyn FrameRows,
     cameras: &[Camera],
     photometry: &[FramePhotometry],
     local_corrections: &[Option<LocalCorrection>],
@@ -188,7 +189,7 @@ pub fn composite_tiled(
             Err(SeamConstraintError::RequiresGraphCut.into())
         }
         SeamStrategy::Voronoi => composite_tiled_voronoi(
-            paths,
+            frames,
             cameras,
             photometry,
             local_corrections,
@@ -198,7 +199,7 @@ pub fn composite_tiled(
             sink,
         ),
         SeamStrategy::GraphCut => graph_cut::composite_tiled_graph_cut(
-            paths,
+            frames,
             cameras,
             photometry,
             local_corrections,
@@ -217,7 +218,7 @@ pub fn composite_tiled(
 
 #[allow(clippy::too_many_arguments)]
 fn composite_tiled_voronoi(
-    paths: &[std::path::PathBuf],
+    frames: &dyn FrameRows,
     cameras: &[Camera],
     photometry: &[FramePhotometry],
     local_corrections: &[Option<LocalCorrection>],
@@ -228,8 +229,8 @@ fn composite_tiled_voronoi(
 ) -> Result<CompositeReport, PanoError> {
     check_inputs(
         "composite_tiled",
-        "paths",
-        paths.len(),
+        "frames",
+        frames.frame_count(),
         cameras.len(),
         photometry.len(),
         local_corrections.len(),
@@ -241,32 +242,49 @@ fn composite_tiled_voronoi(
         canvas,
         tile_rows,
         |fi, y0, y1| {
-            let frame = ingest_file(&paths[fi])?;
-            let la = local_corrections.get(fi).and_then(|o| o.as_ref());
-            let strip = warp_to_canvas_strip(
-                &frame.image,
-                &cameras[fi],
+            warp_frame_strip(
+                frames,
+                fi,
+                cameras,
+                photometry,
+                local_corrections,
+                exposure_field,
                 canvas,
-                photometry[fi],
-                la,
-                y0,
-                y1,
-            );
-            Ok(with_exposure_field(exposure_field, fi, strip, canvas, y0))
+                (y0, y1),
+            )
         },
         sink,
     )
 }
 
-/// Tiled composite with pre-loaded frames (for tests and offline use
-/// where frames are already in memory).
-///
-/// Same tiling logic as [`composite_tiled`] but takes `&[PlanarImage]`
-/// instead of file paths — no I/O, no decode.  Useful for unit tests
-/// and for callers that decoded frames for another purpose and kept them.
-/// Dispatches on `seam_strategy` the same way [`composite_tiled`] does.
-///
-/// See [`composite_tiled`] for the memory model and blend contract.
+/// Frame `fi` warped into canvas rows `y0..y1`, reading only the source
+/// rows the warp taps, with its exposure correction applied.
+#[allow(clippy::too_many_arguments)]
+fn warp_frame_strip(
+    frames: &dyn FrameRows,
+    fi: usize,
+    cameras: &[Camera],
+    photometry: &[FramePhotometry],
+    local_corrections: &[Option<LocalCorrection>],
+    exposure_field: Option<&ExposureField>,
+    canvas: &CanvasSpec,
+    (y0, y1): (u32, u32),
+) -> Result<PlanarImage, PanoError> {
+    let la = local_corrections.get(fi).and_then(|o| o.as_ref());
+    let strip = warp_window_to_canvas_strip(
+        &cameras[fi],
+        canvas,
+        photometry[fi],
+        la,
+        y0,
+        y1,
+        |row0, rows| frames.read_rows(fi, row0, rows),
+    )?;
+    Ok(with_exposure_field(exposure_field, fi, strip, canvas, y0))
+}
+
+/// [`composite_tiled`] over frames already in memory, collected into one
+/// image (tests, and the preview's proxies).
 #[allow(clippy::too_many_arguments)]
 pub fn composite_tiled_frames(
     frames: &[PlanarImage],
@@ -280,84 +298,19 @@ pub fn composite_tiled_frames(
     seam_constraints: &[SeamConstraint],
 ) -> Result<(PlanarImage, CompositeReport), PanoError> {
     let mut collector = CanvasCollector::default();
-    let sink = &mut collector;
-    let composited = match seam_strategy {
-        SeamStrategy::Voronoi if !seam_constraints.is_empty() => {
-            Err(SeamConstraintError::RequiresGraphCut.into())
-        }
-        SeamStrategy::Voronoi => composite_tiled_frames_voronoi(
-            frames,
-            cameras,
-            photometry,
-            local_corrections,
-            exposure_field,
-            canvas,
-            tile_rows,
-            sink,
-        ),
-        SeamStrategy::GraphCut => graph_cut::composite_tiled_frames_graph_cut(
-            frames,
-            cameras,
-            photometry,
-            local_corrections,
-            exposure_field,
-            canvas,
-            tile_rows,
-            seam_constraints,
-            sink,
-        ),
-    };
-    composited.map(|report| {
-        (
-            collector.into_image(),
-            CompositeReport {
-                exposure_field: exposure_field.map(|field| field.summary),
-                ..report
-            },
-        )
-    })
-}
-
-#[allow(clippy::too_many_arguments)]
-fn composite_tiled_frames_voronoi(
-    frames: &[PlanarImage],
-    cameras: &[Camera],
-    photometry: &[FramePhotometry],
-    local_corrections: &[Option<LocalCorrection>],
-    exposure_field: Option<&ExposureField>,
-    canvas: &CanvasSpec,
-    tile_rows: u32,
-    sink: &mut dyn CanvasSink,
-) -> Result<CompositeReport, PanoError> {
-    check_inputs(
-        "composite_tiled_frames",
-        "frames",
-        frames.len(),
-        cameras.len(),
-        photometry.len(),
-        local_corrections.len(),
-    )?;
-    voronoi_blend(
+    let report = composite_tiled(
+        &InMemory(frames),
         cameras,
         photometry,
         local_corrections,
+        exposure_field,
         canvas,
         tile_rows,
-        |fi, y0, y1| {
-            let la = local_corrections.get(fi).and_then(|o| o.as_ref());
-            let strip = warp_to_canvas_strip(
-                &frames[fi],
-                &cameras[fi],
-                canvas,
-                photometry[fi],
-                la,
-                y0,
-                y1,
-            );
-            Ok(with_exposure_field(exposure_field, fi, strip, canvas, y0))
-        },
-        sink,
-    )
+        seam_strategy,
+        seam_constraints,
+        &mut collector,
+    )?;
+    Ok((collector.into_image(), report))
 }
 
 /// Voronoi weighting: each covered canvas pixel belongs wholly to the frame

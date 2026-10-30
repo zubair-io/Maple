@@ -7,7 +7,7 @@
 //! # Why a separate low-resolution pass
 //!
 //! The memory-bounded tiled composite (`composite::composite_tiled`)
-//! never holds more than one full-resolution decoded frame at a time —
+//! never holds more than one full-resolution frame at a time —
 //! that's the whole point of #1254. Content-aware seam finding needs at
 //! least two overlapping frames' actual pixels in memory together, so it
 //! can't run inside that per-tile, per-frame streaming loop without
@@ -31,8 +31,9 @@
 use crate::camera::Camera;
 use crate::canvas::CanvasSpec;
 use crate::error::PanoError;
+use crate::frame_store::{FrameRows, InMemory};
 use crate::gain::FramePhotometry;
-use crate::ingest::{ingest_file, PlanarImage};
+use crate::ingest::PlanarImage;
 use crate::local_align::LocalCorrection;
 use crate::warp::warp_to_canvas;
 
@@ -141,51 +142,50 @@ fn finish(
     }))
 }
 
-/// Build [`SeamMasks`] by decoding each source frame from disk, warping
-/// it onto the (small) seam canvas, and freeing the full-resolution
-/// pixels before moving to the next frame — the same "decode, use,
-/// drop" discipline `composite::composite_tiled` uses for the
-/// full-resolution pass, just applied to a canvas cheap enough to hold
-/// every frame's result at once.
-pub fn build_from_paths(
-    paths: &[std::path::PathBuf],
+/// Build [`SeamMasks`] by reading each source frame from `frames`, warping
+/// it onto the (small) seam canvas, and freeing the full-resolution pixels
+/// before moving to the next frame — a canvas cheap enough to hold every
+/// frame's result at once.
+pub fn build_from_rows(
+    frames: &dyn FrameRows,
     cameras: &[Camera],
     photometry: &[FramePhotometry],
     local_corrections: &[Option<LocalCorrection>],
     full_canvas: &CanvasSpec,
     seam_constraints: &[SeamConstraint],
 ) -> Result<Option<SeamMasks>, PanoError> {
-    if paths.len() != cameras.len() || paths.len() != photometry.len() {
+    let count = frames.frame_count();
+    if count != cameras.len() || count != photometry.len() {
         return Err(PanoError::InvalidOptions(format!(
-            "seam::masks::build_from_paths: {} paths, {} cameras, {} photometry",
-            paths.len(),
+            "seam::masks::build_from_rows: {count} frames, {} cameras, {} photometry",
             cameras.len(),
             photometry.len(),
         )));
     }
-    if !local_corrections.is_empty() && local_corrections.len() != paths.len() {
+    if !local_corrections.is_empty() && local_corrections.len() != count {
         return Err(PanoError::InvalidOptions(format!(
-            "seam::masks::build_from_paths: {} local corrections vs {} paths (pass an empty slice to skip alignment)",
+            "seam::masks::build_from_rows: {} local corrections vs {count} frames (pass an empty slice to skip alignment)",
             local_corrections.len(),
-            paths.len()
         )));
     }
-    constraints::validate(seam_constraints, paths.len(), full_canvas)?;
+    constraints::validate(seam_constraints, count, full_canvas)?;
     let seam_canvas = full_canvas.downscaled(SEAM_CANVAS_MAX_PX);
-    let mut layers = Vec::with_capacity(paths.len());
-    for (i, (path, cam)) in paths.iter().zip(cameras).enumerate() {
-        let frame = ingest_file(path)?;
-        let la = local_corrections.get(i).and_then(|o| o.as_ref());
-        let gain = photometry.get(i).copied().unwrap_or_default();
-        layers.push(warp_to_canvas(&frame.image, cam, &seam_canvas, gain, la));
-        // frame drops here — full-resolution pixels never accumulate.
-    }
+    let layers = cameras
+        .iter()
+        .enumerate()
+        .map(|(i, cam)| {
+            let frame = frames.read_frame(i)?;
+            let la = local_corrections.get(i).and_then(|o| o.as_ref());
+            let gain = photometry.get(i).copied().unwrap_or_default();
+            Ok(warp_to_canvas(&frame, cam, &seam_canvas, gain, la))
+        })
+        .collect::<Result<Vec<_>, PanoError>>()?;
     finish(layers, &seam_canvas, full_canvas, seam_constraints)
 }
 
-/// Same as [`build_from_paths`] but for already-decoded frames (tests,
-/// and callers that decoded for another purpose and kept the pixels —
-/// mirrors `composite::composite_tiled_frames`).
+/// [`build_from_rows`] over frames already in memory (tests, and callers
+/// that decoded for another purpose and kept the pixels). Mismatched
+/// counts are a caller bug here, so they panic.
 pub fn build_from_frames(
     frames: &[PlanarImage],
     cameras: &[Camera],
@@ -210,19 +210,14 @@ pub fn build_from_frames(
         local_corrections.len(),
         frames.len()
     );
-    constraints::validate(seam_constraints, frames.len(), full_canvas)?;
-    let seam_canvas = full_canvas.downscaled(SEAM_CANVAS_MAX_PX);
-    let layers: Vec<PlanarImage> = frames
-        .iter()
-        .zip(cameras)
-        .enumerate()
-        .map(|(i, (f, cam))| {
-            let la = local_corrections.get(i).and_then(|o| o.as_ref());
-            let gain = photometry.get(i).copied().unwrap_or_default();
-            warp_to_canvas(f, cam, &seam_canvas, gain, la)
-        })
-        .collect();
-    finish(layers, &seam_canvas, full_canvas, seam_constraints)
+    build_from_rows(
+        &InMemory(frames),
+        cameras,
+        photometry,
+        local_corrections,
+        full_canvas,
+        seam_constraints,
+    )
 }
 
 #[cfg(test)]
@@ -318,28 +313,32 @@ mod tests {
     /// per-frame must be rejected explicitly, not silently truncated by
     /// `.get(i)` inside the warp loop (which would leave later frames'
     /// alignment corrections quietly dropped). The mismatch is caught
-    /// before any file I/O, so nonexistent paths are fine here.
+    /// before any frame is read.
     #[test]
-    fn build_from_paths_rejects_mismatched_local_corrections() {
+    fn build_from_rows_rejects_mismatched_local_corrections() {
         let cams = ring_cameras(2);
-        let paths = vec![
-            std::path::PathBuf::from("/nonexistent/a.dng"),
-            std::path::PathBuf::from("/nonexistent/b.dng"),
-        ];
+        let frames: Vec<PlanarImage> = cams.iter().map(frame_from_scene).collect();
         let photometry = vec![FramePhotometry::IDENTITY; cams.len()];
         let canvas = crate::canvas::auto_canvas(&cams, &crate::canvas::CanvasOptions::default())
             .expect("canvas");
         // One entry for two frames: neither empty nor exactly per-frame.
         let short_lc: Vec<Option<LocalCorrection>> = vec![None];
 
-        let result = build_from_paths(&paths, &cams, &photometry, &short_lc, &canvas, &[]);
+        let result = build_from_rows(
+            &InMemory(&frames),
+            &cams,
+            &photometry,
+            &short_lc,
+            &canvas,
+            &[],
+        );
         assert!(
             result.is_err(),
             "expected a length-mismatch error, got Ok (silently truncated)"
         );
     }
 
-    /// Same contract as [`build_from_paths_rejects_mismatched_local_corrections`]
+    /// Same contract as [`build_from_rows_rejects_mismatched_local_corrections`]
     /// for the pre-loaded-frames entry point — infallible, so the contract
     /// is a panic instead of a `Result::Err`.
     #[test]

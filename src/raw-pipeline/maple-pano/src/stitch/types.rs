@@ -275,6 +275,13 @@ pub enum StitchError {
     Cancelled,
     /// User seam constraints (#4520) that cannot all hold.
     SeamConstraint(crate::seam::SeamConstraintError),
+    /// The decoded-frame store (#5553) does not fit on the scratch volume;
+    /// a smaller output may.
+    InsufficientScratchSpace {
+        path: PathBuf,
+        needed: u64,
+        available: u64,
+    },
 }
 
 impl From<crate::seam::SeamConstraintError> for StitchError {
@@ -323,6 +330,16 @@ impl std::fmt::Display for StitchError {
             }
             Self::Cancelled => write!(f, "cancelled by caller"),
             Self::SeamConstraint(e) => write!(f, "seam constraints: {e}"),
+            Self::InsufficientScratchSpace {
+                path,
+                needed,
+                available,
+            } => write!(
+                f,
+                "not enough free space for the decoded frames under {}: needs {needed} bytes, \
+                 {available} available",
+                path.display()
+            ),
         }
     }
 }
