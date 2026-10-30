@@ -62,6 +62,7 @@ import { relocateGeoAsset } from '../library/relocate-geo.ts';
 import {
   clipAddressBesideStill,
   loadPlannedClips,
+  pairDestinationNames,
   planLiveClips,
   relocateLiveClip,
   type LiveClipPlan,
@@ -299,9 +300,15 @@ async function moveClipBesideStill(input: {
   stillFilename: string;
   libRoot: string;
   newDir: string;
+  destinationFilename: string | undefined;
 }): Promise<{ address: string; ok: false; error: string } | null> {
   if (!input.clip) return null;
-  const moved = await relocateLiveClip(input.clip, input.libRoot, input.newDir);
+  const moved = await relocateLiveClip(
+    input.clip,
+    input.libRoot,
+    input.newDir,
+    input.destinationFilename,
+  );
   return moved.ok
     ? null
     : {
@@ -488,7 +495,9 @@ export const libraryRelocateRoutes = new Elysia({ name: 'libraryRelocate' })
           // The sidecar (and, if present, the apple_rendered_path companion)
           // is included automatically (#2667).
           const originalFilename = primary?.filename;
-          const outcome = await relocateGeoAsset(doc, libRoot, newDir, primary!);
+          const clip = loadedClips.get(doc._id.toHexString());
+          const pairNames = clip ? await pairDestinationNames(libRoot, primary!, clip, newDir) : {};
+          const outcome = await relocateGeoAsset(doc, libRoot, newDir, primary!, pairNames.still);
           // `renamed` is only meaningful for an actual move. relocateGeoAsset
           // can't report a collision auto-rename directly, so re-read the
           // repointed location and compare the new filename to the one we
@@ -512,11 +521,12 @@ export const libraryRelocateRoutes = new Elysia({ name: 'libraryRelocate' })
           const clipFailure =
             outcome === 'moved'
               ? await moveClipBesideStill({
-                  clip: loadedClips.get(doc._id.toHexString()),
+                  clip,
                   stillAddress: representativeAddress,
                   stillFilename: primary!.filename,
                   libRoot,
                   newDir,
+                  destinationFilename: pairNames.clip,
                 })
               : null;
           if (clipFailure) results.push(clipFailure);

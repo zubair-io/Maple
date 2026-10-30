@@ -244,6 +244,7 @@ export async function relocateGeoAsset(
   libRoot: string,
   newDir: string,
   primary: FileInfo,
+  destinationFilename: string = primary.filename,
 ): Promise<GeoMoveOutcome> {
   const oldDir = primary.path;
   if (newDir === oldDir) return 'skipped';
@@ -258,7 +259,7 @@ export async function relocateGeoAsset(
 
   const oldDirAbs = path.join(libRoot, oldDir);
   const sourceAbsPath = path.join(libRoot, oldDir, primary.filename);
-  const destAbsPath = path.join(libRoot, newDir, primary.filename);
+  const destAbsPath = path.join(libRoot, newDir, destinationFilename);
 
   if ((await pathExists(destAbsPath)) && (await isSameDirectoryEntry(sourceAbsPath, destAbsPath))) {
     log.warn(
@@ -278,6 +279,7 @@ export async function relocateGeoAsset(
 
   if (
     !hasCompanions &&
+    destinationFilename === primary.filename &&
     (await pathExists(destAbsPath)) &&
     (await filesIdentical(sourceAbsPath, destAbsPath))
   ) {
@@ -289,6 +291,7 @@ export async function relocateGeoAsset(
     mode: 'move',
     collision: 'auto-suffix',
     destinationPath: newDir,
+    destinationFilename,
     appleCompanionAbsPaths,
     // #2667 review: `relocateAsset`'s own `activeFileInfo(doc)` resolution
     // EXCLUDES a missing_since-tagged entry — but `primary` here came from
