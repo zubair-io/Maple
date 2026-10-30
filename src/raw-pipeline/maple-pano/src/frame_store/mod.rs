@@ -241,7 +241,15 @@ impl FrameStore {
         rows: u32,
         chunk_bytes: u64,
     ) -> Result<PlanarImage, PanoError> {
-        let (_, (width, _)) = self.stored(idx)?;
+        let (_, (width, height)) = self.stored(idx)?;
+        let end = y0
+            .checked_add(rows)
+            .filter(|&end| end <= height)
+            .ok_or_else(|| {
+                PanoError::InvalidOptions(format!(
+                    "frame store: rows {y0}+{rows} past the {height} rows of frame {idx}"
+                ))
+            })?;
         let row_px = width as usize;
         let n = row_px * rows as usize;
         let (mut r, mut g, mut b) = (
@@ -252,8 +260,8 @@ impl FrameStore {
         let chunk_rows = (chunk_bytes / (row_px as u64 * BYTES_PER_PIXEL).max(1))
             .clamp(1, rows.max(1) as u64) as u32;
         let mut chunk = vec![[0.0f32; 3]; row_px * chunk_rows as usize];
-        for start in (y0..y0 + rows).step_by(chunk_rows as usize) {
-            let take = chunk_rows.min(y0 + rows - start) as usize;
+        for start in (y0..end).step_by(chunk_rows as usize) {
+            let take = chunk_rows.min(end - start) as usize;
             let part = &mut chunk[..row_px * take];
             self.read_rows(idx, start, part)?;
             r.extend(part.iter().map(|p| p[0]));

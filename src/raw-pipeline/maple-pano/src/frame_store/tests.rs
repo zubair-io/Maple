@@ -106,6 +106,32 @@ fn window_reads_reject_partial_rows_and_overruns() {
 }
 
 #[test]
+fn planar_windows_outside_the_frame_are_typed_errors() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = store_of(dir.path(), &[&vignetted_dng(64, 48, None)]);
+    let (_, h) = store.dims(0).unwrap();
+    for (y0, rows) in [
+        (u32::MAX, 0),
+        (u32::MAX, 1),
+        (u32::MAX, u32::MAX),
+        (1, u32::MAX),
+        (0, h + 1),
+        (h, 1),
+        (h + 1, 0),
+    ] {
+        assert!(
+            matches!(
+                store.read_planar_rows(0, y0, rows),
+                Err(PanoError::InvalidOptions(_))
+            ),
+            "rows {y0}+{rows} of a {h}-row frame must be rejected"
+        );
+    }
+    assert_eq!(store.read_planar_rows(0, h, 0).unwrap().height(), 0);
+    assert_eq!(store.read_planar_rows(0, 0, h).unwrap().height(), h);
+}
+
+#[test]
 fn low_disk_fails_the_preflight_with_a_typed_error() {
     let parent = tempfile::tempdir().unwrap();
     let dims = [(1000, 500), (1000, 500)];
