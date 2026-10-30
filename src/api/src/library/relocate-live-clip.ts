@@ -1,9 +1,12 @@
+import * as path from 'node:path';
 import { listDirectoryLivePhotoCandidates } from '../db/repos/assets.address.ts';
 import { findRelocateCandidatesByFilenames } from '../db/repos/assets.by-filename.ts';
 import type { ObjectId } from '../db/object-id.ts';
 import type { AssetWithId, FileInfo } from '../db/schema.ts';
 import { child as childLogger } from '../log.ts';
 import { SIDECAR_METADATA_INDEX_STAGE_NAME } from '../workers/stages/sidecar-metadata-index.ts';
+import { assetDestinationOccupied } from '../fs/sidecar-ownership.ts';
+import { listPairedSidecars } from '../fs/xmp-conflict.ts';
 import { pairLivePhotos } from './live-photo-pairs.ts';
 import { relocateGeoAsset } from './relocate-geo.ts';
 
@@ -38,7 +41,67 @@ type PlannedLink =
   | { role: 'clip'; clipId: string }
   | { role: 'still'; stillId: string; clip: PlannedClip };
 
+/** The filenames a pair lands under; both absent when the original names are free. */
+export interface PairDestinationNames {
+  still?: string;
+  clip?: string;
+}
+
 export type ClipMoveResult = { ok: true } | { ok: false; error: string };
+
+const MAX_SHARED_SUFFIX = 1000;
+
+function suffixedFilename(filename: string, n: number): string {
+  const { name, ext } = path.parse(filename);
+  return `${name}.${n}${ext}`;
+}
+
+/**
+ * The filenames a still and its clip should take in `newDir`. A pair only stays
+ * a pair while both halves share a stem, so when either name (or one of its
+ * sidecar names) is already taken at the destination, both move under the same
+ * `.N`-suffixed stem rather than each resolving its own collision.
+ */
+export async function pairDestinationNames(
+  libRoot: string,
+  stillLocation: FileInfo,
+  clip: LoadedClip,
+  newDir: string,
+): Promise<PairDestinationNames> {
+  const halves = await Promise.all(
+    [stillLocation, clip.location].map(async (location) => {
+      const sourceAbsPath = path.join(libRoot, location.path, location.filename);
+      return {
+        filename: location.filename,
+        sourceAbsPath,
+        ownSidecars: await listPairedSidecars(sourceAbsPath),
+      };
+    }),
+  );
+  const bothFreeAt = async (n: number) =>
+    (
+      await Promise.all(
+        halves.map(({ filename, sourceAbsPath, ownSidecars }) =>
+          assetDestinationOccupied(
+            path.join(libRoot, newDir, n === 0 ? filename : suffixedFilename(filename, n)),
+            ownSidecars,
+            sourceAbsPath,
+          ),
+        ),
+      )
+    ).every((occupied) => !occupied);
+  for (let n = 0; n <= MAX_SHARED_SUFFIX; n++) {
+    if (await bothFreeAt(n)) {
+      return n === 0
+        ? {}
+        : {
+            still: suffixedFilename(stillLocation.filename, n),
+            clip: suffixedFilename(clip.location.filename, n),
+          };
+    }
+  }
+  throw new Error(`no free shared filename for ${stillLocation.filename} in ${newDir}`);
+}
 
 /**
  * Pair each member's folder by Apple content identifier and sort the batch into
@@ -128,9 +191,16 @@ export async function relocateLiveClip(
   clip: LoadedClip,
   libRoot: string,
   newDir: string,
+  destinationFilename?: string,
 ): Promise<ClipMoveResult> {
   try {
-    const outcome = await relocateGeoAsset(clip.doc, libRoot, newDir, clip.location);
+    const outcome = await relocateGeoAsset(
+      clip.doc,
+      libRoot,
+      newDir,
+      clip.location,
+      destinationFilename,
+    );
     return outcome === 'moved'
       ? { ok: true }
       : { ok: false, error: 'Live Photo clip was not moved and stays in its old folder' };
