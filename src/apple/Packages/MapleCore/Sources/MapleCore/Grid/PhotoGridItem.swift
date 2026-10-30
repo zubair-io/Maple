@@ -14,6 +14,7 @@
 // different-overlays hash collision is permitted by the Hashable contract).
 
 import Foundation
+import MapleCloudKit
 
 // MARK: - ImageSourceBox
 
@@ -92,6 +93,8 @@ public struct GridCellOverlays: Sendable, Hashable {
     /// True when `CullingState.hidden == true` — dims the thumbnail and shows
     /// the "HIDDEN" badge (see `PhotoThumbnailCell`).
     public var hidden: Bool = false
+    /// Which half of a Live Photo pair this tile is, or `nil` for any other asset.
+    public var livePhoto: LivePhotoLink.Role? = nil
 
     public init(
         rating: Int = 0,
@@ -99,7 +102,8 @@ public struct GridCellOverlays: Sendable, Hashable {
         sync: SyncBadge? = nil,
         isVideo: Bool = false,
         style: OverlayStyle = .phone,
-        hidden: Bool = false
+        hidden: Bool = false,
+        livePhoto: LivePhotoLink.Role? = nil
     ) {
         self.rating = rating
         self.flag = flag
@@ -107,6 +111,7 @@ public struct GridCellOverlays: Sendable, Hashable {
         self.isVideo = isVideo
         self.style = style
         self.hidden = hidden
+        self.livePhoto = livePhoto
     }
 }
 

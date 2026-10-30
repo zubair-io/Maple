@@ -515,7 +515,8 @@ struct BrowseGrid: View {
       sync: nil,
       isVideo: false,
       style: .desktop,
-      hidden: session?.culling.hidden ?? false
+      hidden: session?.culling.hidden ?? false,
+      livePhoto: asset.livePhoto?.role
     )
   }
 

@@ -446,7 +446,8 @@
         sync: nil,
         isVideo: false,
         style: .phone,
-        hidden: session?.culling.hidden ?? false
+        hidden: session?.culling.hidden ?? false,
+        livePhoto: asset.livePhoto?.role
       )
     }
   }

@@ -98,8 +98,9 @@ struct PhotoThumbnailCell: View {
   /// "<name>, selected / not selected" announcement BrowseGrid had before the
   /// shared-cell migration. Single-select mode announces just the name.
   private var accessibilityLabelText: String {
-    guard let checked = multiSelectChecked else { return item.displayName }
-    return "\(item.displayName), \(checked ? "selected" : "not selected")"
+    let name = item.overlays.livePhoto == nil ? item.displayName : "\(item.displayName), Live Photo"
+    guard let checked = multiSelectChecked else { return name }
+    return "\(name), \(checked ? "selected" : "not selected")"
   }
 
   /// Selection hint, multi-select only. Empty (no hint) in single-select
@@ -155,15 +156,7 @@ struct PhotoThumbnailCell: View {
       }
     }
     .overlay(alignment: .topLeading) {
-      if item.overlays.hidden {
-        Text("HIDDEN")
-          .font(.system(size: 9, weight: .bold))
-          .foregroundStyle(.white)
-          .padding(.horizontal, 6)
-          .padding(.vertical, 3)
-          .background(Color.black.opacity(0.6), in: RoundedRectangle(cornerRadius: 3))
-          .padding(6)
-      }
+      GridCornerBadges(overlays: item.overlays)
     }
     .overlay(alignment: .topTrailing) {
       // Multi-select badge — only present when multiSelectChecked is non-nil.
