@@ -1,7 +1,7 @@
 //! Graph-cut variant of the memory-bounded tiled composite (#1179).
 //!
-//! `composite_tiled` and `composite_tiled_frames` (the parent module)
-//! stream one full-resolution frame at a time and pick a per-pixel
+//! `composite_tiled` (the parent module) streams each frame's strip
+//! window and picks a per-pixel
 //! *owner* geometrically — a decision that needs no pixel data, so it
 //! fits the tiled architecture directly. Content-aware seam placement
 //! isn't geometric: it needs actual overlapping frames' pixels together
@@ -11,7 +11,7 @@
 //!
 //! The fix used here: run the content-aware decision **once**, before
 //! the tile loop, at a resolution cheap enough to hold every frame's
-//! result at once (`seam::masks::build_from_paths` — the "downsampled
+//! result at once (`seam::masks::build_from_rows` — the "downsampled
 //! overlaps, <= ~2MP" the ticket describes), and turn the tile loop's
 //! per-pixel decision from a hard geometric owner into a **weight**
 //! sampled from that precomputed result ([`crate::seam::SeamMasks::weight`])
@@ -21,7 +21,7 @@
 //!
 //! The geometric [`super::strips::survey`] is still run — not to decide
 //! ownership, but as a cheap "does this frame touch this window at all"
-//! skip test so a frame with no footprint there isn't decoded, and for the
+//! skip test so a frame with no footprint there isn't read, and for the
 //! overlap width that sets the band count (a property of the frame layout,
 //! not of which seam algorithm placed the boundary).
 
@@ -29,18 +29,18 @@ use crate::blend::levels_for_overlap_width;
 use crate::camera::Camera;
 use crate::canvas::CanvasSpec;
 use crate::error::PanoError;
+use crate::frame_store::FrameRows;
 use crate::gain::{ExposureField, FramePhotometry};
-use crate::ingest::{ingest_file, PlanarImage};
+use crate::ingest::PlanarImage;
 use crate::local_align::LocalCorrection;
 use crate::seam::{self, SeamConstraint, SeamMasks};
-use crate::warp::warp_to_canvas_strip;
 
 use super::super::{CanvasSink, CompositeReport};
-use super::{check_inputs, strips, with_exposure_field};
+use super::{check_inputs, strips, warp_frame_strip};
 
 #[allow(clippy::too_many_arguments)]
 pub(super) fn composite_tiled_graph_cut(
-    paths: &[std::path::PathBuf],
+    frames: &dyn FrameRows,
     cameras: &[Camera],
     photometry: &[FramePhotometry],
     local_corrections: &[Option<LocalCorrection>],
@@ -52,87 +52,14 @@ pub(super) fn composite_tiled_graph_cut(
 ) -> Result<CompositeReport, PanoError> {
     check_inputs(
         "composite_tiled(graph_cut)",
-        "paths",
-        paths.len(),
-        cameras.len(),
-        photometry.len(),
-        local_corrections.len(),
-    )?;
-
-    let Some(seam) = seam::masks::build_from_paths(
-        paths,
-        cameras,
-        photometry,
-        local_corrections,
-        canvas,
-        seam_constraints,
-    )?
-    else {
-        return super::composite_tiled_voronoi(
-            paths,
-            cameras,
-            photometry,
-            local_corrections,
-            exposure_field,
-            canvas,
-            tile_rows,
-            sink,
-        );
-    };
-
-    graph_cut_blend(
-        cameras,
-        photometry,
-        local_corrections,
-        canvas,
-        tile_rows,
-        &seam,
-        |fi, tile_y0, tile_y1| {
-            let frame = ingest_file(&paths[fi])?;
-            let la = local_corrections.get(fi).and_then(|o| o.as_ref());
-            let strip = warp_to_canvas_strip(
-                &frame.image,
-                &cameras[fi],
-                canvas,
-                photometry[fi],
-                la,
-                tile_y0,
-                tile_y1,
-            );
-            Ok(with_exposure_field(
-                exposure_field,
-                fi,
-                strip,
-                canvas,
-                tile_y0,
-            ))
-        },
-        sink,
-    )
-}
-
-#[allow(clippy::too_many_arguments)]
-pub(super) fn composite_tiled_frames_graph_cut(
-    frames: &[PlanarImage],
-    cameras: &[Camera],
-    photometry: &[FramePhotometry],
-    local_corrections: &[Option<LocalCorrection>],
-    exposure_field: Option<&ExposureField>,
-    canvas: &CanvasSpec,
-    tile_rows: u32,
-    seam_constraints: &[SeamConstraint],
-    sink: &mut dyn CanvasSink,
-) -> Result<CompositeReport, PanoError> {
-    check_inputs(
-        "composite_tiled_frames(graph_cut)",
         "frames",
-        frames.len(),
+        frames.frame_count(),
         cameras.len(),
         photometry.len(),
         local_corrections.len(),
     )?;
 
-    let Some(seam) = seam::masks::build_from_frames(
+    let Some(seam) = seam::masks::build_from_rows(
         frames,
         cameras,
         photometry,
@@ -141,7 +68,7 @@ pub(super) fn composite_tiled_frames_graph_cut(
         seam_constraints,
     )?
     else {
-        return super::composite_tiled_frames_voronoi(
+        return super::composite_tiled_voronoi(
             frames,
             cameras,
             photometry,
@@ -161,23 +88,16 @@ pub(super) fn composite_tiled_frames_graph_cut(
         tile_rows,
         &seam,
         |fi, tile_y0, tile_y1| {
-            let la = local_corrections.get(fi).and_then(|o| o.as_ref());
-            let strip = warp_to_canvas_strip(
-                &frames[fi],
-                &cameras[fi],
-                canvas,
-                photometry[fi],
-                la,
-                tile_y0,
-                tile_y1,
-            );
-            Ok(with_exposure_field(
-                exposure_field,
+            warp_frame_strip(
+                frames,
                 fi,
-                strip,
+                cameras,
+                photometry,
+                local_corrections,
+                exposure_field,
                 canvas,
-                tile_y0,
-            ))
+                (tile_y0, tile_y1),
+            )
         },
         sink,
     )
@@ -185,8 +105,7 @@ pub(super) fn composite_tiled_frames_graph_cut(
 
 /// Multi-band blend every frame that has *some* geometric footprint in a
 /// strip window, weighted by [`SeamMasks::weight`]. `warp_strip(frame_index,
-/// y0, y1)` is the caller's decode-or-reuse closure, so the file-path and
-/// pre-loaded-frames entry points share this loop.
+/// y0, y1)` is the caller's warp closure.
 #[allow(clippy::too_many_arguments)]
 fn graph_cut_blend(
     cameras: &[Camera],

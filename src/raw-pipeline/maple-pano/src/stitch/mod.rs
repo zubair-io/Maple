@@ -52,30 +52,29 @@
 //! tells the caller which strategy ran. The `TileNotSupported` error variant
 //! was removed in the #1270 refactor — it is no longer part of `StitchError`.
 //!
-//! # Memory-bounded path (#1254)
+//! # Memory-bounded path (#1254, #5554)
 //!
-//! **Stage 0** decodes each frame once to produce the long-edge-capped proxy
-//! and priors, then immediately frees the full-resolution pixel buffer via
-//! [`crate::ingest::ingest_file_proxy`].  Only the proxy planes and lightweight
-//! metadata (`FrameMeta`) are held resident between stages.
+//! **Stage 0** develops each frame once, band by band, into the stitch's
+//! [`crate::frame_store::FrameStore`] on disk, and reads its long-edge
+//! proxy back from there ([`frames::decode_into_store`]). Only the proxy
+//! planes and lightweight metadata (`FrameMeta`) are held resident between
+//! stages; no stage decodes a RAW again.
 //!
-//! **Stage 3 (refinement)** uses a 2-entry LRU decode cache: each edge's pair
-//! of full-resolution frames is decoded on demand and evicted when no longer
-//! referenced by the next edge.  At most 2 full-resolution frames are resident
-//! at once during this stage.
+//! **Stage 3 (refinement)** reads each edge's two frames from the store
+//! through a 2-entry cache, so at most 2 full-resolution frames are
+//! resident at once.
 //!
-//! **Gain solve** (just before composite): surviving frames are decoded
-//! on demand one at a time, their overlap statistics accumulated, and the pixel
-//! buffer freed before the next frame is decoded — so at most 1 full-resolution
-//! frame is resident during the gain phase. The residual exposure field
-//! (#4521) is solved right after it the same way, one decode at a time onto
-//! the ~1 MP seam canvas.
+//! **Gain solve** (just before composite): surviving frames are read one
+//! at a time, their overlap statistics accumulated, and the pixels freed
+//! before the next — at most 1 full-resolution frame resident. The
+//! residual exposure field (#4521) is solved right after it the same way,
+//! onto the ~1 MP seam canvas.
 //!
 //! **Stage 5 (composite)**: always uses the tiled path (`composite_tiled`),
-//! which decodes each source frame on demand per tile strip and frees it before
-//! moving to the next. The `canvas_tile_rows` option controls strip height.
-//! When `canvas_tile_rows` is `None`, a default of 512 rows is used so the
-//! tiled path always engages on the rotation-strategy path.
+//! which reads per strip only the source rows that strip's warp taps. The
+//! `canvas_tile_rows` option controls strip height; when it is `None`, a
+//! default of 512 rows is used so the tiled path always engages on the
+//! rotation-strategy path.
 //!
 //! End-to-end on pano_01 (21 DJI DNGs): the **frame-processing** peak RSS
 //! drops from ~34 GB → ~4.9 GB (measured).  End-to-end peak is ~13.6 GB,
@@ -90,6 +89,7 @@ mod degenerate;
 mod engine;
 mod focal_bootstrap;
 mod frame_cache;
+mod frames;
 mod graph_build;
 mod io;
 mod photometry;
@@ -174,7 +174,8 @@ pub(super) fn validate_request(
     validate_grid(opts, inputs.len())
 }
 
-/// Stage 0 alone: decode every frame to its long-edge proxy + priors.
+/// Stage 0 for the preview, which needs no full-resolution frames: decode
+/// every frame to its long-edge proxy + priors.
 ///
 /// #1254: `ingest_file_proxy` allocates the full-res buffer internally for
 /// the downscale, then drops it before returning — only the lightweight
@@ -210,20 +211,18 @@ pub(super) struct SolvedHead {
     pub stage_timings_012: [f64; 3],
 }
 
-/// Stages 0–2 plus strategy selection — everything up to the boundary a
+/// Stages 1–2 plus strategy selection over stage 0's `metas` (decoded in
+/// `t_decode` seconds) — everything up to the boundary a
 /// [`SolvedAlignment`] captures (#4578).
 pub(super) fn solve_alignment(
-    inputs: &[PathBuf],
+    metas: Vec<FrameMeta>,
+    t_decode: f64,
     opts: &StitchOptions,
     key: AlignmentKey,
     mut progress: &mut dyn FnMut(u32, f32),
     is_cancelled: &dyn Fn() -> bool,
 ) -> Result<SolvedHead, StitchError> {
     use std::time::Instant;
-
-    let t0 = Instant::now();
-    let metas = decode_proxies(inputs, opts.proxy_long_edge, progress, is_cancelled)?;
-    let t_decode = t0.elapsed().as_secs_f64();
 
     let priors: Vec<crate::ingest::FramePriors> = metas.iter().map(|m| m.priors.clone()).collect();
 

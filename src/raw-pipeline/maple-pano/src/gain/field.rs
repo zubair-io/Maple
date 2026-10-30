@@ -26,14 +26,13 @@
 //! the exposure its photometry gave it. The lattice spacing is chosen so
 //! no view has more than [`MAX_NODES_PER_VIEW`] unknowns.
 
-use std::path::PathBuf;
-
 use rayon::prelude::*;
 
 use crate::camera::Camera;
 use crate::canvas::CanvasSpec;
 use crate::error::PanoError;
-use crate::ingest::{ingest_file, PlanarImage};
+use crate::frame_store::FrameRows;
+use crate::ingest::PlanarImage;
 use crate::local_align::LocalCorrection;
 use crate::seam::masks::SEAM_CANVAS_MAX_PX;
 use crate::warp::warp_to_canvas;
@@ -241,27 +240,25 @@ pub fn solve_exposure_field(
     ))
 }
 
-/// Solve the exposure field from frame files, decoding one frame at a
-/// time and keeping only its seam-canvas luminance.
+/// Solve the exposure field from `frames`, reading one frame at a time
+/// and keeping only its seam-canvas luminance.
 pub fn solve_exposure_field_streaming(
-    paths: &[PathBuf],
+    frames: &dyn FrameRows,
     cameras: &[Camera],
     photometry: &[FramePhotometry],
     local_corrections: &[Option<LocalCorrection>],
     canvas: &CanvasSpec,
 ) -> Result<ExposureField, PanoError> {
     check_lengths(
-        paths.len(),
+        frames.frame_count(),
         cameras.len(),
         photometry.len(),
         local_corrections.len(),
     )?;
     let seam_canvas = canvas.downscaled(SEAM_CANVAS_MAX_PX);
-    let layers = paths
-        .iter()
-        .enumerate()
-        .map(|(i, path)| {
-            let frame = ingest_file(path)?.image;
+    let layers = (0..frames.frame_count())
+        .map(|i| {
+            let frame = frames.read_frame(i)?;
             Ok(seam_layer(
                 &frame,
                 i,

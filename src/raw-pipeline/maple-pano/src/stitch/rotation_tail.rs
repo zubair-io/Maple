@@ -1,7 +1,8 @@
 //! The rotation-strategy tail (stages 3–5): full-resolution refinement →
 //! bundle adjustment → leveling → photometry → tiled composite. Split from
 //! `stitch/mod.rs` when the head became a reusable [`SolvedAlignment`]
-//! (#4578): the tail reads only the alignment and the input paths, so a
+//! (#4578): the tail reads only the alignment and the stitch's stored
+//! frames, so a
 //! fresh stitch and a stitch from a preview's alignment run the same code
 //! over the same state.
 
@@ -12,6 +13,7 @@ use crate::ba::{self, BaOptions};
 use crate::camera::Camera;
 use crate::canvas::{auto_canvas, CanvasOptions, ProjectionMode};
 use crate::composite::{CancellableSink, CanvasSink, CompositeReport};
+use crate::frame_store::{FrameRows, Subset};
 use crate::leveling;
 use crate::local_align::LocalCorrection;
 use crate::robust::RobustOptions;
@@ -28,6 +30,7 @@ use super::{rotation_composite, seam_gate};
 /// alignment was reused rather than solved by this call).
 pub(super) fn rotation_tail(
     inputs: &[PathBuf],
+    frames: &dyn FrameRows,
     opts: &StitchOptions,
     alignment: &SolvedAlignment,
     head_timings: [f64; 3],
@@ -43,7 +46,7 @@ pub(super) fn rotation_tail(
 
     // ── stage 3: full-resolution NCC refinement + reverification ──────────
     //
-    // #1254: 2-entry LRU decode cache — at most 2 full-resolution frames are
+    // #1254: 2-entry frame cache — at most 2 full-resolution frames are
     // live simultaneously.
     let t3 = Instant::now();
     progress(3, 0.0);
@@ -53,6 +56,7 @@ pub(super) fn rotation_tail(
     let refine_result = refine_edges_lru(
         &mut graph,
         inputs,
+        frames,
         &proxy_scales,
         &full_images,
         |frac| progress(3, frac),
@@ -126,7 +130,10 @@ pub(super) fn rotation_tail(
     reject_degenerate_canvas(&kept_cams, &canvas_opts, &strategy_report, opts)?;
 
     let kept_inputs: Vec<usize> = kept_meta.iter().map(|(i, _, _)| *i).collect();
-    let kept_paths: Vec<PathBuf> = kept_inputs.iter().map(|&i| inputs[i].clone()).collect();
+    let kept_frames = Subset {
+        inner: frames,
+        indices: &kept_inputs,
+    };
     let kept_local: Vec<Option<LocalCorrection>> =
         kept_meta.iter().map(|(_, _, lc)| lc.clone()).collect();
 
@@ -134,11 +141,11 @@ pub(super) fn rotation_tail(
         auto_canvas(&kept_cams, &canvas_opts).map_err(|e| StitchError::Composite(e.to_string()))?;
 
     let (photometry, falloff) =
-        solve_kept_photometry(&kept_paths, &kept_cams, &alignment.lenses, &kept_inputs)?;
+        solve_kept_photometry(&kept_frames, &kept_cams, &alignment.lenses, &kept_inputs)?;
 
     let seam_constraints = seam_gate::for_kept_frames(&opts.seam_constraints, &kept_inputs)?;
     let tiled_report = rotation_composite::composite(
-        &kept_paths,
+        &kept_frames,
         &kept_cams,
         &photometry,
         &kept_local,

@@ -1,8 +1,9 @@
-//! 2-entry LRU decode cache helpers for the stage-3 refinement pass (#1254).
+//! 2-entry LRU frame cache helpers for the stage-3 refinement pass (#1254).
 //!
-//! During full-resolution NCC refinement, each edge's pair of frames is decoded
-//! on demand and the cache evicts the frame least needed by the next edge.  At
-//! most 2 full-resolution [`PlanarImage`]s are resident simultaneously.
+//! During full-resolution NCC refinement, each edge's pair of frames is read
+//! from the stitch's frame store on demand, and the cache evicts the frame
+//! least needed by the next edge. At most 2 full-resolution [`PlanarImage`]s
+//! are resident simultaneously.
 //!
 //! [`refine_edges_lru`] is the main entry: it runs the full LRU-cached
 //! refinement loop over every edge of the match graph, returning the aggregate
@@ -10,25 +11,26 @@
 
 use std::path::PathBuf;
 
+use crate::frame_store::FrameRows;
 use crate::graph::{GraphImage, MatchGraph};
 use crate::ingest::PlanarImage;
 use crate::refine::{refine_correspondences, RefineGeometry, RefineOptions};
 use crate::stitch::types::StitchError;
 
-/// Decode a frame into the cache at `evict_slot`, replacing whatever was there.
-/// The old frame is dropped before decoding, so no more than two
+/// Read frame `idx` into the cache at `evict_slot`, replacing whatever was
+/// there. The old frame is dropped before reading, so no more than two
 /// full-resolution frames are ever live at once.
 ///
-/// Returns `Err(message)` if the file fails to decode, leaving the slot empty.
+/// Returns `Err(message)` if the read fails, leaving the slot empty.
 pub(super) fn load_frame(
     cache: &mut [Option<(usize, PlanarImage)>; 2],
+    frames: &dyn FrameRows,
     idx: usize,
-    path: &PathBuf,
     evict_slot: usize,
 ) -> Result<(), String> {
     cache[evict_slot] = None;
-    let frame = crate::ingest::ingest_file(path).map_err(|e| e.to_string())?;
-    cache[evict_slot] = Some((idx, frame.image));
+    let frame = frames.read_frame(idx).map_err(|e| e.to_string())?;
+    cache[evict_slot] = Some((idx, frame));
     Ok(())
 }
 
@@ -79,14 +81,16 @@ pub(super) struct RefinePassResult {
 /// Run the LRU-cached full-resolution NCC refinement pass over every edge of
 /// `graph` (#1254), updating `graph.edges[i].inlier_matches` in place.
 ///
-/// Uses a 2-entry LRU decode cache so at most 2 full-resolution frames are
-/// resident at once. `inputs`, `proxy_scales` (`full / proxy` per axis) and
+/// Uses a 2-entry LRU cache over `frames` so at most 2 full-resolution
+/// frames are resident at once. `inputs` (named in read errors), `frames`,
+/// `proxy_scales` (`full / proxy` per axis) and
 /// `full_images` are index-parallel with the graph's frames.
 ///
 /// Returns the aggregate refined / fallback match counts.
 pub(super) fn refine_edges_lru(
     graph: &mut MatchGraph,
     inputs: &[PathBuf],
+    frames: &dyn FrameRows,
     proxy_scales: &[(f64, f64)],
     full_images: &[GraphImage],
     mut progress: impl FnMut(f32),
@@ -113,11 +117,9 @@ pub(super) fn refine_edges_lru(
             Some(s) => s,
             None => {
                 let evict = choose_evict_slot(&cache, ia, ib, next_pair);
-                load_frame(&mut cache, ia, &inputs[ia], evict).map_err(|cause| {
-                    StitchError::Decode {
-                        path: inputs[ia].clone(),
-                        cause,
-                    }
+                load_frame(&mut cache, frames, ia, evict).map_err(|cause| StitchError::Decode {
+                    path: inputs[ia].clone(),
+                    cause,
                 })?;
                 evict
             }
@@ -130,11 +132,9 @@ pub(super) fn refine_edges_lru(
             Some(s) => s,
             None => {
                 let evict = if slot_for_a == 0 { 1 } else { 0 };
-                load_frame(&mut cache, ib, &inputs[ib], evict).map_err(|cause| {
-                    StitchError::Decode {
-                        path: inputs[ib].clone(),
-                        cause,
-                    }
+                load_frame(&mut cache, frames, ib, evict).map_err(|cause| StitchError::Decode {
+                    path: inputs[ib].clone(),
+                    cause,
                 })?;
                 evict
             }
@@ -179,6 +179,7 @@ pub(super) fn refine_edges_lru(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::frame_store::InMemory;
     use crate::graph::VerifiedEdge;
     use crate::ingest::ValidityMask;
     use crate::math::Mat3;
@@ -196,16 +197,16 @@ mod tests {
     }
 
     #[test]
-    fn the_evicted_frame_is_released_before_the_replacement_decodes() {
+    fn the_evicted_frame_is_released_before_the_replacement_is_read() {
         let mut cache = [Some((0, frame(0.1))), Some((1, frame(0.2)))];
-        let missing = PathBuf::from("/nonexistent/maple-pano-frame-cache.dng");
-        assert!(load_frame(&mut cache, 2, &missing, 0).is_err());
+        let frames = [frame(0.3), frame(0.4)];
+        assert!(load_frame(&mut cache, &InMemory(&frames), 2, 0).is_err());
         assert!(cache[0].is_none(), "slot 0 still holds its old frame");
         assert_eq!(cache[1].as_ref().map(|c| c.0), Some(1));
     }
 
     #[test]
-    fn refinement_stops_before_decoding_once_cancelled() {
+    fn refinement_stops_before_reading_once_cancelled() {
         let mut graph = MatchGraph {
             image_count: 2,
             edges: vec![VerifiedEdge {
@@ -224,8 +225,16 @@ mod tests {
             PathBuf::from("/nonexistent/a.dng"),
             PathBuf::from("/nonexistent/b.dng"),
         ];
-        let outcome =
-            refine_edges_lru(&mut graph, &inputs, &[(1.0, 1.0); 2], &[], |_| {}, &|| true);
+        let frames: [PlanarImage; 0] = [];
+        let outcome = refine_edges_lru(
+            &mut graph,
+            &inputs,
+            &InMemory(&frames),
+            &[(1.0, 1.0); 2],
+            &[],
+            |_| {},
+            &|| true,
+        );
         assert!(matches!(outcome, Err(StitchError::Cancelled)));
     }
 }

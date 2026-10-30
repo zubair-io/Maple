@@ -188,9 +188,9 @@ fn all_corrected_set_is_bit_identical_to_plain_photometry() {
 fn streaming_recovers_planted_vignette() {
     let cams = grid_cameras();
     let frames = planted(&cams, &[PLANTED_Q; MULS.len()]);
-    let (_dir, paths) = frames_to_tmpdir(&frames, &cams);
+    let (_dir, store) = frames_to_tmpdir(&frames, &cams);
     let solution = solve_photometry_streaming(
-        &paths,
+        &store,
         &cams,
         &one_lens(MULS.len()),
         &GainOptions::default(),

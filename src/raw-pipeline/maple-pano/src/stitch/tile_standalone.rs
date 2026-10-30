@@ -2,10 +2,10 @@
 //! `tile_stitch.rs` for the file-size budget (#3086).
 //!
 //! [`stitch_tile`] runs the whole tile pipeline by itself — its own
-//! decode, ALIKED + LightGlue pass and match graph — then hands off to
+//! stage 0, ALIKED + LightGlue pass and match graph — then hands off to
 //! [`super::tile_stitch::tile_tail`] for stages 3–5. `super::stitch`
 //! does the same thing but re-uses the early-stage state it already
-//! computed, so it never pays for a second decode + ML pass (#1270).
+//! computed, so it never pays for a second stage 0 + ML pass (#1270).
 //! This entry point exists for standalone tests and any caller that
 //! wants the tile path unconditionally.
 
@@ -13,7 +13,7 @@ use std::path::PathBuf;
 
 use crate::composite::CanvasSink;
 use crate::graph::{DescriptorTopKProvider, LoopClosureCheck, LoopClosureGate, MatchGraph};
-use crate::ingest::{ingest_file_proxy, FrameMeta, FramePriors};
+use crate::ingest::FramePriors;
 use crate::strategy::StrategyReport;
 
 use super::engine::extract_features;
@@ -57,29 +57,17 @@ pub fn stitch_tile(
     }
     super::graph_build::validate_grid(opts, inputs.len())?;
 
-    // ── stage 0: decode + priors ──────────────────────────────────────────
-    // #3197 (carrying forward #3090's stage-0 shape): `ingest_file_proxy`
-    // decodes full-res transiently to produce the long-edge proxy, then
-    // drops the full-res buffer before returning — matching
-    // `stitch::stitch`'s stage 0, so this standalone entry point no
-    // longer holds every input frame's full resolution pixels resident
-    // through the whole pipeline. Full-res pixels are decoded on demand
-    // later, in `tile_tail`, through its bounded cache.
+    // ── stage 0: develop into the frame store + proxies (#5554) ──────────
+    // Same stage 0 as `stitch::stitch`: each frame is developed once into
+    // the store and its proxy read back; `tile_tail` reads full-resolution
+    // pixels from the store through its bounded cache.
     let t0 = Instant::now();
-    progress(0, 0.0);
-    let mut metas: Vec<FrameMeta> = Vec::with_capacity(inputs.len());
-    for (i, path) in inputs.iter().enumerate() {
-        if is_cancelled() {
-            return Err(StitchError::Cancelled);
-        }
-        metas.push(ingest_file_proxy(path, opts.proxy_long_edge).map_err(|e| {
-            StitchError::Decode {
-                path: path.clone(),
-                cause: e.to_string(),
-            }
-        })?);
-        progress(0, (i + 1) as f32 / inputs.len() as f32);
-    }
+    let (store, metas) = super::frames::decode_into_store(
+        inputs,
+        opts.proxy_long_edge,
+        &mut progress,
+        &is_cancelled,
+    )?;
     let decode_s = t0.elapsed().as_secs_f64();
 
     let applied_opcodes: Vec<Vec<String>> =
@@ -180,6 +168,7 @@ pub fn stitch_tile(
             focal_seed_source: None,
             stage_timings_012: [decode_s, features_s, graph_s],
             inputs,
+            frames: &store,
             lenses: crate::gain::LensGroups::from_metas(&metas),
         },
         opts,

@@ -118,7 +118,7 @@ fn gain_and_bias_are_folded_into_the_warp() {
 fn bicubic_reproduces_linear_ramp_at_fractional_offsets() {
     let src = planar_from_fn(32, 8, |x, _| [x as f32, 0.0, 0.0]);
     for &(sx, sy) in &[(5.75, 3.5), (8.5, 2.25), (12.301, 4.71), (2.5, 1.5)] {
-        let s = sample_bicubic(&src, sx, sy).expect("interior sample");
+        let s = sample_bicubic(SourceRows::full(&src), sx, sy).expect("interior sample");
         // Texel x stores value x; centers at x + 0.5 → value(sx) = sx − 0.5.
         assert!(
             (s[0] as f64 - (sx - 0.5)).abs() < 1e-5,

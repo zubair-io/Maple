@@ -1,6 +1,6 @@
 //! Memory-bounded streaming photometry solve (#1254, #4517).
 //!
-//! Decodes each source frame exactly once and keeps at most one
+//! Reads each source frame exactly once and keeps at most one
 //! full-resolution frame resident. While frame `k` is resident its
 //! signal window is measured, its grid points that land in later
 //! frames `j > k` are recorded (value, position in both frames — thinned
@@ -10,42 +10,39 @@
 //! [`super::solve_photometry`].
 //!
 //! Only the forward direction per pair is sampled (the reverse would need
-//! frame `i` re-decoded), so a pair carries half the batch path's
+//! frame `i` read again), so a pair carries half the batch path's
 //! samples — still above the edge-weight saturation on real overlaps.
-
-use std::path::PathBuf;
 
 use crate::camera::Camera;
 use crate::error::PanoError;
+use crate::frame_store::FrameRows;
 
 use super::falloff::{solve_with_falloff, PhotometrySolution};
 use super::lens::LensGroups;
 use super::overlap::{pending_points, resolve_points, OverlapSet, PairSamples, PendingPoint};
 use super::{frames_may_overlap, validate_options, GainOptions, SignalWindow};
 
-/// Solve per-frame photometry from frame files, one decode per frame,
+/// Solve per-frame photometry from `frames`, one read per frame,
 /// estimating the falloff of every lens group in `lenses` (#4522).
 pub fn solve_photometry_streaming(
-    paths: &[PathBuf],
+    frames: &dyn FrameRows,
     cameras: &[Camera],
     lenses: &LensGroups,
     opts: &GainOptions,
 ) -> Result<PhotometrySolution, PanoError> {
-    let set = collect_overlap_set_streaming(paths, cameras, opts)?;
+    let set = collect_overlap_set_streaming(frames, cameras, opts)?;
     solve_with_falloff(&set, cameras, lenses, opts.mode)
 }
 
 pub(crate) fn collect_overlap_set_streaming(
-    paths: &[PathBuf],
+    frames: &dyn FrameRows,
     cameras: &[Camera],
     opts: &GainOptions,
 ) -> Result<OverlapSet, PanoError> {
-    use crate::ingest::ingest_file;
-
-    let n = paths.len();
+    let n = frames.frame_count();
     if n != cameras.len() {
         return Err(PanoError::InvalidOptions(format!(
-            "solve_photometry_streaming: {} paths vs {} cameras",
+            "solve_photometry_streaming: {} frames vs {} cameras",
             n,
             cameras.len()
         )));
@@ -56,7 +53,7 @@ pub(crate) fn collect_overlap_set_streaming(
     let mut windows = Vec::with_capacity(n);
     let mut pairs = Vec::new();
     for k in 0..n {
-        let img = ingest_file(&paths[k])?.image;
+        let img = frames.read_frame(k)?;
         windows.push(SignalWindow::measure(&img, opts.sample_stride));
         for j in (k + 1)..n {
             if frames_may_overlap(&cameras[k], &cameras[j]) {

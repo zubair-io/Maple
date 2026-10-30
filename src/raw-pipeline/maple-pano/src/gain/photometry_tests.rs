@@ -5,6 +5,7 @@ use super::fit::robust_affine_fit;
 use super::solve::MAX_BIAS_FRACTION;
 use super::tests::{frames_to_tmpdir, geometric_mean, ring_cameras};
 use super::*;
+use crate::frame_store::FrameRows;
 use crate::ingest::ValidityMask;
 use crate::math::Vec3;
 
@@ -235,11 +236,11 @@ fn too_few_samples_give_no_edge() {
 fn streaming_pure_gain_set_keeps_bias_near_zero() {
     let muls = [1.6_f32, 1.0, 0.7];
     let (cams, frames) = planted(&muls, &[0.0; 3]);
-    let (_dir, paths) = frames_to_tmpdir(&frames, &cams);
+    let (_dir, store) = frames_to_tmpdir(&frames, &cams);
     let p = solve_photometry_streaming(
-        &paths,
+        &store,
         &cams,
-        &LensGroups::ingest_corrected(paths.len()),
+        &LensGroups::ingest_corrected(store.frame_count()),
         &GainOptions::default(),
     )
     .unwrap()

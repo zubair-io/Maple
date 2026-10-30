@@ -1,4 +1,5 @@
 use super::*;
+use crate::frame_store::{FrameRows, FrameStore};
 use crate::ingest::ValidityMask;
 use crate::math::Vec3;
 use crate::prng::SplitMix64;
@@ -22,14 +23,14 @@ fn solve_gains(
 }
 
 fn solve_gains_streaming(
-    paths: &[std::path::PathBuf],
+    frames: &dyn FrameRows,
     cameras: &[Camera],
     opts: &GainOptions,
 ) -> Result<Vec<[f32; 3]>, PanoError> {
     Ok(solve_photometry_streaming(
-        paths,
+        frames,
         cameras,
-        &LensGroups::ingest_corrected(paths.len()),
+        &LensGroups::ingest_corrected(frames.frame_count()),
         opts,
     )?
     .frames
@@ -203,18 +204,13 @@ fn planar_to_dng_bytes(img: &crate::ingest::PlanarImage, focal_35mm: u16) -> Vec
     out
 }
 
-/// Write frames to temp files and return the paths.
+/// Write frames to DNGs in a temp directory and develop them into a frame
+/// store there, the way a stitch's stage 0 does.
 pub(super) fn frames_to_tmpdir(
     frames: &[PlanarImage],
     cams: &[Camera],
-) -> (std::path::PathBuf, Vec<std::path::PathBuf>) {
-    use std::time::SystemTime;
-    let ts = SystemTime::now()
-        .duration_since(SystemTime::UNIX_EPOCH)
-        .unwrap_or_default()
-        .subsec_nanos();
-    let dir = std::env::temp_dir().join(format!("maple_gain_test_{:x}_{}", std::process::id(), ts));
-    std::fs::create_dir_all(&dir).expect("create tmpdir");
+) -> (tempfile::TempDir, FrameStore) {
+    let dir = tempfile::tempdir().expect("create tmpdir");
     let paths: Vec<std::path::PathBuf> = frames
         .iter()
         .enumerate()
@@ -225,12 +221,13 @@ pub(super) fn frames_to_tmpdir(
             let half_diag_rad = (diag_px / (2.0 * cam.focal_px)).atan();
             let focal_35mm = ((21.634 / half_diag_rad.tan()).round() as u16).max(1);
             let bytes = planar_to_dng_bytes(frame, focal_35mm);
-            let path = dir.join(format!("frame_{i:03}.dng"));
+            let path = dir.path().join(format!("frame_{i:03}.dng"));
             std::fs::write(&path, &bytes).expect("write test DNG");
             path
         })
         .collect();
-    (dir, paths)
+    let store = FrameStore::of_files(dir.path(), &paths);
+    (dir, store)
 }
 
 /// Smooth deterministic scene function of world direction.
@@ -454,9 +451,9 @@ fn bilinear_valid_renormalizes() {
 fn streaming_unity_input_solves_to_one() {
     let cams = ring_cameras(3, 60.0, 0.4);
     let frames: Vec<_> = cams.iter().map(|c| frame_from_scene(c, [1.0; 3])).collect();
-    let (_dir, paths) = frames_to_tmpdir(&frames, &cams);
+    let (_dir, store) = frames_to_tmpdir(&frames, &cams);
     let gains =
-        solve_gains_streaming(&paths, &cams, &GainOptions::default()).expect("streaming solve");
+        solve_gains_streaming(&store, &cams, &GainOptions::default()).expect("streaming solve");
     for g in &gains {
         for c in 0..3 {
             assert!(
@@ -486,9 +483,9 @@ fn streaming_plus_minus_one_ev_recovered() {
         .zip(muls)
         .map(|(c, m)| frame_from_scene(c, [m; 3]))
         .collect();
-    let (_dir, paths) = frames_to_tmpdir(&frames, &cams);
+    let (_dir, store) = frames_to_tmpdir(&frames, &cams);
     let gains =
-        solve_gains_streaming(&paths, &cams, &GainOptions::default()).expect("streaming solve");
+        solve_gains_streaming(&store, &cams, &GainOptions::default()).expect("streaming solve");
     // Verify ordering: the brightest frame (×2) must get the smallest gain
     // and the darkest frame (×0.5) must get the largest gain.
     let g: Vec<f32> = gains.iter().map(|g| g[0]).collect();
@@ -510,9 +507,9 @@ fn streaming_per_channel_multipliers_recovered() {
         .zip(muls)
         .map(|(c, m)| frame_from_scene(c, m))
         .collect();
-    let (_dir, paths) = frames_to_tmpdir(&frames, &cams);
+    let (_dir, store) = frames_to_tmpdir(&frames, &cams);
     let gains = solve_gains_streaming(
-        &paths,
+        &store,
         &cams,
         &GainOptions {
             mode: GainMode::PerChannel,
@@ -545,11 +542,10 @@ fn streaming_per_channel_multipliers_recovered() {
 }
 
 /// Equivalence gate: `solve_gains_streaming` and `solve_gains` agree on
-/// **the same decoded frames** — both paths decode from the DNG files so
-/// any decode-chain transforms cancel out between the two solves.
+/// **the same decoded frames** — both read the frames developed from the
+/// DNG files, so any decode-chain transforms cancel out between the two.
 #[test]
 fn streaming_and_batch_agree_on_same_frames() {
-    use crate::ingest::ingest_file;
     let cams = ring_cameras(3, 60.0, 0.45);
     let muls = [1.6_f32, 1.0, 0.7];
     let frames: Vec<_> = cams
@@ -557,17 +553,15 @@ fn streaming_and_batch_agree_on_same_frames() {
         .zip(muls)
         .map(|(c, m)| frame_from_scene(c, [m; 3]))
         .collect();
-    let (_dir, paths) = frames_to_tmpdir(&frames, &cams);
+    let (_dir, store) = frames_to_tmpdir(&frames, &cams);
 
-    // Decode the DNG files for the batch solver (same source as streaming).
-    let decoded_frames: Vec<PlanarImage> = paths
-        .iter()
-        .map(|p| ingest_file(p).expect("decode DNG").image)
+    let decoded_frames: Vec<PlanarImage> = (0..store.frame_count())
+        .map(|i| store.read_frame(i).expect("read frame"))
         .collect();
     let gains_batch =
         solve_gains(&decoded_frames, &cams, &GainOptions::default()).expect("batch solve");
     let gains_stream =
-        solve_gains_streaming(&paths, &cams, &GainOptions::default()).expect("streaming solve");
+        solve_gains_streaming(&store, &cams, &GainOptions::default()).expect("streaming solve");
 
     assert_eq!(gains_batch.len(), gains_stream.len());
     // After normalizing to geometric mean = 1, the two paths must agree

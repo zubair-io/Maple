@@ -1,24 +1,23 @@
 //! Rotation-strategy stage 5 tail: residual exposure field and the tiled
-//! composite, every pass decoding one surviving frame at a time.
-
-use std::path::PathBuf;
+//! composite, every pass reading the surviving frames from the store.
 
 use crate::camera::Camera;
 use crate::canvas::CanvasSpec;
 use crate::composite::{composite_tiled, CanvasSink, CompositeReport};
+use crate::frame_store::FrameRows;
 use crate::gain::{solve_exposure_field_streaming, FramePhotometry};
 use crate::local_align::LocalCorrection;
 use crate::seam::SeamConstraint;
 
 use super::{seam_gate, StitchError, StitchOptions};
 
-/// Strip height when `canvas_tile_rows` is unset, so the tiled path (≤1
-/// full-resolution frame resident per strip pass, #1254) always engages.
+/// Strip height when `canvas_tile_rows` is unset, so the tiled path (one
+/// strip's source rows resident per frame, #1254/#5554) always engages.
 const DEFAULT_TILE_ROWS: u32 = 512;
 
 #[allow(clippy::too_many_arguments)]
 pub(super) fn composite(
-    paths: &[PathBuf],
+    frames: &dyn FrameRows,
     cameras: &[Camera],
     photometry: &[FramePhotometry],
     local_corrections: &[Option<LocalCorrection>],
@@ -29,10 +28,10 @@ pub(super) fn composite(
 ) -> Result<CompositeReport, StitchError> {
     let failed = |e: crate::error::PanoError| StitchError::Composite(e.to_string());
     let exposure_field =
-        solve_exposure_field_streaming(paths, cameras, photometry, local_corrections, canvas)
+        solve_exposure_field_streaming(frames, cameras, photometry, local_corrections, canvas)
             .map_err(failed)?;
     let mut report = composite_tiled(
-        paths,
+        frames,
         cameras,
         photometry,
         local_corrections,
