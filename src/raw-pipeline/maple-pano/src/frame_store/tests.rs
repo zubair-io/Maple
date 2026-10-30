@@ -67,22 +67,13 @@ fn stored_frames_read_back_identical_to_decode_for_pano() {
         .collect();
     let refs: Vec<&[u8]> = frames.iter().map(Vec::as_slice).collect();
     let store = store_of(parent.path(), &refs);
-    let mut buf = Vec::new();
     for (i, bytes) in refs.iter().enumerate() {
         let full = reference(bytes);
         let (w, h) = store.dims(i).expect("stored");
         assert_eq!((w, h), (full.width(), full.height()));
-        assert_rows_match(
-            &store.read_planar_rows(i, 0, h, &mut buf).unwrap(),
-            &full,
-            0,
-        );
+        assert_rows_match(&store.read_planar_rows(i, 0, h).unwrap(), &full, 0);
         for (y0, rows) in [(0, 1), (h / 3, 7), (h - 5, 5)] {
-            assert_rows_match(
-                &store.read_planar_rows(i, y0, rows, &mut buf).unwrap(),
-                &full,
-                y0,
-            );
+            assert_rows_match(&store.read_planar_rows(i, y0, rows).unwrap(), &full, y0);
         }
     }
 }
@@ -96,9 +87,7 @@ fn concurrent_window_reads_agree() {
     let (_, h) = store.dims(0).unwrap();
     (0..h).into_par_iter().step_by(3).for_each(|y0| {
         let rows = 4.min(h - y0);
-        let window = store
-            .read_planar_rows(0, y0, rows, &mut Vec::new())
-            .unwrap();
+        let window = store.read_planar_rows(0, y0, rows).unwrap();
         assert_rows_match(&window, &full, y0);
     });
 }
@@ -303,14 +292,9 @@ fn fixture_frames_read_back_identical_to_decode_for_pano() {
         let started = std::time::Instant::now();
         let ingest = store.ingest_file(0, path, 1008).unwrap();
         let elapsed = started.elapsed();
-        let mut buf = Vec::new();
         for y0 in (0..full.height()).step_by(512) {
             let rows = 512.min(full.height() - y0);
-            assert_rows_match(
-                &store.read_planar_rows(0, y0, rows, &mut buf).unwrap(),
-                &full,
-                y0,
-            );
+            assert_rows_match(&store.read_planar_rows(0, y0, rows).unwrap(), &full, y0);
         }
         eprintln!(
             "{}: {}x{} identical, banded {}, ingest {elapsed:.2?}",
@@ -333,11 +317,7 @@ fn a_failed_ingest_can_be_retried() {
         .is_err());
     store.ingest_bytes(0, &bytes, "dng", 16, "retry").unwrap();
     let (w, h) = store.dims(0).unwrap();
-    assert_rows_match(
-        &store.read_planar_rows(0, 0, h, &mut Vec::new()).unwrap(),
-        &full,
-        0,
-    );
+    assert_rows_match(&store.read_planar_rows(0, 0, h).unwrap(), &full, 0);
     assert_eq!(w, full.width());
 }
 
@@ -353,9 +333,24 @@ fn frames_of_different_sensor_widths_share_the_scratch() {
     let store = store_of(parent.path(), &refs);
     for (i, bytes) in refs.iter().enumerate() {
         let full = reference(bytes);
-        let window = store
-            .read_planar_rows(i, 0, full.height(), &mut Vec::new())
-            .unwrap();
+        let window = store.read_planar_rows(i, 0, full.height()).unwrap();
         assert_rows_match(&window, &full, 0);
+    }
+}
+
+#[test]
+fn reads_spanning_many_chunks_are_exact() {
+    let parent = tempfile::tempdir().unwrap();
+    let bytes = vignetted_dng(150, 92, Some(6));
+    let store = store_of(parent.path(), &[&bytes]);
+    let full = reference(&bytes);
+    let row_bytes = full.width() as u64 * BYTES_PER_PIXEL;
+    for chunk_bytes in [1, row_bytes, row_bytes * 3 + 5] {
+        for (y0, rows) in [(0, full.height()), (5, 17)] {
+            let window = store
+                .read_planar_rows_chunked(0, y0, rows, chunk_bytes)
+                .unwrap();
+            assert_rows_match(&window, &full, y0);
+        }
     }
 }

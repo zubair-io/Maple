@@ -31,6 +31,7 @@ use crate::error::PanoError;
 use crate::ingest::{PlanarImage, ValidityMask};
 
 const BYTES_PER_PIXEL: u64 = 12;
+const READ_CHUNK_BYTES: u64 = 8 << 20;
 const DIR_PREFIX: &str = "maple-pano-frames-";
 
 /// The pass-1 scratch holds post-WB camera RGB at full *sensor* size, which
@@ -222,25 +223,49 @@ impl FrameStore {
     }
 
     /// Frame `idx`'s rows `y0..y0 + rows` as a planar window with an
-    /// all-true validity mask. `interleaved` is the caller's reusable read
-    /// buffer.
+    /// all-true validity mask. Reads go through a buffer of at most
+    /// [`READ_CHUNK_BYTES`], so only the planes themselves are resident.
     pub fn read_planar_rows(
         &self,
         idx: usize,
         y0: u32,
         rows: u32,
-        interleaved: &mut Vec<[f32; 3]>,
+    ) -> Result<PlanarImage, PanoError> {
+        self.read_planar_rows_chunked(idx, y0, rows, READ_CHUNK_BYTES)
+    }
+
+    fn read_planar_rows_chunked(
+        &self,
+        idx: usize,
+        y0: u32,
+        rows: u32,
+        chunk_bytes: u64,
     ) -> Result<PlanarImage, PanoError> {
         let (_, (width, _)) = self.stored(idx)?;
-        interleaved.resize(width as usize * rows as usize, [0.0; 3]);
-        self.read_rows(idx, y0, interleaved)?;
-        let plane = |c: usize| interleaved.iter().map(|p| p[c]).collect::<Vec<f32>>();
+        let row_px = width as usize;
+        let n = row_px * rows as usize;
+        let (mut r, mut g, mut b) = (
+            Vec::with_capacity(n),
+            Vec::with_capacity(n),
+            Vec::with_capacity(n),
+        );
+        let chunk_rows = (chunk_bytes / (row_px as u64 * BYTES_PER_PIXEL).max(1))
+            .clamp(1, rows.max(1) as u64) as u32;
+        let mut chunk = vec![[0.0f32; 3]; row_px * chunk_rows as usize];
+        for start in (y0..y0 + rows).step_by(chunk_rows as usize) {
+            let take = chunk_rows.min(y0 + rows - start) as usize;
+            let part = &mut chunk[..row_px * take];
+            self.read_rows(idx, start, part)?;
+            r.extend(part.iter().map(|p| p[0]));
+            g.extend(part.iter().map(|p| p[1]));
+            b.extend(part.iter().map(|p| p[2]));
+        }
         Ok(PlanarImage::from_planes(
             width,
             rows,
-            plane(0),
-            plane(1),
-            plane(2),
+            r,
+            g,
+            b,
             ValidityMask::new_filled(width, rows, true),
         ))
     }
