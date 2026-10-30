@@ -4,7 +4,7 @@
 // `Exif` item, and a QuickTime clip whose `mdta` key table names
 // `com.apple.quicktime.content.identifier`. No real camera samples are
 // committed; every byte here is synthetic.
-import { box } from '../motion-photo/motion-photo.fixtures.ts';
+import { box, fullBox, heifMeta } from '../motion-photo/motion-photo.fixtures.ts';
 
 export type ByteOrder = 'MM' | 'II';
 
@@ -33,9 +33,6 @@ const be16 = (value: number) => {
   buf.writeUInt16BE(value);
   return buf;
 };
-
-const fullBox = (type: string, version: number, ...payload: Buffer[]) =>
-  box(type, Buffer.from([version, 0, 0, 0]), ...payload);
 
 interface MakerNoteSpec {
   contentId: string | null;
@@ -157,18 +154,11 @@ export function heicWithExif(tiff: Buffer | null): Buffer {
       ? []
       : [Buffer.concat([be16(2), be16(1), be16(0), be16(1), be32(0), be32(item.length)])]),
   );
-  const meta = fullBox(
-    'meta',
-    0,
-    fullBox('hdlr', 0, Buffer.alloc(4), Buffer.from('pict', 'latin1'), Buffer.alloc(13)),
-    iinf,
-    iloc,
-    box('idat', item),
-  );
+  const meta = heifMeta(iinf, iloc, box('idat', item));
   return Buffer.concat([ftyp, meta, box('mdat', Buffer.alloc(64, 7))]);
 }
 
-export const CONTENT_IDENTIFIER_KEY = 'com.apple.quicktime.content.identifier';
+const CONTENT_IDENTIFIER_KEY = 'com.apple.quicktime.content.identifier';
 
 export interface QuickTimeClipSpec {
   contentId: string | null;

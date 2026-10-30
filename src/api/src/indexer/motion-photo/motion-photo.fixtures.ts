@@ -26,8 +26,17 @@ export function box(type: string, ...payload: Buffer[]): Buffer {
   return Buffer.concat([u32be(8 + body.length), Buffer.from(type, 'latin1'), body]);
 }
 
-const fullBox = (type: string, version: number, ...payload: Buffer[]) =>
+export const fullBox = (type: string, version: number, ...payload: Buffer[]) =>
   box(type, Buffer.from([version, 0, 0, 0]), ...payload);
+
+/** A HEIF `meta` box: a `pict` handler followed by the given child boxes. */
+export const heifMeta = (...children: Buffer[]) =>
+  fullBox(
+    'meta',
+    0,
+    fullBox('hdlr', 0, Buffer.alloc(4), Buffer.from('pict', 'latin1'), Buffer.alloc(13)),
+    ...children,
+  );
 
 /** A small MP4: `ftyp`, an empty `moov`, and an `mdat` carrying `marker` so a range is recognisable. */
 export function mp4(marker = 'clip-payload', brand = 'isom'): Buffer {
@@ -182,14 +191,7 @@ export function heic(
       u32be(xmpBytes.length),
     );
     const idat = storage === 'idat' ? box('idat', xmpBytes) : Buffer.alloc(0);
-    const meta = fullBox(
-      'meta',
-      0,
-      fullBox('hdlr', 0, Buffer.alloc(4), Buffer.from('pict', 'latin1'), Buffer.alloc(13)),
-      iinf,
-      iloc,
-      idat,
-    );
+    const meta = heifMeta(iinf, iloc, idat);
     const mdat = box(
       'mdat',
       Buffer.alloc(256, 0x33),
