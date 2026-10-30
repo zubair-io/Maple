@@ -94,6 +94,10 @@ export interface SeedAssetOptions {
    * on-the-fly reconcile.
    */
   sidecarStageVersion?: number;
+  /** An already-seeded library to put this asset in, so a second asset shares the folder row. */
+  libraryId?: string;
+  /** The Apple content identifier the `live-photo` stage recorded, if it has run. */
+  liveContentId?: string | null;
 }
 
 export interface SeededAsset {
@@ -114,7 +118,7 @@ export interface SeededAsset {
  * move would not notice if it stopped.
  */
 export function seedRelocatableAsset(db: Database, options: SeedAssetOptions): SeededAsset {
-  const libraryId = insertFolder(db, { path: options.root, slug: SLUG });
+  const libraryId = options.libraryId ?? insertFolder(db, { path: options.root, slug: SLUG });
   const assetId = insertAsset(db, {
     exif: JSON.stringify({ captured_year: options.capturedYear ?? 2024 }),
   });
@@ -127,11 +131,13 @@ export function seedRelocatableAsset(db: Database, options: SeedAssetOptions): S
   });
   run(
     db,
-    `UPDATE assets SET maple_id = ?, apple_rendered_path = ?, apple_live_video_path = ?
+    `UPDATE assets SET maple_id = ?, apple_rendered_path = ?, apple_live_video_path = ?,
+            live_content_id = ?
       WHERE id = ?`,
     options.mapleId,
     options.appleRenderedPath ?? null,
     options.appleLiveVideoPath ?? null,
+    options.liveContentId ?? null,
     assetId,
   );
   if (options.metadataOverride != null) {
