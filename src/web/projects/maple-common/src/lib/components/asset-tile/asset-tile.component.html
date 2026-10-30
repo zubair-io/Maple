@@ -14,6 +14,17 @@
   [flag]="mappedFlag()"
   (pressed)="thumbClick.emit($event)"
 >
+  @if (livePhoto()) {
+    <div
+      mediaCellTopLeft
+      data-testid="live-badge"
+      role="img"
+      aria-label="Live Photo"
+      class="flex h-[14px] px-1 gap-0.5 items-center justify-center rounded-[3px] border-[0.5px] border-white/20 bg-black/60 backdrop-blur-[4px] text-[8px] font-semibold text-white"
+    >
+      LIVE
+    </div>
+  }
   @if (a.hidden) {
     <div
       mediaCellTopLeft
@@ -84,6 +95,32 @@
        rename editing UI's bytes would sit in the main bundle for every
        asset ever rendered, most of which are never renamed in a session. -->
   <ng-container mediaCellFooter>
+    @if (livePhoto()?.role === 'clip') {
+      @if (clipSrc(); as clip) {
+        <video
+          class="absolute inset-0 z-10 h-full w-full rounded-[2px] bg-black object-cover"
+          data-testid="live-clip-player"
+          [src]="clip"
+          [attr.aria-label]="'Live Photo clip ' + a.filename"
+          autoplay
+          [muted]="true"
+          playsinline
+          (ended)="stopClip()"
+          (error)="stopClip()"
+          (click)="stopClip($event)"
+        ></video>
+      }
+      <button
+        type="button"
+        data-testid="live-clip-play"
+        class="absolute top-1/2 left-1/2 z-20 flex h-7 w-7 -translate-x-1/2 -translate-y-1/2 cursor-pointer items-center justify-center rounded-full border-[0.5px] border-white/30 bg-black/55 p-0 backdrop-blur-[4px]"
+        [attr.aria-label]="(clipSrc() ? 'Stop ' : 'Play ') + 'Live Photo clip'"
+        [attr.aria-pressed]="!!clipSrc()"
+        (click)="onPlayClip($event)"
+      >
+        <maple-icon [name]="clipSrc() ? 'x' : 'play-circle'" [size]="18" color="white" />
+      </button>
+    }
     <button
       #renameTrigger
       type="button"

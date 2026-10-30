@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { setupFixture } from './preview-shell.test-helpers';
+import { setupFixture, STUB_ASSET } from './preview-shell.test-helpers';
 
 const ACCESS = { apiBase: 'https://maple.test/api', bearer: () => 'token-1' };
 
@@ -15,10 +15,13 @@ async function settled(fixture: ReturnType<typeof setupFixture>['fixture']): Pro
   fixture.detectChanges();
 }
 
-const motionButton = (root: HTMLElement): HTMLButtonElement | undefined =>
+const actionButton = (root: HTMLElement, label: string): HTMLButtonElement | undefined =>
   Array.from(root.querySelectorAll<HTMLButtonElement>('.preview-action-bar button')).find(
-    (button) => button.textContent?.trim() === 'Motion',
+    (button) => button.textContent?.trim() === label,
   );
+
+const motionButton = (root: HTMLElement): HTMLButtonElement | undefined =>
+  actionButton(root, 'Motion');
 
 describe('Full image Motion Photo playback (#5447)', () => {
   afterEach(() => vi.unstubAllGlobals());
@@ -88,5 +91,27 @@ describe('Full image Motion Photo playback (#5447)', () => {
       method: 'HEAD',
     });
     expect(motionButton(fixture.nativeElement)).toBeUndefined();
+  });
+
+  it("offers a Live Photo still's paired clip without probing and plays it", async () => {
+    const fetchMock = stubHead(false);
+    const { fixture, state } = setupFixture({ videoAccess: ACCESS });
+    state.focusedAsset.set({
+      ...STUB_ASSET,
+      id: 'library:2026/IMG_1.HEIC',
+      filename: 'IMG_1.HEIC',
+      livePhoto: { role: 'still', partnerId: 'library:2026/IMG_1.MOV' },
+    });
+    await settled(fixture);
+    expect(fetchMock).not.toHaveBeenCalledWith(expect.stringContaining('IMG_1'), expect.anything());
+    const live = actionButton(fixture.nativeElement, 'Live');
+    expect(live).toBeDefined();
+    live!.click();
+    fixture.detectChanges();
+    const player = fixture.nativeElement.querySelector('[data-testid="motion-clip-player"]');
+    expect(player.getAttribute('src')).toBe(
+      'https://maple.test/api/video/library/2026/IMG_1.MOV?token=token-1',
+    );
+    expect(player.getAttribute('aria-label')).toBe('Live Photo clip');
   });
 });

@@ -80,6 +80,39 @@ describe('PreviewMotionClip', () => {
     expect(motion.available()).toBe(true);
   });
 
+  it('plays a Live Photo still through its partner clip with no probe', async () => {
+    const { probe, motion } = setup(
+      false,
+      asset({
+        id: 'library:2026/IMG_1.HEIC',
+        filename: 'IMG_1.HEIC',
+        livePhoto: { role: 'still', partnerId: 'library:2026/IMG_1.MOV' },
+      }),
+    );
+    await settle();
+    expect(probe).not.toHaveBeenCalled();
+    expect(motion.available()).toBe(true);
+    expect(motion.noun()).toBe('Live Photo');
+    expect(motion.label()).toBe('Live');
+    motion.toggle();
+    expect(motion.src()).toBe('https://maple.test/api/video/library/2026/IMG_1.MOV?token=token-1');
+  });
+
+  it('leaves the clip half of a pair to the normal video viewer', async () => {
+    const { probe, motion } = setup(
+      true,
+      asset({
+        id: 'library:2026/IMG_1.MOV',
+        filename: 'IMG_1.MOV',
+        isVideo: true,
+        livePhoto: { role: 'clip', partnerId: 'library:2026/IMG_1.HEIC' },
+      }),
+    );
+    await settle();
+    expect(probe).not.toHaveBeenCalled();
+    expect(motion.available()).toBe(false);
+  });
+
   it('ignores a probe answer that arrives after focus moved on', async () => {
     const resolvers: ((ok: boolean) => void)[] = [];
     TestBed.resetTestingModule();

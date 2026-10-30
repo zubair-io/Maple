@@ -24,6 +24,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { AssetTileComponent } from './asset-tile.component';
 import { LibraryStateService } from '../../state/library-state.service';
 import type { Asset, AssetId } from '../../models/asset';
+import { PREVIEW_VIDEO_ACCESS } from '../../shells/preview-shell/preview-video-access';
 
 type ThumbCb = (url: string | undefined) => void;
 
@@ -409,5 +410,93 @@ describe('AssetTileComponent — hidden dimming and badge', () => {
     const fixture = await render(false);
     expect(fixture.nativeElement.textContent).not.toContain('HIDDEN');
     expect(fixture.nativeElement.querySelector('.overlay.is-dimmed')).toBeNull();
+  });
+});
+
+describe('AssetTileComponent — Live Photo badge and clip playback', () => {
+  const ACCESS = { apiBase: 'https://maple.test/api', bearer: () => 'token-1' };
+
+  async function render(livePhoto: Asset['livePhoto'], filename = 'IMG_1.MOV') {
+    configure(syncStub(undefined));
+    TestBed.overrideProvider(PREVIEW_VIDEO_ACCESS, { useValue: ACCESS });
+    await TestBed.compileComponents();
+    const fixture = TestBed.createComponent(AssetTileComponent);
+    fixture.componentRef.setInput('asset', {
+      ...makeAsset('lib:2026/IMG_1.MOV', filename),
+      ...(livePhoto ? { livePhoto } : {}),
+    });
+    fixture.detectChanges();
+    return fixture;
+  }
+
+  const query = (fixture: Awaited<ReturnType<typeof render>>, testId: string) =>
+    fixture.nativeElement.querySelector(`[data-testid="${testId}"]`) as HTMLElement | null;
+
+  it('badges both halves of a pair', async () => {
+    const clip = await render({ role: 'clip', partnerId: 'lib:2026/IMG_1.HEIC' });
+    expect(query(clip, 'live-badge')?.textContent?.trim()).toBe('LIVE');
+    expect(query(clip, 'live-badge')?.getAttribute('aria-label')).toBe('Live Photo');
+    const still = await render({ role: 'still', partnerId: 'lib:2026/IMG_1.MOV' }, 'IMG_1.HEIC');
+    expect(query(still, 'live-badge')).not.toBeNull();
+  });
+
+  it('shows no badge or Play for an unpaired file', async () => {
+    const fixture = await render(undefined);
+    expect(query(fixture, 'live-badge')).toBeNull();
+    expect(query(fixture, 'live-clip-play')).toBeNull();
+  });
+
+  it('offers Play on the clip tile only', async () => {
+    const still = await render({ role: 'still', partnerId: 'lib:2026/IMG_1.MOV' }, 'IMG_1.HEIC');
+    expect(query(still, 'live-clip-play')).toBeNull();
+    const clip = await render({ role: 'clip', partnerId: 'lib:2026/IMG_1.HEIC' });
+    expect(query(clip, 'live-clip-play')).not.toBeNull();
+    expect(query(clip, 'live-clip-player')).toBeNull();
+  });
+
+  it('plays the clip inline without emitting the tile click', async () => {
+    const fixture = await render({ role: 'clip', partnerId: 'lib:2026/IMG_1.HEIC' });
+    let clicks = 0;
+    fixture.componentInstance.thumbClick.subscribe(() => clicks++);
+    query(fixture, 'live-clip-play')!.click();
+    fixture.detectChanges();
+    const player = query(fixture, 'live-clip-player') as HTMLVideoElement;
+    expect(player.getAttribute('src')).toBe(
+      'https://maple.test/api/video/lib/2026/IMG_1.MOV?token=token-1',
+    );
+    expect(player.muted).toBe(true);
+    expect(player.hasAttribute('playsinline')).toBe(true);
+    expect(clicks).toBe(0);
+  });
+
+  it('stops on a second Play press, on ended and on error', async () => {
+    const fixture = await render({ role: 'clip', partnerId: 'lib:2026/IMG_1.HEIC' });
+    const play = () => {
+      query(fixture, 'live-clip-play')!.click();
+      fixture.detectChanges();
+    };
+    play();
+    play();
+    expect(query(fixture, 'live-clip-player')).toBeNull();
+    play();
+    query(fixture, 'live-clip-player')!.dispatchEvent(new Event('ended'));
+    fixture.detectChanges();
+    expect(query(fixture, 'live-clip-player')).toBeNull();
+    play();
+    query(fixture, 'live-clip-player')!.dispatchEvent(new Event('error'));
+    fixture.detectChanges();
+    expect(query(fixture, 'live-clip-player')).toBeNull();
+  });
+
+  it('stops without opening Full image when the playing clip is clicked', async () => {
+    const fixture = await render({ role: 'clip', partnerId: 'lib:2026/IMG_1.HEIC' });
+    let clicks = 0;
+    fixture.componentInstance.thumbClick.subscribe(() => clicks++);
+    query(fixture, 'live-clip-play')!.click();
+    fixture.detectChanges();
+    query(fixture, 'live-clip-player')!.click();
+    fixture.detectChanges();
+    expect(query(fixture, 'live-clip-player')).toBeNull();
+    expect(clicks).toBe(0);
   });
 });

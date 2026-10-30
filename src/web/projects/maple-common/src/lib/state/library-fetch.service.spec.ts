@@ -124,6 +124,28 @@ describe('Self-Hosted indexed Info metadata', () => {
     expect(plain).toMatchObject({ edited: false, rating: 0, flag: 'unflagged', colorLabel: null });
   });
 
+  it('resolves the listing’s Live Photo partner filename to a sibling asset id', () => {
+    const clip = selfHostedAssetFromImage(
+      {
+        ...makeImage('IMG_1.MOV', '2026/IMG_1.MOV'),
+        livePhoto: { role: 'clip', partner: 'IMG_1.HEIC' },
+      },
+      `${LIB_SLUG}:`,
+    );
+    expect(clip.livePhoto).toEqual({ role: 'clip', partnerId: 'library:2026/IMG_1.HEIC' });
+    const rootStill = selfHostedAssetFromImage(
+      {
+        ...makeImage('IMG_2.HEIC', 'IMG_2.HEIC'),
+        livePhoto: { role: 'still', partner: 'IMG_2.MOV' },
+      },
+      `${LIB_SLUG}:`,
+    );
+    expect(rootStill.livePhoto).toEqual({ role: 'still', partnerId: 'library:IMG_2.MOV' });
+    expect(
+      selfHostedAssetFromImage(makeImage('plain.jpg', 'plain.jpg'), `${LIB_SLUG}:`),
+    ).not.toHaveProperty('livePhoto');
+  });
+
   it('projects the folder response EXIF into the Preview Info rows', () => {
     const image: ImageEntry = {
       ...makeImage('test_0003.CR2', 'test_0003.CR2'),

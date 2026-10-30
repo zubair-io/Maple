@@ -24,7 +24,7 @@
             variant="ghost"
             [iconOnly]="true"
             iconLeading="play-circle"
-            ariaLabel="Play Motion Photo"
+            [ariaLabel]="'Play ' + motion.noun()"
             [ariaPressed]="motion.playing()"
             [toggled]="motion.playing()"
             (pressed)="motion.toggle()"
@@ -78,7 +78,7 @@
           controls
           playsinline
           preload="auto"
-          aria-label="Motion Photo clip"
+          [attr.aria-label]="motion.noun() + ' clip'"
           (ended)="motion.stop()"
           (error)="motion.stop()"
           (pointerdown)="$event.stopPropagation()"
@@ -160,8 +160,8 @@
         <mui-action-button
           class="[&_button]:min-h-11 [&_button]:min-w-14"
           icon="play-circle"
-          label="Motion"
-          title="Play Motion Photo"
+          [label]="motion.label()"
+          [title]="'Play ' + motion.noun()"
           orientation="stacked"
           [selected]="motion.playing()"
           (pressed)="motion.toggle()"

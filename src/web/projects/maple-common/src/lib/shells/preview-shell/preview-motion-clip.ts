@@ -1,7 +1,7 @@
 import { computed, effect, signal, untracked, type Signal } from '@angular/core';
 import { parseAddress, toApiPath } from '../../addressing/maple-address';
 import type { Asset } from '../../models/asset';
-import type { PreviewVideoAccess } from './preview-video-access';
+import { mediaRouteUrl, type PreviewVideoAccess } from './preview-video-access';
 
 const MOTION_STILL_NAME = /\.(jpe?g|heic|heif)$/i;
 
@@ -21,31 +21,55 @@ export function motionClipApiPath(asset: Asset | null): string | undefined {
   return address.slug && address.relPath ? toApiPath(address) : undefined;
 }
 
+interface ClipSource {
+  readonly route: 'video' | 'motion';
+  readonly apiPath: string;
+  readonly probed: boolean;
+}
+
+/** Where the focused still's clip streams from: its Live Photo partner, else an embedded Motion Photo clip. */
+function clipSource(asset: Asset | null): ClipSource | undefined {
+  if (asset?.livePhoto?.role === 'still') {
+    const partner = parseAddress(asset.livePhoto.partnerId);
+    return partner.slug && partner.relPath
+      ? { route: 'video', apiPath: toApiPath(partner), probed: false }
+      : undefined;
+  }
+  const apiPath = motionClipApiPath(asset);
+  return apiPath ? { route: 'motion', apiPath, probed: true } : undefined;
+}
+
 /**
- * Full image's embedded-clip state for the focused still: whether the server
- * has a playable clip for it (a HEAD probe per still), and whether the user
- * has asked to play it. The clip URL is minted when playback starts so it
- * carries the current access token rather than one cached at navigation.
+ * Full image's clip state for the focused still: whether it has a playable
+ * clip (an embedded Motion Photo clip confirmed by a HEAD probe per still, or
+ * a Live Photo partner the folder listing already reported), and whether the
+ * user has asked to play it. The clip URL is minted when playback starts so
+ * it carries the current access token rather than one cached at navigation.
  */
 export class PreviewMotionClip {
   readonly available = signal(false);
   readonly playing = signal(false);
-  readonly src = computed(() => (this.playing() ? this.urlFor(this.apiPath()) : undefined));
-  private readonly apiPath: Signal<string | undefined>;
+  readonly src = computed(() => (this.playing() ? this.urlFor(this.source()) : undefined));
+  readonly noun = computed(() =>
+    this.source()?.route === 'video' ? 'Live Photo' : 'Motion Photo',
+  );
+  readonly label = computed(() => (this.source()?.route === 'video' ? 'Live' : 'Motion'));
+  private readonly source: Signal<ClipSource | undefined>;
 
   constructor(
     asset: Signal<Asset | null>,
     private readonly access: PreviewVideoAccess | null,
     probe: MotionClipProbe = headProbe,
   ) {
-    this.apiPath = computed(() => motionClipApiPath(asset()));
+    this.source = computed(() => clipSource(asset()));
     effect((onCleanup) => {
-      const url = this.urlFor(this.apiPath());
+      const source = this.source();
+      const url = this.urlFor(source);
       untracked(() => {
-        this.available.set(false);
+        this.available.set(!!url && source?.probed === false);
         this.playing.set(false);
       });
-      if (!url) return;
+      if (!url || !source?.probed) return;
       const current = { live: true };
       onCleanup(() => (current.live = false));
       void probe(url).then((ok) => {
@@ -62,9 +86,7 @@ export class PreviewMotionClip {
     this.playing.set(false);
   }
 
-  private urlFor(apiPath: string | undefined): string | undefined {
-    const token = this.access?.bearer();
-    if (!apiPath || !token || !this.access) return undefined;
-    return `${this.access.apiBase}/motion/${apiPath}?${new URLSearchParams({ token })}`;
+  private urlFor(source: ClipSource | undefined): string | undefined {
+    return source ? mediaRouteUrl(this.access, source.route, source.apiPath) : undefined;
   }
 }

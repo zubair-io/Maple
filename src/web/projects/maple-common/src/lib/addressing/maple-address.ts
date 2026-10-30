@@ -43,6 +43,13 @@ export function childAddress(dir: MapleAddress, name: string): MapleAddress {
   };
 }
 
+/** The address of another file in the same folder as `address`. */
+export function siblingAddress(address: string, name: string): string {
+  const parsed = parseAddress(address);
+  const folder = parentAddress(parsed) ?? { slug: parsed.slug, relPath: '' };
+  return formatAddress(childAddress(folder, name));
+}
+
 /**
  * Return the parent directory address, or `null` if already at the library root.
  */

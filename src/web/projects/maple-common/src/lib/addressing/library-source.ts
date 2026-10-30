@@ -44,6 +44,8 @@ export interface ImageEntry {
   } | null;
   /** True when the asset is a video container. Used for grid badge. */
   isVideo?: boolean;
+  /** One half of a paired Live Photo; `partner` is the other half's filename in the same folder. */
+  livePhoto?: { role: 'still' | 'clip'; partner: string };
 }
 
 export interface FolderListing {

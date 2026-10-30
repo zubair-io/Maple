@@ -94,6 +94,9 @@ export interface Asset {
    *  (server detects extension); this field is for UI badges. */
   isVideo?: boolean;
 
+  /** One half of a paired Live Photo; `partnerId` is the other half's asset id. */
+  livePhoto?: { role: 'still' | 'clip'; partnerId: AssetId };
+
   // IPTC
   title?: string;
   keywords?: string[];
