@@ -61,7 +61,9 @@ mod guided;
 #[cfg(feature = "stage-dump")]
 #[path = "highlight_recovery/sensor_diagnostic.rs"]
 mod sensor_diagnostic;
-pub(crate) use frame::{FrameAnchor, ScenePrior, SceneSamples};
+pub(crate) use frame::{
+    band_scene_samples, median_of_band_samples, FrameAnchor, ScenePrior, SceneSamples,
+};
 use guided::chroma_weight;
 #[cfg(test)]
 use guided::scene_median;

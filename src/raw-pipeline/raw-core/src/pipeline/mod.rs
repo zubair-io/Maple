@@ -62,6 +62,7 @@ pub use develop_sized::{
     develop_scene_linear_sized_from_raw_with_quality_with_gain,
 };
 pub use downsample::downsample_image_area;
+pub use pano::banded::{develop_banded_for_pano, PanoBandScratch, PanoBandedIngest, PanoBlockSink};
 pub use pano::{
     decode_for_pano, read_pano_metadata, FalloffCorrection, PanoIngest, PanoSourceMetadata,
 };

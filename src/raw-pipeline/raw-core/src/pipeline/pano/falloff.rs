@@ -10,7 +10,7 @@
 
 use super::opcode_apply::{scale_active_area, LensCorrectionScales};
 use super::opcodes::{ActiveAreaRect, OpcodeList3, PanoOpcode};
-use crate::{image::Image, lens_profile, RawImage};
+use crate::{image::Image, lens_profile, lens_profile::model::Calibration, RawImage};
 
 /// Which correction removed lens falloff during ingest. Later stages (blind
 /// vignette estimation, #4522) only estimate falloff on `None` frames.
@@ -41,12 +41,32 @@ pub(super) fn list_corrects_falloff(list: &OpcodeList3) -> bool {
 /// the profile has no vignette model, or the model fails validation — in
 /// which case `image` is untouched.
 pub(super) fn apply_bundled_vignette(raw: &RawImage, image: &mut Image) -> bool {
-    let Ok(Some(resolution)) = lens_profile::resolve_bundled(raw) else {
-        return false;
-    };
-    if resolution.calibration.vignette.is_none() {
-        return false;
-    }
+    let full_height = image.height;
+    bundled_vignette(raw).is_some_and(|calibration| {
+        apply_vignette_windowed(raw, &calibration, image, 0, full_height)
+    })
+}
+
+/// The bundled profile's calibration when one matches `raw` and models
+/// vignetting.
+pub(super) fn bundled_vignette(raw: &RawImage) -> Option<Calibration> {
+    lens_profile::resolve_bundled(raw)
+        .ok()
+        .flatten()
+        .map(|resolution| resolution.calibration)
+        .filter(|calibration| calibration.vignette.is_some())
+}
+
+/// The vignette half of `calibration` on a full-width row band whose top row
+/// sits at absolute row `origin_y` of a `full_height`-row frame (#5552).
+/// `false` when the model fails validation, leaving `image` untouched.
+pub(super) fn apply_vignette_windowed(
+    raw: &RawImage,
+    calibration: &Calibration,
+    image: &mut Image,
+    origin_y: u32,
+    full_height: u32,
+) -> bool {
     let area = raw
         .lens_metadata
         .active_area
@@ -55,7 +75,15 @@ pub(super) fn apply_bundled_vignette(raw: &RawImage, image: &mut Image) -> bool 
         area,
         image.width as f32 / raw.width as f32,
         image.width,
-        image.height,
+        full_height,
     );
-    lens_profile::apply(image, &resolution.calibration, scaled, VIGNETTE_ONLY).is_ok()
+    lens_profile::apply_windowed(
+        image,
+        calibration,
+        scaled,
+        VIGNETTE_ONLY,
+        (0, origin_y),
+        (image.width, full_height),
+    )
+    .is_ok()
 }

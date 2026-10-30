@@ -163,7 +163,8 @@ pub use pipeline::render_from_raw;
 // Maple Pano ingest entry (#1156): scene-linear decode that stops before
 // every display-prep stage, plus the metadata-only priors pass.
 pub use pipeline::{
-    decode_for_pano, read_pano_metadata, FalloffCorrection, PanoIngest, PanoSourceMetadata,
+    decode_for_pano, develop_banded_for_pano, read_pano_metadata, FalloffCorrection,
+    PanoBandScratch, PanoBandedIngest, PanoBlockSink, PanoIngest, PanoSourceMetadata,
 };
 
 pub mod api;

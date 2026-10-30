@@ -66,6 +66,7 @@
 //! `tests::applies_opcode_list3_on_dji_fixtures` proves the divergence is
 //! real on opcode-carrying sources.
 
+pub mod banded;
 pub mod falloff;
 pub mod opcode_apply;
 pub mod opcodes;

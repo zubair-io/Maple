@@ -57,7 +57,7 @@ const SCENE_BLEND: f32 = 0.5;
 /// Tier-3 scene sampling grid stride (px) and sample cap. `scene_median`
 /// keeps every eligible stride-8 sample when they fit the cap and otherwise
 /// decimates them evenly, so the kept set always spans the whole region.
-const SCENE_SAMPLE_STRIDE: i32 = 8;
+pub(super) const SCENE_SAMPLE_STRIDE: i32 = 8;
 const SCENE_SAMPLE_CAP: usize = 4096;
 
 /// Partial-clip mask count. Deferred pixels carry masks 1..=6 (mask 0 is
@@ -425,15 +425,26 @@ pub(super) fn scene_median_in_sensor_space(
     let eligible = || {
         (top..bottom).step_by(step).flat_map(move |y| {
             (left..right).step_by(step).filter_map(move |x| {
-                let idx = (y * w + x) as usize;
-                let p = img.pixels[idx];
-                let usable = p.iter().all(|v| v.is_finite() && *v >= 0.)
-                    && super::channels_in_sensor_space(&p, floors, gains, idx, img.width) == 0;
-                (clip_mask[idx] == 0 && usable).then_some(p)
+                scene_sample(img, clip_mask, floors, gains, (y * w + x) as usize)
             })
         })
     };
     decimated_median(eligible(), eligible().count())
+}
+
+/// The pixel at `idx` when it is tier-3 scene evidence: unmasked, finite,
+/// non-negative and below every ripple floor.
+pub(super) fn scene_sample(
+    img: &Image,
+    clip_mask: &[u8],
+    floors: [f32; 3],
+    gains: Option<crate::sensor_gain_maps::ClipGainContext<'_>>,
+    idx: usize,
+) -> Option<[f32; 3]> {
+    let p = img.pixels[idx];
+    let usable = p.iter().all(|v| v.is_finite() && *v >= 0.)
+        && super::channels_in_sensor_space(&p, floors, gains, idx, img.width) == 0;
+    (clip_mask[idx] == 0 && usable).then_some(p)
 }
 
 /// Per-channel median of every k-th of `count` eligible samples, with k sized

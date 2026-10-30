@@ -51,8 +51,8 @@ use super::capture_first::Chain;
 pub(crate) use colour::{capture_base, capture_colour, develop_colour, CameraReady};
 
 pub(super) use geometry::{
-    crop_to_default, effective_quality_divisor, highlight_active_area, lateral_ca,
-    recover_sensor_highlights,
+    crop_to_default, default_crop_window, effective_quality_divisor, highlight_active_area,
+    lateral_ca, recover_sensor_highlights,
 };
 
 // The three forwarding entries live in a sibling for the file-size budget
