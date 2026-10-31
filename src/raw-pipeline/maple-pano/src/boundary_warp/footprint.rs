@@ -26,19 +26,35 @@ pub struct Footprint {
     full_wrap: bool,
 }
 
+/// A coverage mask whose length is not `width × height`.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("footprint mask has {actual} cells, expected {width} x {height}")]
+pub struct FootprintError {
+    pub width: u32,
+    pub height: u32,
+    pub actual: usize,
+}
+
 impl Footprint {
-    pub fn new(width: u32, height: u32, covered: Vec<bool>, full_wrap: bool) -> Self {
-        assert_eq!(
-            covered.len(),
-            width as usize * height as usize,
-            "footprint mask must be width × height"
-        );
-        Self {
+    pub fn new(
+        width: u32,
+        height: u32,
+        covered: Vec<bool>,
+        full_wrap: bool,
+    ) -> Result<Self, FootprintError> {
+        if (width as usize).checked_mul(height as usize) != Some(covered.len()) {
+            return Err(FootprintError {
+                width,
+                height,
+                actual: covered.len(),
+            });
+        }
+        Ok(Self {
             width,
             height,
             covered,
             full_wrap,
-        }
+        })
     }
 
     /// Evaluates `covered(x, y)` at every grid cell, rows in parallel.
@@ -53,7 +69,12 @@ impl Footprint {
             .flat_map_iter(|y| (0..width).map(move |x| (x, y)))
             .map(|(x, y)| covered(x, y))
             .collect();
-        Self::new(width, height, mask, full_wrap)
+        Self {
+            width,
+            height,
+            covered: mask,
+            full_wrap,
+        }
     }
 
     pub fn width(&self) -> u32 {

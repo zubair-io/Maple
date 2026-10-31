@@ -204,7 +204,7 @@ fn unsupported_footprints_are_refused() {
     );
     assert_eq!(refused(&footprint(speck)), BoundaryWarpStatus::RefusedEmpty);
     assert_eq!(
-        refused(&Footprint::new(0, H, Vec::new(), false)),
+        refused(&Footprint::new(0, H, Vec::new(), false).expect("a zero-area mask is valid")),
         BoundaryWarpStatus::RefusedEmpty
     );
     let ring = Footprint::from_fn(W, H, true, |x, y| {
@@ -213,6 +213,23 @@ fn unsupported_footprints_are_refused() {
     let outcome = solve(&ring, 1.0);
     assert_eq!(outcome.report.status, BoundaryWarpStatus::RefusedFullWrap);
     assert!(outcome.map.is_none() && outcome.report.status.is_refused());
+}
+
+#[test]
+fn a_mask_of_the_wrong_length_is_an_error() {
+    for (width, height, cells) in [(2, 2, 3), (2, 2, 5), (0, 3, 1), (3, 1, 0)] {
+        assert_eq!(
+            Footprint::new(width, height, vec![true; cells], false),
+            Err(FootprintError {
+                width,
+                height,
+                actual: cells,
+            })
+        );
+    }
+    let ok = Footprint::new(2, 2, vec![true; 4], false).expect("2 × 2 mask fits");
+    assert_eq!((ok.width(), ok.height()), (2, 2));
+    assert_eq!(Footprint::from_fn(2, 2, false, |_, _| true), ok);
 }
 
 #[test]
@@ -245,6 +262,8 @@ fn unwarped_bounds_hold_every_unwarped_point() {
             y0 + rng.next_range(1.0, 100.0),
         );
         let (bx0, by0, bx1, by1) = warp.unwarped_bounds(x0, y0, x1, y1);
+        assert_eq!(warp.unwarped_bounds(x1, y1, x0, y0), (bx0, by0, bx1, by1));
+        assert_eq!(warp.unwarped_bounds(x1, y0, x0, y1), (bx0, by0, bx1, by1));
         for k in 0..=20 {
             for l in 0..=20 {
                 let p = (

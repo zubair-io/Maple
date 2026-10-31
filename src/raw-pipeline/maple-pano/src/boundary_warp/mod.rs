@@ -31,7 +31,7 @@ use std::time::Instant;
 
 use serde::{Deserialize, Serialize};
 
-pub use footprint::Footprint;
+pub use footprint::{Footprint, FootprintError};
 
 /// The solve runs on the footprint coarsened to this long edge: its inset
 /// and smoothing are measured in cells, and the mesh needs no finer grid.
@@ -149,19 +149,14 @@ impl CanvasWarp<'_> {
         (ux * self.width, uy * self.height)
     }
 
-    /// A box holding `unwarp(p)` for every `p` in the output rectangle
-    /// `[x0, x1] × [y0, y1]` (`x0 ≤ x1`, `y0 ≤ y1`): the nodes of every cell
-    /// the rectangle touches, since within a cell the map is a convex
-    /// combination of its four nodes. It can exceed the tight box by up to a
-    /// cell.
+    /// A box holding `unwarp(p)` for every `p` in the output rectangle with
+    /// corners `(x0, y0)` and `(x1, y1)`: the nodes of every cell the
+    /// rectangle touches, since within a cell the map is a convex combination
+    /// of its four nodes. It can exceed the tight box by up to a cell.
     pub fn unwarped_bounds(&self, x0: f64, y0: f64, x1: f64, y1: f64) -> (f64, f64, f64, f64) {
-        debug_assert!(
-            x0 <= x1 && y0 <= y1,
-            "unwarped_bounds needs an ordered rectangle"
-        );
         let m = self.map;
-        let (i0, j0, _, _) = m.cell_of(x0 / self.width, y0 / self.height);
-        let (i1, j1, _, _) = m.cell_of(x1 / self.width, y1 / self.height);
+        let (i0, j0, _, _) = m.cell_of(x0.min(x1) / self.width, y0.min(y1) / self.height);
+        let (i1, j1, _, _) = m.cell_of(x0.max(x1) / self.width, y0.max(y1) / self.height);
         let (bx0, by0, bx1, by1) = grid::bounds(
             (j0..=j1 + 1)
                 .flat_map(|j| (i0..=i1 + 1).map(move |i| (i, j)))
