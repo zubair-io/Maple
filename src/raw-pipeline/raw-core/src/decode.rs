@@ -2284,7 +2284,7 @@ mod tests {
             };
             match err {
                 Error::Decode { reason, .. } => assert!(
-                    reason.contains("invalid sensor dimensions"),
+                    reason.contains("dimension"),
                     "unexpected decode-error reason for {}×{}: {}",
                     w,
                     h,

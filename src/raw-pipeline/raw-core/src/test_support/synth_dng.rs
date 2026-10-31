@@ -247,7 +247,7 @@ impl SyntheticGreyDng {
         buf
     }
 
-    fn build_ifd0(&self, strip_offset: u32) -> Ifd {
+    pub(crate) fn build_ifd0(&self, strip_offset: u32) -> Ifd {
         let strip_byte_count = (self.width as u32) * (self.height as u32) * 2;
 
         let mut ifd = Ifd::new();
@@ -378,7 +378,7 @@ impl SyntheticGreyDng {
         ifd
     }
 
-    fn build_strip(&self) -> Vec<u8> {
+    pub(crate) fn build_strip(&self) -> Vec<u8> {
         // When the LinearizationTable test pins the encoded code, every CFA
         // position carries the same u16; the LUT plus WB produces the scene
         // neutral on the decoder side. Otherwise compute per-position raw

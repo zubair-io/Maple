@@ -572,6 +572,13 @@ pub(crate) fn plain_image_from_ifd(ifd: &IFD, rawsource: &RawSource) -> Result<R
   let compression = CompressionMethod::extract(ifd)?.unwrap_or(CompressionMethod::None);
   let pi = PhotometricInterpretation::extract(ifd)?.unwrap_or(PhotometricInterpretation::BlackIsZero);
 
+  if tiff_width == 0 || tiff_height == 0 || cpp == 0 {
+    return Err(RawlerError::DecoderFailed(format!(
+      "TIFF image declares a zero dimension: {}x{}, samples per pixel {}",
+      tiff_width, tiff_height, cpp
+    )));
+  }
+
   log::debug!(
     "TIFF image: {}x{}, cpp={}, bits={}, compression={:?}, sample_format={:?}, data_mode={:?}, endian={:?}",
     tiff_width,
@@ -589,6 +596,9 @@ pub(crate) fn plain_image_from_ifd(ifd: &IFD, rawsource: &RawSource) -> Result<R
     DataMode::Tiles => {
       let twidth = fetch_tiff_tag!(ifd, TiffCommonTag::TileWidth).force_usize(0);
       let tlength = fetch_tiff_tag!(ifd, TiffCommonTag::TileLength).force_usize(0);
+      if twidth == 0 || tlength == 0 {
+        return Err(RawlerError::DecoderFailed(format!("TIFF image declares a zero tile size: {}x{}", twidth, tlength)));
+      }
       (((tiff_width - 1) / twidth + 1) * twidth, ((tiff_height - 1) / tlength + 1) * tlength)
     }
   };

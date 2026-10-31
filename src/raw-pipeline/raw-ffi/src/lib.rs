@@ -286,6 +286,8 @@ mod allocation_counter;
 #[path = "auto_tone_tests.rs"]
 mod auto_tone_tests;
 #[cfg(test)]
+mod degenerate_preview_tests;
+#[cfg(test)]
 #[path = "filename_tests.rs"]
 mod filename_tests;
 #[cfg(test)]
