@@ -109,70 +109,8 @@ struct IPhoneControlBar: View {
 
   @ViewBuilder
   private var selectedToolControl: some View {
-    if state.armedTool == .crop {
-      CropToolbar(state: state)
-    } else if state.armedTool == .hsl {
-      // 8-band HSL panel replaces the drag bar (#274): HSL has
-      // 24 sub-params and no single primary field, so the band
-      // chips + three per-band sliders are its control surface.
-      HSLSection(state: state)
-        .padding(.horizontal, 16)
-        .padding(.vertical, 6)
-    } else if state.armedTool == .colorGrade {
-      ColorGradingPanel(state: state)
-        .padding(.horizontal, 16)
-        .padding(.vertical, 6)
-    } else if state.armedTool == .toneCurve {
-      // Curve plot + four region sliders replace the drag bar
-      // (#367): Tone Curve has eight fields and no single primary
-      // one, so the plot and the region sliders are its surface.
-      ToneCurveSection(state: state)
-        .padding(.horizontal, 16)
-        .padding(.vertical, 6)
-    } else if state.armedTool == .filmLook {
-      // Category-grouped film catalog + strength slider replace
-      // the drag bar (#2683): Film has no single primary field
-      // (the catalog pick is a string id), so this is its whole
-      // control surface, same swap as Tone Curve.
-      FilmSection(state: state)
-        .padding(.horizontal, 16)
-        .padding(.vertical, 6)
-    } else if state.armedTool == .geometry {
-      // Seven manual-geometry sliders replace the drag bar (#3410):
-      // Geometry has no single primary field, so this is its whole
-      // control surface, same swap as Lens.
-      GeometrySection(state: state)
-        .padding(.horizontal, 16)
-        .padding(.vertical, 6)
-    } else if state.armedTool == .lensCorrections {
-      // Master toggle + three DNG-correction sliders replace the
-      // drag bar (#2231): Lens has no single primary field, so
-      // this is its whole control surface, same swap as Tone
-      // Curve / Film.
-      LensCorrectionsSection(state: state)
-        .padding(.horizontal, 16)
-        .padding(.vertical, 6)
-    } else if state.armedTool == .defringe {
-      // Six defringe sliders replace the drag bar (#3411): Defringe
-      // has no single primary field either, so this is its whole
-      // control surface — same swap as Lens above, but per-tick
-      // rather than decode-product.
-      DefringeSection(state: state)
-        .padding(.horizontal, 16)
-        .padding(.vertical, 6)
-    } else if state.armedTool == .mask {
-      // Keep the selected mask's controls scrollable without allowing the
-      // layer stack to cover the photograph on a short landscape screen.
-      MaskPanel(state: state)
-        .padding(.horizontal, 16)
-        .padding(.vertical, 6)
-    } else if state.armedTool == .heal {
-      // Brush + spot list replace the drag bar (#3409): Heal writes a spot
-      // list, not a scalar, so this is its whole control surface — the same
-      // swap Mask and Geometry make.
-      RetouchPanel(state: state)
-        .padding(.horizontal, 16)
-        .padding(.vertical, 6)
+    if EditorToolPanel.replacesDragBar(state.armedTool) {
+      EditorToolPanel(state: state)
     } else {
       VStack(spacing: 0) {
         SubParamRow(state: state)
@@ -180,6 +118,5 @@ struct IPhoneControlBar: View {
           .padding(.vertical, 6)
       }
     }
-
   }
 }

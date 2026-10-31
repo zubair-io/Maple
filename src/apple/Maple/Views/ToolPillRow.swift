@@ -22,19 +22,21 @@ struct ToolPillRow: View {
   /// Fires when the presets pill is tapped — the host (EditorView) opens
   /// the presets sheet (iOS) / popover (macOS). #1115.
   var onPresetsTap: () -> Void = {}
+  var axis: Axis = .horizontal
 
   var body: some View {
     let tools = state.visibleTools(in: state.armedGroup)
-    ViewThatFits(in: .horizontal) {
-      // Preferred: equal-width pills spanning the full row.
+    let axes: Axis.Set = axis == .horizontal ? .horizontal : .vertical
+    ViewThatFits(in: axes) {
+      // Preferred: equal-size pills spanning the full row or column.
       toolRow(tools, fill: true)
-      // Fallback when the group overflows: scroll at natural width.
-      ScrollView(.horizontal, showsIndicators: false) {
+      // Fallback when the group overflows: scroll at natural size.
+      ScrollView(axes, showsIndicators: false) {
         toolRow(tools, fill: false)
       }
     }
-    .frame(minHeight: 60)
-    .background(MapleTokens.bg)
+    .frame(minHeight: axis == .horizontal ? 60 : nil)
+    .background(axis == .horizontal ? MapleTokens.bg : Color.clear)
     .animation(MapleTokens.Motion.groupSwap, value: state.armedGroup)
     .accessibilityElement(children: .contain)
     .accessibilityIdentifier("editor-tool-row")
@@ -42,13 +44,17 @@ struct ToolPillRow: View {
 
   @ViewBuilder
   private func toolRow(_ tools: [Tool], fill: Bool) -> some View {
-    HStack(spacing: 4) {
+    let arrangement =
+      axis == .horizontal
+      ? AnyLayout(HStackLayout(spacing: 4)) : AnyLayout(VStackLayout(spacing: 4))
+    arrangement {
       ForEach(tools, id: \.self) { tool in
         ToolPillButton(state: state, tool: tool, onPresetsTap: onPresetsTap)
-          .frame(maxWidth: fill ? .infinity : nil)
+          .frame(maxWidth: fill && axis == .horizontal ? .infinity : nil)
+          .frame(maxHeight: fill && axis == .vertical ? .infinity : nil)
       }
     }
-    .padding(.horizontal, 8)
+    .padding(.horizontal, axis == .horizontal ? 8 : 4)
     .padding(.vertical, 8)
   }
 }

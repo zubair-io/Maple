@@ -14,7 +14,7 @@ enum EditorCropGeometry {
   /// Keep an iPad crop image usable when the side inspector and filmstrip
   /// cannot both fit beside it.
   static func stacksControlsAtBottom(
-    size: CGSize, isTablet: Bool, hasFilmstrip: Bool
+    size: CGSize, isTablet: Bool, hasFilmstrip: Bool, usesVerticalBar: Bool = false
   ) -> Bool {
     guard isTablet else { return false }
     let filmstripSpace =
@@ -22,7 +22,9 @@ enum EditorCropGeometry {
       ? filmstripLeadingPadding + filmstripWidth + filmstripTabGap
         + filmstripTabWidth + handleMargin
       : handleMargin
-    return size.width < filmstripSpace + sideControlsWidth + minimumCropViewportWidth
+    let controlsWidth =
+      usesVerticalBar ? EditorVerticalControlBar.footprintWidth + 24 : sideControlsWidth
+    return size.width < filmstripSpace + controlsWidth + minimumCropViewportWidth
   }
 
   /// The canvas host and crop overlay receive the same inset geometry, so

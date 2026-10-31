@@ -99,7 +99,7 @@ Built only from atoms. Web: `lib/ui/<name>/`, re-exported through `molecules1-la
 | Connection Graph    |  ✓  |   ✓   |    ✓    | —                                                           |
 | Context Menu        |  ✓  |   ✓   |    ✓    | —                                                           |
 | Curve Plot          |  ✓  |   ✓   |    ✓    | —                                                           |
-| Drag Bar            |  ✓  |   ✓   |    ✓    | —                                                           |
+| Drag Bar            |  ✓  |   ✓   |    ✓    | [drag-bar.md](design/maple-ui/components/drag-bar.md)       |
 | Drag Preview        |  ✓  |   ✓   |    ✓    | —                                                           |
 | Empty State         |  ✓  |   ✓   |    ✓    | —                                                           |
 | Form Field          |  ✓  |   ✓   |    ✓    | —                                                           |
