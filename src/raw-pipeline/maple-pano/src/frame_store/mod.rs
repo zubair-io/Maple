@@ -22,8 +22,10 @@ mod io;
 mod rows;
 #[cfg(test)]
 mod tests;
+mod window;
 
 pub use rows::{FrameRect, FrameRows, InMemory, Subset};
+pub(crate) use window::{SourceView, SourceWindow, WINDOW_BYTES_PER_PX};
 
 use std::fs::{File, OpenOptions};
 use std::path::{Path, PathBuf};

@@ -51,7 +51,7 @@ use crate::tile::placement::{solve_tile_poses, TileConstraint};
 use crate::tile::{composite_tile, verify_tile_edges};
 use crate::twoview::PixelCorrespondence;
 
-use super::frame_cache::{refine_edges_lru, RefinePassResult};
+use super::refine_pass::{refine_edges, RefinePassResult};
 use super::types::{StitchError, StitchOptions, TileStitchOutcome};
 
 // ─── Shared early-stage state ─────────────────────────────────────────────────
@@ -211,9 +211,8 @@ pub(super) fn tile_tail(
     let match_graph = graph.summary();
 
     // ── stage 3: full-resolution NCC refinement ───────────────────────────
-    // No rotation geometry for the tile path. The same 2-frame LRU as the
-    // rotation path: at most two full-resolution frames resident, dropped
-    // before placement and composite.
+    // No rotation geometry for the tile path; otherwise the same banded
+    // store reads as the rotation path.
     let t3 = Instant::now();
     progress(3, 0.0);
     if is_cancelled() {
@@ -232,7 +231,7 @@ pub(super) fn tile_tail(
     let RefinePassResult {
         refined_matches,
         fallback_matches,
-    } = refine_edges_lru(
+    } = refine_edges(
         &mut graph,
         &inputs,
         frames,

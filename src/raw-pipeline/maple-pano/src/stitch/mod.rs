@@ -60,9 +60,9 @@
 //! planes and lightweight metadata (`FrameMeta`) are held resident between
 //! stages; no stage decodes a RAW again.
 //!
-//! **Stage 3 (refinement)** reads each edge's two frames from the store
-//! through a 2-entry cache, so at most 2 full-resolution frames are
-//! resident at once.
+//! **Stage 3 (refinement)** reads each edge's matches from the store in
+//! bands: only the rectangles one band's templates and search windows
+//! touch are resident (#5563).
 //!
 //! **Gain solve** (just before composite): surviving frames are read one
 //! at a time, their overlap statistics accumulated, and the pixels freed
@@ -88,12 +88,12 @@ mod alignment_codec;
 mod degenerate;
 mod engine;
 mod focal_bootstrap;
-mod frame_cache;
 mod frames;
 mod graph_build;
 mod io;
 mod photometry;
 mod preview;
+mod refine_pass;
 mod rotation_composite;
 mod rotation_tail;
 mod save;

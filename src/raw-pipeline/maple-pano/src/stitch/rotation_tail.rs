@@ -20,8 +20,8 @@ use crate::robust::RobustOptions;
 
 use super::alignment::SolvedAlignment;
 use super::degenerate::reject_degenerate_canvas;
-use super::frame_cache::refine_edges_lru;
 use super::photometry::solve_kept_photometry;
+use super::refine_pass::refine_edges;
 use super::types::{StitchError, StitchOptions, StitchOutcome};
 use super::{rotation_composite, seam_gate};
 
@@ -45,15 +45,12 @@ pub(super) fn rotation_tail(
     let strategy_report = alignment.strategy_report.clone();
 
     // ── stage 3: full-resolution NCC refinement + reverification ──────────
-    //
-    // #1254: 2-entry frame cache — at most 2 full-resolution frames are
-    // live simultaneously.
     let t3 = Instant::now();
     progress(3, 0.0);
     if is_cancelled() {
         return Err(StitchError::Cancelled);
     }
-    let refine_result = refine_edges_lru(
+    let refine_result = refine_edges(
         &mut graph,
         inputs,
         frames,

@@ -7,25 +7,20 @@
 //! only the source rectangle that the region's bicubic taps touch, so no
 //! stage holds a whole 100 MP frame.
 //!
-//! A window keeps frame coordinates: [`SourceView`] bounds-checks taps
-//! against the full frame exactly as a whole-frame sample does and only
-//! offsets the index into its pixels, so a windowed sample is
-//! bit-identical to sampling the whole frame.
+//! A window keeps frame coordinates ([`SourceWindow`]), so a windowed
+//! sample is bit-identical to sampling the whole frame.
 
 use rayon::prelude::*;
 
 use crate::error::PanoError;
-use crate::frame_store::{FrameRect, FrameRows};
-use crate::ingest::{PlanarImage, ValidityMask};
+use crate::frame_store::{FrameRect, FrameRows, WINDOW_BYTES_PER_PX};
+pub(super) use crate::frame_store::{SourceView, SourceWindow};
 use crate::similarity::Similarity2d;
 
 /// Extra source pixels kept on every side of the computed tap range, so
 /// float rounding in the inverse map can never put a tap outside the
 /// window.
 const SLACK_PX: i64 = 2;
-
-/// Three `f32` planes plus a validity bit, rounded up.
-const WINDOW_BYTES_PER_PX: u64 = 13;
 
 /// Ceiling on the windows a scan's concurrently running cells hold.
 const SCAN_WINDOW_BUDGET_BYTES: u64 = 512 << 20;
@@ -62,78 +57,6 @@ pub(super) fn bbox_touches(bbox: (f64, f64, f64, f64), cell: Cell) -> bool {
     bx1 >= cell.x0 as f64 && bx0 <= cell.x1 as f64 && by1 >= cell.y0 as f64 && by0 <= cell.y1 as f64
 }
 
-/// Pixels of one frame read for one canvas region, in frame coordinates.
-pub(super) struct SourceWindow {
-    pixels: PlanarImage,
-    x0: u32,
-    y0: u32,
-    frame_w: u32,
-    frame_h: u32,
-}
-
-impl SourceWindow {
-    pub(super) fn view(&self) -> SourceView<'_> {
-        SourceView {
-            pixels: &self.pixels,
-            x0: i64::from(self.x0),
-            y0: i64::from(self.y0),
-            frame_w: i64::from(self.frame_w),
-            frame_h: i64::from(self.frame_h),
-        }
-    }
-}
-
-/// A borrowed window: `pixels` hold frame pixels from `(x0, y0)` on, of a
-/// `frame_w × frame_h` frame.
-#[derive(Clone, Copy)]
-pub(super) struct SourceView<'a> {
-    pixels: &'a PlanarImage,
-    x0: i64,
-    y0: i64,
-    frame_w: i64,
-    frame_h: i64,
-}
-
-impl<'a> SourceView<'a> {
-    /// A whole in-memory frame as its own window.
-    pub(super) fn whole(frame: &'a PlanarImage) -> Self {
-        Self {
-            pixels: frame,
-            x0: 0,
-            y0: 0,
-            frame_w: i64::from(frame.width()),
-            frame_h: i64::from(frame.height()),
-        }
-    }
-
-    pub(super) fn frame_dims(&self) -> (i64, i64) {
-        (self.frame_w, self.frame_h)
-    }
-
-    /// Index into the planes of frame pixel `(col, row)`, `None` when it is
-    /// invalid. The caller has already checked it lies inside the frame.
-    #[inline]
-    pub(super) fn valid_index(&self, col: i64, row: i64) -> Option<usize> {
-        let (x, y) = (col - self.x0, row - self.y0);
-        let (w, h) = (
-            i64::from(self.pixels.width()),
-            i64::from(self.pixels.height()),
-        );
-        if x < 0 || y < 0 || x >= w || y >= h {
-            debug_assert!(false, "tap ({col}, {row}) outside the read window");
-            return None;
-        }
-        self.pixels
-            .validity
-            .get(x as u32, y as u32)
-            .then_some((y * w + x) as usize)
-    }
-
-    pub(super) fn pixels(&self) -> &'a PlanarImage {
-        self.pixels
-    }
-}
-
 /// Read the part of frame `frame_idx` that bicubic samples at every pixel
 /// center of canvas `region` need, where `inv` maps canvas to frame pixels
 /// and a local mesh may move each sample point by up to `pad_px`.
@@ -163,18 +86,12 @@ impl WindowPlan {
     }
 
     fn read(&self, frames: &dyn FrameRows) -> Result<SourceWindow, PanoError> {
-        let pixels = match self.rect {
-            Some(rect) => frames.read_rect(self.frame_idx, rect)?,
-            None => empty_image(),
-        };
-        let (x0, y0) = self.rect.map_or((0, 0), |r| (r.x0, r.y0));
-        Ok(SourceWindow {
-            pixels,
-            x0,
-            y0,
-            frame_w: self.frame_w,
-            frame_h: self.frame_h,
-        })
+        SourceWindow::read(
+            frames,
+            self.frame_idx,
+            self.rect,
+            (self.frame_w, self.frame_h),
+        )
     }
 }
 
@@ -311,21 +228,11 @@ fn budget_groups<I>(items: &[I], bytes: impl Fn(&I) -> u64) -> Vec<&[I]> {
     groups
 }
 
-fn empty_image() -> PlanarImage {
-    PlanarImage::from_planes(
-        0,
-        0,
-        Vec::new(),
-        Vec::new(),
-        Vec::new(),
-        ValidityMask::new_filled(0, 0, false),
-    )
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::frame_store::InMemory;
+    use crate::ingest::{PlanarImage, ValidityMask};
 
     fn textured(w: u32, h: u32) -> PlanarImage {
         let plane: Vec<f32> = (0..w * h)
@@ -465,7 +372,7 @@ mod tests {
             y1: 8,
         };
         let window = read_window(&InMemory(&frames), 0, &inv, cell, 0.0).unwrap();
-        assert_eq!(window.pixels.width(), 0);
+        assert_eq!(window.view().pixels().width(), 0);
     }
 
     #[test]

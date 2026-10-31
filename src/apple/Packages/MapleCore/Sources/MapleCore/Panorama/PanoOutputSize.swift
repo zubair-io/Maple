@@ -58,7 +58,8 @@ public enum PanoMemoryFit: Sendable, Equatable {
 /// Peak physical footprint of a full stitch: the larger of
 ///
 /// - a refinement floor — decode and refinement work on full-resolution
-///   frames whatever the output size, so it scales with the largest frame;
+///   frames (refinement in bands, since #5563) whatever the output size, so
+///   it scales with the largest frame;
 /// - the composite — a base the allocator still holds from those stages
 ///   (also per frame pixel) plus a term proportional to canvas *width*. Width,
 ///   not area, because the composite streams fixed-height strips whose
@@ -67,9 +68,10 @@ public enum PanoMemoryFit: Sendable, Equatable {
 ///
 /// Calibrated with `maple-cli` on pano_01 (21 × 20.8 MP frames, classical
 /// matcher, #5454): refinement peaks at 2.31 GiB; the composite at
-/// 2.77 GiB for a 26981 px wide canvas and 2.15 GiB at 13490 px. Frame count
-/// is not a term — decode and refinement hold frames one or two at a time —
-/// but only the 21-frame set has been measured.
+/// 2.77 GiB for a 26981 px wide canvas and 2.15 GiB at 13490 px. Those
+/// figures predate banded refinement (#5563), so the refinement floor now
+/// overstates that stage. Frame count is not a term — decode holds one frame
+/// at a time — but only the 21-frame set has been measured.
 public struct PanoMemoryModel: Sendable, Equatable {
     public static let refineBytesPerFramePixel = 119
     public static let compositeBaseBytesPerFramePixel = 79
