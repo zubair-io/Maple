@@ -8,7 +8,7 @@ import { THUMB_TARGET_VERSION, PREVIEW_TARGET_VERSION } from '../derivative-vers
  * is present at its new path, its `.maple/` derivatives were left behind at the
  * old one, and every stage still says it finished.
  */
-import { describe, expect, it, beforeAll, afterAll } from 'bun:test';
+import { describe, expect, it, beforeAll, afterAll, afterEach, spyOn } from 'bun:test';
 import type { Database } from 'bun:sqlite';
 // Mirror-aware wrapper per the fs-import guardrail (temp-path ops; no-op mirror).
 import { mkdtemp, mkdir, writeFile, rm } from '../../fs/mirrored.ts';
@@ -16,7 +16,10 @@ import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import { insertAsset, insertLocation, run } from '../../db/sqlite/test-sqlite.test-helpers.ts';
 import { addLibrary, createLiveTestDatabase } from './test-support.ts';
-import { runDerivativeAuditOnce } from './scan.ts';
+import { saveCloudflareConfig } from '../../cloudflare/cloudflare-config.repo.ts';
+import { R2_TRIP_AFTER_CONSECUTIVE_FAILURES } from './r2-health.ts';
+import { ABORTED_PASS_RETRY_MS, runDerivativeAuditOnce, startDerivativeAudit } from './scan.ts';
+import { DEFAULT_DERIVATIVE_AUDIT_CONFIG } from './config.repo.ts';
 
 let root: string;
 
@@ -140,5 +143,166 @@ describe('runDerivativeAuditOnce', () => {
     });
 
     expect(summary.reArmed).toBe(1); // stopped after one stage reset
+  });
+});
+
+describe('runDerivativeAuditOnce against an unreachable R2', () => {
+  const CF = {
+    enabled: true,
+    account_id: 'acct',
+    bucket: 'thumbs',
+    access_key_id: 'key',
+    secret_access_key: 'secret',
+  };
+  const dnsFailure = () =>
+    Object.assign(new Error('getaddrinfo EAI_AGAIN acct.r2.cloudflarestorage.com'), {
+      code: 'EAI_AGAIN',
+    });
+  let fetchSpy: ReturnType<typeof spyOn<typeof globalThis, 'fetch'>>;
+
+  afterEach(() => fetchSpy.mockRestore());
+
+  /** An asset whose original and thumbnail are on disk, so only R2 is in doubt. */
+  async function seedSyncedAsset(db: Database, library: string, name: string): Promise<string> {
+    await writeFile(path.join(root, 'y2024', name), 'raw');
+    await mkdir(path.join(root, 'y2024', '.maple', 'thumbs'), { recursive: true });
+    await writeFile(path.join(root, 'y2024', '.maple', 'thumbs', `${name}.avif`), 'avif');
+    const assetId = insertAsset(db);
+    insertLocation(db, { assetId, libraryId: library, path: 'y2024', filename: name });
+    run(db, `INSERT INTO asset_detail (asset_id, description) VALUES (?, ?)`, assetId, 'a photo');
+    markStagesDone(db, assetId);
+    return assetId;
+  }
+
+  function stubR2(answer: () => Promise<Response>): void {
+    fetchSpy = spyOn(globalThis, 'fetch').mockImplementation(answer as unknown as typeof fetch);
+  }
+
+  it('leaves cf-thumb-sync alone and records nothing when DNS fails', async () => {
+    using live = await createLiveTestDatabase();
+    await saveCloudflareConfig(CF);
+    const assetId = await seedSyncedAsset(live.db, addLibrary(live.db, root), 'dns.dng');
+    stubR2(async () => {
+      throw dnsFailure();
+    });
+
+    const summary = await runDerivativeAuditOnce();
+
+    expect(summary.errors).toBe(0);
+    expect(summary.r2Deferred).toBe(1);
+    expect(stageVersion(live.db, assetId, 'cf-thumb-sync')).toBe(1);
+    expect(auditMarks(live.db, assetId)['cf-thumb-sync']).toBeUndefined();
+  });
+
+  it('still applies the disk verdict for a row whose R2 lookup failed', async () => {
+    using live = await createLiveTestDatabase();
+    await saveCloudflareConfig(CF);
+    const assetId = await seedSyncedAsset(live.db, addLibrary(live.db, root), 'disk.dng');
+    stubR2(async () => {
+      throw new DOMException('The operation timed out.', 'TimeoutError');
+    });
+
+    await runDerivativeAuditOnce();
+
+    // No preview file was seeded, so preview drifted even though R2 was down.
+    expect(stageVersion(live.db, assetId, 'preview')).toBe(0);
+    expect(stageVersion(live.db, assetId, 'cf-thumb-sync')).toBe(1);
+  });
+
+  it('re-arms cf-thumb-sync when R2 answers 404, so the outage cases are meaningful', async () => {
+    using live = await createLiveTestDatabase();
+    await saveCloudflareConfig(CF);
+    const assetId = await seedSyncedAsset(live.db, addLibrary(live.db, root), 'gone.dng');
+    stubR2(async () => new Response(null, { status: 404 }));
+
+    await runDerivativeAuditOnce();
+
+    expect(stageVersion(live.db, assetId, 'cf-thumb-sync')).toBe(0);
+  });
+
+  it('counts a non-network R2 answer as a row error and writes nothing for it', async () => {
+    using live = await createLiveTestDatabase();
+    await saveCloudflareConfig(CF);
+    const assetId = await seedSyncedAsset(live.db, addLibrary(live.db, root), 'denied.dng');
+    stubR2(async () => new Response('denied', { status: 403 }));
+
+    const summary = await runDerivativeAuditOnce();
+
+    expect(summary.errors).toBe(1);
+    expect(stageVersion(live.db, assetId, 'cf-thumb-sync')).toBe(1);
+    expect(stageVersion(live.db, assetId, 'preview')).toBe(PREVIEW_TARGET_VERSION);
+    expect(auditMarks(live.db, assetId)).toEqual({});
+  });
+
+  it('gives up on a sustained outage instead of timing out on every row', async () => {
+    using live = await createLiveTestDatabase();
+    await saveCloudflareConfig(CF);
+    const library = addLibrary(live.db, root);
+    const ids: string[] = [];
+    for (let i = 0; i < 60; i++) ids.push(await seedSyncedAsset(live.db, library, `bulk${i}.dng`));
+    stubR2(async () => {
+      throw dnsFailure();
+    });
+
+    const summary = await runDerivativeAuditOnce({ concurrency: 4 });
+
+    expect(summary.abortedReason).toBe('r2-unreachable');
+    expect(fetchSpy.mock.calls.length).toBeLessThanOrEqual(R2_TRIP_AFTER_CONSECUTIVE_FAILURES + 4);
+    expect(summary.scanned).toBeLessThan(ids.length);
+    expect(summary.errors).toBe(0);
+    for (const id of ids) expect(stageVersion(live.db, id, 'cf-thumb-sync')).toBe(1);
+  });
+
+  it('does not abort a healthy pass', async () => {
+    using live = await createLiveTestDatabase();
+    await saveCloudflareConfig(CF);
+    await seedSyncedAsset(live.db, addLibrary(live.db, root), 'fine.dng');
+    stubR2(async () => new Response(null, { status: 200 }));
+
+    const summary = await runDerivativeAuditOnce();
+
+    expect(summary.abortedReason).toBeNull();
+    expect(summary.r2Deferred).toBe(0);
+  });
+
+  /** Start the loop, wait for its first pass to schedule the next, return that delay. */
+  async function delayAfterFirstPass(): Promise<number> {
+    const delays: number[] = [];
+    const timers = spyOn(globalThis, 'setTimeout').mockImplementation(((
+      _fn: unknown,
+      ms: number,
+    ) => {
+      delays.push(ms);
+      return { unref() {}, ref() {} };
+    }) as unknown as typeof setTimeout);
+    const handle = startDerivativeAudit();
+    try {
+      for (let i = 0; i < 200 && delays.length === 0; i++) await Bun.sleep(10);
+      return delays[0];
+    } finally {
+      handle.stop();
+      timers.mockRestore();
+    }
+  }
+
+  it('retries soon after an outage aborted the pass', async () => {
+    using live = await createLiveTestDatabase();
+    await saveCloudflareConfig(CF);
+    const library = addLibrary(live.db, root);
+    for (let i = 0; i < 30; i++) await seedSyncedAsset(live.db, library, `loop${i}.dng`);
+    stubR2(async () => {
+      throw dnsFailure();
+    });
+
+    expect(await delayAfterFirstPass()).toBe(ABORTED_PASS_RETRY_MS);
+  });
+
+  it('waits the configured interval after a healthy pass', async () => {
+    using live = await createLiveTestDatabase();
+    await saveCloudflareConfig(CF);
+    await seedSyncedAsset(live.db, addLibrary(live.db, root), 'loop-ok.dng');
+    stubR2(async () => new Response(null, { status: 200 }));
+
+    expect(await delayAfterFirstPass()).toBe(DEFAULT_DERIVATIVE_AUDIT_CONFIG.interval_ms);
   });
 });

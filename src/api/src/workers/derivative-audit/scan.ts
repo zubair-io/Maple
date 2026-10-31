@@ -35,6 +35,7 @@ import {
   loadDerivativeAuditConfig,
   type DerivativeAuditConfig,
 } from './config.repo.ts';
+import { createR2Health, FailureDigest, type R2Health } from './r2-health.ts';
 import { emptySummary, setDerivativeAuditProgress } from './progress.ts';
 import type { DerivativeAuditSummary } from './types.ts';
 import type { ImageDoc } from '../run-stage.ts';
@@ -49,6 +50,10 @@ const AUDIT_MAX_ATTEMPTS = 3;
 /** Assets fetched per round trip. The per-asset work is filesystem stats and
  * possibly an R2 HEAD, so a page is cheap next to what is done with it. */
 const CANDIDATE_PAGE_SIZE = 500;
+
+/** After a pass gave up on an unreachable R2, look again this soon rather than
+ * after a full interval (6 h by default). */
+export const ABORTED_PASS_RETRY_MS = 15 * 60_000;
 
 /** Single-flight lock shared by the interval loop AND the manual /run route, so
  * a manual kick can never overlap a scheduled pass (double R2 load, racing
@@ -101,6 +106,8 @@ interface PassContext {
   deps: AuditDeps;
   cfg: DerivativeAuditConfig;
   summary: DerivativeAuditSummary;
+  r2Health: R2Health;
+  rowFailures: FailureDigest;
 }
 
 /**
@@ -124,13 +131,15 @@ async function* auditCandidates(): AsyncGenerator<AuditCandidate> {
 /** Assemble the pass's injected dependencies. The deep R2 check runs only when
  * explicitly enabled AND fully configured — otherwise a missing bucket-object
  * reading would wrongly re-arm cf-thumb-sync. */
-async function buildAuditDeps(cfg: DerivativeAuditConfig): Promise<AuditDeps> {
+async function buildAuditDeps(cfg: DerivativeAuditConfig, r2Health: R2Health): Promise<AuditDeps> {
   const cf = resolveCloudflareConfig(await loadCloudflareConfig());
   const r2Ready = cfg.deep_r2_enabled && isCloudflareConfigComplete(cf);
   return {
     statOrNull,
     ffmpegAvailable: () => ffmpegBinary().then((b) => b !== null),
-    thumbExistsInR2: r2Ready ? (key) => thumbExistsInR2(cf, key, AbortSignal.timeout(5_000)) : null,
+    thumbExistsInR2: r2Ready
+      ? r2Health.guard((key) => thumbExistsInR2(cf, key, AbortSignal.timeout(5_000)))
+      : null,
   };
 }
 
@@ -171,8 +180,23 @@ async function auditAsset(doc: AuditCandidate, ctx: PassContext): Promise<void> 
     });
   } catch (err) {
     summary.errors++;
-    log.warn({ id: doc.rowId, err: err instanceof Error ? err.message : err }, 'audit row failed');
+    ctx.rowFailures.add(doc.rowId, err instanceof Error ? err.message : String(err));
   }
+}
+
+/** One warning per kind of failure per pass, however many rows hit it. */
+function logPassFailures({ r2Health, rowFailures, summary }: PassContext): void {
+  if (r2Health.digest.count > 0) {
+    log.warn(
+      {
+        ...r2Health.digest.fields(),
+        deferredLookups: r2Health.deferred,
+        aborted: summary.abortedReason !== null,
+      },
+      'audit R2 lookups failed; affected stages left untouched',
+    );
+  }
+  if (rowFailures.count > 0) log.warn(rowFailures.fields(), 'audit rows failed');
 }
 
 /** One audit pass. Exported for tests + driven by the interval loop. NOT guarded
@@ -186,12 +210,15 @@ export async function runDerivativeAuditOnce(
   summary.running = true;
   setDerivativeAuditProgress({ ...summary });
 
+  const r2Health = createR2Health();
   const ctx: PassContext = {
     libs: await loadLibraryRoots(),
     idToSlug: await loadLibraryIdToSlug(),
-    deps: await buildAuditDeps(cfg),
+    deps: await buildAuditDeps(cfg, r2Health),
     cfg,
     summary,
+    r2Health,
+    rowFailures: new FailureDigest(),
   };
 
   // Evaluate in bounded-concurrency chunks so per-asset R2 HEADs run in parallel
@@ -205,10 +232,13 @@ export async function runDerivativeAuditOnce(
   for await (const doc of auditCandidates()) {
     chunk.push(doc);
     if (chunk.length >= chunkSize) await flush();
-    if (summary.reArmed >= cfg.max_resets_per_pass) break;
+    if (summary.reArmed >= cfg.max_resets_per_pass || r2Health.tripped) break;
   }
   await flush();
 
+  summary.r2Deferred = r2Health.deferred;
+  summary.abortedReason = r2Health.tripped ? 'r2-unreachable' : null;
+  logPassFailures(ctx);
   summary.finishedAt = new Date().toISOString();
   summary.running = false;
   setDerivativeAuditProgress({ ...summary });
@@ -220,44 +250,61 @@ export async function runDerivativeAuditOnce(
  * synchronously whether it started. Both the interval loop and the manual /run
  * route go through this, so at most one pass ever runs at a time. */
 export function startAuditPass(): { started: boolean; reason?: string } {
-  if (passInFlight) return { started: false, reason: 'already-running' };
+  const { started, reason } = launchAuditPass();
+  return started ? { started } : { started, reason };
+}
+
+/** `finished` resolves with the pass summary, or `null` when the pass crashed. */
+function launchAuditPass(): {
+  started: boolean;
+  reason?: string;
+  finished: Promise<DerivativeAuditSummary | null>;
+} {
+  if (passInFlight) {
+    return { started: false, reason: 'already-running', finished: Promise.resolve(null) };
+  }
   passInFlight = true;
-  void runDerivativeAuditOnce()
-    .catch((err) =>
-      log.error({ err: err instanceof Error ? err.message : err }, 'derivative-audit pass crashed'),
-    )
+  const finished = runDerivativeAuditOnce()
+    .catch((err) => {
+      log.error({ err: err instanceof Error ? err.message : err }, 'derivative-audit pass crashed');
+      return null;
+    })
     .finally(() => {
       passInFlight = false;
     });
-  return { started: true };
+  return { started: true, finished };
 }
 
 export interface DerivativeAuditHandle {
   stop(): void;
 }
 
-/** Start the interval loop. Fires once on boot, then self-reschedules using the
- * live `interval_ms` from config each cycle (so the operator's cadence + enable
- * toggle both take effect without a restart). */
+/** Run one cycle (a pass when enabled) and return how long to wait before the next. */
+async function runCycle(): Promise<number> {
+  try {
+    const cfg = await loadDerivativeAuditConfig();
+    const pass = cfg.enabled ? launchAuditPass() : null;
+    const summary = pass?.started ? await pass.finished : null;
+    return summary?.abortedReason ? ABORTED_PASS_RETRY_MS : cfg.interval_ms;
+  } catch (err) {
+    log.error({ err: err instanceof Error ? err.message : err }, 'derivative-audit tick failed');
+    return DEFAULT_DERIVATIVE_AUDIT_CONFIG.interval_ms;
+  }
+}
+
+/** Start the interval loop. Fires once on boot, then self-reschedules once the
+ * pass ends: after `ABORTED_PASS_RETRY_MS` when it gave up on an unreachable R2,
+ * otherwise after the live `interval_ms` from config (so the operator's cadence
+ * and enable toggle both take effect without a restart). */
 export function startDerivativeAudit(): DerivativeAuditHandle {
   let stopped = false;
   let timer: ReturnType<typeof setTimeout> | null = null;
-  const schedule = (ms: number) => {
-    if (stopped) return;
-    timer = setTimeout(() => void runTick(), ms);
-    timer.unref?.();
-  };
   const runTick = async () => {
     if (stopped) return;
-    let intervalMs = DEFAULT_DERIVATIVE_AUDIT_CONFIG.interval_ms;
-    try {
-      const cfg = await loadDerivativeAuditConfig();
-      intervalMs = cfg.interval_ms;
-      if (cfg.enabled) startAuditPass();
-    } catch (err) {
-      log.error({ err: err instanceof Error ? err.message : err }, 'derivative-audit tick failed');
-    }
-    schedule(intervalMs);
+    const delayMs = await runCycle();
+    if (stopped) return;
+    timer = setTimeout(() => void runTick(), delayMs);
+    timer.unref?.();
   };
   void runTick();
   return {

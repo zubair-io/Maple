@@ -28,8 +28,10 @@ export interface StatLike {
 export interface AuditDeps {
   statOrNull(p: string): Promise<StatLike | null>;
   ffmpegAvailable(): Promise<boolean>;
-  /** `null` disables the deep R2 check (R2 unconfigured or turned off). */
-  thumbExistsInR2: ((key: string) => Promise<boolean>) | null;
+  /** `null` disables the deep R2 check (R2 unconfigured or turned off). A
+   * lookup resolving `null` could not tell (network down): the stage is left
+   * alone, neither re-armed nor cleared. */
+  thumbExistsInR2: ((key: string) => Promise<boolean | null>) | null;
 }
 
 /** Per-pass verdict. A stage appears in at most one list; a stage that is
@@ -96,7 +98,8 @@ async function checkR2(
   const slug = primary ? idToSlug.get(primary.library_id.toHexString()) : undefined;
   if (!primary || !slug) return off;
   const key = thumbR2Key({ slug, relDir: primary.path, filename: primary.filename });
-  return { applicable: true, present: await deps.thumbExistsInR2(key) };
+  const present = await deps.thumbExistsInR2(key);
+  return present === null ? off : { applicable: true, present };
 }
 
 export async function evaluateAsset(
