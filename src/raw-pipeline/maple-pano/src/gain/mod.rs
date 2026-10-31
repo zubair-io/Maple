@@ -28,6 +28,7 @@
 mod falloff;
 mod field;
 mod field_solve;
+mod forward;
 pub(crate) mod fit;
 mod lens;
 pub(crate) mod overlap;
@@ -49,6 +50,7 @@ use rayon::prelude::*;
 
 use crate::camera::Camera;
 use crate::error::PanoError;
+use crate::frame_store::SourceView;
 use crate::ingest::PlanarImage;
 
 /// Gain model (spec §5.5: "per-image scalar gain (optionally
@@ -224,9 +226,9 @@ pub(super) fn frames_may_overlap(a: &Camera, b: &Camera) -> bool {
 
 /// Validity-weighted bilinear tap (texel centers at half-integers).
 /// `None` when no valid in-bounds tap carries weight.
-pub(super) fn bilinear_valid(src: &PlanarImage, x_px: f64, y_px: f64) -> Option<[f32; 3]> {
-    let w = src.width() as i64;
-    let h = src.height() as i64;
+pub(super) fn bilinear_valid(src: SourceView<'_>, x_px: f64, y_px: f64) -> Option<[f32; 3]> {
+    let (w, h) = src.frame_dims();
+    let px = src.pixels();
     let x = x_px - 0.5;
     let y = y_px - 0.5;
     let x0 = x.floor();
@@ -246,13 +248,12 @@ pub(super) fn bilinear_valid(src: &PlanarImage, x_px: f64, y_px: f64) -> Option<
         if tx < 0 || tx >= w || ty < 0 || ty >= h || wgt == 0.0 {
             continue;
         }
-        if !src.validity.get(tx as u32, ty as u32) {
+        let Some(i) = src.valid_index(tx, ty) else {
             continue;
-        }
-        let i = (ty * w + tx) as usize;
-        acc[0] += wgt * src.r[i] as f64;
-        acc[1] += wgt * src.g[i] as f64;
-        acc[2] += wgt * src.b[i] as f64;
+        };
+        acc[0] += wgt * px.r[i] as f64;
+        acc[1] += wgt * px.g[i] as f64;
+        acc[2] += wgt * px.b[i] as f64;
         wsum += wgt;
     }
     if wsum < 1e-9 {

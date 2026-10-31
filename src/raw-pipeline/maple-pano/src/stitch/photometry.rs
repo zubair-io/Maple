@@ -1,10 +1,9 @@
 //! Rotation-path photometry: the memory-bounded streaming gain solve with
 //! the blind per-lens vignette fallback (#1254, #4522).
 //!
-//! Each surviving frame is read once, its overlap samples accumulated,
-//! and its pixels dropped before the next read — at most one
-//! full-resolution frame is resident (cloning every frame was the ~18 GB
-//! driver on pano_01).
+//! Each surviving frame is swept once in row bands and its overlap
+//! samples accumulated, so no full-resolution frame is resident (#5566;
+//! cloning every frame was the ~18 GB driver on pano_01).
 
 use crate::camera::Camera;
 use crate::frame_store::FrameRows;

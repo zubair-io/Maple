@@ -1,5 +1,5 @@
 use super::*;
-use crate::frame_store::{FrameRows, FrameStore};
+use crate::frame_store::{FrameRows, FrameStore, SourceView};
 use crate::ingest::ValidityMask;
 use crate::math::Vec3;
 use crate::prng::SplitMix64;
@@ -440,7 +440,7 @@ fn bilinear_valid_renormalizes() {
     }
     img.validity.set(4, 4, false);
     img.r[(4 * 8 + 4) as usize] = 99.0; // poison
-    let s = bilinear_valid(&img, 4.6, 4.6).expect("partially valid");
+    let s = bilinear_valid(SourceView::whole(&img), 4.6, 4.6).expect("partially valid");
     assert!((s[0] - 0.5).abs() < 1e-6, "leaked poison: {}", s[0]);
 }
 
