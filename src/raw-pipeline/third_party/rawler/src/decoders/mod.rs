@@ -708,6 +708,9 @@ where
   let (strips, cont) = raw.strip_data(file)?;
   let height = fetch_tiff_tag!(raw, TiffCommonTag::ImageLength).force_usize(0);
   let rows_per_strip = raw.get_entry(TiffCommonTag::RowsPerStrip).map(|tag| tag.force_usize(0)).unwrap_or(height);
+  if rows_per_strip == 0 {
+    return Err(RawlerError::DecoderFailed("TIFF image declares zero rows per strip".to_string()));
+  }
   let line_width = pixbuf.width;
   // If we have a continous buffer, we can optimize decompression of multiple strips.
   if let Some(src) = cont {
