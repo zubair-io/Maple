@@ -27,6 +27,15 @@ struct EditorVerticalControlBar: View {
   /// The widest trailing footprint, with the context panel open.
   static let footprintWidth: CGFloat = contextPanelWidth + 12 + barWidth
 
+  /// iPad and the open Duo, in a landscape editor tall enough for the
+  /// fixed-height tabs. The Mac, including the iPad app running on a Mac,
+  /// keeps the stacked inspector.
+  static func fits(in size: CGSize) -> Bool {
+    let idiom = MapleShellKind.currentIdiom
+    return (idiom == .pad || idiom == .phone) && !ProcessInfo.processInfo.isiOSAppOnMac
+      && size.width > size.height && size.height - 88 >= minimumHeight
+  }
+
   private var usesToolPanel: Bool { EditorToolPanel.replacesDragBar(state.armedTool) }
 
   private var showsColorAccessory: Bool {
