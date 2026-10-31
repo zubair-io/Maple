@@ -54,8 +54,8 @@ pub struct PanoPreview {
     /// `max_canvas_px`. Lets a caller size its memory budget before
     /// committing to the full stitch.
     pub full_canvas_estimate: (u32, u32),
-    /// Pixel count of the largest input frame at full resolution — the
-    /// unit refinement holds whole frames in.
+    /// Pixel count of the largest input frame at full resolution, the
+    /// input to callers' memory models.
     pub largest_frame_px: u64,
     /// `[decode, features, match_graph, refine, solve, composite]` seconds;
     /// refine is always 0 (skipped), features and match_graph are 0 when

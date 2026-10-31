@@ -5,7 +5,7 @@
 //! half-integers, fallback-on-OOB/invalid honesty) are the parent
 //! module's.
 
-use crate::ingest::PlanarImage;
+use crate::frame_store::SourceView;
 
 /// Identity template warp (axis-aligned sampling) — used when no pair
 /// geometry is supplied or the local Jacobian is unusable.
@@ -45,16 +45,15 @@ pub(super) fn mean_ssd(values: &[f64]) -> (f64, f64) {
 /// coordinates), sampled at `center + m·(i, j)` for integer offsets
 /// `(i, j)` — `m` row-major 2×2; the identity gives plain axis-aligned
 /// sampling, a warp matrix samples the patch in the other frame's local
-/// geometry ([`super::warp`]). `None` when any sample's bilinear stencil
-/// leaves the exact-support domain or touches an invalid pixel — the
-/// caller falls back rather than matching against clamped/undefined
-/// content.
-/// `sample_luma_grid` writing into a caller-owned buffer (cleared
-/// first) — the refine hot loop runs per match, so per-call `Vec`
-/// allocation is measurable churn at tens of thousands of matches
-/// (PR #1213 review). `false` leaves `out` in an unspecified state.
+/// geometry ([`super::warp`]). `false`, leaving `out` unspecified, when
+/// any sample's bilinear stencil leaves the exact-support domain or
+/// touches an invalid pixel — the caller falls back rather than matching
+/// against clamped/undefined content. Writes into a caller-owned buffer
+/// (cleared first): the refine hot loop runs per match, so per-call `Vec`
+/// allocation is measurable churn at tens of thousands of matches (PR
+/// #1213 review).
 pub(super) fn sample_luma_grid_into(
-    img: &PlanarImage,
+    img: SourceView<'_>,
     center: (f64, f64),
     half: i64,
     m: &[f64; 4],
@@ -79,42 +78,28 @@ pub(super) fn sample_luma_grid_into(
     true
 }
 
-#[cfg(test)]
-pub(super) fn sample_luma_grid(
-    img: &PlanarImage,
-    center: (f64, f64),
-    half: i64,
-    m: &[f64; 4],
-) -> Option<Vec<f64>> {
-    let mut out = Vec::new();
-    sample_luma_grid_into(img, center, half, m, &mut out).then_some(out)
-}
-
 /// Bilinear luma at a continuous pixel coordinate (texel centers at
 /// half-integers, crate convention). `None` outside `[0.5, dim − 0.5]`
 /// per axis (where the 2×2 stencil is fully in-frame) or when any
 /// stencil texel is invalid.
-pub(super) fn luma_bilinear(img: &PlanarImage, x: f64, y: f64) -> Option<f64> {
-    let (w, h) = (i64::from(img.width()), i64::from(img.height()));
+pub(super) fn luma_bilinear(img: SourceView<'_>, x: f64, y: f64) -> Option<f64> {
+    let (w, h) = img.frame_dims();
     let (u, v) = (x - 0.5, y - 0.5);
     let (x0f, y0f) = (u.floor(), v.floor());
     let (x0, y0) = (x0f as i64, y0f as i64);
     if x0 < 0 || y0 < 0 || x0 + 1 >= w || y0 + 1 >= h {
         return None;
     }
-    for (tx, ty) in [(x0, y0), (x0 + 1, y0), (x0, y0 + 1), (x0 + 1, y0 + 1)] {
-        if !img.validity.get(tx as u32, ty as u32) {
-            return None;
-        }
-    }
+    let [i00, i10, i01, i11] = [(x0, y0), (x0 + 1, y0), (x0, y0 + 1), (x0 + 1, y0 + 1)]
+        .map(|(tx, ty)| img.valid_index(tx, ty));
+    let (i00, i10, i01, i11) = (i00?, i10?, i01?, i11?);
     let (fx, fy) = (u - x0f, v - y0f);
-    let stride = img.width() as usize;
-    let idx = (y0 as usize) * stride + x0 as usize;
+    let px = img.pixels();
     let luma = |i: usize| {
-        LUMA_R * f64::from(img.r[i]) + LUMA_G * f64::from(img.g[i]) + LUMA_B * f64::from(img.b[i])
+        LUMA_R * f64::from(px.r[i]) + LUMA_G * f64::from(px.g[i]) + LUMA_B * f64::from(px.b[i])
     };
-    let top = luma(idx) * (1.0 - fx) + luma(idx + 1) * fx;
-    let bot = luma(idx + stride) * (1.0 - fx) + luma(idx + stride + 1) * fx;
+    let top = luma(i00) * (1.0 - fx) + luma(i10) * fx;
+    let bot = luma(i01) * (1.0 - fx) + luma(i11) * fx;
     Some(top * (1.0 - fy) + bot * fy)
 }
 
