@@ -7,7 +7,7 @@
 
 use rayon::prelude::*;
 
-use super::{frame_canvas_bbox, sample_bicubic, CanvasBBox};
+use super::{frame_output_bbox, sample_bicubic, CanvasBBox};
 use crate::camera::Camera;
 use crate::canvas::CanvasSpec;
 use crate::gain::FramePhotometry;
@@ -58,7 +58,7 @@ impl<'a> SourceRows<'a> {
     }
 }
 
-/// The canvas rows of a strip a frame's footprint covers, and that footprint.
+/// The output rows of a strip a frame's footprint covers, and that footprint.
 struct StripPlan {
     bbox: CanvasBBox,
     row_lo: usize,
@@ -82,7 +82,7 @@ fn plan_strip(
     } else {
         4.0
     };
-    let bbox = frame_canvas_bbox(cam, canvas, bbox_margin)?;
+    let bbox = frame_output_bbox(cam, canvas, bbox_margin)?;
     let row_lo = (bbox.y0 as usize).max(tile_y0 as usize);
     let row_hi = (bbox.y1 as usize).min(tile_y1 as usize);
     (row_lo < row_hi).then_some(StripPlan {
@@ -108,7 +108,7 @@ fn for_each_sample(
     for &(sx0, sx1) in x_spans {
         for x in sx0 as usize..sx1 as usize {
             let px = x as f64 + 0.5;
-            let Some(dir) = canvas.pixel_to_dir(px, py) else {
+            let Some(dir) = canvas.output_pixel_to_dir(px, py) else {
                 continue;
             };
             let Some((mut fx, mut fy)) = cam.world_dir_to_pixel(dir) else {

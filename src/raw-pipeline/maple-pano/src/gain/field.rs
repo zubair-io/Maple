@@ -178,8 +178,9 @@ impl ExposureField {
             })
     }
 
-    /// Multiply view `fi`'s warped strip (canvas rows from `y0`) by its
-    /// correction `exp(δ)` at every valid pixel.
+    /// Multiply view `fi`'s warped strip (output rows from `y0`) by its
+    /// correction `exp(δ)` at every valid pixel, read at the canvas position
+    /// each output pixel samples.
     pub fn apply_to_strip(&self, fi: usize, strip: &mut PlanarImage, canvas: &CanvasSpec, y0: u32) {
         if self.views.get(fi).is_none_or(Option::is_none) {
             return;
@@ -194,9 +195,10 @@ impl ExposureField {
             .zip(strip.b.par_chunks_mut(w))
             .enumerate()
             .for_each(|(y, ((row_r, row_g), row_b))| {
-                let v = ((y0 as usize + y) as f64 + 0.5) / ch;
+                let py = (y0 as usize + y) as f64 + 0.5;
                 for x in (0..w).filter(|&x| validity.get(x as u32, y as u32)) {
-                    let m = self.log_correction(fi, (x as f64 + 0.5) / cw, v).exp();
+                    let (ux, uy) = canvas.unwarp(x as f64 + 0.5, py);
+                    let m = self.log_correction(fi, ux / cw, uy / ch).exp();
                     row_r[x] *= m;
                     row_g[x] *= m;
                     row_b[x] *= m;

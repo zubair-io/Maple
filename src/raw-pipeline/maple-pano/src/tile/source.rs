@@ -12,6 +12,7 @@
 
 use rayon::prelude::*;
 
+use crate::boundary_warp::CanvasWarp;
 use crate::error::PanoError;
 use crate::frame_store::{FrameRect, FrameRows, WINDOW_BYTES_PER_PX};
 pub(super) use crate::frame_store::{SourceView, SourceWindow};
@@ -34,6 +35,40 @@ pub(super) struct Cell {
     pub y1: usize,
 }
 
+/// A continuous canvas box `(x0, y0, x1, y1)`.
+pub(super) type CanvasBox = (f64, f64, f64, f64);
+
+impl Cell {
+    /// The box of the cell's pixel centres.
+    pub fn centres(self) -> CanvasBox {
+        (
+            self.x0 as f64 + 0.5,
+            self.y0 as f64 + 0.5,
+            self.x1 as f64 - 0.5,
+            self.y1 as f64 - 0.5,
+        )
+    }
+
+    /// The canvas box output `cell`'s pixel centres sample through `warp`
+    /// (#5572): the centres themselves without one.
+    pub fn sampled_centres(self, warp: Option<CanvasWarp<'_>>) -> CanvasBox {
+        let (x0, y0, x1, y1) = self.centres();
+        warp.map_or((x0, y0, x1, y1), |w| w.unwarped_bounds(x0, y0, x1, y1))
+    }
+
+    /// The canvas box output `cell` samples through `warp`, edges included:
+    /// the cell itself without one.
+    pub fn sampled_extent(self, warp: Option<CanvasWarp<'_>>) -> CanvasBox {
+        let (x0, y0, x1, y1) = (
+            self.x0 as f64,
+            self.y0 as f64,
+            self.x1 as f64,
+            self.y1 as f64,
+        );
+        warp.map_or((x0, y0, x1, y1), |w| w.unwarped_bounds(x0, y0, x1, y1))
+    }
+}
+
 /// `window_px`-sided cells covering `[0, cw) × [0, ch)` in row-major
 /// order — the canonical order the scans fold their per-cell results in.
 pub(super) fn spatial_cells(cw: usize, ch: usize, window_px: usize) -> Vec<Cell> {
@@ -50,24 +85,25 @@ pub(super) fn spatial_cells(cw: usize, ch: usize, window_px: usize) -> Vec<Cell>
         .collect()
 }
 
-/// Whether a canvas bbox `(x0, y0, x1, y1)` touches `cell` (inclusive, so
-/// a sample on the bbox edge still finds its frame's window).
-pub(super) fn bbox_touches(bbox: (f64, f64, f64, f64), cell: Cell) -> bool {
+/// Whether a canvas bbox `(x0, y0, x1, y1)` touches the canvas box `extent`
+/// (inclusive, so a sample on the bbox edge still finds its frame's window).
+pub(super) fn bbox_touches(bbox: CanvasBox, extent: CanvasBox) -> bool {
     let (bx0, by0, bx1, by1) = bbox;
-    bx1 >= cell.x0 as f64 && bx0 <= cell.x1 as f64 && by1 >= cell.y0 as f64 && by0 <= cell.y1 as f64
+    let (ex0, ey0, ex1, ey1) = extent;
+    bx1 >= ex0 && bx0 <= ex1 && by1 >= ey0 && by0 <= ey1
 }
 
-/// Read the part of frame `frame_idx` that bicubic samples at every pixel
-/// center of canvas `region` need, where `inv` maps canvas to frame pixels
-/// and a local mesh may move each sample point by up to `pad_px`.
+/// Read the part of frame `frame_idx` that bicubic samples anywhere in the
+/// canvas box `samples` need, where `inv` maps canvas to frame pixels and a
+/// local mesh may move each sample point by up to `pad_px`.
 pub(super) fn read_window(
     frames: &dyn FrameRows,
     frame_idx: usize,
     inv: &Similarity2d,
-    region: Cell,
+    samples: CanvasBox,
     pad_px: f64,
 ) -> Result<SourceWindow, PanoError> {
-    plan_window(frames, frame_idx, inv, region, pad_px)?.read(frames)
+    plan_window(frames, frame_idx, inv, samples, pad_px)?.read(frames)
 }
 
 /// Which rectangle of a frame [`read_window`] would read, before reading.
@@ -95,7 +131,7 @@ impl WindowPlan {
     }
 }
 
-/// `inv` is a similarity, so the frame-space image of the region is the
+/// `inv` is a similarity, so the frame-space image of the sample box is the
 /// parallelogram spanned by its mapped corners and their bbox bounds every
 /// sample point. A sample at `fx` reads columns `⌊fx − ½⌋ − 1 ..= ⌊fx − ½⌋ + 2`
 /// (rows likewise); the window is that range plus [`SLACK_PX`], clipped to
@@ -104,17 +140,12 @@ fn plan_window(
     frames: &dyn FrameRows,
     frame_idx: usize,
     inv: &Similarity2d,
-    region: Cell,
+    (sx0, sy0, sx1, sy1): CanvasBox,
     pad_px: f64,
 ) -> Result<WindowPlan, PanoError> {
     let (frame_w, frame_h) = frames.frame_dims(frame_idx)?;
-    let corners = [
-        (region.x0 as f64 + 0.5, region.y0 as f64 + 0.5),
-        (region.x1 as f64 - 0.5, region.y0 as f64 + 0.5),
-        (region.x0 as f64 + 0.5, region.y1 as f64 - 0.5),
-        (region.x1 as f64 - 0.5, region.y1 as f64 - 0.5),
-    ]
-    .map(|(cx, cy)| inv.apply(cx, cy));
+    let corners =
+        [(sx0, sy0), (sx1, sy0), (sx0, sy1), (sx1, sy1)].map(|(cx, cy)| inv.apply(cx, cy));
     let span = |coord: fn(&(f64, f64)) -> f64, len: u32| -> Option<(u32, u32)> {
         let lo = corners.iter().map(coord).fold(f64::INFINITY, f64::min);
         let hi = corners.iter().map(coord).fold(f64::NEG_INFINITY, f64::max);
@@ -141,11 +172,13 @@ fn plan_window(
 
 /// The frames one full-canvas scan samples: `frame_ids[i]` is pose `i`'s
 /// original frame index, `inv_sims[i]` its canvas→frame map and
-/// `bboxes[i]` its canvas bbox.
+/// `bboxes[i]` its canvas bbox. Cells are output cells sampling the canvas
+/// through `warp`, when there is one.
 pub(super) struct ScanFrames<'a> {
     pub frame_ids: Vec<usize>,
     pub inv_sims: &'a [Similarity2d],
     pub bboxes: &'a [(f64, f64, f64, f64)],
+    pub warp: Option<CanvasWarp<'a>>,
 }
 
 /// Run `per_cell` over every [`super::TILE_PX`] cell of a `cw × ch` canvas
@@ -193,17 +226,19 @@ fn plan_cell(
     scan: &ScanFrames<'_>,
     cell: Cell,
 ) -> Result<Vec<Option<WindowPlan>>, PanoError> {
+    let extent = cell.sampled_extent(scan.warp);
+    let centres = cell.sampled_centres(scan.warp);
     let reaching = scan
         .bboxes
         .iter()
-        .filter(|&&b| bbox_touches(b, cell))
+        .filter(|&&b| bbox_touches(b, extent))
         .count();
     scan.bboxes
         .iter()
         .enumerate()
         .map(|(i, &bbox)| {
-            (reaching >= 2 && bbox_touches(bbox, cell))
-                .then(|| plan_window(frames, scan.frame_ids[i], &scan.inv_sims[i], cell, 0.0))
+            (reaching >= 2 && bbox_touches(bbox, extent))
+                .then(|| plan_window(frames, scan.frame_ids[i], &scan.inv_sims[i], centres, 0.0))
                 .transpose()
         })
         .collect()
@@ -293,7 +328,8 @@ mod tests {
                 ty,
             };
             for region in regions {
-                let window = read_window(&InMemory(&frames), 0, &inv, region, pad).unwrap();
+                let window =
+                    read_window(&InMemory(&frames), 0, &inv, region.centres(), pad).unwrap();
                 let (windowed, whole) = (window.view(), SourceView::whole(&frame));
                 for cy in region.y0..region.y1 {
                     for cx in region.x0..region.x1 {
@@ -348,6 +384,7 @@ mod tests {
             frame_ids: vec![0, 1],
             inv_sims: &[near, far],
             bboxes: &[(0.0, 0.0, 64.0, 64.0), (5000.0, 0.0, 5064.0, 64.0)],
+            warp: None,
         };
         let reads = scan_cells(&InMemory(&frames), &scan, 64, 64, |_, windows| {
             windows.iter().filter(|w| w.is_some()).count()
@@ -371,7 +408,7 @@ mod tests {
             x1: 8,
             y1: 8,
         };
-        let window = read_window(&InMemory(&frames), 0, &inv, cell, 0.0).unwrap();
+        let window = read_window(&InMemory(&frames), 0, &inv, cell.centres(), 0.0).unwrap();
         assert_eq!(window.view().pixels().width(), 0);
     }
 

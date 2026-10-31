@@ -248,6 +248,8 @@ fn stitch_options(args: &StitchArgs, gate_budgets: (f64, f64)) -> Result<StitchO
         grid: args.grid_layout(),
         feature_engine: args.features_engine.to_engine(),
         capture_owner: true,
+        // The `--boundary-warp` flag lands in #5574.
+        boundary_warp: 0.0,
     })
 }
 

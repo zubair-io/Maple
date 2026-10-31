@@ -59,6 +59,35 @@ impl CanvasBBox {
     }
 }
 
+/// The output pixels that can sample the canvas-space `bbox`: `bbox` itself
+/// without a boundary warp (#5572). A warped canvas never wraps, so the
+/// result has one x span.
+pub fn output_bbox(canvas: &CanvasSpec, bbox: CanvasBBox) -> Option<CanvasBBox> {
+    let Some(warp) = canvas.boundary_warp() else {
+        return Some(bbox);
+    };
+    let (x0, x1) = bbox
+        .x_spans
+        .iter()
+        .fold((u32::MAX, 0), |(a, b), &(s0, s1)| (a.min(s0), b.max(s1)));
+    let (ox0, oy0, ox1, oy1) = warp.on_canvas(canvas.width, canvas.height).output_box(
+        x0 as f64,
+        bbox.y0 as f64,
+        x1 as f64,
+        bbox.y1 as f64,
+    )?;
+    Some(CanvasBBox {
+        x_spans: vec![(ox0, ox1)],
+        y0: oy0,
+        y1: oy1,
+    })
+}
+
+/// [`frame_canvas_bbox`] as output pixels ([`output_bbox`]).
+pub fn frame_output_bbox(cam: &Camera, canvas: &CanvasSpec, margin_px: f64) -> Option<CanvasBBox> {
+    frame_canvas_bbox(cam, canvas, margin_px).and_then(|bbox| output_bbox(canvas, bbox))
+}
+
 /// Compute the canvas-space bounding box of a camera frame, expanded by
 /// `margin_px` on every side. Conservative: the box always contains the
 /// frame's full footprint (border extremes bound the interior for these
@@ -322,7 +351,7 @@ pub fn warp_to_canvas(
     } else {
         4.0
     };
-    let bbox = frame_canvas_bbox(cam, canvas, bbox_margin);
+    let bbox = frame_output_bbox(cam, canvas, bbox_margin);
 
     if let Some(bbox) = bbox {
         let src_w = src.width() as f64;
@@ -341,7 +370,7 @@ pub fn warp_to_canvas(
                 for &(sx0, sx1) in &bbox.x_spans {
                     for x in sx0 as usize..sx1 as usize {
                         let px = x as f64 + 0.5;
-                        let Some(dir) = canvas.pixel_to_dir(px, py) else {
+                        let Some(dir) = canvas.output_pixel_to_dir(px, py) else {
                             continue;
                         };
                         let Some((mut fx, mut fy)) = cam.world_dir_to_pixel(dir) else {

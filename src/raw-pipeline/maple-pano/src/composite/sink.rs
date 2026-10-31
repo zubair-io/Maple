@@ -51,6 +51,33 @@ impl CanvasSink for CancellableSink<'_> {
     }
 }
 
+/// Forwards to `inner`, counting the pixels no frame covered.
+pub(crate) struct UncoveredCount<'a> {
+    inner: &'a mut dyn CanvasSink,
+    pub(crate) uncovered: u64,
+}
+
+impl<'a> UncoveredCount<'a> {
+    pub fn new(inner: &'a mut dyn CanvasSink) -> Self {
+        Self {
+            inner,
+            uncovered: 0,
+        }
+    }
+}
+
+impl CanvasSink for UncoveredCount<'_> {
+    fn begin(&mut self, width: u32, height: u32) -> Result<(), PanoError> {
+        self.inner.begin(width, height)
+    }
+
+    fn rows(&mut self, strip: &PlanarImage) -> Result<(), PanoError> {
+        let pixels = strip.width() as u64 * strip.height() as u64;
+        self.uncovered += pixels - strip.validity.count_valid() as u64;
+        self.inner.rows(strip)
+    }
+}
+
 /// Assembles the strips into one whole-canvas image, for callers that need
 /// it in memory (the quick preview, tests, evidence tools).
 pub struct CanvasCollector {
