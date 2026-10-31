@@ -15,6 +15,7 @@
 // Spec: docs/design/responsive-program/s5-editor.md §2 + §5.
 
 import MapleCore
+import MapleUI
 import SwiftUI
 
 struct ToolPillRow: View {
@@ -28,12 +29,15 @@ struct ToolPillRow: View {
     let tools = state.visibleTools(in: state.armedGroup)
     let axes: Axis.Set = axis == .horizontal ? .horizontal : .vertical
     ViewThatFits(in: axes) {
-      // Preferred: equal-size pills spanning the full row or column.
+      // Preferred: equal-width pills spanning the row.
       toolRow(tools, fill: true)
       // Fallback when the group overflows: scroll at natural size.
       ScrollView(axes, showsIndicators: false) {
         toolRow(tools, fill: false)
       }
+      #if os(iOS)
+        .scrollEdgeEffectStyle(.soft, for: .vertical)
+      #endif
     }
     .frame(minHeight: axis == .horizontal ? 60 : nil)
     .background(axis == .horizontal ? MapleTokens.bg : Color.clear)
@@ -44,18 +48,19 @@ struct ToolPillRow: View {
 
   @ViewBuilder
   private func toolRow(_ tools: [Tool], fill: Bool) -> some View {
+    // The vertical column keeps one pill pitch in every group instead of
+    // spreading a short group over the bar's full height.
     let arrangement =
       axis == .horizontal
-      ? AnyLayout(HStackLayout(spacing: 4)) : AnyLayout(VStackLayout(spacing: 4))
+      ? AnyLayout(HStackLayout(spacing: 4)) : AnyLayout(VStackLayout(spacing: MuiTokens.spacingSm))
     arrangement {
       ForEach(tools, id: \.self) { tool in
         ToolPillButton(state: state, tool: tool, onPresetsTap: onPresetsTap)
           .frame(maxWidth: fill && axis == .horizontal ? .infinity : nil)
-          .frame(maxHeight: fill && axis == .vertical ? .infinity : nil)
       }
     }
     .padding(.horizontal, axis == .horizontal ? 8 : 4)
-    .padding(.vertical, 8)
+    .padding(.vertical, axis == .horizontal ? MuiTokens.spacingSm : MuiTokens.spacingMd)
   }
 }
 

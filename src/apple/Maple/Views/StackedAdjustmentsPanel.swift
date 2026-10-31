@@ -9,6 +9,7 @@ import MapleUI
 import SwiftUI
 
 struct StackedAdjustmentsPanel: View {
+  private static let rowInset: CGFloat = 14
   @Bindable var state: EditorState
   let showsHeader: Bool
   var showsScope = false
@@ -63,7 +64,7 @@ struct StackedAdjustmentsPanel: View {
       .accessibilityLabel("Reset all adjustments")
       .accessibilityIdentifier("editor-panel-reset-all")
     }
-    .padding(.horizontal, 14)
+    .padding(.horizontal, Self.rowInset)
   }
 
   /// Section header: the group's name and its edited-tool count. A plain
@@ -79,7 +80,7 @@ struct StackedAdjustmentsPanel: View {
       }
       .font(.caption.weight(.semibold))
       .foregroundStyle(ProTokens.textMuted)
-      .padding(.horizontal, 14)
+      .padding(.horizontal, Self.rowInset)
       .frame(minHeight: 44)
       .accessibilityElement(children: .combine)
       .accessibilityLabel("\(sectionTitle(for: group)) section")
@@ -112,12 +113,16 @@ struct StackedAdjustmentsPanel: View {
       } else {
         // Temp's scroll target includes the WB actions and provenance above
         // its scalar row. That row uses a secondary ID to avoid duplicate IDs.
-        if group == .color { ColorAccessoryRow(state: state).id(Tool.temp.rawValue) }
+        if group == .color {
+          ColorAccessoryRow(state: state).padding(.horizontal, Self.rowInset).id(Tool.temp.rawValue)
+        }
         // Demosaic kernel override (#3413) — a discrete choice that frames
         // what the sharpen/noise sliders below operate on, not one more
         // value to drag, so it sits above the stack rather than taking a
         // tool of its own. Same position ColorAccessoryRow holds in Color.
-        if group == .detail { DemosaicAccessoryRow(state: state) }
+        if group == .detail {
+          DemosaicAccessoryRow(state: state).padding(.horizontal, Self.rowInset)
+        }
         ForEach(sliderTools, id: \.self) { tool in
           VStack(spacing: 4) {
             if state.armedTool == tool && state.armedSubParams.count > 1 {
@@ -125,7 +130,7 @@ struct StackedAdjustmentsPanel: View {
             }
             LivingSliderRow(state: state, tool: tool)
           }
-          .padding(.horizontal, 14)
+          .padding(.horizontal, Self.rowInset)
           .id(tool == .temp ? "temperature-slider" : tool.rawValue)
         }
         if group == .light {
@@ -185,7 +190,7 @@ struct StackedAdjustmentsPanel: View {
       .accessibilityIdentifier("editor-panel-tool-\(tool.rawValue)")
       content()
     }
-    .padding(.horizontal, 14)
+    .padding(.horizontal, Self.rowInset)
     .id(tool == .temp ? "temperature-slider" : tool.rawValue)
   }
 

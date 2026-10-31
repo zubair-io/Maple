@@ -85,6 +85,5 @@ struct DemosaicAccessoryRow: View {
       .accessibilityLabel("Demosaic kernel")
       Spacer(minLength: 0)
     }
-    .padding(.bottom, 2)
   }
 }

@@ -41,7 +41,7 @@ struct IPhoneControlBar: View {
         .onChange(of: maximumPanelHeight) { _, _ in revealSelectedControl(proxy) }
         .onChange(of: state.armedTool) { _, _ in revealSelectedControl(proxy) }
         .onChange(of: showsScope) { _, visible in
-          if visible { proxy.scrollTo("editor-phone-scope", anchor: .top) }
+          if visible { proxy.scrollTo(EditorContextControls.scopeID, anchor: .top) }
         }
       }
 
@@ -79,44 +79,10 @@ struct IPhoneControlBar: View {
   }
 
   private var contextualControls: some View {
-    VStack(spacing: 0) {
-      // Share the bounded scroll area so the scope cannot cover the header,
-      // pinned group tabs, tool pills, or another adjustment control.
-      if showsScope {
-        VectorscopeHud(state: state).padding(12).id("editor-phone-scope")
-      }
-      if state.armedGroup == .color && state.armedTool != .hsl {
-        ColorAccessoryRow(state: state, compactStyle: true)
-          .transition(.opacity)
-      }
-      // Demosaic kernel override (#3413) — the compact editor's counterpart
-      // to the inspector's Detail row, mirroring how the Colour accessory
-      // above appears in both.
-      if state.armedGroup == .detail
-        && (state.armedTool == .sharpen || state.armedTool == .noise)
-      {
-        DemosaicAccessoryRow(state: state)
-          .transition(.opacity)
-      }
-
-      selectedToolControl.id("iphone-armed-control")
-    }
+    EditorContextControls(state: state, showsScope: showsScope)
   }
 
   private func revealSelectedControl(_ proxy: ScrollViewProxy) {
-    proxy.scrollTo("iphone-armed-control", anchor: .top)
-  }
-
-  @ViewBuilder
-  private var selectedToolControl: some View {
-    if EditorToolPanel.replacesDragBar(state.armedTool) {
-      EditorToolPanel(state: state)
-    } else {
-      VStack(spacing: 0) {
-        SubParamRow(state: state)
-        DragBar(state: state)
-          .padding(.vertical, 6)
-      }
-    }
+    proxy.scrollTo(EditorContextControls.armedControlID, anchor: .top)
   }
 }

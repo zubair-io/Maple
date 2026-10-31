@@ -31,9 +31,6 @@ struct SubParamRow: View {
         }
       }
       .frame(maxWidth: .infinity)
-      .padding(.horizontal, 24)
-      .padding(.top, 6)
-      .background(MapleTokens.bg)
       .accessibilityElement(children: .contain)
       .accessibilityIdentifier("editor-subparam-row")
     }
