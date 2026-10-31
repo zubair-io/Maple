@@ -352,7 +352,7 @@ handoff signs the local web origin in; a new local hostname does not automatical
 make existing passkeys valid for it. Certificate management does not alter passkey
 RP IDs or allowed origins.
 
-The API image uses **Bun 1.4.2**. HTTP/3 is experimental and can be disabled in
+The API image uses **Bun 1.4.4**. HTTP/3 is experimental and can be disabled in
 Network settings; TCP HTTPS remains available. The private listener advertises
 HTTP/3 via `Alt-Svc`; UDP support on the LAN and client determines negotiation.
 

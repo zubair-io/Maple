@@ -70,7 +70,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
 # Uses bun (not npm) — the workspace is bun-locked (bun.lock) and carries no
 # npm lockfile. bun runs @angular/cli without issue.
 # ---------------------------------------------------------------------------
-FROM oven/bun:1.4.2-slim AS ui-builder
+FROM oven/bun:1.4.4-slim AS ui-builder
 
 WORKDIR /build
 
@@ -177,7 +177,7 @@ RUN git clone --depth 1 --branch "${WHISPER_CPP_TAG}" https://github.com/ggergan
 # ---------------------------------------------------------------------------
 # Stage 3: runtime image — Bun server + UI bundle + native FFI.
 # ---------------------------------------------------------------------------
-FROM oven/bun:1.4.2-slim AS runtime
+FROM oven/bun:1.4.4-slim AS runtime
 
 WORKDIR /app
 
