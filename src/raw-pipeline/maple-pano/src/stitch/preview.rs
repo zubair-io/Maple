@@ -23,12 +23,12 @@ use crate::ba::{self, BaOptions};
 use crate::camera::Camera;
 use crate::canvas::{auto_canvas, CanvasOptions, CanvasSpec, ProjectionMode};
 use crate::composite::{composite_tiled_frames, CanvasCollector};
+use crate::frame_store::InMemory;
 use crate::gain::{solve_exposure_field, solve_photometry, GainMode, GainOptions};
 use crate::ingest::PlanarImage;
 use crate::leveling;
 use crate::local_align::LocalCorrection;
 use crate::strategy::Strategy;
-use crate::tile::frame_cache::TileFrameCache;
 
 use super::alignment::{usable, AlignmentKey, AlignmentReuse, SolvedAlignment};
 use super::degenerate::reject_degenerate_canvas;
@@ -55,7 +55,7 @@ pub struct PanoPreview {
     /// committing to the full stitch.
     pub full_canvas_estimate: (u32, u32),
     /// Pixel count of the largest input frame at full resolution — the
-    /// unit refinement and the composite hold whole frames in.
+    /// unit refinement holds whole frames in.
     pub largest_frame_px: u64,
     /// `[decode, features, match_graph, refine, solve, composite]` seconds;
     /// refine is always 0 (skipped), features and match_graph are 0 when
@@ -127,7 +127,7 @@ pub fn preview(
         .unwrap_or(0);
     let (image, full_canvas_estimate, solve_s, composite_s) = match &alignment.tile_graph {
         Some(tile_graph) => {
-            let cache = TileFrameCache::from_frames(proxies);
+            let frames = InMemory(&proxies);
             let mut collector = CanvasCollector::default();
             let mut natural = (0, 0);
             let TilePlaced {
@@ -137,7 +137,7 @@ pub fn preview(
             } = place_and_composite(
                 tile_graph,
                 &alignment.proxy_dims(),
-                &cache,
+                &frames,
                 &alignment.lenses,
                 opts.local_align,
                 |w, h| {

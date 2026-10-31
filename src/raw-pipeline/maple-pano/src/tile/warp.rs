@@ -19,12 +19,14 @@
 //! `[rx0, rx1) × [ry0, ry1)` of the canvas — pixel-for-pixel identical
 //! to taking that crop out of `warp_to_tile_canvas`, but without
 //! allocating the full canvas buffer. Used by the tiled multiband
-//! composite (#1291) to bound peak memory.
+//! composite (#1291) to bound peak memory. Since #5560 it samples a
+//! [`SourceView`]: the window of the frame that region's taps touch.
 
 use rayon::prelude::*;
 
 use super::photometry::FramePhotometry;
 use super::placement::{TileCanvasSpec, TilePose};
+use super::source::SourceView;
 use crate::ingest::{PlanarImage, ValidityMask};
 use crate::local_align::LocalCorrection;
 use crate::similarity::Similarity2d;
@@ -44,6 +46,7 @@ pub fn warp_to_tile_canvas(
     let src_h = src.height() as f64;
 
     let inv = inverse_similarity(&pose.sim, canvas.offset_x, canvas.offset_y);
+    let view = SourceView::whole(src);
 
     let mut r = vec![0.0_f32; n];
     let mut g = vec![0.0_f32; n];
@@ -64,7 +67,7 @@ pub fn warp_to_tile_canvas(
                 if fx < 0.0 || fx > src_w || fy < 0.0 || fy > src_h {
                     continue;
                 }
-                if let Some([sr, sg, sb]) = sample_bicubic(src, fx - 0.5, fy - 0.5) {
+                if let Some([sr, sg, sb]) = sample_bicubic(view, fx - 0.5, fy - 0.5) {
                     row_r[col] = (sr * gain[0]).max(0.0);
                     row_g[col] = (sg * gain[1]).max(0.0);
                     row_b[col] = (sb * gain[2]).max(0.0);
@@ -96,7 +99,7 @@ pub fn warp_to_tile_canvas(
 /// sample point after the inverse similarity, inside the same resample.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn warp_to_tile_region(
-    src: &PlanarImage,
+    src: SourceView<'_>,
     pose: &TilePose,
     local: Option<&LocalCorrection>,
     canvas: &TileCanvasSpec,
@@ -112,8 +115,8 @@ pub(super) fn warp_to_tile_region(
     let rw = rx1 - rx0;
     let rh = ry1 - ry0;
     let n = rw * rh;
-    let src_w = src.width() as f64;
-    let src_h = src.height() as f64;
+    let (src_w, src_h) = src.frame_dims();
+    let (src_w, src_h) = (src_w as f64, src_h as f64);
 
     let inv = inverse_similarity_with_offset(&pose.sim, canvas.offset_x, canvas.offset_y);
     let gain = phot.gain;
@@ -218,11 +221,11 @@ fn catmull_rom(f: f64) -> [f64; 4] {
     ]
 }
 
-/// Bicubic Catmull-Rom interpolation. Exported pub(super) for
-/// [`super::gain_solve`].
-pub(super) fn sample_bicubic(src: &PlanarImage, x_px: f64, y_px: f64) -> Option<[f32; 3]> {
-    let sw = src.width() as i64;
-    let sh = src.height() as i64;
+/// Bicubic Catmull-Rom interpolation in frame pixel coordinates; taps
+/// outside the frame or invalid are skipped and the weights renormalized.
+pub(super) fn sample_bicubic(src: SourceView<'_>, x_px: f64, y_px: f64) -> Option<[f32; 3]> {
+    let (sw, sh) = src.frame_dims();
+    let pixels = src.pixels();
     let ix = x_px.floor() as i64;
     let iy = y_px.floor() as i64;
     let fx = x_px - ix as f64;
@@ -243,14 +246,13 @@ pub(super) fn sample_bicubic(src: &PlanarImage, x_px: f64, y_px: f64) -> Option<
             if col < 0 || col >= sw {
                 continue;
             }
-            if !src.validity.get(col as u32, row as u32) {
+            let Some(idx) = src.valid_index(col, row) else {
                 continue;
-            }
+            };
             let w = wx[dx as usize] * wy[dy as usize];
-            let idx = (row as usize) * (sw as usize) + col as usize;
-            acc[0] += w * src.r[idx] as f64;
-            acc[1] += w * src.g[idx] as f64;
-            acc[2] += w * src.b[idx] as f64;
+            acc[0] += w * pixels.r[idx] as f64;
+            acc[1] += w * pixels.g[idx] as f64;
+            acc[2] += w * pixels.b[idx] as f64;
             w_total += w;
         }
     }
@@ -376,7 +378,7 @@ mod tests {
         corr.nodes.iter_mut().for_each(|n| *n = [3.0, -2.0]);
         let phot = super::super::photometry::FramePhotometry::neutral();
         let out = warp_to_tile_region(
-            &src,
+            SourceView::whole(&src),
             &pose,
             Some(&corr),
             &canvas,

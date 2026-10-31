@@ -10,33 +10,25 @@
 //! of the two samples — globally, and per coarse field cell. Layer A
 //! consumes the global sums, layer B the per-cell ones.
 //!
-//! ## Frame access (#3197)
+//! ## Frame access (#3197, #5560)
 //!
-//! Frames are decoded on demand through [`super::frame_cache::TileFrameCache`],
-//! bounded to a handful resident at once — not the whole input set. The
-//! canvas is split into [`super::TILE_PX`]-sided spatial
-//! cells, grouped into capacity-bounded "waves" (`frame_window`): each
-//! wave pins its cells' frame set ONCE (not per sample point — the
-//! earlier #3146 attempt did that and thrashed the cache, see
-//! `frame_cache` module docs), processes those cells in parallel against
-//! the pinned set, then moves to the next wave. Waves themselves run
-//! strictly one after another.
+//! The canvas is split into [`super::TILE_PX`]-sided cells, run through
+//! `source::scan_cells`: each cell reads, for every frame whose canvas
+//! bbox reaches it, only the source window its samples touch, and drops
+//! those windows when the cell is done. Per-cell results come back in
+//! canonical cell order, so the fold is deterministic.
 
 use rayon::prelude::*;
-use std::collections::HashMap;
-use std::sync::Arc;
 
 use crate::error::PanoError;
+use crate::frame_store::FrameRows;
 use crate::gain::vignette::{falloff_gain, Correspondence};
-use crate::ingest::PlanarImage;
 use crate::similarity::Similarity2d;
 
-use super::frame_cache::TileFrameCache;
-use super::frame_window::{self, Cell};
 use super::photometry::{PairMap, PhotometryOptions, MIN_LUM};
 use super::placement::{TileCanvasSpec, TilePose};
+use super::source::{self, Cell, SourceWindow};
 use super::warp::{inverse_similarity_with_offset, sample_bicubic};
-use super::TILE_PX;
 
 /// Canvas grid points the vignette correspondence scan targets; its
 /// stride grows with the canvas so the estimate stays bounded in memory.
@@ -82,7 +74,7 @@ impl<'a> ScanGeometry<'a> {
             })
             .collect();
         // Canvas-space bboxes for the cheap per-sample prefilter AND for
-        // deciding which frames each spatial cell/wave needs (#3197).
+        // deciding which frames each spatial cell reads (#3197).
         let bboxes = poses
             .iter()
             .zip(&frame_dims)
@@ -110,35 +102,24 @@ impl<'a> ScanGeometry<'a> {
         }
     }
 
-    /// Run `per_cell` over every spatial cell. Waves run strictly
-    /// sequentially (bounded residency); a wave's own cells run in
-    /// parallel once its frames are pinned. Results come back in
-    /// canonical cell order (waves are consecutive slices of that order)
-    /// so callers can fold them deterministically.
     fn scan<T: Send>(
         &self,
-        cache: &TileFrameCache,
+        frames: &dyn FrameRows,
         canvas: &TileCanvasSpec,
-        per_cell: impl Fn(Cell, &HashMap<usize, Arc<PlanarImage>>) -> T + Sync,
+        per_cell: impl Fn(Cell, &[Option<SourceWindow>]) -> T + Sync,
     ) -> Result<Vec<T>, PanoError> {
-        let cells =
-            frame_window::spatial_cells(canvas.width as usize, canvas.height as usize, TILE_PX);
-        let waves = frame_window::group_into_waves(
-            &cells,
-            &self.bboxes,
-            |local| self.poses[local].frame_idx,
-            cache.capacity(),
-        );
-        waves.iter().try_fold(Vec::new(), |mut out, wave| {
-            let pinned = frame_window::pin_wave(cache, wave)?;
-            out.extend(
-                wave.cells
-                    .par_iter()
-                    .map(|&cell| per_cell(cell, &pinned))
-                    .collect::<Vec<T>>(),
-            );
-            Ok(out)
-        })
+        let scan = source::ScanFrames {
+            frame_ids: self.poses.iter().map(|p| p.frame_idx).collect(),
+            inv_sims: &self.inv_sims,
+            bboxes: &self.bboxes,
+        };
+        source::scan_cells(
+            frames,
+            &scan,
+            canvas.width as usize,
+            canvas.height as usize,
+            per_cell,
+        )
     }
 
     /// Visit every strided grid point of `cell` covered by two or more
@@ -148,7 +129,7 @@ impl<'a> ScanGeometry<'a> {
         &self,
         cell: Cell,
         stride: usize,
-        pinned: &HashMap<usize, Arc<PlanarImage>>,
+        windows: &[Option<SourceWindow>],
         falloff: &[f64],
         mut visit: impl FnMut(usize, usize, &[Hit]),
     ) {
@@ -172,22 +153,12 @@ impl<'a> ScanGeometry<'a> {
                     if fx < 0.0 || fx > fw || fy < 0.0 || fy > fh {
                         continue;
                     }
-                    // Invariant: the wave that owns this cell was pinned with
-                    // the union of every frame any of its cells' bboxes touch
-                    // (see `frame_window::group_into_waves`), so
-                    // `poses[i].frame_idx` is always present here. A debug
-                    // build catches a broken invariant loudly instead of
-                    // silently dropping samples and skewing the photometric
-                    // solve (Copilot review).
-                    let Some(frame) = pinned.get(&self.poses[i].frame_idx) else {
-                        debug_assert!(
-                            false,
-                            "frame {} missing from pinned wave set",
-                            self.poses[i].frame_idx
-                        );
+                    // No window: this frame is the only one reaching the
+                    // cell, so no point here can pair it.
+                    let Some(window) = &windows[i] else {
                         continue;
                     };
-                    let Some(v) = sample_bicubic(frame, fx - 0.5, fy - 0.5) else {
+                    let Some(v) = sample_bicubic(window.view(), fx - 0.5, fy - 0.5) else {
                         continue;
                     };
                     let (xi, eta) = (fx / fw - 0.5, fy / fh - 0.5);
@@ -227,9 +198,9 @@ impl<'a> ScanGeometry<'a> {
 /// `poses`) divided out first.
 ///
 /// `full_dims` is indexed by the *original* input frame index (same
-/// space as `cache` and `poses[i].frame_idx`).
+/// space as `frames` and `poses[i].frame_idx`).
 pub(super) fn sample_pairs(
-    cache: &TileFrameCache,
+    frames: &dyn FrameRows,
     full_dims: &[(u32, u32)],
     poses: &[TilePose],
     canvas: &TileCanvasSpec,
@@ -238,9 +209,9 @@ pub(super) fn sample_pairs(
 ) -> Result<PairMap, PanoError> {
     let geometry = ScanGeometry::new(full_dims, poses, canvas);
     let ncx = (canvas.width as usize).div_ceil(opts.field_cell_px);
-    let cell_maps = geometry.scan(cache, canvas, |cell, pinned| {
+    let cell_maps = geometry.scan(frames, canvas, |cell, windows| {
         let mut map = PairMap::new();
-        geometry.visit_cell(cell, opts.stride, pinned, falloff, |rx, ry, hits| {
+        geometry.visit_cell(cell, opts.stride, windows, falloff, |rx, ry, hits| {
             let cell_lin = ((ry / opts.field_cell_px) * ncx + (rx / opts.field_cell_px)) as u32;
             accumulate(&mut map, cell_lin, hits);
         });
@@ -258,7 +229,7 @@ pub(super) fn sample_pairs(
 /// frame pair, for the blind vignette estimate. Frame indices are
 /// positions in `poses`.
 pub(super) fn sample_correspondences(
-    cache: &TileFrameCache,
+    frames: &dyn FrameRows,
     full_dims: &[(u32, u32)],
     poses: &[TilePose],
     canvas: &TileCanvasSpec,
@@ -269,9 +240,9 @@ pub(super) fn sample_correspondences(
     let stride = opts
         .stride
         .max((area / CORRESPONDENCE_POINTS).sqrt().ceil() as usize);
-    let per_cell = geometry.scan(cache, canvas, |cell, pinned| {
+    let per_cell = geometry.scan(frames, canvas, |cell, windows| {
         let mut out = Vec::new();
-        geometry.visit_cell(cell, stride, pinned, &[], |_, _, hits| {
+        geometry.visit_cell(cell, stride, windows, &[], |_, _, hits| {
             for (a, ha) in hits.iter().enumerate() {
                 for hb in &hits[a + 1..] {
                     out.push(Correspondence {

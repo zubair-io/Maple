@@ -60,7 +60,7 @@ pub fn stitch_tile(
     // ── stage 0: develop into the frame store + proxies (#5554) ──────────
     // Same stage 0 as `stitch::stitch`: each frame is developed once into
     // the store and its proxy read back; `tile_tail` reads full-resolution
-    // pixels from the store through its bounded cache.
+    // pixels from the store.
     let t0 = Instant::now();
     let (store, metas) = super::frames::decode_into_store(
         inputs,

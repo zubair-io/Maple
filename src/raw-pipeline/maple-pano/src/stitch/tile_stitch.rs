@@ -46,40 +46,13 @@ use crate::graph::{
 };
 use crate::ingest::FramePriors;
 use crate::local_align::planar::fit_planar_corrections;
-use crate::refine::{refine_correspondences, RefineOptions};
 use crate::strategy::StrategyReport;
-use crate::tile::frame_cache::TileFrameCache;
 use crate::tile::placement::{solve_tile_poses, TileConstraint};
 use crate::tile::{composite_tile, verify_tile_edges};
 use crate::twoview::PixelCorrespondence;
 
+use super::frame_cache::{refine_edges_lru, RefinePassResult};
 use super::types::{StitchError, StitchOptions, TileStitchOutcome};
-
-/// Cap on frames the tile tail's on-demand frame cache keeps resident at
-/// once (#3090, redone under #3197 after the first attempt — #3146 —
-/// was reverted for serializing the whole tile tail).
-///
-/// Sized from the strip geometry, not picked arbitrarily: a nadir strip
-/// capture (the tile strategy's own motivating case — see `tile/mod.rs`)
-/// overlaps only its immediate neighbours along the flight path, so any
-/// point on the canvas is covered by at most 2 frames (a slight path
-/// wobble might occasionally bring a 3rd into view, rarely more). A
-/// "wave" of spatially-adjacent work (`frame_window`'s cell grouping)
-/// therefore only ever touches a small, slowly-changing set of frame
-/// indices as it sweeps along the strip. Capacity 6 gives roughly 3× that
-/// typical touch count — enough headroom that consecutive waves usually
-/// share most of their pinned set, so the sweep doesn't immediately evict
-/// a frame it will need again a few cells later. A 100 MP frame's three
-/// f32 planes are already ~1.2 GB, so 6 resident frames alone is ~7 GB;
-/// see `TileFrameCache::pin_many`'s `DECODE_CONCURRENCY` for why the
-/// number of frames *decoding at once* is capped separately (lower)
-/// from this residency count — that distinction is what took pano_03
-/// from a transient ~30 GB spike down to a measured 16.4 GB peak RSS
-/// (595.6 s), against a 33.5 GB / 501.6 s pre-fix baseline. This is a
-/// memory/parallelism tradeoff, not a correctness one: a wave whose own
-/// touched-frame count exceeds this cap is still processed correctly
-/// (see `frame_window::group_into_waves`), just without the headroom.
-const TILE_CACHE_CAPACITY: usize = 6;
 
 // ─── Shared early-stage state ─────────────────────────────────────────────────
 
@@ -90,8 +63,7 @@ const TILE_CACHE_CAPACITY: usize = 6;
 pub(super) struct TileEarlyState<'a> {
     /// Per-frame full-resolution pixel dimensions — a cheap metadata-only
     /// fact from stage 0's `FrameMeta`, not a decode (#3197). Pixels
-    /// themselves are read on demand through the `TileFrameCache`
-    /// `tile_tail` builds over `frames`.
+    /// themselves are read from `frames` in per-region windows (#5560).
     pub full_dims: Vec<(u32, u32)>,
     /// Per-frame proxy dimensions `(width, height)`.
     pub proxy_dims: Vec<(u32, u32)>,
@@ -109,8 +81,8 @@ pub(super) struct TileEarlyState<'a> {
     /// Path list parallel to `full_dims`, for the stitch report and read
     /// errors.
     pub inputs: &'a [PathBuf],
-    /// The stitch's developed frames, parallel to `inputs`, behind the
-    /// on-demand cache `tile_tail`'s stage 3–5 work reads through (#3197).
+    /// The stitch's developed frames, parallel to `inputs`, which
+    /// `tile_tail`'s stages 3–5 read from (#5560).
     pub frames: &'a dyn FrameRows,
     /// Lens identity per input frame for the blind vignette estimate
     /// (#4522), parallel to `full_dims`.
@@ -238,69 +210,37 @@ pub(super) fn tile_tail(
     } = state;
     let match_graph = graph.summary();
 
-    // #3197: on-demand frame cache — at most TILE_CACHE_CAPACITY frames
-    // resident at once, instead of every input frame up front. Shared by
-    // stage 3 (sequential edge-pair refine below), the photometric solve,
-    // and the composite tile loop (both inside `composite_tile`). See
-    // `TILE_CACHE_CAPACITY`'s doc comment for how that number was chosen,
-    // and `tile::frame_cache` for the per-frame locking that lets a miss
-    // on one frame read without blocking any other frame's access.
-    let cache = TileFrameCache::new(frames, TILE_CACHE_CAPACITY);
-
     // ── stage 3: full-resolution NCC refinement ───────────────────────────
-    // No rotation geometry for the tile path — pass `None` for geometry.
-    // Sequential over edges (not parallel): each edge only ever needs its
-    // own two frames pinned, so there's no per-sample cache churn to
-    // avoid here the way `sampling.rs`/`masks.rs` need to (#3197).
+    // No rotation geometry for the tile path. The same 2-frame LRU as the
+    // rotation path: at most two full-resolution frames resident, dropped
+    // before placement and composite.
     let t3 = Instant::now();
     progress(3, 0.0);
     if is_cancelled() {
         return Err(StitchError::Cancelled);
     }
-    let (mut refined_matches, mut fallback_matches) = (0usize, 0usize);
-    let edge_count = graph.edges.len();
-    for (ei, edge) in graph.edges.iter_mut().enumerate() {
-        if is_cancelled() {
-            return Err(StitchError::Cancelled);
-        }
-        let get = |idx: usize| -> Result<_, StitchError> {
-            cache.get(idx).map_err(|e| StitchError::Decode {
-                // `idx` here always comes from a graph edge, which stage 2
-                // built from valid frame indices, so this out-of-range
-                // fallback should be unreachable in practice. If it ever
-                // does trip, name the bad index explicitly rather than
-                // silently falling back to an empty, hard-to-debug path
-                // (Copilot review) — `cache.get`'s own error (in `cause`)
-                // already reports the index too.
-                path: inputs
-                    .get(idx)
-                    .cloned()
-                    .unwrap_or_else(|| PathBuf::from(format!("<frame index {idx} out of range>"))),
-                cause: e.to_string(),
-            })
-        };
-        let img_a = get(edge.a)?;
-        let img_b = get(edge.b)?;
-        let scale_of = |dims: (u32, u32), proxy: (u32, u32)| {
+    let proxy_scales: Vec<(f64, f64)> = full_dims
+        .iter()
+        .zip(&proxy_dims)
+        .map(|(full, proxy)| {
             (
-                dims.0 as f64 / proxy.0 as f64,
-                dims.1 as f64 / proxy.1 as f64,
+                full.0 as f64 / proxy.0 as f64,
+                full.1 as f64 / proxy.1 as f64,
             )
-        };
-        let outcome = refine_correspondences(
-            &img_a,
-            &img_b,
-            scale_of((img_a.width(), img_a.height()), proxy_dims[edge.a]),
-            scale_of((img_b.width(), img_b.height()), proxy_dims[edge.b]),
-            None,
-            &edge.inlier_matches,
-            &RefineOptions::default(),
-        );
-        refined_matches += outcome.refined_count;
-        fallback_matches += outcome.fallback_count;
-        edge.inlier_matches = outcome.refined;
-        progress(3, (ei + 1) as f32 / edge_count.max(1) as f32);
-    }
+        })
+        .collect();
+    let RefinePassResult {
+        refined_matches,
+        fallback_matches,
+    } = refine_edges_lru(
+        &mut graph,
+        &inputs,
+        frames,
+        &proxy_scales,
+        None,
+        |frac| progress(3, frac),
+        &is_cancelled,
+    )?;
     // No full-resolution rotation reverification for tile.
     let reverify = ReverifySummary {
         edges_dropped: 0,
@@ -318,7 +258,7 @@ pub(super) fn tile_tail(
     } = place_and_composite(
         &graph,
         &full_dims,
-        &cache,
+        frames,
         &lenses,
         opts.local_align,
         |_, _| opts.max_canvas_px,
@@ -365,7 +305,7 @@ pub(super) struct TilePlaced {
 }
 
 /// Tile stages 4–5: verify edges, solve placement, cap the canvas, then
-/// composite from `cache`. `dims[i]` is the size of the frames `cache`
+/// composite from `frames`. `dims[i]` is the size of the frames `frames`
 /// serves and of the coordinates `graph`'s matches are in — full
 /// resolution for the stitch, proxy resolution for the preview (#4578).
 /// `canvas_cap_px` maps the solved natural canvas size to its pixel cap.
@@ -373,7 +313,7 @@ pub(super) struct TilePlaced {
 pub(super) fn place_and_composite(
     graph: &MatchGraph,
     dims: &[(u32, u32)],
-    cache: &TileFrameCache,
+    frames: &dyn FrameRows,
     lenses: &LensGroups,
     local_align: bool,
     canvas_cap_px: impl FnOnce(u32, u32) -> usize,
@@ -420,7 +360,7 @@ pub(super) fn place_and_composite(
 
     let poses_placed = poses.len();
     // #3197: `poses[i].frame_idx` identifies which original frame each pose
-    // covers, and `composite_tile` reads it on demand through `cache`.
+    // covers, and `composite_tile` reads its windows from `frames`.
     let reachable_set: HashSet<usize> = poses.iter().map(|p| p.frame_idx).collect();
     let component_edges: Vec<crate::tile::TileEdge> = tile_edges
         .iter()
@@ -444,7 +384,7 @@ pub(super) fn place_and_composite(
         return Err(StitchError::Cancelled);
     }
     let tile_report = composite_tile(
-        cache,
+        frames,
         dims,
         &component_edges,
         &poses,

@@ -73,8 +73,7 @@
 //! | `photometry.rs`  | Gain + shared-ramp solve, correction model (#350) |
 //! | `sampling.rs`    | The strided canvas scan both layers consume       |
 //! | `exposure_field.rs` | Screened-Poisson residual exposure fields      |
-//! | `frame_cache.rs` | On-demand decode cache bounding tile-path RSS (#3090/#3197) |
-//! | `frame_window.rs` | Spatial cell + capacity-bounded wave grouping shared by the full-canvas scans (#3197) |
+//! | `source.rs`      | Per-region source-frame windows read from the frame store (#5560) |
 
 pub mod placement;
 pub mod warp;
@@ -82,11 +81,10 @@ pub mod warp;
 mod composite;
 mod edge_consensus;
 mod exposure_field;
-pub(crate) mod frame_cache;
-mod frame_window;
 mod masks;
 mod photometry;
 mod sampling;
+mod source;
 
 #[cfg(test)]
 #[path = "composite_tests.rs"]
@@ -112,7 +110,7 @@ use crate::similarity::SimilarityEstimate;
 use crate::twoview::PixelCorrespondence;
 
 /// Spatial unit size (canvas pixels per side), shared by `composite.rs`'s
-/// per-output-tile chunking and `frame_window.rs`'s per-cache-pin cell
+/// per-output-tile chunking and `source.rs`'s per-scan cell
 /// size (#3197 review: these used to be two separately hard-coded 1024s
 /// that could silently drift apart). Both exist for the same underlying
 /// reason — bound how many frames a spatial unit of work can touch — so

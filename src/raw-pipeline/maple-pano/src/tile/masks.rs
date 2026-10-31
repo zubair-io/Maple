@@ -1,14 +1,15 @@
 //! Voronoi ownership masks + overlap-width estimation for the tile
 //! composite. Split from `tile/mod.rs` for the file-size budget (#3086).
 
+use std::collections::BTreeSet;
+
 use crate::error::PanoError;
+use crate::frame_store::FrameRows;
 use crate::ingest::PlanarImage;
 
-use super::frame_cache::TileFrameCache;
-use super::frame_window;
 use super::placement::{TileCanvasSpec, TilePose};
+use super::source;
 use super::warp;
-use super::TILE_PX;
 
 /// Estimate minimum overlap width for pyramid level selection, using a
 /// coarse canvas-space scan (stride 8) to find pairwise overlap pixels.
@@ -16,13 +17,10 @@ use super::TILE_PX;
 /// estimate for `levels_for_overlap_width`.
 ///
 /// `full_dims` is indexed by the *original* input frame index (same
-/// space as `cache` and `poses[i].frame_idx`) — #3197: frames are
-/// decoded on demand through `cache`, pinned once per spatial cell
-/// (`frame_window`), never per sample point — see `sampling.rs` and
-/// `frame_cache` module docs for why per-sample cache access is the bug
-/// this exists to avoid.
+/// space as `frames` and `poses[i].frame_idx`). Each spatial cell reads
+/// only the source windows of the frames that reach it (#3197, #5560).
 pub(super) fn estimate_min_overlap_width(
-    cache: &TileFrameCache,
+    frames: &dyn FrameRows,
     full_dims: &[(u32, u32)],
     poses: &[TilePose],
     canvas: &TileCanvasSpec,
@@ -34,7 +32,6 @@ pub(super) fn estimate_min_overlap_width(
     let ch = canvas.height as usize;
     let stride = 8usize;
 
-    // Pre-compute inverse similarities.
     let inv_sims: Vec<_> = poses
         .iter()
         .map(|p| inverse_similarity_with_offset(&p.sim, canvas.offset_x, canvas.offset_y))
@@ -66,74 +63,70 @@ pub(super) fn estimate_min_overlap_width(
         })
         .collect();
 
-    let mut overlap_count = vec![vec![0usize; k]; k];
-    let mut overlap_rows = vec![vec![std::collections::BTreeSet::<usize>::new(); k]; k];
-
-    let cells = frame_window::spatial_cells(cw, ch, TILE_PX);
-    let waves = frame_window::group_into_waves(
-        &cells,
-        &bboxes,
-        |local| poses[local].frame_idx,
-        cache.capacity(),
-    );
-
-    for wave in &waves {
-        let pinned = frame_window::pin_wave(cache, wave)?;
-        for &cell in &wave.cells {
-            let first_ry = cell.y0.div_ceil(stride) * stride;
-            let first_rx = cell.x0.div_ceil(stride) * stride;
-            for ry in (first_ry..cell.y1).step_by(stride) {
-                for rx in (first_rx..cell.x1).step_by(stride) {
-                    let cx = rx as f64 + 0.5;
-                    let cy = ry as f64 + 0.5;
-                    // Which frames cover this canvas point? Use
-                    // sample_bicubic to match the actual warp gate: a
-                    // canvas pixel is only produced when the bicubic
-                    // kernel has sufficient valid-pixel support (weight
-                    // threshold 0.01). The simpler nearest-neighbour
-                    // check overestimates overlap near validity
-                    // boundaries.
-                    let covered: Vec<bool> = (0..k)
-                        .map(|i| {
-                            let (fw, fh) = frame_dims[i];
-                            let (fx, fy) = inv_sims[i].apply(cx, cy);
-                            if fx < 0.0 || fx > fw || fy < 0.0 || fy > fh {
-                                return false;
-                            }
-                            // Invariant: the wave that owns this cell was
-                            // pinned with the union of every frame any of
-                            // its cells' bboxes touch (see
-                            // `frame_window::group_into_waves`), so this
-                            // lookup should never miss. A debug build
-                            // catches a broken invariant loudly instead of
-                            // silently undercounting overlap and skewing
-                            // pyramid level selection (Copilot review).
-                            let Some(frame) = pinned.get(&poses[i].frame_idx) else {
-                                debug_assert!(
-                                    false,
-                                    "frame {} missing from pinned wave set",
-                                    poses[i].frame_idx
-                                );
-                                return false;
-                            };
-                            warp::sample_bicubic(frame, fx - 0.5, fy - 0.5).is_some()
-                        })
-                        .collect();
-                    for a in 0..k {
-                        if !covered[a] {
-                            continue;
+    let scan = source::ScanFrames {
+        frame_ids: poses.iter().map(|p| p.frame_idx).collect(),
+        inv_sims: &inv_sims,
+        bboxes: &bboxes,
+    };
+    let per_cell = source::scan_cells(frames, &scan, cw, ch, |cell, windows| {
+        let mut overlap_count = vec![vec![0usize; k]; k];
+        let mut overlap_rows = vec![vec![BTreeSet::<usize>::new(); k]; k];
+        let first_ry = cell.y0.div_ceil(stride) * stride;
+        let first_rx = cell.x0.div_ceil(stride) * stride;
+        for ry in (first_ry..cell.y1).step_by(stride) {
+            for rx in (first_rx..cell.x1).step_by(stride) {
+                let cx = rx as f64 + 0.5;
+                let cy = ry as f64 + 0.5;
+                // Which frames cover this canvas point? Use
+                // sample_bicubic to match the actual warp gate: a
+                // canvas pixel is only produced when the bicubic
+                // kernel has sufficient valid-pixel support (weight
+                // threshold 0.01). The simpler nearest-neighbour
+                // check overestimates overlap near validity
+                // boundaries. No window means no other frame reaches
+                // the cell to pair with.
+                let covered: Vec<bool> = (0..k)
+                    .map(|i| {
+                        let (fw, fh) = frame_dims[i];
+                        let (fx, fy) = inv_sims[i].apply(cx, cy);
+                        if fx < 0.0 || fx > fw || fy < 0.0 || fy > fh {
+                            return false;
                         }
-                        for b in (a + 1)..k {
-                            if covered[b] {
-                                overlap_count[a][b] += 1;
-                                overlap_rows[a][b].insert(ry);
-                            }
+                        windows[i].as_ref().is_some_and(|w| {
+                            warp::sample_bicubic(w.view(), fx - 0.5, fy - 0.5).is_some()
+                        })
+                    })
+                    .collect();
+                for a in 0..k {
+                    if !covered[a] {
+                        continue;
+                    }
+                    for b in (a + 1)..k {
+                        if covered[b] {
+                            overlap_count[a][b] += 1;
+                            overlap_rows[a][b].insert(ry);
                         }
                     }
                 }
             }
         }
-    }
+        (overlap_count, overlap_rows)
+    })?;
+    let (overlap_count, overlap_rows) = per_cell.into_iter().fold(
+        (
+            vec![vec![0usize; k]; k],
+            vec![vec![BTreeSet::<usize>::new(); k]; k],
+        ),
+        |(mut count, mut rows), (cell_count, cell_rows)| {
+            for a in 0..k {
+                for b in 0..k {
+                    count[a][b] += cell_count[a][b];
+                    rows[a][b].extend(&cell_rows[a][b]);
+                }
+            }
+            (count, rows)
+        },
+    );
 
     let mut min_w = usize::MAX;
     for a in 0..k {

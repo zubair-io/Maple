@@ -7,7 +7,8 @@
 //!
 //! [`refine_edges_lru`] is the main entry: it runs the full LRU-cached
 //! refinement loop over every edge of the match graph, returning the aggregate
-//! match counts. It is factored out of `stitch/mod.rs` for the 600-LOC budget.
+//! match counts. Both strategies use it; the tile path passes no camera
+//! geometry. It is factored out of `stitch/mod.rs` for the 600-LOC budget.
 
 use std::path::PathBuf;
 
@@ -84,7 +85,9 @@ pub(super) struct RefinePassResult {
 /// Uses a 2-entry LRU cache over `frames` so at most 2 full-resolution
 /// frames are resident at once. `inputs` (named in read errors), `frames`,
 /// `proxy_scales` (`full / proxy` per axis) and
-/// `full_images` are index-parallel with the graph's frames.
+/// `full_images` are index-parallel with the graph's frames; `full_images`
+/// is `None` for the tile path, which refines without perspective
+/// compensation.
 ///
 /// Returns the aggregate refined / fallback match counts.
 pub(super) fn refine_edges_lru(
@@ -92,7 +95,7 @@ pub(super) fn refine_edges_lru(
     inputs: &[PathBuf],
     frames: &dyn FrameRows,
     proxy_scales: &[(f64, f64)],
-    full_images: &[GraphImage],
+    full_images: Option<&[GraphImage]>,
     mut progress: impl FnMut(f32),
     is_cancelled: &dyn Fn() -> bool,
 ) -> Result<RefinePassResult, StitchError> {
@@ -149,17 +152,17 @@ pub(super) fn refine_edges_lru(
             let edge = &graph.edges[ei];
             (edge.rotation, edge.inlier_matches.clone())
         };
-        let geometry = RefineGeometry {
-            cam_a: &full_images[ia].camera,
-            cam_b: &full_images[ib].camera,
+        let geometry = full_images.map(|images| RefineGeometry {
+            cam_a: &images[ia].camera,
+            cam_b: &images[ib].camera,
             rotation: &rotation_clone,
-        };
+        });
         let outcome = refine_correspondences(
             &img_a.1,
             &img_b.1,
             proxy_scales[ia],
             proxy_scales[ib],
-            Some(&geometry),
+            geometry.as_ref(),
             &inlier_matches_clone,
             &RefineOptions::default(),
         );
@@ -231,7 +234,7 @@ mod tests {
             &inputs,
             &InMemory(&frames),
             &[(1.0, 1.0); 2],
-            &[],
+            None,
             |_| {},
             &|| true,
         );
