@@ -2,7 +2,8 @@
 //! `tile/mod.rs` for the file-size budget (#3086).
 
 use crate::blend::{blend_multiband, levels_for_overlap_width, MAX_LEVELS};
-use crate::composite::CanvasSink;
+use crate::boundary_warp::{BoundaryWarp, BoundaryWarpReport};
+use crate::composite::{CanvasSink, UncoveredCount};
 use crate::error::PanoError;
 use crate::gain::{GainOptions, LensFalloff, LensGroups};
 use crate::ingest::PlanarImage;
@@ -67,6 +68,11 @@ pub struct TileCompositeReport {
     pub local_correction_rms_px: Vec<f64>,
     /// Halo width used in the tiled multiband blend (px).
     pub halo_px: usize,
+    /// The boundary warp the output was composited through (#5572); `None`
+    /// when none was requested.
+    pub boundary_warp: Option<BoundaryWarpReport>,
+    /// Output pixels no frame covered.
+    pub uncovered_px: u64,
     /// Shared per-frame log-slope along frame-local x (#350 layer A).
     pub photometric_slope_x: f32,
     /// Shared per-frame log-slope along frame-local y (#350 layer A).
@@ -136,11 +142,15 @@ pub(crate) fn composite_tile(
     poses: &[TilePose],
     corrections: Option<&[LocalCorrection]>,
     canvas: &TileCanvasSpec,
+    boundary_warp: Option<&BoundaryWarp>,
     lenses: &LensGroups,
     gain_opts: &GainOptions,
     levels_override: Option<usize>,
     sink: &mut dyn CanvasSink,
 ) -> Result<TileCompositeReport, PanoError> {
+    let output = boundary_warp.map(|map| map.on_canvas(canvas.width, canvas.height));
+    let mut counted = UncoveredCount::new(sink);
+    let sink = &mut counted;
     if poses.is_empty() {
         return Err(PanoError::InvalidOptions(
             "composite_tile: no frames".into(),
@@ -175,7 +185,7 @@ pub(crate) fn composite_tile(
     // We need the min overlap width for level selection. Compute cheaply via
     // a canvas-space scan at a coarse stride (same approach as voronoi_masks_tile
     // but just for overlap width stats, no actual masking needed here).
-    let min_overlap = estimate_min_overlap_width(frames, full_dims, poses, canvas)?;
+    let min_overlap = estimate_min_overlap_width(frames, full_dims, poses, canvas, output)?;
     let levels = levels_override
         .unwrap_or_else(|| levels_for_overlap_width(min_overlap))
         .clamp(1, MAX_LEVELS);
@@ -240,28 +250,27 @@ pub(crate) fn composite_tile(
             let hx1 = (tx1 + halo).min(cw);
             let hy1 = (ty1 + halo).min(ch);
 
-            // Cull frames whose canvas bbox misses the haloed region, then
-            // warp only the survivors (#3086). The 1 px pad absorbs the
-            // +0.5 pixel-center sampling and float slop at the boundary.
-            let active: Vec<usize> = (0..poses.len())
-                .filter(|&i| {
-                    let (bx0, by0, bx1, by1) = frame_bboxes[i];
-                    bx1 >= hx0 as f64 - 1.0
-                        && bx0 <= hx1 as f64 + 1.0
-                        && by1 >= hy0 as f64 - 1.0
-                        && by0 <= hy1 as f64 + 1.0
-                })
-                .collect();
-            if active.is_empty() {
-                tx0 = tx1;
-                continue;
-            }
             let haloed = Cell {
                 x0: hx0,
                 y0: hy0,
                 x1: hx1,
                 y1: hy1,
             };
+            // Cull frames whose canvas bbox misses what the haloed region
+            // samples, then warp only the survivors (#3086). The 1 px pad
+            // absorbs the +0.5 pixel-center sampling and float slop at the
+            // boundary.
+            let (sx0, sy0, sx1, sy1) = haloed.sampled_extent(output);
+            let active: Vec<usize> = (0..poses.len())
+                .filter(|&i| {
+                    let (bx0, by0, bx1, by1) = frame_bboxes[i];
+                    bx1 >= sx0 - 1.0 && bx0 <= sx1 + 1.0 && by1 >= sy0 - 1.0 && by0 <= sy1 + 1.0
+                })
+                .collect();
+            if active.is_empty() {
+                tx0 = tx1;
+                continue;
+            }
             let haloed_layers: Vec<PlanarImage> = active
                 .iter()
                 .map(|&i| -> Result<PlanarImage, PanoError> {
@@ -269,7 +278,7 @@ pub(crate) fn composite_tile(
                         frames,
                         poses[i].frame_idx,
                         &inv_sims[i],
-                        haloed,
+                        haloed.sampled_centres(output),
                         corrections.map_or(0.0, |c| c[i].max_correction_px),
                     )?;
                     Ok(warp_to_tile_region(
@@ -277,6 +286,7 @@ pub(crate) fn composite_tile(
                         &poses[i],
                         corrections.map(|c| &c[i]),
                         canvas,
+                        output,
                         &photometry[i],
                         hx0,
                         hy0,
@@ -305,6 +315,7 @@ pub(crate) fn composite_tile(
                 &active_poses,
                 &active_dims,
                 canvas,
+                output,
                 hx0,
                 hy0,
             );
@@ -364,6 +375,8 @@ pub(crate) fn composite_tile(
             |cs| cs.iter().map(|c| c.rms_px).collect(),
         ),
         halo_px: halo,
+        boundary_warp: None,
+        uncovered_px: counted.uncovered,
         photometric_slope_x: phot_summary.slope_x,
         photometric_slope_y: phot_summary.slope_y,
         exposure_field_mean_abs_ev: phot_summary.field_mean_abs_ev,

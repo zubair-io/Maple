@@ -169,6 +169,44 @@ impl CanvasWarp<'_> {
             by1 * self.height,
         )
     }
+
+    /// The output pixels whose unwarped position can fall in the canvas box
+    /// `[x0, x1] × [y0, y1]`, as a half-open pixel box `(x0, y0, x1, y1)`:
+    /// every map cell whose nodes' box meets it. `None` when no cell does.
+    pub fn output_box(&self, x0: f64, y0: f64, x1: f64, y1: f64) -> Option<(u32, u32, u32, u32)> {
+        let m = self.map;
+        let (step_x, step_y) = (
+            self.width / (m.cols - 1) as f64,
+            self.height / (m.rows - 1) as f64,
+        );
+        let (i0, j0, i1, j1) = (0..m.rows - 1)
+            .flat_map(|j| (0..m.cols - 1).map(move |i| (i, j)))
+            .filter(|&(i, j)| {
+                let (bx0, by0, bx1, by1) = grid::bounds(
+                    [(i, j), (i + 1, j), (i + 1, j + 1), (i, j + 1)]
+                        .into_iter()
+                        .map(|(i, j)| m.node(i, j)),
+                );
+                bx0 * self.width <= x1
+                    && bx1 * self.width >= x0
+                    && by0 * self.height <= y1
+                    && by1 * self.height >= y0
+            })
+            .fold((usize::MAX, usize::MAX, 0, 0), |(a, b, c, d), (i, j)| {
+                (a.min(i), b.min(j), c.max(i + 1), d.max(j + 1))
+            });
+        let pixel = |cell: usize, step: f64, round: fn(f64) -> f64, len: f64| {
+            round(cell as f64 * step).clamp(0.0, len) as u32
+        };
+        (i0 != usize::MAX).then(|| {
+            (
+                pixel(i0, step_x, f64::floor, self.width),
+                pixel(j0, step_y, f64::floor, self.height),
+                pixel(i1, step_x, f64::ceil, self.width),
+                pixel(j1, step_y, f64::ceil, self.height),
+            )
+        })
+    }
 }
 
 /// Solves the boundary warp of `footprint` at `strength`, clamped to

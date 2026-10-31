@@ -3,6 +3,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use crate::boundary_warp::CanvasWarp;
 use crate::error::PanoError;
 use crate::frame_store::FrameRows;
 use crate::ingest::PlanarImage;
@@ -24,11 +25,14 @@ type PairOverlaps = BTreeMap<(usize, usize), (usize, BTreeSet<usize>)>;
 /// `full_dims` is indexed by the *original* input frame index (same
 /// space as `frames` and `poses[i].frame_idx`). Each spatial cell reads
 /// only the source windows of the frames that reach it (#3197, #5560).
+/// Points are output pixels, sampling the canvas through `output` when
+/// there is a boundary warp, so widths are output widths (#5572).
 pub(super) fn estimate_min_overlap_width(
     frames: &dyn FrameRows,
     full_dims: &[(u32, u32)],
     poses: &[TilePose],
     canvas: &TileCanvasSpec,
+    output: Option<CanvasWarp<'_>>,
 ) -> Result<usize, PanoError> {
     use warp::inverse_similarity_with_offset;
 
@@ -72,6 +76,7 @@ pub(super) fn estimate_min_overlap_width(
         frame_ids: poses.iter().map(|p| p.frame_idx).collect(),
         inv_sims: &inv_sims,
         bboxes: &bboxes,
+        warp: output,
     };
     let per_cell = source::scan_cells(frames, &scan, cw, ch, |cell, windows| {
         let mut overlaps = PairOverlaps::new();
@@ -79,8 +84,9 @@ pub(super) fn estimate_min_overlap_width(
         let first_rx = cell.x0.div_ceil(stride) * stride;
         for ry in (first_ry..cell.y1).step_by(stride) {
             for rx in (first_rx..cell.x1).step_by(stride) {
-                let cx = rx as f64 + 0.5;
-                let cy = ry as f64 + 0.5;
+                let (cx, cy) = output.map_or((rx as f64 + 0.5, ry as f64 + 0.5), |w| {
+                    w.unwarp(rx as f64 + 0.5, ry as f64 + 0.5)
+                });
                 // Which frames cover this canvas point? Use
                 // sample_bicubic to match the actual warp gate: a
                 // canvas pixel is only produced when the bicubic
@@ -140,13 +146,15 @@ pub(super) fn estimate_min_overlap_width(
 /// layer at a pixel — every tie broke to the lowest index and seams sat
 /// on frame validity borders, where parallax misalignment peaks.
 ///
-/// `(rx0, ry0)` is the region's origin in canvas pixels; `poses` and
-/// `frame_dims` are parallel to `layers`.
+/// `(rx0, ry0)` is the region's origin in output pixels, each sampling the
+/// canvas through `output` when there is a boundary warp (#5572); `poses`
+/// and `frame_dims` are parallel to `layers`.
 pub(super) fn voronoi_masks_region(
     layers: &[PlanarImage],
     poses: &[TilePose],
     frame_dims: &[(u32, u32)],
     canvas: &TileCanvasSpec,
+    output: Option<CanvasWarp<'_>>,
     rx0: usize,
     ry0: usize,
 ) -> (Vec<Vec<f32>>, usize) {
@@ -174,8 +182,8 @@ pub(super) fn voronoi_masks_region(
                     if !layer.validity.get(px as u32, py as u32) {
                         continue;
                     }
-                    let cx = (rx0 + px) as f64 + 0.5;
-                    let cy = (ry0 + py) as f64 + 0.5;
+                    let (ox, oy) = ((rx0 + px) as f64 + 0.5, (ry0 + py) as f64 + 0.5);
+                    let (cx, cy) = output.map_or((ox, oy), |w| w.unwarp(ox, oy));
                     let (sx, sy) = inv.apply(cx, cy);
                     let border = sx.min(fw - sx).min(sy).min(fh - sy);
                     d[py * cw + px] = border.max(0.0) as f32;

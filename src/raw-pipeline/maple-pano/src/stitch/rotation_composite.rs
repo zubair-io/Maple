@@ -1,5 +1,6 @@
 //! Rotation-strategy stage 5 tail: residual exposure field and the tiled
-//! composite, every pass reading the surviving frames from the store.
+//! composite through the boundary warp, every pass reading the surviving
+//! frames from the store.
 
 use crate::camera::Camera;
 use crate::canvas::CanvasSpec;
@@ -9,7 +10,7 @@ use crate::gain::{solve_exposure_field_streaming, FramePhotometry};
 use crate::local_align::LocalCorrection;
 use crate::seam::SeamConstraint;
 
-use super::{seam_gate, StitchError, StitchOptions};
+use super::{boundary, seam_gate, StitchError, StitchOptions};
 
 /// Strip height when `canvas_tile_rows` is unset, so the tiled path (one
 /// strip's source rows resident per frame, #1254/#5554) always engages.
@@ -30,13 +31,17 @@ pub(super) fn composite(
     let exposure_field =
         solve_exposure_field_streaming(frames, cameras, photometry, local_corrections, canvas)
             .map_err(failed)?;
+    let (output_canvas, boundary_warp) =
+        boundary::warped_canvas(canvas, opts.boundary_warp, || {
+            boundary::rotation_footprint(cameras, local_corrections, canvas)
+        });
     let mut report = composite_tiled(
         frames,
         cameras,
         photometry,
         local_corrections,
         Some(&exposure_field),
-        canvas,
+        &output_canvas,
         opts.canvas_tile_rows.unwrap_or(DEFAULT_TILE_ROWS),
         opts.seam_strategy,
         seam_constraints,
@@ -46,5 +51,6 @@ pub(super) fn composite(
     if !opts.capture_owner {
         report.owner = None;
     }
+    report.boundary_warp = boundary_warp;
     Ok(report)
 }

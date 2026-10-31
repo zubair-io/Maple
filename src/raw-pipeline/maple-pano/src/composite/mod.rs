@@ -44,12 +44,14 @@ mod tiled;
 
 pub use owner::OwnerRuns;
 pub(crate) use sink::CancellableSink;
+pub(crate) use sink::UncoveredCount;
 pub use sink::{CanvasCollector, CanvasSink};
 pub use tiled::{composite_tiled, composite_tiled_frames};
 
 use rayon::prelude::*;
 
 use crate::blend::{blend_multiband, levels_for_overlap_width};
+use crate::boundary_warp::BoundaryWarpReport;
 use crate::camera::Camera;
 use crate::canvas::{auto_canvas, CanvasOptions, CanvasSpec};
 use crate::error::PanoError;
@@ -96,6 +98,11 @@ pub struct CompositeReport {
     /// The residual exposure field the tiled path applied, if any (#4521).
     pub exposure_field: Option<ExposureFieldSummary>,
     pub owner: Option<OwnerRuns>,
+    /// The boundary warp the output canvas was composited through (#5572);
+    /// `None` when none was requested.
+    pub boundary_warp: Option<BoundaryWarpReport>,
+    /// Output pixels no frame covered.
+    pub uncovered_px: u64,
 }
 
 /// Composite posed frames onto an automatically constructed canvas.
@@ -179,6 +186,8 @@ pub fn composite(
     let blended = blend_multiband(&layers, &masks, levels);
 
     let projection = canvas.projection;
+    let uncovered_px =
+        (blended.width() as u64 * blended.height() as u64) - blended.validity.count_valid() as u64;
     Ok((
         blended,
         CompositeReport {
@@ -191,6 +200,8 @@ pub fn composite(
             seam_strategy,
             exposure_field: None,
             owner: None,
+            boundary_warp: None,
+            uncovered_px,
         },
     ))
 }
@@ -223,7 +234,7 @@ fn voronoi_masks(
                 if !layer.validity.get(x, y) {
                     continue;
                 }
-                let Some(dir) = canvas.pixel_to_dir(x as f64 + 0.5, y as f64 + 0.5) else {
+                let Some(dir) = canvas.output_pixel_to_dir(x as f64 + 0.5, y as f64 + 0.5) else {
                     continue;
                 };
                 let Some((sx, sy)) = cam.world_dir_to_pixel(dir) else {

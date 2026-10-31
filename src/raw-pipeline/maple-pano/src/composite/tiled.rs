@@ -28,7 +28,7 @@ use crate::local_align::LocalCorrection;
 use crate::seam::{SeamConstraint, SeamConstraintError, SeamStrategy};
 use crate::warp::warp_window_to_canvas_strip;
 
-use super::{CanvasCollector, CanvasSink, CompositeReport};
+use super::{CanvasCollector, CanvasSink, CompositeReport, UncoveredCount};
 
 /// Compute per-frame Voronoi depth scores over one canvas strip.
 ///
@@ -59,7 +59,8 @@ fn tile_depths(
             for sy in 0..th {
                 let canvas_y = tile_y0 as usize + sy;
                 for x in 0..cw {
-                    let Some(dir) = canvas.pixel_to_dir(x as f64 + 0.5, canvas_y as f64 + 0.5)
+                    let Some(dir) =
+                        canvas.output_pixel_to_dir(x as f64 + 0.5, canvas_y as f64 + 0.5)
                     else {
                         continue;
                     };
@@ -184,6 +185,8 @@ pub fn composite_tiled(
     seam_constraints: &[SeamConstraint],
     sink: &mut dyn CanvasSink,
 ) -> Result<CompositeReport, PanoError> {
+    let mut counted = UncoveredCount::new(sink);
+    let sink = &mut counted;
     let report = match seam_strategy {
         SeamStrategy::Voronoi if !seam_constraints.is_empty() => {
             Err(SeamConstraintError::RequiresGraphCut.into())
@@ -212,6 +215,7 @@ pub fn composite_tiled(
     }?;
     Ok(CompositeReport {
         exposure_field: exposure_field.map(|field| field.summary),
+        uncovered_px: counted.uncovered,
         ..report
     })
 }
@@ -353,6 +357,8 @@ fn voronoi_blend(
         seam_strategy: SeamStrategy::Voronoi,
         exposure_field: None,
         owner: survey.owner.take(),
+        boundary_warp: None,
+        uncovered_px: 0,
     };
     Ok(report)
 }

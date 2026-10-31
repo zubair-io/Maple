@@ -81,6 +81,7 @@ pub mod warp;
 mod composite;
 mod edge_consensus;
 mod exposure_field;
+mod footprint;
 mod masks;
 mod photometry;
 mod sampling;
@@ -101,6 +102,7 @@ mod vignette_tests;
 pub(crate) use composite::composite_tile;
 pub use composite::TileCompositeReport;
 pub use edge_consensus::verify_tile_edges;
+pub(crate) use footprint::tile_footprint;
 pub use placement::{
     apply_canvas_cap, solve_tile_poses, TileCanvasSpec, TilePlacement, TilePlacementError, TilePose,
 };

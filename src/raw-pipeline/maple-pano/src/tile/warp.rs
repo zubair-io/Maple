@@ -27,6 +27,7 @@ use rayon::prelude::*;
 use super::photometry::FramePhotometry;
 use super::placement::{TileCanvasSpec, TilePose};
 use super::source::SourceView;
+use crate::boundary_warp::CanvasWarp;
 use crate::ingest::{PlanarImage, ValidityMask};
 use crate::local_align::LocalCorrection;
 use crate::similarity::Similarity2d;
@@ -97,12 +98,15 @@ pub fn warp_to_tile_canvas(
 ///
 /// `local` is the frame's Stage-F mesh (#4577): it shifts the source
 /// sample point after the inverse similarity, inside the same resample.
+/// The region is in output pixels, each sampling the canvas through `warp`
+/// when there is one (#5572).
 #[allow(clippy::too_many_arguments)]
 pub(super) fn warp_to_tile_region(
     src: SourceView<'_>,
     pose: &TilePose,
     local: Option<&LocalCorrection>,
     canvas: &TileCanvasSpec,
+    warp: Option<CanvasWarp<'_>>,
     phot: &FramePhotometry,
     rx0: usize,
     ry0: usize,
@@ -135,9 +139,10 @@ pub(super) fn warp_to_tile_region(
         .zip(valid.par_chunks_mut(rw))
         .enumerate()
         .for_each(|(row, (((row_r, row_g), row_b), row_v))| {
-            let cy = (ry0 + row) as f64 + 0.5;
+            let oy = (ry0 + row) as f64 + 0.5;
             for col in 0..rw {
-                let cx = (rx0 + col) as f64 + 0.5;
+                let ox = (rx0 + col) as f64 + 0.5;
+                let (cx, cy) = warp.map_or((ox, oy), |w| w.unwarp(ox, oy));
                 let (px, py) = inv.apply(cx, cy);
                 let (fx, fy) = local.map_or((px, py), |c| c.apply(px, py));
                 if fx < 0.0 || fx > src_w || fy < 0.0 || fy > src_h {
@@ -382,6 +387,7 @@ mod tests {
             &pose,
             Some(&corr),
             &canvas,
+            None,
             &phot,
             0,
             0,

@@ -92,6 +92,10 @@ pub struct StitchOptions {
     /// classical Harris + gradient-histogram path.
     pub feature_engine: super::FeatureEngine,
     pub capture_owner: bool,
+    /// Boundary Warp strength in `[0, 1]` (#5572): how far the panorama's
+    /// ragged edge is stretched out to the output rectangle. `0` builds no
+    /// map and leaves the output byte-identical.
+    pub boundary_warp: f64,
 }
 
 impl Default for StitchOptions {
@@ -119,6 +123,7 @@ impl Default for StitchOptions {
             grid: None,
             feature_engine: super::FeatureEngine::default(),
             capture_owner: false,
+            boundary_warp: 0.0,
         }
     }
 }

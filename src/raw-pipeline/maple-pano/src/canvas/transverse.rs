@@ -189,5 +189,6 @@ pub(super) fn transverse_canvas(
         rotation: basis,
         rotation_inv: basis.transpose(),
         full_wrap: rolled.full_wrap,
+        boundary_warp: None,
     })
 }

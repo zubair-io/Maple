@@ -35,11 +35,13 @@
 //! cross-sweep coordinate, so the wrap seam runs between the top and
 //! bottom rows rather than the left and right columns.
 
+use crate::boundary_warp::BoundaryWarp;
 use crate::error::PanoError;
 use crate::math::{Mat3, Vec3};
 use crate::project::Projection;
 
 use std::f64::consts::{FRAC_PI_2, PI, TAU};
+use std::sync::Arc;
 
 /// Projection selection policy for [`auto_canvas`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -102,6 +104,8 @@ pub struct CanvasSpec {
     /// `true` when the periodic axis tiles the full circle
     /// (`du · width = 2π`, or `|dv| · height = 2π` when transverse).
     full_wrap: bool,
+    /// Maps each output pixel to the canvas position it samples (#5572).
+    boundary_warp: Option<Arc<BoundaryWarp>>,
 }
 
 impl CanvasSpec {
@@ -146,6 +150,7 @@ impl CanvasSpec {
             rotation,
             rotation_inv: rotation.transpose(),
             full_wrap,
+            boundary_warp: None,
         })
     }
 
@@ -268,14 +273,15 @@ impl CanvasSpec {
     /// [`Self::is_full_wrap`]'s `width · |du| == 2π` invariant exact
     /// regardless of the integer rounding on `width`/`height`).
     ///
-    /// A no-op (clones `self`) when already at or under the cap. Used by
+    /// A copy of `self` when already at or under the cap. Used by
     /// the graph-cut seam finder (#1179) to build a cheap low-resolution
     /// "seam canvas" for content-aware mask computation ahead of the
-    /// memory-bounded full-resolution tiled composite.
+    /// memory-bounded full-resolution tiled composite. The downscaled canvas
+    /// is a solve canvas, so it carries no boundary warp.
     pub fn downscaled(&self, max_pixels: usize) -> Self {
         let total = self.pixel_count();
         if total <= max_pixels || max_pixels == 0 {
-            return self.clone();
+            return self.clone().with_boundary_warp(None);
         }
         let scale = (max_pixels as f64 / total as f64).sqrt();
         let width = ((self.width as f64 * scale).floor() as u32).max(1);
@@ -293,7 +299,40 @@ impl CanvasSpec {
             rotation: self.rotation,
             rotation_inv: self.rotation_inv,
             full_wrap: self.full_wrap,
+            boundary_warp: None,
         }
+    }
+
+    /// This canvas with its output pixels sampling `warp` (#5572). Only the
+    /// per-output-pixel consumers read it, through [`Self::unwarp`]; every
+    /// solve keeps the unwarped canvas coordinates.
+    pub fn with_boundary_warp(self, warp: Option<Arc<BoundaryWarp>>) -> Self {
+        Self {
+            boundary_warp: warp,
+            ..self
+        }
+    }
+
+    pub fn boundary_warp(&self) -> Option<&BoundaryWarp> {
+        self.boundary_warp.as_deref()
+    }
+
+    /// The canvas position output pixel position `(px, py)` samples: itself
+    /// without a boundary warp.
+    #[inline]
+    pub fn unwarp(&self, px: f64, py: f64) -> (f64, f64) {
+        match &self.boundary_warp {
+            None => (px, py),
+            Some(warp) => warp.on_canvas(self.width, self.height).unwarp(px, py),
+        }
+    }
+
+    /// [`Self::pixel_to_dir`] of the canvas position output pixel position
+    /// `(px, py)` samples.
+    #[inline]
+    pub fn output_pixel_to_dir(&self, px: f64, py: f64) -> Option<Vec3> {
+        let (x, y) = self.unwarp(px, py);
+        self.pixel_to_dir(x, y)
     }
 }
 

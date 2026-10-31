@@ -48,7 +48,7 @@ use crate::ingest::FramePriors;
 use crate::local_align::planar::fit_planar_corrections;
 use crate::strategy::StrategyReport;
 use crate::tile::placement::{solve_tile_poses, TileConstraint};
-use crate::tile::{composite_tile, verify_tile_edges};
+use crate::tile::{composite_tile, verify_tile_edges, TileCompositeReport};
 use crate::twoview::PixelCorrespondence;
 
 use super::refine_pass::{refine_edges, RefinePassResult};
@@ -260,6 +260,7 @@ pub(super) fn tile_tail(
         frames,
         &lenses,
         opts.local_align,
+        opts.boundary_warp,
         |_, _| opts.max_canvas_px,
         sink,
         &mut progress,
@@ -315,6 +316,7 @@ pub(super) fn place_and_composite(
     frames: &dyn FrameRows,
     lenses: &LensGroups,
     local_align: bool,
+    boundary_warp: f64,
     canvas_cap_px: impl FnOnce(u32, u32) -> usize,
     sink: &mut dyn CanvasSink,
     progress: &mut dyn FnMut(u32, f32),
@@ -382,6 +384,15 @@ pub(super) fn place_and_composite(
     if is_cancelled() {
         return Err(StitchError::Cancelled);
     }
+    let warp = super::boundary::solve(boundary_warp, || {
+        crate::tile::tile_footprint(
+            &poses,
+            dims,
+            corrections.as_deref(),
+            &canvas_spec,
+            super::boundary::FOOTPRINT_MAX_PX,
+        )
+    });
     let tile_report = composite_tile(
         frames,
         dims,
@@ -389,12 +400,17 @@ pub(super) fn place_and_composite(
         &poses,
         corrections.as_deref(),
         &canvas_spec,
+        warp.as_ref().and_then(|w| w.map.as_ref()),
         lenses,
         &Default::default(),
         None,
         &mut CancellableSink::new(sink, is_cancelled),
     )
     .map_err(super::seam_gate::composite_error)?;
+    let tile_report = TileCompositeReport {
+        boundary_warp: warp.map(|w| w.report),
+        ..tile_report
+    };
     let composite_s = t5.elapsed().as_secs_f64();
     progress(5, 1.0);
 

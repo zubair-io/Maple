@@ -86,6 +86,7 @@
 mod aligned;
 mod alignment;
 mod alignment_codec;
+mod boundary;
 mod degenerate;
 mod engine;
 mod focal_bootstrap;

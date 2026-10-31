@@ -125,7 +125,10 @@ fn graph_cut_blend(
         tile_rows,
         levels,
         |fi, y0, y1| survey.footprint_touches(fi, y0, y1),
-        |fi, x, y| seam.weight(fi, x as f64 + 0.5, y as f64 + 0.5),
+        |fi, x, y| {
+            let (ux, uy) = canvas.unwarp(x as f64 + 0.5, y as f64 + 0.5);
+            seam.weight(fi, ux, uy)
+        },
         warp_strip,
         sink,
     )?;
@@ -139,6 +142,8 @@ fn graph_cut_blend(
         seam_strategy: seam::SeamStrategy::GraphCut,
         exposure_field: None,
         owner: None,
+        boundary_warp: None,
+        uncovered_px: 0,
     };
     Ok(report)
 }

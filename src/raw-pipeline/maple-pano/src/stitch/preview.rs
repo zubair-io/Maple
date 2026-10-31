@@ -144,6 +144,8 @@ pub fn preview(
                 &frames,
                 &alignment.lenses,
                 opts.local_align,
+                // The preview honours Boundary Warp in #5574.
+                0.0,
                 |w, h| {
                     natural = (w, h);
                     long_edge_pixel_cap(w, h)

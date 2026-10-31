@@ -110,6 +110,7 @@ impl<'a> ScanGeometry<'a> {
             frame_ids: self.poses.iter().map(|p| p.frame_idx).collect(),
             inv_sims: &self.inv_sims,
             bboxes: &self.bboxes,
+            warp: None,
         };
         source::scan_cells(
             frames,
