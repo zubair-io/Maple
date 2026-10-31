@@ -25,12 +25,13 @@ export function developRenderSucceeded(
   rc: number,
   lastError: () => string | null,
   log: FailureLog,
+  srcPath: string,
 ): boolean {
   if (rc === RC_UNSUPPORTED_CAMERA) {
     throw new Error(String(lastError() ?? `${UNSUPPORTED_CAMERA_MESSAGE_PREFIX}unknown`));
   }
   if (rc !== 0) {
-    log.error({ rc, err: lastError() }, 'maple_render_develop_jpeg_to_file failed');
+    log.error({ rc, srcPath, err: lastError() }, 'maple_render_develop_jpeg_to_file failed');
   }
   return rc === 0;
 }

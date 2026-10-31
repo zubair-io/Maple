@@ -372,6 +372,7 @@ function loadFfi(): RawFfi | null {
           rc,
           () => lib.symbols.maple_last_error() as unknown as string | null,
           log,
+          rawAbsPath,
         );
       },
 

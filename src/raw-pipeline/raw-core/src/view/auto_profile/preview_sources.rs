@@ -76,3 +76,35 @@ pub(super) fn extract_in_process(
         PreviewSource::EmbeddedJpegScan | PreviewSource::Exiftool => None,
     }
 }
+
+#[cfg(test)]
+mod degenerate_preview_tests {
+    use super::super::preview::extract_preview_from_bytes;
+    use crate::test_support::synth_dng_preview::{dng_with_preview_sub_ifd, PreviewStrip};
+
+    #[test]
+    fn jpeg_preview_ifd_declaring_zero_width_yields_no_preview() {
+        let bytes = dng_with_preview_sub_ifd(PreviewStrip::Jpeg, 0, 4);
+        assert!(extract_preview_from_bytes(&bytes, "dng").is_none());
+    }
+
+    #[test]
+    fn uncompressed_preview_ifd_declaring_zero_width_yields_no_preview() {
+        let bytes = dng_with_preview_sub_ifd(PreviewStrip::Uncompressed, 0, 8);
+        assert!(extract_preview_from_bytes(&bytes, "dng").is_none());
+    }
+
+    #[test]
+    fn preview_ifd_declaring_zero_height_yields_no_preview() {
+        let bytes = dng_with_preview_sub_ifd(PreviewStrip::Uncompressed, 8, 0);
+        assert!(extract_preview_from_bytes(&bytes, "dng").is_none());
+    }
+
+    #[test]
+    fn well_formed_preview_ifd_is_still_extracted() {
+        let bytes = dng_with_preview_sub_ifd(PreviewStrip::Uncompressed, 8, 4);
+        let image = extract_preview_from_bytes(&bytes, "dng")
+            .expect("a well-formed preview sub-IFD must extract");
+        assert_eq!((image.width(), image.height()), (8, 4));
+    }
+}
