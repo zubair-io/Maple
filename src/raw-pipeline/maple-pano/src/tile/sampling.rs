@@ -18,8 +18,6 @@
 //! those windows when the cell is done. Per-cell results come back in
 //! canonical cell order, so the fold is deterministic.
 
-use rayon::prelude::*;
-
 use crate::error::PanoError;
 use crate::frame_store::FrameRows;
 use crate::gain::vignette::{falloff_gain, Correspondence};
