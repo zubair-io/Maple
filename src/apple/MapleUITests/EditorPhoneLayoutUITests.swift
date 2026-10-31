@@ -97,16 +97,29 @@ import XCTest
             predicate: NSPredicate { object, _ in
               (object as? XCUIElement)?.isHittable == true
             })
+        } else if landscape {
+          XCTAssertFalse(controls.exists, "iPad never uses the phone controls")
+          XCTAssertTrue(element(app, "editor-vertical-controls").exists)
+          XCTAssertFalse(element(app, "editor-adjustments-panel").exists)
+          XCTAssertFalse(element(app, "editor-tool-dock").exists)
+          XCTAssertTrue(app.buttons["editor-group-color"].isSelected)
         } else {
           XCTAssertFalse(controls.exists, "A compact iPad must retain the shared inspector")
           XCTAssertTrue(element(app, "editor-adjustments-panel").exists)
           XCTAssertTrue(element(app, "editor-tool-dock").exists)
         }
-        XCTAssertEqual(blackWhite.value as? String, edited)
+        if phone || !landscape {
+          XCTAssertEqual(blackWhite.value as? String, edited)
+        }
         let shot = XCTAttachment(screenshot: app.screenshot())
-        shot.name = "\(phone ? "iPhone compact" : "iPad shared") \(orientation.rawValue)"
+        shot.name = "\(phone ? "iPhone compact" : "iPad") \(orientation.rawValue)"
         shot.lifetime = .keepAlways
         add(shot)
+      }
+      if !phone {
+        // The B&W switch lives in the portrait inspector, not the landscape bar.
+        XCUIDevice.shared.orientation = .portrait
+        XCTAssertTrue(blackWhite.waitForExistence(timeout: 10))
       }
       let undo = app.buttons["editor-undo"]
       wait(

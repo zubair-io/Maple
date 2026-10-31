@@ -1,5 +1,5 @@
-// Duo editor tool reachability: the rail (regular width) or the phone
-// controls (compact width) expose every tool, and taps select the inspector.
+// Duo editor tool reachability: the vertical control bar (open, landscape) or
+// the phone controls with the side rail (closed) expose every tool.
 
 import XCTest
 
@@ -34,14 +34,16 @@ import XCTest
         .matching(identifier: "editor-iphone-controls").firstMatch
       let toolDock = app.descendants(matching: .any)
         .matching(identifier: "editor-tool-dock").firstMatch
-      let more = app.descendants(matching: .any)
-        .matching(identifier: "editor-dock-more").firstMatch
+      let verticalBar = app.descendants(matching: .any)
+        .matching(identifier: "editor-vertical-controls").firstMatch
       let either = XCTNSPredicateExpectation(
-        predicate: NSPredicate { _, _ in phoneControls.exists || toolDock.exists || more.exists },
+        predicate: NSPredicate { _, _ in
+          phoneControls.exists || toolDock.exists || verticalBar.exists
+        },
         object: nil)
       XCTAssertEqual(
         XCTWaiter.wait(for: [either], timeout: 10), .completed,
-        "Editor shows no phone controls, tool dock, or Duo rail")
+        "Editor shows no phone controls, tool dock, or vertical control bar")
 
       let openHeal: () -> Void
       let openPresets: () -> Void
@@ -58,7 +60,9 @@ import XCTest
         guard UIDevice.current.name.localizedCaseInsensitiveContains("duo") else {
           throw XCTSkip("The Duo postures require an iPhone Duo simulator")
         }
-        XCTAssertFalse(more.exists, "The closed Duo keeps rail tools out of the toolbar")
+        XCTAssertFalse(
+          app.buttons["editor-dock-tool-heal"].exists,
+          "The closed Duo keeps tools out of the toolbar")
         let detail = app.buttons["editor-dock-group-detail"]
         let strip = app.descendants(matching: .any)
           .matching(identifier: "editor-tool-row").firstMatch
@@ -75,19 +79,18 @@ import XCTest
         openHeal = { reveal(app.buttons["editor-tool-heal"], "Heal") }
         openPresets = { reveal(app.buttons["editor-tool-presets"], "Presets") }
       } else {
-        XCTAssertTrue(more.isHittable)
-        openHeal = {
-          more.tap()
-          let heal = app.buttons["editor-dock-tool-heal"]
-          XCTAssertTrue(heal.waitForExistence(timeout: 5), "More did not open Heal")
-          heal.tap()
+        let detail = app.buttons["editor-group-detail"]
+        let column = app.descendants(matching: .any)
+          .matching(identifier: "editor-tool-row").firstMatch
+        let reveal = { (tool: XCUIElement, name: String) in
+          detail.tap()
+          XCTAssertTrue(tool.waitForExistence(timeout: 5), "Detail column missing \(name)")
+          for _ in 0..<4 where !tool.isHittable { column.swipeUp() }
+          XCTAssertTrue(tool.isHittable, "\(name) cannot be scrolled into reach")
+          tool.tap()
         }
-        openPresets = {
-          more.tap()
-          let presets = app.buttons["editor-dock-tool-presets"]
-          XCTAssertTrue(presets.waitForExistence(timeout: 5), "More did not open Presets")
-          presets.tap()
-        }
+        openHeal = { reveal(app.buttons["editor-tool-heal"], "Heal") }
+        openPresets = { reveal(app.buttons["editor-tool-presets"], "Presets") }
       }
 
       openHeal()
@@ -144,85 +147,52 @@ import XCTest
         add(attachment)
         return
       }
-      XCTAssertTrue(light.waitForExistence(timeout: 10), "Open Duo tool rail missing")
+      XCUIDevice.shared.orientation = .landscapeLeft
+      defer { XCUIDevice.shared.orientation = .portrait }
+      let verticalBar = app.descendants(matching: .any)
+        .matching(identifier: "editor-vertical-controls").firstMatch
+      guard verticalBar.waitForExistence(timeout: 10) else {
+        throw XCTSkip("The open Duo posture requires an iPhone Duo simulator")
+      }
+      XCTAssertFalse(light.exists, "The open Duo shows no system tool rail")
       XCTAssertFalse(
         app.descendants(matching: .any)
           .matching(identifier: "editor-tool-dock").firstMatch.exists)
-      XCTAssertTrue(
-        app.descendants(matching: .any)
-          .matching(identifier: "editor-adjustments-panel").firstMatch.exists)
 
-      for group in ["light", "color", "effects", "detail"] {
-        let button = app.buttons["editor-dock-group-\(group)"]
-        XCTAssertTrue(button.exists, "Missing \(group) in the Duo rail")
+      let column = app.descendants(matching: .any)
+        .matching(identifier: "editor-tool-row").firstMatch
+      for (group, tools) in [
+        ("light", ["exposure", "toneCurve"]), ("color", ["temp", "hsl"]),
+        ("effects", ["clarity", "filmLook"]), ("detail", ["crop", "mask", "heal", "presets"]),
+      ] {
+        let button = app.buttons["editor-group-\(group)"]
         XCTAssertTrue(button.isHittable, "\(group) is hidden or clipped")
         button.tap()
-        XCTAssertTrue(
-          app.descendants(matching: .any)
-            .matching(identifier: "editor-panel-section-\(group)")
-            .firstMatch.waitForExistence(timeout: 5))
+        for tool in tools {
+          let pill = app.buttons["editor-tool-\(tool)"]
+          XCTAssertTrue(pill.waitForExistence(timeout: 5), "Missing \(tool) in \(group)")
+          for _ in 0..<4 where !pill.isHittable { column.swipeUp() }
+          XCTAssertTrue(pill.isHittable, "\(tool) cannot be scrolled into reach")
+        }
       }
 
-      // The rail owns its More menu instead of relying on the system's
-      // toolbar overflow, which did not open on the Duo (#3860).
-      for tool in ["crop", "toneCurve", "filmLook", "geometry", "mask"] {
-        let button = app.buttons["editor-dock-tool-\(tool)"]
-        XCTAssertTrue(button.exists, "Missing \(tool) in the Duo rail")
-        XCTAssertTrue(button.isHittable, "\(tool) is hidden or clipped")
-      }
-
-      let curve = app.buttons["editor-dock-tool-toneCurve"]
-      curve.tap()
-      XCTAssertTrue(curve.isSelected)
-      XCTAssertEqual(
-        app.descendants(matching: .any)
-          .matching(identifier: "editor-panel-section-light").firstMatch.label,
-        "Tone Curve section")
-      XCTAssertFalse(
-        app.descendants(matching: .any)
-          .matching(identifier: "editor-slider-exposure").firstMatch.exists)
-
-      let film = app.buttons["editor-dock-tool-filmLook"]
-      film.tap()
-      XCTAssertTrue(film.isSelected)
-      XCTAssertEqual(
-        app.descendants(matching: .any)
-          .matching(identifier: "editor-panel-section-effects").firstMatch.label,
-        "Film section")
-      XCTAssertFalse(
-        app.descendants(matching: .any)
-          .matching(identifier: "editor-slider-clarity").firstMatch.exists)
-
-      let crop = app.buttons["editor-dock-tool-crop"]
-      crop.tap()
-      XCTAssertTrue(crop.isSelected, "Crop tap did not select its panel")
-      XCTAssertTrue(app.buttons["editor-crop-done"].waitForExistence(timeout: 5))
-
-      let mask = app.buttons["editor-dock-tool-mask"]
-      mask.tap()
-      XCTAssertTrue(mask.isSelected, "Mask tap did not select its panel")
-
-      let more = app.descendants(matching: .any)
-        .matching(identifier: "editor-dock-more").firstMatch
-      XCTAssertTrue(more.isHittable, "More tools is hidden or clipped")
-      more.tap()
-      let heal = app.buttons["editor-dock-tool-heal"]
-      XCTAssertTrue(heal.waitForExistence(timeout: 5), "More did not open the hidden tools")
-      heal.tap()
+      app.buttons["editor-group-light"].tap()
+      app.buttons["editor-tool-exposure"].tap()
       XCTAssertTrue(
         app.descendants(matching: .any)
-          .matching(identifier: "editor-retouch-panel").firstMatch.waitForExistence(timeout: 5))
+          .matching(identifier: "editor-drag-bar").firstMatch.waitForExistence(timeout: 5))
 
-      more.tap()
-      let presets = app.buttons["editor-dock-tool-presets"]
-      XCTAssertTrue(presets.waitForExistence(timeout: 5))
-      presets.tap()
+      app.buttons["editor-tool-toneCurve"].tap()
       XCTAssertTrue(
         app.descendants(matching: .any)
-          .matching(identifier: "editor-presets-panel").firstMatch.waitForExistence(timeout: 5))
+          .matching(identifier: "editor-vertical-context-panel").firstMatch
+          .waitForExistence(timeout: 5))
+      XCTAssertFalse(
+        app.descendants(matching: .any)
+          .matching(identifier: "editor-drag-bar").firstMatch.exists)
 
       let attachment = XCTAttachment(screenshot: app.screenshot())
-      attachment.name = "Open Duo editor tool rail"
+      attachment.name = "Open Duo vertical control bar"
       attachment.lifetime = .keepAlways
       add(attachment)
     }

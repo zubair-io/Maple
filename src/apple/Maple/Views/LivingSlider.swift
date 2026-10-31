@@ -7,6 +7,7 @@ public struct LivingSlider: View {
   public enum Style: Sendable {
     case living
     case dragBar
+    case verticalDragBar
   }
 
   let label: String
@@ -60,6 +61,8 @@ public struct LivingSlider: View {
     LivingSliderMath.isModified(value: value, defaultValue: defaultValue, range: range)
   }
 
+  private var isRuler: Bool { style != .living }
+
   private var gradient: LinearGradient {
     let stops =
       gradientStops?.map {
@@ -68,7 +71,9 @@ public struct LivingSlider: View {
         Gradient.Stop(color: ProTokens.border, location: 0),
         Gradient.Stop(color: ProTokens.borderHi, location: 1),
       ]
-    return LinearGradient(stops: stops, startPoint: .leading, endPoint: .trailing)
+    return style == .verticalDragBar
+      ? LinearGradient(stops: stops, startPoint: .bottom, endPoint: .top)
+      : LinearGradient(stops: stops, startPoint: .leading, endPoint: .trailing)
   }
 
   public var body: some View {
@@ -103,7 +108,7 @@ public struct LivingSlider: View {
               .position(x: 8 + pct * max(width - 16, 0), y: 8)
           }
           .frame(height: 16).frame(maxHeight: .infinity).contentShape(Rectangle())
-          .gesture(drag(width: max(width - 16, 1)))
+          .gesture(drag(travelLength: max(width - 16, 1)))
           .highPriorityGesture(TapGesture(count: 2).onEnded { reset() })
           .simultaneousGesture(
             LongPressGesture(minimumDuration: 0.5).onEnded { _ in enableFineMode() })
@@ -136,16 +141,52 @@ public struct LivingSlider: View {
               .position(x: width * pct, y: 15)
           }
           .frame(height: 30).frame(maxHeight: .infinity).contentShape(Rectangle())
-          .gesture(drag(width: max(width, 1)))
+          .gesture(drag(travelLength: max(width, 1)))
+          .highPriorityGesture(TapGesture(count: 2).onEnded { reset() })
+          .simultaneousGesture(
+            LongPressGesture(minimumDuration: 0.5).onEnded { _ in enableFineMode() })
+
+        case .verticalDragBar:
+          let height = geometry.size.height
+          let centerX = geometry.size.width / 2
+          ZStack(alignment: .top) {
+            if let gradientStops, !gradientStops.isEmpty {
+              Capsule().fill(gradient).frame(width: 8)
+                .overlay(Capsule().strokeBorder(ProTokens.borderHi.opacity(0.5), lineWidth: 0.5))
+                .frame(maxWidth: .infinity, alignment: .center)
+            } else {
+              Rectangle()
+                .fill(ProTokens.border)
+                .frame(width: 1)
+                .frame(maxWidth: .infinity, alignment: .center)
+            }
+
+            ForEach(0..<Self.tickCount, id: \.self) { i in
+              let y = height * (1 - CGFloat(i) / CGFloat(Self.tickCount - 1))
+              let emphasized = i == Self.centerTickIndex
+              Rectangle()
+                .fill(emphasized ? ProTokens.borderHi : ProTokens.border)
+                .frame(width: emphasized ? 14 : 6, height: 1)
+                .position(x: centerX, y: y)
+            }
+
+            Rectangle()
+              .fill(ProTokens.accent)
+              .frame(width: 22, height: 2)
+              .position(x: centerX, y: height * (1 - pct))
+          }
+          .frame(maxWidth: .infinity).contentShape(Rectangle())
+          .gesture(drag(travelLength: max(height, 1), vertical: true))
           .highPriorityGesture(TapGesture(count: 2).onEnded { reset() })
           .simultaneousGesture(
             LongPressGesture(minimumDuration: 0.5).onEnded { _ in enableFineMode() })
         }
       }
-      .frame(height: style == .dragBar ? 30 : 28).accessibilityHidden(true)
+      .frame(height: style == .verticalDragBar ? nil : (style == .dragBar ? 30 : 28))
+      .accessibilityHidden(true)
     }
-    .padding(.horizontal, style == .dragBar ? 0 : 16)
-    .padding(.vertical, style == .dragBar ? 0 : 6)
+    .padding(.horizontal, isRuler ? 0 : 16)
+    .padding(.vertical, isRuler ? 0 : 6)
     .frame(minHeight: 44)
     .contentShape(Rectangle())
     .focusable(isEnabled).focused($focused).focusEffectDisabled()
@@ -190,23 +231,26 @@ public struct LivingSlider: View {
     .sensoryFeedback(.selection, trigger: hapticTick)
   }
 
-  private func drag(width: CGFloat) -> some Gesture {
-    DragGesture(minimumDistance: 0)
+  private func drag(travelLength: CGFloat, vertical: Bool = false) -> some Gesture {
+    let travel = { (gesture: DragGesture.Value) in
+      vertical ? -gesture.translation.height : gesture.translation.width
+    }
+    return DragGesture(minimumDistance: 0)
       .updating($dragging) { _, active, _ in active = true }
       .onChanged { gesture in
         guard isEnabled else { return }
         focused = true
         if dragStart == nil { dragStart = value }
-        lastTranslation = gesture.translation.width
+        lastTranslation = travel(gesture)
         let delta =
-          (lastTranslation - dragStartTranslation) / width
+          (lastTranslation - dragStartTranslation) / travelLength
           * (range.upperBound - range.lowerBound)
         update((dragStart ?? value) + delta * (fineMode ? 0.25 : 1))
       }
       .onEnded { gesture in
         if let start = dragStart {
           let delta =
-            (gesture.translation.width - dragStartTranslation) / width
+            (travel(gesture) - dragStartTranslation) / travelLength
             * (range.upperBound - range.lowerBound)
           update(start + delta * (fineMode ? 0.25 : 1))
         }

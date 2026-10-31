@@ -29,6 +29,8 @@ import XCTest
       app.launchEnvironment["MAPLE_UITEST_FIXTURE"] = "test_0017.dng"
       app.launchEnvironment["MAPLE_UITEST_FIXTURE_ROOT"] = root
       app.launchEnvironment["MAPLE_GPU_LIVE"] = "0"
+      // Portrait keeps the stacked inspector the plot lives in.
+      XCUIDevice.shared.orientation = .portrait
       app.launch()
       defer { app.terminate() }
       XCTAssertTrue(app.buttons["editor-back"].waitForExistence(timeout: 120))
