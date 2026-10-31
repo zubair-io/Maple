@@ -428,6 +428,7 @@ PanoOutputSizeSessionTests
 PanoDiskModelTests
 PanoDiskFitSessionTests
 PanoScratchSweepTests
+PanoOutputFolderTests
 
 # Panorama stop/cancel/restart: no zombie run, no overlapping stitches, a
 # cancelled FFI run is CancellationError, a superseded server preview is

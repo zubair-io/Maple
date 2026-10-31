@@ -101,12 +101,10 @@ public final class RustPanoStitcher: PanoStitching {
 
     public func freeSpace(for assets: [AssetRef]) -> PanoFreeSpace? {
         guard let first = try? collectInputURLs(from: assets).first else { return nil }
-        let started = first.startAccessingSecurityScopedResource()
-        defer { if started { first.stopAccessingSecurityScopedResource() } }
-        let frames = first.deletingLastPathComponent()
-        let folder = outputDirectory
-            ?? (FileManager.default.isWritableFile(atPath: frames.path) ? frames : Self.fallbackOutputDirectory)
-        return PanoFreeSpace.current(outputFolder: folder)
+        return withAccess(to: first) {
+            PanoOutputDestination.destination(among: outputDirectoryCandidates(near: first))
+                .flatMap { PanoFreeSpace.current(outputFolder: $0) }
+        }
     }
 
     public func cancel() {
@@ -281,17 +279,32 @@ public final class RustPanoStitcher: PanoStitching {
     /// otherwise in a `Panoramas/` subdirectory beside the first input, or in
     /// Application Support when the sandbox or a read-only volume refuses
     /// that. Never replaces an existing file, source RAWs included.
-    private static var fallbackOutputDirectory: URL {
+    static var fallbackOutputDirectory: URL {
         FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("app.justmaple.aperture/Panoramas", isDirectory: true)
     }
 
+    /// Reserves under the first input's security scope, as the preflight
+    /// predicts it, so a folder only that grant makes writable gets the PNG.
     func reserveOutputURL(near firstInput: URL) throws -> URL {
-        if let outputDirectory { return try PanoOutputDestination.reserve(in: outputDirectory) }
+        try withAccess(to: firstInput) {
+            try PanoOutputDestination.reserve(among: outputDirectoryCandidates(near: firstInput))
+        }
+    }
+
+    private func withAccess<T>(to url: URL, _ body: () throws -> T) rethrows -> T {
+        let started = url.startAccessingSecurityScopedResource()
+        defer { if started { url.stopAccessingSecurityScopedResource() } }
+        return try body()
+    }
+
+    /// Where a stitch's PNG may go, in the order `reserveOutputURL` tries
+    /// them; the free-space preflight resolves the same list.
+    func outputDirectoryCandidates(near firstInput: URL) -> [URL] {
+        if let outputDirectory { return [outputDirectory] }
         let besideFrames = firstInput.deletingLastPathComponent()
             .appendingPathComponent("Panoramas", isDirectory: true)
-        if let reserved = try? PanoOutputDestination.reserve(in: besideFrames) { return reserved }
-        return try PanoOutputDestination.reserve(in: Self.fallbackOutputDirectory)
+        return [besideFrames, Self.fallbackOutputDirectory]
     }
 
 }
