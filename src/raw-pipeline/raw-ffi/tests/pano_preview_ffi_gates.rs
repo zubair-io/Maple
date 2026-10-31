@@ -303,6 +303,11 @@ fn preview_sizes_predict_the_full_stitch_and_a_cap_bounds_it() {
         sizes.largest_frame_px, PANO_01_FRAME_PX,
         "pano_01 frames are 5272 × 3948 (DefaultCropSize)"
     );
+    assert_eq!(
+        Some(sizes.scratch_bytes),
+        maple_pano::frame_store::FrameStore::required_bytes(&vec![(5272, 3948); paths.len()]),
+        "the preview reports exactly what the stitch's frame store reserves"
+    );
 
     let cap = fresh.width() as u64 * fresh.height() as u64 / 4;
     assert_eq!(

@@ -1,12 +1,13 @@
 // PanoOutputSize.swift — Will the full stitch fit in this device's memory,
-// and how small does the output have to be if not (#5454).
+// and how small does the output have to be if not (#5454, #5555).
 //
 // The preview reports what the full stitch will hold (`PanoStitchSizes`).
 // `PanoMemoryModel` turns that into a peak-memory estimate and, when the
 // estimate exceeds the memory the OS will still grant this process, the
 // largest output canvas that fits. Only the composite's share shrinks with
-// the canvas: decode and refinement work on full-resolution frames
-// whatever the output size, so some sets cannot fit at any size.
+// the canvas: decode, matching and refinement work on full-resolution frames
+// whatever the output size, so some sets cannot fit at any size. The disk
+// side of the same question is `PanoDiskModel`.
 
 import Foundation
 
@@ -24,12 +25,55 @@ public struct PanoStitchSizes: Sendable, Equatable {
     public let canvasHeight: Int
     /// Pixel count of the largest input frame at full resolution.
     public let largestFramePixels: Int
+    public let frameCount: Int
+    /// Temp-volume space the stitch's decoded-frame store needs, whatever
+    /// the output size.
+    public let scratchBytes: Int
 
-    public init(canvasWidth: Int, canvasHeight: Int, largestFramePixels: Int) {
+    public init(canvasWidth: Int, canvasHeight: Int, largestFramePixels: Int, frameCount: Int, scratchBytes: Int) {
         self.canvasWidth = canvasWidth
         self.canvasHeight = canvasHeight
         self.largestFramePixels = largestFramePixels
+        self.frameCount = frameCount
+        self.scratchBytes = scratchBytes
     }
+
+    /// Below this long edge the output is no larger than the preview
+    /// already shown.
+    public static let smallestUsefulLongEdge = 2048
+
+    /// The largest canvas of at most `pixels` at this canvas's aspect, or
+    /// `nil` when its long edge would be no larger than the preview.
+    func fittedCanvas(maxPixels pixels: Int) -> PanoFittedCanvas? {
+        guard pixels > 0 else { return nil }
+        let scale = (Double(pixels) / Double(canvasWidth * canvasHeight)).squareRoot()
+        return useful(width: Int((Double(canvasWidth) * scale).rounded(.down)), scale: scale)
+    }
+
+    /// The canvas `width` wide at this canvas's aspect, or `nil` when its
+    /// long edge would be no larger than the preview.
+    func fittedCanvas(width: Int) -> PanoFittedCanvas? {
+        useful(width: width, scale: Double(width) / Double(canvasWidth))
+    }
+
+    var smallestUsefulCanvasPixels: Int {
+        let scale = Double(Self.smallestUsefulLongEdge) / Double(max(canvasWidth, canvasHeight))
+        return Int((Double(canvasWidth) * scale).rounded(.up)) * Int((Double(canvasHeight) * scale).rounded(.up))
+    }
+
+    private func useful(width: Int, scale: Double) -> PanoFittedCanvas? {
+        let height = Int((Double(canvasHeight) * scale).rounded(.down))
+        return max(width, height) >= Self.smallestUsefulLongEdge ? PanoFittedCanvas(width: width, height: height) : nil
+    }
+}
+
+// MARK: - PanoFittedCanvas
+
+/// A smaller output canvas, at the full canvas's aspect, that fits.
+public struct PanoFittedCanvas: Sendable, Equatable {
+    public let width: Int
+    public let height: Int
+    public var pixels: Int { width * height }
 }
 
 // MARK: - PanoOutputSize
@@ -37,7 +81,7 @@ public struct PanoStitchSizes: Sendable, Equatable {
 /// The user's output-size choice in the merge sheet.
 public enum PanoOutputSize: String, Sendable, CaseIterable {
     case full
-    /// The largest canvas the memory model says fits this device.
+    /// The largest canvas that fits this device's memory and storage.
     case fitted
 }
 
@@ -46,46 +90,48 @@ public enum PanoOutputSize: String, Sendable, CaseIterable {
 public enum PanoMemoryFit: Sendable, Equatable {
     /// Full resolution fits.
     case fullFits(estimatedBytes: Int)
-    /// Full resolution does not fit; a canvas of at most `canvasPixels`
-    /// (`width × height`, same aspect) does.
-    case fitted(estimatedFullBytes: Int, canvasPixels: Int, width: Int, height: Int)
+    /// Full resolution does not fit; this canvas, at the same aspect, does.
+    case fitted(estimatedFullBytes: Int, canvas: PanoFittedCanvas)
     /// Not even a preview-sized canvas fits: the frames alone exceed it.
     case tooLarge(estimatedFullBytes: Int)
 }
 
 // MARK: - PanoMemoryModel
 
-/// Peak physical footprint of a full stitch: the larger of
+/// Memory a full stitch adds on top of the app's footprint when it starts:
+/// the larger of
 ///
-/// - a refinement floor — decode and refinement work on full-resolution
-///   frames (refinement in bands, since #5563) whatever the output size, so
-///   it scales with the largest frame;
-/// - the composite — a base the allocator still holds from those stages
-///   (also per frame pixel) plus a term proportional to canvas *width*. Width,
-///   not area, because the composite streams fixed-height strips whose
-///   buffers are output rows; the two measurements below halve both axes, so
-///   they fit an area model too and do not by themselves choose between them.
+/// - the head — decode, matching and refinement, which work on
+///   full-resolution frames whatever the output size: a per-frame term
+///   (features, matches, per-frame solve state) plus one for the largest
+///   frame (the banded decode and refinement windows);
+/// - the composite — the per-frame state still held, a smaller term for the
+///   largest frame (its source taps), and a term proportional to canvas
+///   *width*: the composite streams fixed-height strips whose buffers are
+///   output rows.
 ///
-/// Calibrated with `maple-cli` on pano_01 (21 × 20.8 MP frames, classical
-/// matcher, #5454): refinement peaks at 2.31 GiB; the composite at
-/// 2.77 GiB for a 26981 px wide canvas and 2.15 GiB at 13490 px. Those
-/// figures predate banded refinement (#5563), so the refinement floor now
-/// overstates that stage. Frame count is not a term — decode holds one frame
-/// at a time — but only the 21-frame set has been measured.
+/// Calibrated after banded decode and refinement and tap-only composite
+/// reads (#5552–#5566): pano_00 (3 × 100.7 MP, tile, 12315 px wide) on an
+/// iPad adds 1263 MiB in the head and 593 MiB in the composite;
+/// `maple-cli` on a Mac measures pano_00's composite at up to 1.2 GiB and
+/// pano_01 (21 × 20.8 MP, rotation, 26981 px wide) at up to 1.8 GiB for the
+/// head and 2.8 GiB for the composite. The constants are fitted to those
+/// five figures and round up, so each overstates its measurement; the
+/// Mac's allocator keeps more than the iPad's, so the column term is the
+/// Mac's. Every input frame counts toward `frameCount`, dropped or not.
 public struct PanoMemoryModel: Sendable, Equatable {
-    public static let refineBytesPerFramePixel = 119
-    public static let compositeBaseBytesPerFramePixel = 79
+    public static let bytesPerFrame = 80 << 20
+    public static let headBytesPerLargestFramePixel = 12
+    public static let compositeBytesPerLargestFramePixel = 5
     public static let compositeBytesPerCanvasColumn = 49_350
     /// Headroom for what the model does not see (allocator fragmentation,
     /// the app itself, thumbnail work running alongside).
     public static let safetyFactor = 1.15
-    /// Below this the output is no larger than the preview already shown.
-    public static let smallestUsefulLongEdge = 2048
 
     public init() {}
 
     public func estimatedPeakBytes(sizes: PanoStitchSizes, canvasWidth: Int) -> Int {
-        max(refineFloorBytes(sizes), compositeBaseBytes(sizes) + canvasWidth * Self.compositeBytesPerCanvasColumn)
+        max(headBytes(sizes), compositeBytes(sizes, canvasWidth: canvasWidth))
     }
 
     /// How the stitch fits in `availableBytes`. `nil` when the platform
@@ -97,22 +143,23 @@ public struct PanoMemoryModel: Sendable, Equatable {
         let full = estimatedPeakBytes(sizes: sizes, canvasWidth: sizes.canvasWidth)
         let budget = Int(Double(availableBytes) / Self.safetyFactor)
         guard full > budget else { return .fullFits(estimatedBytes: full) }
-        guard refineFloorBytes(sizes) <= budget else { return .tooLarge(estimatedFullBytes: full) }
+        guard headBytes(sizes) <= budget else { return .tooLarge(estimatedFullBytes: full) }
 
         let width = (budget - compositeBaseBytes(sizes)) / Self.compositeBytesPerCanvasColumn
-        let height = Int((Double(sizes.canvasHeight) * Double(width) / Double(sizes.canvasWidth)).rounded(.down))
-        guard max(width, height) >= Self.smallestUsefulLongEdge else {
-            return .tooLarge(estimatedFullBytes: full)
-        }
-        return .fitted(estimatedFullBytes: full, canvasPixels: width * height, width: width, height: height)
+        guard let canvas = sizes.fittedCanvas(width: width) else { return .tooLarge(estimatedFullBytes: full) }
+        return .fitted(estimatedFullBytes: full, canvas: canvas)
     }
 
-    private func refineFloorBytes(_ sizes: PanoStitchSizes) -> Int {
-        sizes.largestFramePixels * Self.refineBytesPerFramePixel
+    func compositeBytes(_ sizes: PanoStitchSizes, canvasWidth: Int) -> Int {
+        compositeBaseBytes(sizes) + canvasWidth * Self.compositeBytesPerCanvasColumn
+    }
+
+    func headBytes(_ sizes: PanoStitchSizes) -> Int {
+        sizes.frameCount * Self.bytesPerFrame + sizes.largestFramePixels * Self.headBytesPerLargestFramePixel
     }
 
     private func compositeBaseBytes(_ sizes: PanoStitchSizes) -> Int {
-        sizes.largestFramePixels * Self.compositeBaseBytesPerFramePixel
+        sizes.frameCount * Self.bytesPerFrame + sizes.largestFramePixels * Self.compositeBytesPerLargestFramePixel
     }
 }
 

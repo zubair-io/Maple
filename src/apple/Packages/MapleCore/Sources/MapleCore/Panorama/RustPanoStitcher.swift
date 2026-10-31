@@ -91,7 +91,23 @@ public final class RustPanoStitcher: PanoStitching {
     /// frame's folder never gets one.
     private let outputDirectory: URL?
 
+    /// Removes the temp-directory scratch a stitch the system terminated left
+    /// behind (#5555). Call at launch, before any stitch.
+    public static func sweepLeftoverScratch() {
+        PanoFFICall.sweepScratch()
+    }
+
     // MARK: - PanoStitching
+
+    public func freeSpace(for assets: [AssetRef]) -> PanoFreeSpace? {
+        guard let first = try? collectInputURLs(from: assets).first else { return nil }
+        let started = first.startAccessingSecurityScopedResource()
+        defer { if started { first.stopAccessingSecurityScopedResource() } }
+        let frames = first.deletingLastPathComponent()
+        let folder = outputDirectory
+            ?? (FileManager.default.isWritableFile(atPath: frames.path) ? frames : Self.fallbackOutputDirectory)
+        return PanoFreeSpace.current(outputFolder: folder)
+    }
 
     public func cancel() {
         activeRuns.withLock { $0 }.forEach { $0.request() }
@@ -265,14 +281,17 @@ public final class RustPanoStitcher: PanoStitching {
     /// otherwise in a `Panoramas/` subdirectory beside the first input, or in
     /// Application Support when the sandbox or a read-only volume refuses
     /// that. Never replaces an existing file, source RAWs included.
+    private static var fallbackOutputDirectory: URL {
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("app.justmaple.aperture/Panoramas", isDirectory: true)
+    }
+
     func reserveOutputURL(near firstInput: URL) throws -> URL {
         if let outputDirectory { return try PanoOutputDestination.reserve(in: outputDirectory) }
         let besideFrames = firstInput.deletingLastPathComponent()
             .appendingPathComponent("Panoramas", isDirectory: true)
         if let reserved = try? PanoOutputDestination.reserve(in: besideFrames) { return reserved }
-        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("app.justmaple.aperture/Panoramas", isDirectory: true)
-        return try PanoOutputDestination.reserve(in: appSupport)
+        return try PanoOutputDestination.reserve(in: Self.fallbackOutputDirectory)
     }
 
 }
@@ -328,6 +347,8 @@ public enum PanoStitcherError: Error, LocalizedError {
     case pathEncodingError(URL)
     case assetNotFileBacked(String)
     case modelsNotInstalled(String)
+    /// The decoded frames do not fit the free space on this device.
+    case insufficientStorage
     case unsupportedPlatform
     case stitchFailed(code: Int, message: String)
     case previewUndecodable
@@ -340,6 +361,10 @@ public enum PanoStitcherError: Error, LocalizedError {
             return "'\(name)' isn’t stored on this device yet. Download it, then merge again."
         case .modelsNotInstalled(let msg):
             return msg
+        case .insufficientStorage:
+            return "There isn’t enough free storage to merge these frames. Free up space, "
+                + "or merge fewer frames. A smaller output does not help: the frames "
+                + "themselves need the space."
         case .unsupportedPlatform:
             return "Panorama merging isn’t available on this device."
         case .stitchFailed(_, let message):

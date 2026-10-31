@@ -115,10 +115,21 @@ public final class PanoMergeSession {
     /// it is not, so the merge sheet never selects an option it isn't showing.
     public var outputSize: PanoOutputSize {
         get {
-            guard case .fitted = memoryFit else { return .full }
+            guard fittedOutput != nil else { return .full }
             return chosenOutputSize ?? .fitted
         }
         set { chosenOutputSize = newValue }
+    }
+
+    /// The smaller output on offer: the tighter of what memory and storage
+    /// allow. `nil` when full resolution fits both, or when either says no
+    /// output size helps.
+    public var fittedOutput: PanoFittedCanvas? {
+        if case .tooLarge = memoryFit { return nil }
+        if case .tooLarge = diskFit { return nil }
+        let memory: PanoFittedCanvas? = if case .fitted(_, let canvas) = memoryFit { canvas } else { nil }
+        let disk: PanoFittedCanvas? = if case .fitted(let canvas) = diskFit { canvas } else { nil }
+        return [memory, disk].compactMap { $0 }.min { $0.pixels < $1.pixels }
     }
 
     /// How the full stitch of the latest preview fits this device's memory,
@@ -131,17 +142,24 @@ public final class PanoMergeSession {
         didSet { if memoryFit == nil { memoryFitOptions = nil } }
     }
 
+    /// How the full stitch of the latest preview fits the free space on
+    /// this device, read with `memoryFit`; `nil` before a preview or when
+    /// the stitch runs elsewhere.
+    public private(set) var diskFit: PanoDiskFit?
+
     /// The canvas cap the next stitch will run with, `nil` for the default.
     public var outputCanvasCap: Int? {
-        guard outputSize == .fitted, case .fitted(_, let pixels, _, _) = memoryFit else { return nil }
-        return pixels
+        guard outputSize == .fitted else { return nil }
+        return fittedOutput?.pixels
     }
 
     // MARK: - Private
 
     public private(set) var stitcher: any PanoStitching
     private let memoryModel = PanoMemoryModel()
+    private let diskModel = PanoDiskModel()
     private let availableMemory: @Sendable () -> Int?
+    private let freeSpace: @Sendable (any PanoStitching, [AssetRef]) -> PanoFreeSpace?
     private var chosenOutputSize: PanoOutputSize?
     /// Options the latest finished preview, and so `memoryFit`, was solved
     /// for. Every option reaches the solver (retention and local alignment
@@ -163,11 +181,13 @@ public final class PanoMergeSession {
     public init(
         stitcher: any PanoStitching,
         previewDebounce: Duration = .milliseconds(600),
-        availableMemory: @escaping @Sendable () -> Int? = { PanoAvailableMemory.current() }
+        availableMemory: @escaping @Sendable () -> Int? = { PanoAvailableMemory.current() },
+        freeSpace: @escaping @Sendable (any PanoStitching, [AssetRef]) -> PanoFreeSpace? = { $0.freeSpace(for: $1) }
     ) {
         self.stitcher = stitcher
         self.previewDebounce = previewDebounce
         self.availableMemory = availableMemory
+        self.freeSpace = freeSpace
     }
 
     // MARK: - Preview API
@@ -182,6 +202,7 @@ public final class PanoMergeSession {
         if assets.map(\.id) != previewAssets.map(\.id) {
             lastPreview = nil
             memoryFit = nil
+            diskFit = nil
             chosenOutputSize = nil
         }
         previewAssets = assets
@@ -223,8 +244,9 @@ public final class PanoMergeSession {
                         self.previewState = .running(stage: stage, overallFraction: overall)
                     }
                 )
+                let space = await self.readFreeSpace(capturedStitcher, assets)
                 guard self.previewGeneration == gen else { return }
-                self.adopt(preview, of: assets, solvedFor: capturedOptions)
+                self.adopt(preview, of: assets, solvedFor: capturedOptions, space: space)
                 self.previewState = .ready
             } catch is CancellationError {
                 return
@@ -238,12 +260,25 @@ public final class PanoMergeSession {
         }
     }
 
-    private func adopt(_ preview: PanoPreview, of assets: [AssetRef], solvedFor options: PanoOptions) {
+    /// Volume queries can stall on a network share, so they stay off the
+    /// main actor.
+    private func readFreeSpace(_ stitcher: any PanoStitching, _ assets: [AssetRef]) async -> PanoFreeSpace? {
+        guard stitcher.runsInDeviceMemory else { return nil }
+        let freeSpace = self.freeSpace
+        return await Task.detached(priority: .userInitiated) { freeSpace(stitcher, assets) }.value
+    }
+
+    private func adopt(
+        _ preview: PanoPreview, of assets: [AssetRef], solvedFor options: PanoOptions, space: PanoFreeSpace?
+    ) {
         alignment = preview.alignment
         alignmentFrames = assets.map(\.id)
         lastPreview = preview
         memoryFit = preview.stitchSizes.flatMap {
             memoryModel.fit(sizes: $0, availableBytes: availableMemory())
+        }
+        diskFit = preview.stitchSizes.flatMap {
+            diskModel.fit(sizes: $0, space: space)
         }
         memoryFitOptions = options
     }
@@ -251,9 +286,10 @@ public final class PanoMergeSession {
     /// On a device with a per-process memory limit, the stitch must not size
     /// itself from a fit solved for other options: a `.fullFits` from them
     /// would pass no cap at all, and a fitted cap budgets their canvas's
-    /// width. A stitch that runs elsewhere has no such limit to fit.
+    /// width. The same holds for the storage fit, whose PNG grows with the
+    /// canvas. A stitch that runs elsewhere has no such limit to fit.
     private func needsFreshFit(for options: PanoOptions) -> Bool {
-        stitcher.runsInDeviceMemory && memoryFitOptions != options && availableMemory() != nil
+        stitcher.runsInDeviceMemory && memoryFitOptions != options && (availableMemory() != nil || diskFit != nil)
     }
 
     /// The running preview whose alignment Create Panorama should wait for:
@@ -313,8 +349,9 @@ public final class PanoMergeSession {
                     state = .finishingAlignment
                     let preview = try await capturedStitcher.preview(
                         assets: assets, options: capturedOptions, alignment: alignment, progress: { _, _ in })
+                    let space = await readFreeSpace(capturedStitcher, assets)
                     guard runGeneration == gen else { return }
-                    adopt(preview, of: assets, solvedFor: capturedOptions)
+                    adopt(preview, of: assets, solvedFor: capturedOptions, space: space)
                     previewState = .ready
                 }
                 state = .running(stage: .decoding, stageFraction: 0.0, overallFraction: 0.0)
@@ -366,6 +403,7 @@ public final class PanoMergeSession {
         previewAssets = []
         lastPreview = nil
         memoryFit = nil
+        diskFit = nil
         cancelPreview()
     }
 

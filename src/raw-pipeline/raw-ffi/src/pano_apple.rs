@@ -263,6 +263,13 @@ pub(super) fn error_rc(fn_name: &str, e: StitchError) -> i32 {
             ));
             -8
         }
+        // rc -9: the decoded frames don't fit the temp volume. Distinct so
+        // Swift can say "free up storage" instead of a generic failure; a
+        // smaller output does not shrink the store.
+        e @ StitchError::InsufficientScratchSpace { .. } => {
+            set_last_error(format!("{fn_name}: {e}"));
+            -9
+        }
         e => {
             set_last_error(format!("{fn_name}: {e}"));
             -7

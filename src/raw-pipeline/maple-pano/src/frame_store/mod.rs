@@ -68,8 +68,8 @@ impl FrameStore {
         frame_dims: &[(u32, u32)],
         available_bytes: impl Fn(&Path) -> std::io::Result<u64>,
     ) -> Result<Self, PanoError> {
-        io::sweep_orphans(parent, DIR_PREFIX);
-        let needed_bytes = required_bytes(frame_dims).ok_or_else(|| {
+        Self::sweep_orphans(parent);
+        let needed_bytes = Self::required_bytes(frame_dims).ok_or_else(|| {
             PanoError::InvalidOptions(format!(
                 "frame store: {} planned frames need more than u64::MAX bytes",
                 frame_dims.len()
@@ -100,6 +100,21 @@ impl FrameStore {
             scratch_path,
             needed_bytes,
         })
+    }
+
+    /// Bytes a store for frames of the given output dimensions reserves on
+    /// its volume, `None` past `u64::MAX`.
+    pub fn required_bytes(frame_dims: &[(u32, u32)]) -> Option<u64> {
+        let pixels = |&(w, h): &(u32, u32)| w as u128 * h as u128;
+        let frames: u128 = frame_dims.iter().map(pixels).sum();
+        let largest = frame_dims.iter().map(pixels).max().unwrap_or(0);
+        let reserve = largest * SCRATCH_RESERVE_EIGHTHS as u128 / 8;
+        u64::try_from((frames + reserve) * BYTES_PER_PIXEL as u128).ok()
+    }
+
+    /// Remove the stores under `parent` whose owning process has exited.
+    pub fn sweep_orphans(parent: &Path) {
+        io::sweep_orphans(parent, DIR_PREFIX);
     }
 
     /// Test-only: a store under `parent` holding each of `paths` developed
@@ -367,14 +382,6 @@ impl Drop for FrameStore {
         self.scratch = None;
         let _ = std::fs::remove_dir_all(&self.dir);
     }
-}
-
-fn required_bytes(frame_dims: &[(u32, u32)]) -> Option<u64> {
-    let pixels = |&(w, h): &(u32, u32)| w as u128 * h as u128;
-    let frames: u128 = frame_dims.iter().map(pixels).sum();
-    let largest = frame_dims.iter().map(pixels).max().unwrap_or(0);
-    let reserve = largest * SCRATCH_RESERVE_EIGHTHS as u128 / 8;
-    u64::try_from((frames + reserve) * BYTES_PER_PIXEL as u128).ok()
 }
 
 fn create_file(path: &Path) -> Result<File, PanoError> {
