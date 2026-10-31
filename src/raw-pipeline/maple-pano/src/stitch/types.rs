@@ -52,10 +52,10 @@ pub struct StitchOptions {
     /// Canvas tile height for memory-bounded composite (M6-D, #1248, #1254).
     ///
     /// When `Some(n)`, the composite phase processes `n` canvas rows at a
-    /// time, decoding source frames on demand and discarding them after each
-    /// tile, keeping at most **one full-resolution frame** resident per tile
-    /// pass instead of all N simultaneously. The gain solve runs before the
-    /// pixel data is freed and its result is re-used across all tiles.
+    /// time, reading from each source frame only the rows that tile's warp
+    /// taps (#5554) and discarding them before the next frame, instead of
+    /// holding all N frames simultaneously. The gain solve runs once, before
+    /// the first tile, and its result is re-used across all tiles.
     ///
     /// `None` (default): **512-row tiled path** — the tiled composite always
     /// engages on the rotation-strategy path (#1254).  A `None` value no

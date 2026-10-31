@@ -33,7 +33,9 @@ use crate::ingest::{PlanarImage, ValidityMask};
 use crate::local_align::{LocalCorrection, MAX_CORRECTION_PX};
 use crate::math::Vec3;
 
+mod stored;
 mod strip;
+pub(crate) use stored::warp_stored_to_canvas;
 pub use strip::{warp_to_canvas_strip, warp_window_to_canvas_strip, SourceRows};
 
 /// Canvas-space footprint of a source frame: a y range plus one or two

@@ -10,9 +10,10 @@
 //!
 //! The solve runs on the downsampled seam canvas
 //! ([`crate::seam::masks::SEAM_CANVAS_MAX_PX`]): every frame is warped
-//! there once (with its photometry applied, one decode at a time), and
-//! wherever two views overlap their log-luminance difference is a data
-//! sample at the nearest lattice node. Per (pair, node) the median sample
+//! there once, with its photometry applied, one frame at a time and in
+//! strips from the source rows each strip taps (#5566), and wherever two
+//! views overlap their log-luminance difference is a data sample at the
+//! nearest lattice node. Per (pair, node) the median sample
 //! is the residual `d`, and
 //!
 //! ```text
@@ -31,11 +32,11 @@ use rayon::prelude::*;
 use crate::camera::Camera;
 use crate::canvas::CanvasSpec;
 use crate::error::PanoError;
-use crate::frame_store::FrameRows;
+use crate::frame_store::{FrameRows, InMemory};
 use crate::ingest::PlanarImage;
 use crate::local_align::LocalCorrection;
 use crate::seam::masks::SEAM_CANVAS_MAX_PX;
-use crate::warp::warp_to_canvas;
+use crate::warp::warp_stored_to_canvas;
 
 use super::field_solve::{solve_layers, LumaLayer};
 use super::FramePhotometry;
@@ -212,36 +213,17 @@ pub fn solve_exposure_field(
     local_corrections: &[Option<LocalCorrection>],
     canvas: &CanvasSpec,
 ) -> Result<ExposureField, PanoError> {
-    check_lengths(
-        frames.len(),
-        cameras.len(),
-        photometry.len(),
-        local_corrections.len(),
-    )?;
-    let seam_canvas = canvas.downscaled(SEAM_CANVAS_MAX_PX);
-    let layers = frames
-        .iter()
-        .enumerate()
-        .map(|(i, frame)| {
-            seam_layer(
-                frame,
-                i,
-                cameras,
-                photometry,
-                local_corrections,
-                &seam_canvas,
-            )
-        })
-        .collect::<Vec<_>>();
-    Ok(solve_layers(
-        &layers,
-        (seam_canvas.width as usize, seam_canvas.height as usize),
-        periodic_axes(&seam_canvas),
-    ))
+    solve_exposure_field_streaming(
+        &InMemory(frames),
+        cameras,
+        photometry,
+        local_corrections,
+        canvas,
+    )
 }
 
-/// Solve the exposure field from `frames`, reading one frame at a time
-/// and keeping only its seam-canvas luminance.
+/// Solve the exposure field from `frames`, warping one frame at a time
+/// from row windows (#5566) and keeping only its seam-canvas luminance.
 pub fn solve_exposure_field_streaming(
     frames: &dyn FrameRows,
     cameras: &[Camera],
@@ -258,39 +240,16 @@ pub fn solve_exposure_field_streaming(
     let seam_canvas = canvas.downscaled(SEAM_CANVAS_MAX_PX);
     let layers = (0..frames.frame_count())
         .map(|i| {
-            let frame = frames.read_frame(i)?;
-            Ok(seam_layer(
-                &frame,
-                i,
-                cameras,
-                photometry,
-                local_corrections,
-                &seam_canvas,
-            ))
+            let la = local_corrections.get(i).and_then(|o| o.as_ref());
+            let warped =
+                warp_stored_to_canvas(frames, i, &cameras[i], &seam_canvas, photometry[i], la)?;
+            Ok(LumaLayer::from_warped(&warped))
         })
         .collect::<Result<Vec<_>, PanoError>>()?;
     Ok(solve_layers(
         &layers,
         (seam_canvas.width as usize, seam_canvas.height as usize),
         periodic_axes(&seam_canvas),
-    ))
-}
-
-fn seam_layer(
-    frame: &PlanarImage,
-    i: usize,
-    cameras: &[Camera],
-    photometry: &[FramePhotometry],
-    local_corrections: &[Option<LocalCorrection>],
-    seam_canvas: &CanvasSpec,
-) -> LumaLayer {
-    let la = local_corrections.get(i).and_then(|o| o.as_ref());
-    LumaLayer::from_warped(&warp_to_canvas(
-        frame,
-        &cameras[i],
-        seam_canvas,
-        photometry[i],
-        la,
     ))
 }
 

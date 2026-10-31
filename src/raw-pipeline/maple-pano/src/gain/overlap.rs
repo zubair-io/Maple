@@ -7,8 +7,12 @@
 //! keeps its source-pixel position in both frames for the blind vignette
 //! estimate ([`super::vignette`]).
 
+use std::ops::Range;
+
 use crate::camera::Camera;
+use crate::frame_store::SourceView;
 use crate::ingest::PlanarImage;
+use crate::math::Vec3;
 
 use super::bilinear_valid;
 
@@ -36,14 +40,17 @@ pub(crate) struct SignalWindow {
 
 impl SignalWindow {
     pub fn measure(image: &PlanarImage, stride: u32) -> Self {
-        let w = image.width();
-        let mut peaks: Vec<f32> = grid(image, stride)
-            .map(|(x, y)| {
-                let i = (y * w + x) as usize;
-                image.r[i].max(image.g[i]).max(image.b[i])
-            })
-            .filter(|v| v.is_finite())
-            .collect();
+        let view = SourceView::whole(image);
+        Self::from_peaks(
+            grid_values(view, stride, 0..image.height())
+                .filter_map(|(_, v)| finite_peak(v))
+                .collect(),
+        )
+    }
+
+    /// The window of a frame whose finite grid-point peaks are `peaks`, in
+    /// grid order.
+    pub fn from_peaks(mut peaks: Vec<f32>) -> Self {
         if peaks.is_empty() {
             return Self { white: 0.0 };
         }
@@ -134,72 +141,130 @@ pub(crate) struct PendingPoint {
     pub pos_dst: [f32; 2],
 }
 
-fn grid(image: &PlanarImage, stride: u32) -> impl Iterator<Item = (u32, u32)> + '_ {
+/// A grid point's peak channel, `None` when it is not finite.
+pub(crate) fn finite_peak(v: [f32; 3]) -> Option<f32> {
+    Some(v[0].max(v[1]).max(v[2])).filter(|p| p.is_finite())
+}
+
+/// Valid points of the strided grid on frame rows `rows`, in raster order,
+/// with their values; `view` holds at least those rows.
+pub(crate) fn grid_values(
+    view: SourceView<'_>,
+    stride: u32,
+    rows: Range<u32>,
+) -> impl Iterator<Item = ((u32, u32), [f32; 3])> + '_ {
     let stride = stride.max(1);
-    let w = image.width();
-    (stride / 2..image.height())
+    let (w, _) = view.frame_dims();
+    let px = view.pixels();
+    let first = rows.start.saturating_sub(stride / 2).div_ceil(stride) * stride + stride / 2;
+    (first..rows.end)
         .step_by(stride as usize)
         .flat_map(move |y| {
-            (stride / 2..w)
+            (stride / 2..w as u32)
                 .step_by(stride as usize)
                 .map(move |x| (x, y))
         })
-        .filter(|&(x, y)| image.validity.get(x, y))
+        .filter_map(move |(x, y)| {
+            view.valid_index(i64::from(x), i64::from(y))
+                .map(|i| ((x, y), [px.r[i], px.g[i], px.b[i]]))
+        })
+}
+
+/// The world direction through the centre of grid pixel `(x, y)` of `c_src`.
+pub(crate) fn grid_dir((x, y): (u32, u32), c_src: &Camera) -> Option<Vec3> {
+    c_src.pixel_to_world_dir(x as f64 + 0.5, y as f64 + 0.5)
+}
+
+/// The grid point at `(x, y)` with value `value_src`, looking along `dir`
+/// (its [`grid_dir`]), if it reprojects inside `c_dst`.
+pub(crate) fn pending_point(
+    (x, y): (u32, u32),
+    value_src: [f32; 3],
+    dir: Vec3,
+    c_dst: &Camera,
+) -> Option<PendingPoint> {
+    let (px, py) = (x as f64 + 0.5, y as f64 + 0.5);
+    let (qx, qy) = c_dst.world_dir_to_pixel(dir)?;
+    let inside =
+        (0.0..=c_dst.width as f64).contains(&qx) && (0.0..=c_dst.height as f64).contains(&qy);
+    inside.then_some(PendingPoint {
+        pos_src: [px as f32, py as f32],
+        value_src,
+        pos_dst: [qx as f32, qy as f32],
+    })
+}
+
+/// Thin a grid-ordered point list on the grid lattice to at most
+/// [`DIRECTION_SAMPLE_CAP`] points, so the spatial spread is preserved.
+pub(crate) fn thin_points(all: Vec<PendingPoint>, stride: u32) -> Vec<PendingPoint> {
+    if all.len() <= DIRECTION_SAMPLE_CAP {
+        return all;
+    }
+    let lattice = thinning_lattice(all.len());
+    // The filter collects in place, so without the shrink the thinned
+    // list would keep the unthinned list's capacity while it waits.
+    let mut kept: Vec<PendingPoint> = all
+        .into_iter()
+        .filter(|p| on_lattice(p, stride, lattice))
+        .collect();
+    kept.shrink_to_fit();
+    kept
+}
+
+/// The lattice [`thin_points`] keeps for a list of `count` points.
+pub(crate) fn thinning_lattice(count: usize) -> u32 {
+    (count as f64 / DIRECTION_SAMPLE_CAP as f64).sqrt().ceil() as u32
+}
+
+/// Whether `lattice` divides both of a point's grid indices.
+pub(crate) fn on_lattice(p: &PendingPoint, stride: u32, lattice: u32) -> bool {
+    let (gx, gy) = grid_index(p, stride);
+    gx % lattice == 0 && gy % lattice == 0
+}
+
+/// A point's column and row on its source grid.
+pub(crate) fn grid_index(p: &PendingPoint, stride: u32) -> (u32, u32) {
+    let stride = stride.max(1);
+    (p.pos_src[0] as u32 / stride, p.pos_src[1] as u32 / stride)
 }
 
 /// Walk `src`'s strided grid and keep the points that reproject inside
-/// `c_dst`, thinned on the grid lattice to at most
-/// [`DIRECTION_SAMPLE_CAP`] points so the spatial spread is preserved.
+/// `c_dst`, thinned by [`thin_points`].
 pub(crate) fn pending_points(
     src: &PlanarImage,
     c_src: &Camera,
     c_dst: &Camera,
     stride: u32,
 ) -> Vec<PendingPoint> {
-    let stride = stride.max(1);
-    let w = src.width();
-    let all: Vec<PendingPoint> = grid(src, stride)
-        .filter_map(|(x, y)| {
-            let (px, py) = (x as f64 + 0.5, y as f64 + 0.5);
-            let (qx, qy) = c_dst.world_dir_to_pixel(c_src.pixel_to_world_dir(px, py)?)?;
-            let inside = (0.0..=c_dst.width as f64).contains(&qx)
-                && (0.0..=c_dst.height as f64).contains(&qy);
-            let i = (y * w + x) as usize;
-            inside.then_some(PendingPoint {
-                pos_src: [px as f32, py as f32],
-                value_src: [src.r[i], src.g[i], src.b[i]],
-                pos_dst: [qx as f32, qy as f32],
-            })
-        })
+    let all = grid_values(SourceView::whole(src), stride, 0..src.height())
+        .filter_map(|(pos, v)| pending_point(pos, v, grid_dir(pos, c_src)?, c_dst))
         .collect();
-    if all.len() <= DIRECTION_SAMPLE_CAP {
-        return all;
-    }
-    let lattice = (all.len() as f64 / DIRECTION_SAMPLE_CAP as f64)
-        .sqrt()
-        .ceil() as u32;
-    all.into_iter()
-        .filter(|p| {
-            let gx = p.pos_src[0] as u32 / stride;
-            let gy = p.pos_src[1] as u32 / stride;
-            gx % lattice == 0 && gy % lattice == 0
-        })
-        .collect()
+    thin_points(all, stride)
+}
+
+/// Frame row holding the top of `p`'s bilinear stencil in a frame `h` rows
+/// tall, clamped into the frame; a view holding that row and the next
+/// serves every tap [`resolve_point`] reads.
+pub(crate) fn stencil_row(p: &PendingPoint, h: u32) -> u32 {
+    ((p.pos_dst[1] as f64 - 0.5).floor() as i64).clamp(0, i64::from(h) - 1) as u32
+}
+
+/// Sample `dst` at a pending point; the source plays frame `i`.
+pub(crate) fn resolve_point(p: &PendingPoint, dst: SourceView<'_>) -> Option<OverlapSample> {
+    let value_j = bilinear_valid(dst, p.pos_dst[0] as f64, p.pos_dst[1] as f64)?;
+    Some(OverlapSample {
+        value_i: p.value_src,
+        value_j,
+        pos_i: p.pos_src,
+        pos_j: p.pos_dst,
+    })
 }
 
 /// Sample `dst` at each pending point; the source plays frame `i`.
 pub(crate) fn resolve_points(points: &[PendingPoint], dst: &PlanarImage) -> Vec<OverlapSample> {
     points
         .iter()
-        .filter_map(|p| {
-            let value_j = bilinear_valid(dst, p.pos_dst[0] as f64, p.pos_dst[1] as f64)?;
-            Some(OverlapSample {
-                value_i: p.value_src,
-                value_j,
-                pos_i: p.pos_src,
-                pos_j: p.pos_dst,
-            })
-        })
+        .filter_map(|p| resolve_point(p, SourceView::whole(dst)))
         .collect()
 }
 

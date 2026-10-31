@@ -64,11 +64,12 @@
 //! bands: only the rectangles one band's templates and search windows
 //! touch are resident (#5563).
 //!
-//! **Gain solve** (just before composite): surviving frames are read one
-//! at a time, their overlap statistics accumulated, and the pixels freed
-//! before the next — at most 1 full-resolution frame resident. The
-//! residual exposure field (#4521) is solved right after it the same way,
-//! onto the ~1 MP seam canvas.
+//! **Gain solve** (just before composite): each surviving frame is swept
+//! once in row bands and its overlap statistics accumulated, so no
+//! full-resolution frame is resident (#5566). The residual exposure field
+//! (#4521) and the graph-cut seam masks warp each frame onto the ~1 MP
+//! seam canvas in strips, from only the source rows each strip taps
+//! (nearly the whole frame for one containing a canvas pole).
 //!
 //! **Stage 5 (composite)**: always uses the tiled path (`composite_tiled`),
 //! which reads per strip only the source rows that strip's warp taps. The

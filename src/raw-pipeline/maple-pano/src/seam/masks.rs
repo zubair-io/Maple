@@ -7,11 +7,10 @@
 //! # Why a separate low-resolution pass
 //!
 //! The memory-bounded tiled composite (`composite::composite_tiled`)
-//! never holds more than one full-resolution frame at a time —
-//! that's the whole point of #1254. Content-aware seam finding needs at
-//! least two overlapping frames' actual pixels in memory together, so it
-//! can't run inside that per-tile, per-frame streaming loop without
-//! breaking the memory bound.
+//! reads one frame's tap rows at a time (#1254, #5554). Content-aware
+//! seam finding needs at least two overlapping frames' pixels together,
+//! so it can't run inside that per-strip, per-frame streaming loop
+//! without breaking the memory bound.
 //!
 //! The fix both this crate's tiled architecture and the ticket's own
 //! scope ("graph-cut seams on downsampled overlaps, <= ~2MP") point at:
@@ -35,7 +34,7 @@ use crate::frame_store::{FrameRows, InMemory};
 use crate::gain::FramePhotometry;
 use crate::ingest::PlanarImage;
 use crate::local_align::LocalCorrection;
-use crate::warp::warp_to_canvas;
+use crate::warp::warp_stored_to_canvas;
 
 use super::constraints::{self, SeamConstraint, SeamConstraintError};
 use super::labels;
@@ -142,10 +141,9 @@ fn finish(
     }))
 }
 
-/// Build [`SeamMasks`] by reading each source frame from `frames`, warping
-/// it onto the (small) seam canvas, and freeing the full-resolution pixels
-/// before moving to the next frame — a canvas cheap enough to hold every
-/// frame's result at once.
+/// Build [`SeamMasks`] by warping each source frame of `frames` onto the
+/// (small) seam canvas from the source rows each canvas strip taps (#5566)
+/// — a canvas cheap enough to hold every frame's result at once.
 pub fn build_from_rows(
     frames: &dyn FrameRows,
     cameras: &[Camera],
@@ -174,10 +172,9 @@ pub fn build_from_rows(
         .iter()
         .enumerate()
         .map(|(i, cam)| {
-            let frame = frames.read_frame(i)?;
             let la = local_corrections.get(i).and_then(|o| o.as_ref());
             let gain = photometry.get(i).copied().unwrap_or_default();
-            Ok(warp_to_canvas(&frame, cam, &seam_canvas, gain, la))
+            warp_stored_to_canvas(frames, i, cam, &seam_canvas, gain, la)
         })
         .collect::<Result<Vec<_>, PanoError>>()?;
     finish(layers, &seam_canvas, full_canvas, seam_constraints)
