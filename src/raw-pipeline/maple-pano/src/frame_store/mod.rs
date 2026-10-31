@@ -23,7 +23,7 @@ mod rows;
 #[cfg(test)]
 mod tests;
 
-pub use rows::{FrameRows, InMemory, Subset};
+pub use rows::{FrameRect, FrameRows, InMemory, Subset};
 
 use std::fs::{File, OpenOptions};
 use std::path::{Path, PathBuf};
@@ -301,6 +301,44 @@ impl FrameStore {
             g,
             b,
             ValidityMask::new_filled(width, rows, true),
+        ))
+    }
+
+    /// Frame `idx`'s pixels inside `rect` as a planar image with an
+    /// all-true validity mask: one positional read per row of the rect.
+    pub fn read_planar_rect(&self, idx: usize, rect: FrameRect) -> Result<PlanarImage, PanoError> {
+        let (file, (width, height)) = self.stored(idx)?;
+        if !rect.fits(width, height) {
+            return Err(PanoError::InvalidOptions(format!(
+                "frame store: {rect:?} past the {width}x{height} frame {idx}"
+            )));
+        }
+        if rect.x0 == 0 && rect.width == width {
+            return self.read_planar_rows(idx, rect.y0, rect.height);
+        }
+        let row_px = rect.width as usize;
+        let n = row_px * rect.height as usize;
+        let (mut r, mut g, mut b) = (
+            Vec::with_capacity(n),
+            Vec::with_capacity(n),
+            Vec::with_capacity(n),
+        );
+        let mut row = vec![[0.0f32; 3]; row_px];
+        for y in rect.y0..rect.y0 + rect.height {
+            let offset = (y as u64 * width as u64 + rect.x0 as u64) * BYTES_PER_PIXEL;
+            io::read_exact_at(file, io::pixels_as_bytes_mut(&mut row), offset)
+                .map_err(|e| PanoError::io(&self.frame_path(idx), e))?;
+            r.extend(row.iter().map(|p| p[0]));
+            g.extend(row.iter().map(|p| p[1]));
+            b.extend(row.iter().map(|p| p[2]));
+        }
+        Ok(PlanarImage::from_planes(
+            rect.width,
+            rect.height,
+            r,
+            g,
+            b,
+            ValidityMask::new_filled(rect.width, rect.height, true),
         ))
     }
 

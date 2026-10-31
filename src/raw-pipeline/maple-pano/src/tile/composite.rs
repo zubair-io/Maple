@@ -9,11 +9,13 @@ use crate::ingest::PlanarImage;
 use crate::local_align::planar::planar_residuals;
 use crate::local_align::LocalCorrection;
 
-use super::frame_cache::TileFrameCache;
+use crate::frame_store::FrameRows;
+
 use super::masks::{estimate_min_overlap_width, voronoi_masks_region};
 use super::photometry::{solve_photometry, PhotometryOptions};
 use super::placement::{TileCanvasSpec, TilePose};
-use super::warp::warp_to_tile_region;
+use super::source::{read_window, Cell};
+use super::warp::{inverse_similarity_with_offset, warp_to_tile_region};
 use super::{TileEdge, TILE_PX};
 
 /// Compute the halo width (pixels) that covers the full influence radius of
@@ -99,7 +101,8 @@ pub struct TileCompositeReport {
 ///    power of two with a ×2 safety factor.
 /// 4. **Per output tile** `[tx0, ty0)–(tx1, ty1)`: expand by halo on
 ///    each side (clamped to canvas). Warp each frame into the haloed
-///    region only (`warp_to_tile_region`). Compute Voronoi masks for
+///    region only (`warp_to_tile_region`), from the source window that
+///    region's taps touch (`source::read_window`). Compute Voronoi masks for
 ///    the haloed region. Run `blend_multiband` on the haloed layers +
 ///    masks + gains. Copy only the interior (drop halo border) into the
 ///    output canvas. Drop tile buffers before the next tile.
@@ -115,23 +118,19 @@ pub struct TileCompositeReport {
 /// explicitly reduces the halo below `halo_for_levels(levels)`, which the
 /// public API does not expose.
 ///
-/// # Frame access contract (#3197)
+/// # Frame access (#3197, #5560)
 ///
-/// `cache` decodes frames on demand, keyed by `poses[i].frame_idx` — the
-/// *original* input frame index, not a position in `poses`. `full_dims`
-/// and `lenses.of_frame` are indexed the same way (one entry per
-/// original input frame); `full_dims` gives pixel dimensions without
-/// paying for a decode; `tile_edges` is
-/// filtered to the reachable component (same contract as before). Peak
-/// resident frames is bounded by `cache`'s capacity, not by the total
-/// input frame count — see `TileFrameCache` docs.
-///
-/// `pub(crate)`, not `pub`: `TileFrameCache` itself is crate-internal,
-/// so this can't be called from outside the crate either — the only
-/// caller is `stitch::tile_stitch`.
+/// `frames` is indexed by `poses[i].frame_idx` — the *original* input
+/// frame index, not a position in `poses`. `full_dims` and
+/// `lenses.of_frame` are indexed the same way; `full_dims` gives pixel
+/// dimensions without reading pixels; `tile_edges` is filtered to the
+/// reachable component. Each output tile reads, per frame it can see, only
+/// the source window its haloed region needs, and drops it once that
+/// frame's layer is warped — so peak residency is a few tile-sized
+/// windows, not whole frames.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn composite_tile(
-    cache: &TileFrameCache,
+    frames: &dyn FrameRows,
     full_dims: &[(u32, u32)],
     tile_edges: &[TileEdge],
     poses: &[TilePose],
@@ -163,7 +162,7 @@ pub(crate) fn composite_tile(
 
     // ── photometric solve: gains + shared ramp + residual fields (#350) ──────
     let (photometry, phot_summary) = solve_photometry(
-        cache,
+        frames,
         full_dims,
         poses,
         canvas,
@@ -176,7 +175,7 @@ pub(crate) fn composite_tile(
     // We need the min overlap width for level selection. Compute cheaply via
     // a canvas-space scan at a coarse stride (same approach as voronoi_masks_tile
     // but just for overlap width stats, no actual masking needed here).
-    let min_overlap = estimate_min_overlap_width(cache, full_dims, poses, canvas)?;
+    let min_overlap = estimate_min_overlap_width(frames, full_dims, poses, canvas)?;
     let levels = levels_override
         .unwrap_or_else(|| levels_for_overlap_width(min_overlap))
         .clamp(1, MAX_LEVELS);
@@ -216,6 +215,11 @@ pub(crate) fn composite_tile(
         })
         .collect();
 
+    let inv_sims: Vec<_> = poses
+        .iter()
+        .map(|p| inverse_similarity_with_offset(&p.sim, canvas.offset_x, canvas.offset_y))
+        .collect();
+
     // ── spatial tile loop ────────────────────────────────────────────────────
     let mut ty0 = 0usize;
     while ty0 < ch {
@@ -239,12 +243,6 @@ pub(crate) fn composite_tile(
             // Cull frames whose canvas bbox misses the haloed region, then
             // warp only the survivors (#3086). The 1 px pad absorbs the
             // +0.5 pixel-center sampling and float slop at the boundary.
-            // #3197: this culling is also what keeps the on-demand decode
-            // cache's working set small — a tile typically activates only
-            // the handful of frames whose bbox actually reaches it, and
-            // this loop is sequential (one tile pinned at a time, dropped
-            // before the next), so it never pins more than that handful
-            // regardless of the cache's own capacity.
             let active: Vec<usize> = (0..poses.len())
                 .filter(|&i| {
                     let (bx0, by0, bx1, by1) = frame_bboxes[i];
@@ -258,12 +256,24 @@ pub(crate) fn composite_tile(
                 tx0 = tx1;
                 continue;
             }
+            let haloed = Cell {
+                x0: hx0,
+                y0: hy0,
+                x1: hx1,
+                y1: hy1,
+            };
             let haloed_layers: Vec<PlanarImage> = active
                 .iter()
                 .map(|&i| -> Result<PlanarImage, PanoError> {
-                    let frame = cache.get(poses[i].frame_idx)?;
+                    let window = read_window(
+                        frames,
+                        poses[i].frame_idx,
+                        &inv_sims[i],
+                        haloed,
+                        corrections.map_or(0.0, |c| c[i].max_correction_px),
+                    )?;
                     Ok(warp_to_tile_region(
-                        &frame,
+                        window.view(),
                         &poses[i],
                         corrections.map(|c| &c[i]),
                         canvas,

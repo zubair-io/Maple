@@ -132,6 +132,47 @@ fn planar_windows_outside_the_frame_are_typed_errors() {
 }
 
 #[test]
+fn stored_rects_match_in_memory_rects_and_reject_overruns() {
+    let dir = tempfile::tempdir().unwrap();
+    let bytes = vignetted_dng(150, 92, Some(6));
+    let store = store_of(dir.path(), &[&bytes]);
+    let frames = [reference(&bytes)];
+    let (w, h) = store.dims(0).unwrap();
+    let rect = |x0, y0, width, height| FrameRect {
+        x0,
+        y0,
+        width,
+        height,
+    };
+    for r in [
+        rect(0, 0, w, h),
+        rect(0, h / 3, w, 5),
+        rect(7, 3, 1, 1),
+        rect(w - 9, h - 4, 9, 4),
+        rect(w / 2, 0, w / 4, h),
+    ] {
+        let (stored, held) = (
+            store.read_rect(0, r).unwrap(),
+            InMemory(&frames).read_rect(0, r).unwrap(),
+        );
+        assert_eq!((stored.width(), stored.height()), (r.width, r.height));
+        assert_eq!(
+            (stored.r, stored.g, stored.b),
+            (held.r, held.g, held.b),
+            "{r:?}"
+        );
+        assert!(stored.validity.all_valid() && held.validity.all_valid());
+    }
+    for r in [rect(1, 0, w, 1), rect(0, h, 1, 1), rect(u32::MAX, 0, 2, 1)] {
+        assert!(matches!(
+            store.read_rect(0, r),
+            Err(PanoError::InvalidOptions(_))
+        ));
+        assert!(InMemory(&frames).read_rect(0, r).is_err());
+    }
+}
+
+#[test]
 fn low_disk_fails_the_preflight_with_a_typed_error() {
     let parent = tempfile::tempdir().unwrap();
     let dims = [(1000, 500), (1000, 500)];

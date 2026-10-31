@@ -2,20 +2,18 @@
 //! genuine-exposure recovery, and residual-field absorption.
 //! Kept in a separate file for the file-size budget.
 
-use super::frame_cache::TileFrameCache;
 use super::photometry::{solve_photometry, FramePhotometry, PhotometryOptions};
 use super::placement::{TileCanvasSpec, TilePose};
+use crate::frame_store::InMemory;
 use crate::gain::LensGroups;
 use crate::ingest::{PlanarImage, ValidityMask};
 use crate::similarity::Similarity2d;
 
-/// #3197: `solve_photometry` reads frames through a `TileFrameCache` now,
-/// not a plain slice — this test helper seeds a cache (test-only,
-/// pre-decoded) and the parallel `full_dims` vector every call site
-/// needs.
-fn cache_and_dims(frames: &[PlanarImage]) -> (TileFrameCache<'static>, Vec<(u32, u32)>) {
+/// The in-memory frame source and the parallel `full_dims` every
+/// `solve_photometry` call needs.
+fn frames_and_dims(frames: &[PlanarImage]) -> (InMemory<'_>, Vec<(u32, u32)>) {
     let full_dims: Vec<(u32, u32)> = frames.iter().map(|f| (f.width(), f.height())).collect();
-    (TileFrameCache::from_frames(frames.to_vec()), full_dims)
+    (InMemory(frames), full_dims)
 }
 
 fn translation_pose(frame_idx: usize, tx: f64, ty: f64) -> TilePose {
@@ -96,9 +94,9 @@ fn shared_slope_absorbed_not_aliased_into_gain_ramp() {
         offset_y: 0.0,
     };
 
-    let (cache, full_dims) = cache_and_dims(&frames);
+    let (source, full_dims) = frames_and_dims(&frames);
     let (phot, summary) = solve_photometry(
-        &cache,
+        &source,
         &full_dims,
         &poses,
         &canvas,
@@ -153,9 +151,9 @@ fn true_exposure_steps_recovered_as_gains() {
         offset_y: 0.0,
     };
 
-    let (cache, full_dims) = cache_and_dims(&frames);
+    let (source, full_dims) = frames_and_dims(&frames);
     let (phot, summary) = solve_photometry(
-        &cache,
+        &source,
         &full_dims,
         &poses,
         &canvas,
@@ -209,9 +207,9 @@ fn residual_blob_absorbed_by_field() {
     };
 
     let opts = test_opts();
-    let (cache, full_dims) = cache_and_dims(&frames);
+    let (source, full_dims) = frames_and_dims(&frames);
     let (phot, summary) = solve_photometry(
-        &cache,
+        &source,
         &full_dims,
         &poses,
         &canvas,
@@ -320,9 +318,9 @@ fn per_channel_gains_ignore_dark_channel_samples() {
         ..test_opts()
     };
 
-    let (cache, full_dims) = cache_and_dims(&frames);
+    let (source, full_dims) = frames_and_dims(&frames);
     let (phot, _) = solve_photometry(
-        &cache,
+        &source,
         &full_dims,
         &poses,
         &canvas,

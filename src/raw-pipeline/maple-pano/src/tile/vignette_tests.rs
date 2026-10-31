@@ -3,9 +3,9 @@
 //! out of the composite.
 
 use super::composite::composite_tile;
-use super::frame_cache::TileFrameCache;
 use super::placement::{TileCanvasSpec, TilePose};
 use crate::composite::CanvasCollector;
+use crate::frame_store::InMemory;
 use crate::gain::vignette::{falloff_gain, radius_squared};
 use crate::gain::{GainOptions, LensGroups};
 use crate::ingest::{PlanarImage, ValidityMask};
@@ -81,11 +81,11 @@ fn one_lens() -> LensGroups {
 /// composite is the scene up to one global exposure.
 fn ripple(frames: Vec<PlanarImage>, lenses: &LensGroups) -> (f64, Vec<crate::gain::LensFalloff>) {
     let full_dims = vec![FRAME; MULS.len()];
-    let cache = TileFrameCache::from_frames(frames);
+    let frames = InMemory(&frames);
     let canvas = canvas();
     let mut collector = CanvasCollector::default();
     let report = composite_tile(
-        &cache,
+        &frames,
         &full_dims,
         &[],
         &poses(),
@@ -142,10 +142,11 @@ fn tile_ingest_corrected_set_is_bit_identical() {
     let lenses = LensGroups::ingest_corrected(MULS.len());
     let full_dims = vec![FRAME; MULS.len()];
     let run = |lenses: &LensGroups| {
-        let cache = TileFrameCache::from_frames(planted(0.0));
+        let planted = planted(0.0);
+        let frames = InMemory(&planted);
         let mut collector = CanvasCollector::default();
         composite_tile(
-            &cache,
+            &frames,
             &full_dims,
             &[],
             &poses(),

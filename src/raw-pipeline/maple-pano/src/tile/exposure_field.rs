@@ -33,8 +33,7 @@ const NEGLIGIBLE_LOG: f32 = 1e-4;
 
 /// `full_dims` is indexed by the *original* input frame index (same
 /// space as `poses[i].frame_idx`) — #3197: only pixel dimensions are
-/// needed here (frame coverage windows), never pixel data, so this never
-/// touches the on-demand decode cache at all.
+/// needed here (frame coverage windows), never pixel data.
 pub(super) fn solve_fields(
     full_dims: &[(u32, u32)],
     poses: &[TilePose],

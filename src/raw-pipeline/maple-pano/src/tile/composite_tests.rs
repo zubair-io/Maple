@@ -2,12 +2,13 @@
 //! invariant, seam placement, and the canvas pixel cap (#3086).
 //! Kept in a separate file for the file-size budget.
 
-use super::frame_cache::TileFrameCache;
 use super::masks::voronoi_masks_region;
 use super::photometry;
+use super::source::SourceView;
 use super::*;
 use crate::blend::blend_multiband;
 use crate::composite::CanvasCollector;
+use crate::frame_store::InMemory;
 use crate::gain::GainOptions;
 use crate::ingest::{PlanarImage, ValidityMask};
 use crate::similarity::Similarity2d;
@@ -70,7 +71,7 @@ fn all_invalid_layer_is_inert_in_masks_and_blend() {
         .zip(&poses)
         .map(|(f, p)| {
             warp::warp_to_tile_region(
-                f,
+                SourceView::whole(f),
                 p,
                 None,
                 &canvas,
@@ -131,7 +132,7 @@ fn voronoi_seam_sits_mid_overlap() {
         .zip(&poses)
         .map(|(f, p)| {
             warp::warp_to_tile_region(
-                f,
+                SourceView::whole(f),
                 p,
                 None,
                 &canvas,
@@ -178,14 +179,11 @@ fn composite_with_far_frame_places_all_content() {
         offset_x: 8.0,
         offset_y: 8.0,
     };
-    // #3197: composite_tile decodes on demand through a cache instead of
-    // taking a pre-decoded frame slice — TileFrameCache::from_frames
-    // (test-only) seeds it with these synthetic frames.
     let full_dims: Vec<(u32, u32)> = frames.iter().map(|f| (f.width(), f.height())).collect();
-    let cache = TileFrameCache::from_frames(frames);
+    let frames = InMemory(&frames);
     let mut collector = CanvasCollector::default();
     composite_tile(
-        &cache,
+        &frames,
         &full_dims,
         &[],
         &poses,
@@ -295,8 +293,8 @@ fn overlap_width_is_measured_in_canvas_pixels() {
         offset_y: 8.0,
     };
     let full_dims: Vec<(u32, u32)> = frames.iter().map(|f| (f.width(), f.height())).collect();
-    let cache = TileFrameCache::from_frames(frames);
-    let width = super::masks::estimate_min_overlap_width(&cache, &full_dims, &poses, &canvas)
+    let frames = InMemory(&frames);
+    let width = super::masks::estimate_min_overlap_width(&frames, &full_dims, &poses, &canvas)
         .expect("overlap estimate");
     assert!(
         (192..=208).contains(&width),

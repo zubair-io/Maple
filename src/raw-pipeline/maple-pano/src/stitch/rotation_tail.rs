@@ -58,7 +58,7 @@ pub(super) fn rotation_tail(
         inputs,
         frames,
         &proxy_scales,
-        &full_images,
+        Some(&full_images),
         |frac| progress(3, frac),
         is_cancelled,
     )?;
