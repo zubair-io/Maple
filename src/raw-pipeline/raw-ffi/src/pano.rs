@@ -47,6 +47,8 @@
 //! −7   pipeline error (decode / match / BA / composite / write — detail in last_error)
 //! −8   degenerate rotation geometry (frames are near-parallel / translational
 //!      and cannot be rotation-stitched — retry with Auto or Tile strategy)
+//! −9   not enough free space on the temp volume for the decoded frames
+//!      (detail, with the bytes needed and available, in last_error)
 //! ```
 
 use crate::cancel::SendCancelPtr;

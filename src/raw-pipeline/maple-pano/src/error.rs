@@ -55,8 +55,9 @@ pub enum PanoError {
     Cancelled,
 
     /// The frame store's free-space preflight (or a write that hit a full
-    /// volume) found too little room under `path` (#5553). Callers can offer
-    /// the smaller-output option instead.
+    /// volume) found too little room under `path` (#5553). The store holds
+    /// the input frames at full resolution, so a smaller output does not
+    /// help; the caller has to free space (#5555).
     #[error(
         "not enough free space for the pano frame store under {path}: \
          needs {needed} bytes, {available} available"

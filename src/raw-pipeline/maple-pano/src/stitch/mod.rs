@@ -110,6 +110,7 @@ pub use alignment::{
 };
 pub use engine::FeatureEngine;
 pub use focal_bootstrap::FocalSeedSource;
+pub use frames::{scratch_bytes, sweep_orphaned_scratch};
 pub use io::{develop_for_display, interleave_planar, quantize_to_u16};
 pub use preview::{preview, PanoPreview, PREVIEW_LONG_EDGE_PX};
 pub use save::{DisplayPng, PngCanvasSink};

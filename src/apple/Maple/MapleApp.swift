@@ -33,8 +33,11 @@ struct MapleApp: App {
   init() {
     Self.registerBundledFonts()
     Self.installMemoryPressureObserver()
-    // #5489: panorama frames a killed run left in the cache.
-    Task.detached(priority: .utility) { PanoFrameCache.sweep() }
+    // #5489, #5555: panorama frames and scratch a killed run left behind.
+    Task.detached(priority: .utility) {
+      PanoFrameCache.sweep()
+      RustPanoStitcher.sweepLeftoverScratch()
+    }
     BGTaskRegistration.register()
     #if os(iOS)
       WatchPhonePairing.shared.start()

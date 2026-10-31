@@ -423,6 +423,12 @@ PanoMergePreviewTests
 PanoMemoryModelTests
 PanoOutputSizeSessionTests
 
+# Panorama storage fit (#5555): disk-fit model, its share of the Full/Smaller
+# choice, and the launch sweep of a terminated run's temp scratch.
+PanoDiskModelTests
+PanoDiskFitSessionTests
+PanoScratchSweepTests
+
 # Panorama stop/cancel/restart: no zombie run, no overlapping stitches, a
 # cancelled FFI run is CancellationError, a superseded server preview is
 # stopped there.

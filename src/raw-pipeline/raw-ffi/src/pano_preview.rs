@@ -107,6 +107,20 @@ pub struct MaplePanoPreviewSizes {
     pub full_height: u32,
     /// Pixel count of the largest input frame at full resolution.
     pub largest_frame_px: u64,
+    /// Bytes the full stitch reserves on the temp volume for its decoded
+    /// frames, whatever the output size.
+    pub scratch_bytes: u64,
+}
+
+/// Remove the decoded-frame stores a killed stitch left in the system temp
+/// directory, keeping any whose process is still running. Call at launch,
+/// before any stitch starts. Always returns `0`.
+#[no_mangle]
+pub extern "C" fn maple_pano_sweep_scratch() -> i32 {
+    crate::error::catch_panic_rc("maple_pano_sweep_scratch", || {
+        maple_pano::stitch::sweep_orphaned_scratch();
+        0
+    })
 }
 
 /// Build a quick low-resolution panorama preview.
@@ -381,6 +395,7 @@ mod apple {
                     full_width: pv.full_canvas_estimate.0,
                     full_height: pv.full_canvas_estimate.1,
                     largest_frame_px: pv.largest_frame_px,
+                    scratch_bytes: pv.scratch_bytes,
                 }),
             ),
             Err(msg) => {

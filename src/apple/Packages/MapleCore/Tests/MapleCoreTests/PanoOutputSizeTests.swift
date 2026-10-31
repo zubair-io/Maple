@@ -1,12 +1,13 @@
 // PanoOutputSizeTests.swift — Memory fit and the merge session's output-size
-// choice (#5454).
+// choice (#5454, #5555).
 
 import XCTest
 @testable import MapleCore
 
 final class PanoMemoryModelTests: XCTestCase {
     private let model = PanoMemoryModel()
-    private let pano01 = PanoStitchSizes(canvasWidth: 26_981, canvasHeight: 9_488, largestFramePixels: 20_813_856)
+    private let pano01 = PanoStitchSizes(
+        canvasWidth: 26_981, canvasHeight: 9_488, largestFramePixels: 20_813_856, frameCount: 21, scratchBytes: 0)
 
     private func budgetBytes(forPeak peak: Int) -> Int {
         Int((Double(peak) * PanoMemoryModel.safetyFactor).rounded(.up))
@@ -24,16 +25,16 @@ final class PanoMemoryModelTests: XCTestCase {
 
     func testShortDeviceGetsTheLargestCanvasThatFitsAtTheSameAspect() throws {
         let full = model.estimatedPeakBytes(sizes: pano01, canvasWidth: pano01.canvasWidth)
-        // Above the ~16.9k px width where the refinement floor takes over.
+        // Above the ~3k px width where the head takes over.
         let targetWidth = 20_000
         let targetPeak = model.estimatedPeakBytes(sizes: pano01, canvasWidth: targetWidth)
         let fit = model.fit(sizes: pano01, availableBytes: budgetBytes(forPeak: targetPeak))
 
-        guard case .fitted(let fullBytes, let pixels, let width, let height) = fit else {
+        guard case .fitted(let fullBytes, let canvas) = fit else {
             return XCTFail("expected a fitted size, got \(String(describing: fit))")
         }
+        let (width, height) = (canvas.width, canvas.height)
         XCTAssertEqual(fullBytes, full)
-        XCTAssertEqual(pixels, width * height)
         XCTAssertEqual(Double(width), Double(targetWidth), accuracy: 2)
         XCTAssertEqual(Double(width) / Double(height), 26_981 / 9_488, accuracy: 0.01)
         XCTAssertLessThanOrEqual(
@@ -43,14 +44,26 @@ final class PanoMemoryModelTests: XCTestCase {
     }
 
     func testTallCanvasKeepsItsAspectAndUsesTheLongEdgeFloor() {
-        let tall = PanoStitchSizes(canvasWidth: 9_000, canvasHeight: 40_000, largestFramePixels: 1_000_000)
+        let tall = PanoStitchSizes(canvasWidth: 9_000, canvasHeight: 40_000, largestFramePixels: 1_000_000, frameCount: 3, scratchBytes: 0)
         let peak = model.estimatedPeakBytes(sizes: tall, canvasWidth: 6_000)
-        guard case .fitted(_, _, let width, let height) = model.fit(sizes: tall, availableBytes: budgetBytes(forPeak: peak)) else {
+        guard case .fitted(_, let canvas) = model.fit(sizes: tall, availableBytes: budgetBytes(forPeak: peak)) else {
             return XCTFail("expected a fitted size for a tall canvas")
         }
+        let (width, height) = (canvas.width, canvas.height)
         XCTAssertLessThan(width, 9_000)
         XCTAssertGreaterThan(height, width)
         XCTAssertEqual(Double(height) / Double(width), 40_000 / 9_000, accuracy: 0.01)
+    }
+
+    func testCalibrationCoversTheMeasuredStages() {
+        let gib = Double(1 << 30)
+        let pano00 = PanoStitchSizes(
+            canvasWidth: 12_315, canvasHeight: 12_760, largestFramePixels: 11_648 * 8_640, frameCount: 3, scratchBytes: 0)
+        XCTAssertGreaterThanOrEqual(model.headBytes(pano00), 1_263 << 20)
+        XCTAssertGreaterThanOrEqual(model.compositeBytes(pano00, canvasWidth: 12_315), 593 << 20)
+        XCTAssertGreaterThanOrEqual(model.compositeBytes(pano00, canvasWidth: 12_315), Int(1.2 * gib))
+        XCTAssertGreaterThanOrEqual(model.headBytes(pano01), Int(1.8 * gib))
+        XCTAssertGreaterThanOrEqual(model.compositeBytes(pano01, canvasWidth: 26_981), Int(2.8 * gib))
     }
 
     func testFramesAloneTooLargeForTheDevice() {
@@ -61,14 +74,14 @@ final class PanoMemoryModelTests: XCTestCase {
         )
     }
 
-    func testShrinkingBelowTheRefinementFloorBuysNothing() {
-        let floor = model.estimatedPeakBytes(sizes: pano01, canvasWidth: 0)
-        XCTAssertEqual(model.estimatedPeakBytes(sizes: pano01, canvasWidth: 10_000), floor)
+    func testShrinkingBelowTheHeadBuysNothing() {
+        let head = model.estimatedPeakBytes(sizes: pano01, canvasWidth: 0)
+        XCTAssertEqual(model.estimatedPeakBytes(sizes: pano01, canvasWidth: 2_000), head)
     }
 
     func testFittedCanvasSmallerThanThePreviewIsTooLarge() {
-        let smallFrames = PanoStitchSizes(canvasWidth: 60_000, canvasHeight: 20_000, largestFramePixels: 1_000_000)
-        let previewWidthPeak = model.estimatedPeakBytes(sizes: smallFrames, canvasWidth: PanoMemoryModel.smallestUsefulLongEdge - 1)
+        let smallFrames = PanoStitchSizes(canvasWidth: 60_000, canvasHeight: 20_000, largestFramePixels: 1_000_000, frameCount: 3, scratchBytes: 0)
+        let previewWidthPeak = model.estimatedPeakBytes(sizes: smallFrames, canvasWidth: PanoStitchSizes.smallestUsefulLongEdge - 1)
         let fit = model.fit(sizes: smallFrames, availableBytes: budgetBytes(forPeak: previewWidthPeak))
         guard case .tooLarge = fit else {
             return XCTFail("expected tooLarge, got \(String(describing: fit))")
@@ -78,18 +91,22 @@ final class PanoMemoryModelTests: XCTestCase {
 
 @MainActor
 final class PanoOutputSizeSessionTests: XCTestCase {
-    private let pano01 = PanoStitchSizes(canvasWidth: 26_981, canvasHeight: 9_488, largestFramePixels: 20_813_856)
+    private let pano01 = PanoStitchSizes(
+        canvasWidth: 26_981, canvasHeight: 9_488, largestFramePixels: 20_813_856, frameCount: 21, scratchBytes: 0)
 
     private func makeSession(available: Int?, sizes: PanoStitchSizes?) async -> (PanoMergeSession, RecordingStitcher) {
         await makeSession(availableMemory: { available }, sizes: sizes)
     }
 
     private func makeSession(
-        availableMemory: @escaping @Sendable () -> Int?, sizes: PanoStitchSizes?
+        availableMemory: @escaping @Sendable () -> Int?,
+        sizes: PanoStitchSizes?
     ) async -> (PanoMergeSession, RecordingStitcher) {
         let stitcher = RecordingStitcher()
         stitcher.previewSizes = sizes
-        let session = PanoMergeSession(stitcher: stitcher, previewDebounce: .milliseconds(20), availableMemory: availableMemory)
+        let session = PanoMergeSession(
+            stitcher: stitcher, previewDebounce: .milliseconds(20), availableMemory: availableMemory,
+            freeSpace: { _, _ in nil })
         session.preview(assets: (0..<3).map { AssetRef.preview(displayName: "IMG_\($0).dng") })
         let deadline = ContinuousClock.now + .seconds(5)
         while session.lastPreview == nil, ContinuousClock.now < deadline {
@@ -124,12 +141,12 @@ final class PanoOutputSizeSessionTests: XCTestCase {
 
     func testShortDeviceDefaultsToTheFittedCanvas() async {
         let (session, stitcher) = await makeSession(available: shortBudget(), sizes: pano01)
-        guard case .fitted(_, let pixels, _, _) = session.memoryFit else {
+        guard case .fitted(_, let canvas) = session.memoryFit else {
             return XCTFail("expected a fitted size, got \(String(describing: session.memoryFit))")
         }
         XCTAssertEqual(session.outputSize, .fitted)
         let cap = await stitchCap(session, stitcher)
-        XCTAssertEqual(cap, .some(pixels))
+        XCTAssertEqual(cap, .some(canvas.pixels))
     }
 
     func testChoosingFullOverridesTheFit() async {
@@ -152,7 +169,8 @@ final class PanoOutputSizeSessionTests: XCTestCase {
         let stitcher = RecordingStitcher()
         stitcher.previewSizes = pano01
         let session = PanoMergeSession(
-            stitcher: stitcher, previewDebounce: .milliseconds(20), availableMemory: { available.value })
+            stitcher: stitcher, previewDebounce: .milliseconds(20), availableMemory: { available.value },
+            freeSpace: { _, _ in nil })
         session.preview(assets: (0..<3).map { AssetRef.preview(displayName: "IMG_\($0).dng") })
         await waitForPreviews(1, session, stitcher)
         session.outputSize = .fitted
@@ -171,12 +189,12 @@ final class PanoOutputSizeSessionTests: XCTestCase {
     func testTheFitIsReadOnceWhenThePreviewLands() async {
         let available = AvailableMemory(shortBudget())
         let (session, stitcher) = await makeSession(availableMemory: { available.value }, sizes: pano01)
-        guard case .fitted(_, let pixels, _, _) = session.memoryFit else {
+        guard case .fitted(_, let canvas) = session.memoryFit else {
             return XCTFail("expected a fitted size")
         }
         available.value = Int.max / 2
         let cap = await stitchCap(session, stitcher)
-        XCTAssertEqual(cap, .some(pixels), "the stitch uses the size the sheet showed")
+        XCTAssertEqual(cap, .some(canvas.pixels), "the stitch uses the size the sheet showed")
     }
 
     private func waitForPreviews(_ count: Int, _ session: PanoMergeSession, _ stitcher: RecordingStitcher) async {
@@ -199,7 +217,7 @@ final class PanoOutputSizeSessionTests: XCTestCase {
     }
 
     func testAStrategyChangeInsideTheDebounceRefreshesTheFitBeforeStitching() async {
-        let smallCanvas = PanoStitchSizes(canvasWidth: 5_000, canvasHeight: 2_000, largestFramePixels: 1_000_000)
+        let smallCanvas = PanoStitchSizes(canvasWidth: 5_000, canvasHeight: 2_000, largestFramePixels: 1_000_000, frameCount: 3, scratchBytes: 0)
         let (session, stitcher) = await makeSession(available: shortBudget(), sizes: smallCanvas)
         guard case .fullFits = session.memoryFit else {
             return XCTFail("expected fullFits first, got \(String(describing: session.memoryFit))")
@@ -211,14 +229,14 @@ final class PanoOutputSizeSessionTests: XCTestCase {
         let cap = await stitchCap(session, stitcher)
 
         XCTAssertEqual(stitcher.previewCalls.last?.options.strategy, newStrategy)
-        guard case .fitted(_, let pixels, _, _) = session.memoryFit else {
+        guard case .fitted(_, let canvas) = session.memoryFit else {
             return XCTFail("expected the new geometry's fit, got \(String(describing: session.memoryFit))")
         }
-        XCTAssertEqual(cap, .some(pixels))
+        XCTAssertEqual(cap, .some(canvas.pixels))
     }
 
     func testARetentionOrLocalAlignChangeInsideTheDebounceRefreshesTheFit() async {
-        let smallCanvas = PanoStitchSizes(canvasWidth: 5_000, canvasHeight: 2_000, largestFramePixels: 1_000_000)
+        let smallCanvas = PanoStitchSizes(canvasWidth: 5_000, canvasHeight: 2_000, largestFramePixels: 1_000_000, frameCount: 3, scratchBytes: 0)
         for change in [\PanoOptions.retention, \PanoOptions.localAlign] as [PartialKeyPath<PanoOptions>] {
             let (session, stitcher) = await makeSession(available: shortBudget(), sizes: smallCanvas)
             guard case .fullFits = session.memoryFit else {
@@ -236,10 +254,10 @@ final class PanoOutputSizeSessionTests: XCTestCase {
             let cap = await stitchCap(session, stitcher)
 
             XCTAssertEqual(stitcher.previewCalls.last?.options, options, "\(change)")
-            guard case .fitted(_, let pixels, _, _) = session.memoryFit else {
+            guard case .fitted(_, let canvas) = session.memoryFit else {
                 return XCTFail("\(change): expected the new options' fit, got \(String(describing: session.memoryFit))")
             }
-            XCTAssertEqual(cap, .some(pixels), "\(change)")
+            XCTAssertEqual(cap, .some(canvas.pixels), "\(change)")
         }
     }
 

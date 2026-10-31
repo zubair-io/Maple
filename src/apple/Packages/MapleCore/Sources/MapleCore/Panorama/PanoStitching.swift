@@ -233,8 +233,14 @@ public protocol PanoStitching: AnyObject, Sendable {
     /// Whether the stitch runs in this process, so its output must be sized
     /// to this device's memory from a preview's fit. A server stitch is not.
     var runsInDeviceMemory: Bool { get }
+
+    /// Free space where a stitch of `assets` would write, or `nil` when it
+    /// writes nothing on this device or the space cannot be read.
+    func freeSpace(for assets: [AssetRef]) -> PanoFreeSpace?
 }
 
 extension PanoStitching {
     public var runsInDeviceMemory: Bool { true }
+
+    public func freeSpace(for assets: [AssetRef]) -> PanoFreeSpace? { nil }
 }

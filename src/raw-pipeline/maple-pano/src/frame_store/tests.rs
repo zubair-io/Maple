@@ -176,7 +176,7 @@ fn stored_rects_match_in_memory_rects_and_reject_overruns() {
 fn low_disk_fails_the_preflight_with_a_typed_error() {
     let parent = tempfile::tempdir().unwrap();
     let dims = [(1000, 500), (1000, 500)];
-    let needed = required_bytes(&dims).unwrap();
+    let needed = FrameStore::required_bytes(&dims).unwrap();
     assert_eq!(needed, (1_000_000 + 500_000 * 9 / 8) * 12);
     let err = FrameStore::create_with(parent.path(), &dims, |_| Ok(needed - 1))
         .err()

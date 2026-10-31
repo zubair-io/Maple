@@ -22,6 +22,14 @@ enum PanoFFICall {
     /// unreadable, so matching re-ran".
     private static let staleAlignmentCode: Int32 = 1
 
+    /// Removes decoded-frame stores and per-call scratch directories left in
+    /// the temp directory by a run the system terminated. Call at launch,
+    /// before any stitch.
+    static func sweepScratch() {
+        _ = maple_pano_sweep_scratch()
+        ScratchDirectory.sweep()
+    }
+
     static func stitch(
         inputURLs: [URL],
         outputURL: URL,
@@ -92,7 +100,9 @@ enum PanoFFICall {
         let stitchSizes = PanoStitchSizes(
             canvasWidth: Int(sizes.full_width),
             canvasHeight: Int(sizes.full_height),
-            largestFramePixels: Int(sizes.largest_frame_px)
+            largestFramePixels: Int(sizes.largest_frame_px),
+            frameCount: inputURLs.count,
+            scratchBytes: Int(clamping: sizes.scratch_bytes)
         )
         panoFFILog.notice("maple_pano_preview OK: \(image.width)×\(image.height), full stitch ≈ \(stitchSizes.canvasWidth)×\(stitchSizes.canvasHeight). \(outcome.summary, privacy: .public)")
         return PanoPreview(image: image, alignment: solved, alignmentOutcome: outcome, stitchSizes: stitchSizes)
@@ -129,6 +139,7 @@ enum PanoFFICall {
             switch rc {
             case -3: throw PanoStitcherError.unsupportedPlatform
             case -6: throw PanoStitcherError.modelsNotInstalled(message)
+            case -9: throw PanoStitcherError.insufficientStorage
             default: throw PanoStitcherError.stitchFailed(code: Int(rc), message: message)
             }
         }
@@ -233,13 +244,16 @@ enum PanoFFICall {
 // MARK: - ScratchDirectory
 
 /// A private per-call temp directory for the FFI's file-based alignment and
-/// preview hand-off.
-private struct ScratchDirectory {
+/// preview hand-off, named for its process like the core's frame stores so a
+/// sweep can tell a terminated run's from a live one's.
+struct ScratchDirectory {
+    static let prefix = "maple-pano-call-"
+
     let url: URL
 
     init() throws {
         url = FileManager.default.temporaryDirectory
-            .appendingPathComponent("maple-pano-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("\(Self.prefix)\(getpid())-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
     }
 
@@ -251,5 +265,20 @@ private struct ScratchDirectory {
 
     func remove() {
         try? FileManager.default.removeItem(at: url)
+    }
+
+    static func sweep() {
+        let temp = FileManager.default.temporaryDirectory
+        let entries = (try? FileManager.default.contentsOfDirectory(atPath: temp.path)) ?? []
+        for name in entries where ownerHasExited(name) {
+            try? FileManager.default.removeItem(at: temp.appendingPathComponent(name, isDirectory: true))
+        }
+    }
+
+    private static func ownerHasExited(_ name: String) -> Bool {
+        guard name.hasPrefix(prefix),
+              let pid = name.dropFirst(prefix.count).split(separator: "-", maxSplits: 1).first.flatMap({ pid_t($0) }),
+              pid > 0, pid != getpid() else { return false }
+        return kill(pid, 0) != 0 && errno == ESRCH
     }
 }

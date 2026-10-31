@@ -74,7 +74,32 @@ fn fill_store_with(
 /// An empty store in the system temp directory, sized from each input's
 /// header so the free-space check runs before anything is developed.
 fn open_store(inputs: &[PathBuf]) -> Result<FrameStore, StitchError> {
-    let dims = inputs
+    let dims = input_dims(inputs)?;
+    let parent = std::env::temp_dir();
+    FrameStore::create(&parent, &dims).map_err(|e| store_error(&parent, e))
+}
+
+/// Bytes a full stitch of `inputs` reserves in the system temp directory
+/// for its decoded frames, whatever the output size: the store holds every
+/// frame at full resolution.
+pub fn scratch_bytes(inputs: &[PathBuf]) -> Result<u64, StitchError> {
+    let dims = input_dims(inputs)?;
+    FrameStore::required_bytes(&dims).ok_or_else(|| {
+        StitchError::Composite(format!(
+            "{} frames need more scratch than a u64 can count",
+            inputs.len()
+        ))
+    })
+}
+
+/// Remove decoded-frame stores in the system temp directory whose stitch
+/// process has exited.
+pub fn sweep_orphaned_scratch() {
+    FrameStore::sweep_orphans(&std::env::temp_dir());
+}
+
+fn input_dims(inputs: &[PathBuf]) -> Result<Vec<(u32, u32)>, StitchError> {
+    inputs
         .iter()
         .map(|path| {
             raw_core::raw_dimensions::from_file(path)
@@ -84,9 +109,7 @@ fn open_store(inputs: &[PathBuf]) -> Result<FrameStore, StitchError> {
                     cause: e.to_string(),
                 })
         })
-        .collect::<Result<Vec<_>, _>>()?;
-    let parent = std::env::temp_dir();
-    FrameStore::create(&parent, &dims).map_err(|e| store_error(&parent, e))
+        .collect()
 }
 
 fn frame_meta(

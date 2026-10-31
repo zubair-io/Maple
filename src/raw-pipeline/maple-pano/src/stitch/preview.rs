@@ -57,6 +57,10 @@ pub struct PanoPreview {
     /// Pixel count of the largest input frame at full resolution, the
     /// input to callers' memory models.
     pub largest_frame_px: u64,
+    /// Bytes the full stitch reserves on the temp volume for its decoded
+    /// frames ([`super::scratch_bytes`]), the input to callers' free-disk
+    /// checks.
+    pub scratch_bytes: u64,
     /// `[decode, features, match_graph, refine, solve, composite]` seconds;
     /// refine is always 0 (skipped), features and match_graph are 0 when
     /// the alignment was reused.
@@ -177,6 +181,7 @@ pub fn preview(
         alignment,
         reuse,
         largest_frame_px,
+        scratch_bytes: super::scratch_bytes(inputs)?,
         full_canvas_estimate,
     })
 }
