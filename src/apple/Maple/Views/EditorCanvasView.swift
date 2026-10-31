@@ -94,7 +94,7 @@ struct EditorCanvasView: View {
     if state.armedTool == .crop {
       let controlsAtBottom = EditorCropGeometry.stacksControlsAtBottom(
         size: size, isTablet: MapleShellKind.currentIdiom == .pad,
-        hasFilmstrip: hasFilmstrip)
+        hasFilmstrip: hasFilmstrip, usesVerticalBar: EditorVerticalControlBar.fits(in: size))
       return EditorCropGeometry.insets(
         size: size, controlsFrame: wheelExclusionFrame,
         isRegular: isRegular, hasFilmstrip: hasFilmstrip,

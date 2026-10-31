@@ -13,10 +13,7 @@ struct EditorControls: View {
 
   var body: some View {
     GeometryReader { geometry in
-      let fitsVerticalBar =
-        geometry.size.width > geometry.size.height
-        && geometry.size.height - 88 >= EditorVerticalControlBar.minimumHeight
-        && Self.idiomUsesVerticalBar
+      let fitsVerticalBar = EditorVerticalControlBar.fits(in: geometry.size)
       let isBottom =
         layout == .phone
         || (MapleShellKind.currentIdiom == .phone && geometry.size.height > geometry.size.width)
@@ -45,13 +42,6 @@ struct EditorControls: View {
           bottomPanelHeight: bottomPanelHeight)
       }
     }
-  }
-
-  /// iPad and the open Duo. The Mac, including the iPad app running on a
-  /// Mac, keeps the stacked inspector.
-  private static var idiomUsesVerticalBar: Bool {
-    let idiom = MapleShellKind.currentIdiom
-    return (idiom == .pad || idiom == .phone) && !ProcessInfo.processInfo.isiOSAppOnMac
   }
 
   private func stackedControls(
