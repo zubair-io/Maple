@@ -27,18 +27,38 @@ public struct PanoFreeSpace: Sendable, Equatable {
     }
 
     /// The temp directory's volume and that of `outputFolder`, or of its
-    /// nearest existing ancestor.
-    static func current(outputFolder: URL) -> PanoFreeSpace? {
-        guard let scratch = volume(of: FileManager.default.temporaryDirectory) else { return nil }
-        let output = sequence(first: outputFolder.standardizedFileURL) { url in
-            url.path == "/" ? nil : url.deletingLastPathComponent()
-        }.lazy.compactMap(volume).first ?? scratch
+    /// nearest existing ancestor, through any symlink: a symlinked folder's
+    /// own resource values describe the link's volume, not the target's.
+    /// `realpath` rather than `resolvingSymlinksInPath`, which strips
+    /// `/private` and so lands back on the `/tmp` and `/var` links.
+    static func current(
+        outputFolder: URL,
+        probe: (URL) -> (free: Int, id: any NSObjectProtocol)? = volume(of:)
+    ) -> PanoFreeSpace? {
+        guard let scratch = realPath(FileManager.default.temporaryDirectory).flatMap(probe) else { return nil }
+        let output = nearestVolume(of: outputFolder.standardizedFileURL, probe: probe) ?? scratch
         return PanoFreeSpace(
             scratchVolumeBytes: scratch.free, outputVolumeBytes: output.free,
             sameVolume: scratch.id.isEqual(output.id))
     }
 
-    private static func volume(of url: URL) -> (free: Int, id: any NSObjectProtocol)? {
+    /// Stops at the first folder that answers: on a network share each
+    /// query can stall.
+    private static func nearestVolume(
+        of url: URL, probe: (URL) -> (free: Int, id: any NSObjectProtocol)?
+    ) -> (free: Int, id: any NSObjectProtocol)? {
+        realPath(url).flatMap(probe)
+            ?? (url.path == "/" ? nil : nearestVolume(of: url.deletingLastPathComponent(), probe: probe))
+    }
+
+    /// `nil` when `url` does not exist.
+    static func realPath(_ url: URL) -> URL? {
+        guard let resolved = realpath(url.path, nil) else { return nil }
+        defer { free(resolved) }
+        return URL(fileURLWithPath: String(cString: resolved), isDirectory: true)
+    }
+
+    static func volume(of url: URL) -> (free: Int, id: any NSObjectProtocol)? {
         let values = try? url.resourceValues(forKeys: [.volumeAvailableCapacityKey, .volumeIdentifierKey])
         guard let free = values?.volumeAvailableCapacity,
               let id = values?.volumeIdentifier as? any NSObjectProtocol else { return nil }

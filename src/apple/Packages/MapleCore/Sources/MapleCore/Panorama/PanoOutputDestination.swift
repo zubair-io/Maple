@@ -24,7 +24,7 @@ enum PanoOutputDestination {
     /// Hand the name back with `release` once the stitch is over.
     static func reserve(in directory: URL, now: Date = Date()) throws -> URL {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        guard FileManager.default.isWritableFile(atPath: directory.path) else {
+        guard accepts(directory) else {
             throw ReserveError.notWritable(directory)
         }
         let stem = "panorama-\(Int(now.timeIntervalSince1970))"
@@ -35,6 +35,40 @@ enum PanoOutputDestination {
             throw ReserveError.noFreeName(directory)
         }
         return free
+    }
+
+    /// Claims a name in the first of `candidates` that takes one, reporting
+    /// the last one's failure when none does.
+    static func reserve(among candidates: [URL], now: Date = Date()) throws -> URL {
+        precondition(!candidates.isEmpty, "a stitch always has an output folder to try")
+        for directory in candidates.dropLast() {
+            if let reserved = try? reserve(in: directory, now: now) { return reserved }
+        }
+        return try reserve(in: candidates[candidates.count - 1], now: now)
+    }
+
+    /// The folder `reserve(among:)` would claim a name in, without creating
+    /// anything: the first candidate it would accept, else the last.
+    static func destination(among candidates: [URL]) -> URL? {
+        candidates.first(where: accepts) ?? candidates.last
+    }
+
+    /// Whether `reserve(in:)` would accept `directory`: a writable folder
+    /// (through any symlink), or one it could create under the nearest
+    /// existing ancestor. A dangling symlink on the way refuses it, as
+    /// creating through it would.
+    static func accepts(_ directory: URL) -> Bool {
+        let directory = directory.standardizedFileURL
+        let path = directory.path
+        var isDirectory: ObjCBool = false
+        if FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory) {
+            return isDirectory.boolValue && FileManager.default.isWritableFile(atPath: path)
+        }
+        let parent = directory.deletingLastPathComponent()
+        guard (try? FileManager.default.attributesOfItem(atPath: path)) == nil, parent.path != path else {
+            return false
+        }
+        return accepts(parent)
     }
 
     static func release(_ url: URL) {
