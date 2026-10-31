@@ -197,3 +197,6 @@ pub(crate) mod screened_cg;
 // developed once in row bands into a per-stitch scratch file and read back
 // by row window. Appended after screened_cg — keep lib.rs append-only.
 pub mod frame_store;
+
+// --- Boundary Warp (#5570): panorama rectangling ------------------------
+pub mod boundary_warp;
