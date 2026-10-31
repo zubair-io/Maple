@@ -38,22 +38,11 @@ struct EditorVerticalControlBar: View {
 
   private var usesToolPanel: Bool { EditorToolPanel.replacesDragBar(state.armedTool) }
 
-  private var showsColorAccessory: Bool {
-    state.armedGroup == .color && state.armedTool != .hsl
+  private var contextControls: EditorContextControls {
+    EditorContextControls(state: state, showsScope: showsScope, includesDragBar: false)
   }
 
-  private var showsDemosaicAccessory: Bool {
-    state.armedGroup == .detail && (state.armedTool == .sharpen || state.armedTool == .noise)
-  }
-
-  private var showsSubParams: Bool {
-    state.armedTool != .hsl && state.armedSubParams.count > 1
-  }
-
-  private var showsContextPanel: Bool {
-    showsScope || usesToolPanel || showsColorAccessory || showsDemosaicAccessory
-      || showsSubParams
-  }
+  private var showsContextPanel: Bool { contextControls.hasContent }
 
   var body: some View {
     HStack(alignment: .center, spacing: 12) {
@@ -80,7 +69,7 @@ struct EditorVerticalControlBar: View {
         .frame(width: Self.rulerColumnWidth)
     }
     .padding(.horizontal, 4)
-    .background(ProTokens.bg.opacity(ProGlass.opacity), in: RoundedRectangle(cornerRadius: 18))
+    .modifier(FloatingSurface())
     .accessibilityElement(children: .contain)
     .accessibilityIdentifier("editor-vertical-controls")
   }
@@ -128,29 +117,15 @@ struct EditorVerticalControlBar: View {
     }
     .scrollBounceBehavior(.basedOnSize)
     .frame(height: min(maximumHeight, contextHeight))
-    .background(ProTokens.bg.opacity(ProGlass.opacity), in: RoundedRectangle(cornerRadius: 14))
+    .modifier(FloatingSurface())
     .accessibilityElement(children: .contain)
     .accessibilityIdentifier("editor-vertical-context-panel")
   }
+}
 
-  private var contextControls: some View {
-    VStack(spacing: 0) {
-      if showsScope {
-        VectorscopeHud(state: state).padding(12)
-      }
-      if showsColorAccessory {
-        ColorAccessoryRow(state: state, compactStyle: true)
-      }
-      if showsDemosaicAccessory {
-        DemosaicAccessoryRow(state: state)
-      }
-      if usesToolPanel {
-        EditorToolPanel(state: state)
-      } else if showsSubParams {
-        SubParamRow(state: state)
-          .padding(.bottom, 10)
-      }
-    }
-    .padding(.vertical, 6)
+private struct FloatingSurface: ViewModifier {
+  func body(content: Content) -> some View {
+    content.background(
+      ProTokens.bg.opacity(ProGlass.opacity), in: RoundedRectangle(cornerRadius: 18))
   }
 }

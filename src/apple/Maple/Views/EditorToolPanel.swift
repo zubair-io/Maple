@@ -40,30 +40,24 @@ struct EditorToolPanel: View {
       case .crop:
         CropToolbar(state: state)
       case .hsl:
-        HSLSection(state: state).modifier(PanelInsets())
+        HSLSection(state: state).editorContextInsets()
       case .colorGrade:
-        ColorGradingPanel(state: state).modifier(PanelInsets())
+        ColorGradingPanel(state: state).editorContextInsets()
       case .toneCurve:
-        ToneCurveSection(state: state).modifier(PanelInsets())
+        ToneCurveSection(state: state).editorContextInsets()
       case .filmLook:
-        FilmSection(state: state).modifier(PanelInsets())
+        FilmSection(state: state).editorContextInsets()
       case .geometry:
-        GeometrySection(state: state).modifier(PanelInsets())
+        GeometrySection(state: state).editorContextInsets()
       case .lensCorrections:
-        LensCorrectionsSection(state: state).modifier(PanelInsets())
+        LensCorrectionsSection(state: state).editorContextInsets()
       case .defringe:
-        DefringeSection(state: state).modifier(PanelInsets())
+        DefringeSection(state: state).editorContextInsets()
       case .mask:
-        MaskPanel(state: state).modifier(PanelInsets())
+        MaskPanel(state: state).editorContextInsets()
       case .heal:
-        RetouchPanel(state: state).modifier(PanelInsets())
+        RetouchPanel(state: state).editorContextInsets()
       }
     }
-  }
-}
-
-private struct PanelInsets: ViewModifier {
-  func body(content: Content) -> some View {
-    content.padding(.horizontal, 16).padding(.vertical, 6)
   }
 }
