@@ -1,7 +1,7 @@
 //! Voronoi ownership masks + overlap-width estimation for the tile
 //! composite. Split from `tile/mod.rs` for the file-size budget (#3086).
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::error::PanoError;
 use crate::frame_store::FrameRows;
@@ -10,6 +10,11 @@ use crate::ingest::PlanarImage;
 use super::placement::{TileCanvasSpec, TilePose};
 use super::source;
 use super::warp;
+
+/// Per frame pair `(a, b)`, `a < b`, the number of strided canvas points
+/// both cover and the canvas rows those points lie on. Sparse, so a cell
+/// holds only the pairs that actually meet in it.
+type PairOverlaps = BTreeMap<(usize, usize), (usize, BTreeSet<usize>)>;
 
 /// Estimate minimum overlap width for pyramid level selection, using a
 /// coarse canvas-space scan (stride 8) to find pairwise overlap pixels.
@@ -69,8 +74,7 @@ pub(super) fn estimate_min_overlap_width(
         bboxes: &bboxes,
     };
     let per_cell = source::scan_cells(frames, &scan, cw, ch, |cell, windows| {
-        let mut overlap_count = vec![vec![0usize; k]; k];
-        let mut overlap_rows = vec![vec![BTreeSet::<usize>::new(); k]; k];
+        let mut overlaps = PairOverlaps::new();
         let first_ry = cell.y0.div_ceil(stride) * stride;
         let first_rx = cell.x0.div_ceil(stride) * stride;
         for ry in (first_ry..cell.y1).step_by(stride) {
@@ -85,8 +89,8 @@ pub(super) fn estimate_min_overlap_width(
                 // check overestimates overlap near validity
                 // boundaries. No window means no other frame reaches
                 // the cell to pair with.
-                let covered: Vec<bool> = (0..k)
-                    .map(|i| {
+                let covered: Vec<usize> = (0..k)
+                    .filter(|&i| {
                         let (fw, fh) = frame_dims[i];
                         let (fx, fy) = inv_sims[i].apply(cx, cy);
                         if fx < 0.0 || fx > fw || fy < 0.0 || fy > fh {
@@ -97,48 +101,32 @@ pub(super) fn estimate_min_overlap_width(
                         })
                     })
                     .collect();
-                for a in 0..k {
-                    if !covered[a] {
-                        continue;
-                    }
-                    for b in (a + 1)..k {
-                        if covered[b] {
-                            overlap_count[a][b] += 1;
-                            overlap_rows[a][b].insert(ry);
-                        }
+                for (n, &a) in covered.iter().enumerate() {
+                    for &b in &covered[n + 1..] {
+                        let (count, rows) = overlaps.entry((a, b)).or_default();
+                        *count += 1;
+                        rows.insert(ry);
                     }
                 }
             }
         }
-        (overlap_count, overlap_rows)
+        overlaps
     })?;
-    let (overlap_count, overlap_rows) = per_cell.into_iter().fold(
-        (
-            vec![vec![0usize; k]; k],
-            vec![vec![BTreeSet::<usize>::new(); k]; k],
-        ),
-        |(mut count, mut rows), (cell_count, cell_rows)| {
-            for a in 0..k {
-                for b in 0..k {
-                    count[a][b] += cell_count[a][b];
-                    rows[a][b].extend(&cell_rows[a][b]);
-                }
+    let overlaps = per_cell
+        .into_iter()
+        .fold(PairOverlaps::new(), |mut all, cell| {
+            for (pair, (count, rows)) in cell {
+                let (all_count, all_rows) = all.entry(pair).or_default();
+                *all_count += count;
+                all_rows.extend(rows);
             }
-            (count, rows)
-        },
-    );
-
-    let mut min_w = usize::MAX;
-    for a in 0..k {
-        for b in (a + 1)..k {
-            let rows = overlap_rows[a][b].len();
-            if rows == 0 {
-                continue;
-            }
-            min_w = min_w.min(overlap_count[a][b] * stride / rows);
-        }
-    }
-    Ok(if min_w == usize::MAX { 0 } else { min_w })
+            all
+        });
+    Ok(overlaps
+        .values()
+        .map(|(count, rows)| count * stride / rows.len())
+        .min()
+        .unwrap_or(0))
 }
 
 /// Voronoi masks for a (possibly haloed) region.
