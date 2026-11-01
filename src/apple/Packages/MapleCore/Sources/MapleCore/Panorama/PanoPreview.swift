@@ -68,6 +68,15 @@ public struct PanoPreview: @unchecked Sendable {
         self.edges = edges
     }
 
+    /// The preview as the panorama will show: framed to the Auto Crop rectangle
+    /// when `autoCrop` is on and the engine found one, the whole canvas otherwise.
+    public func displayImage(autoCrop: Bool) -> CGImage {
+        guard autoCrop, let crop = edges?.crop, crop.cropsAnything,
+            let framed = image.cropping(to: crop.rect(in: image.width, image.height))
+        else { return image }
+        return framed
+    }
+
     func with(matcher: PanoMatcherOutcome) -> PanoPreview {
         PanoPreview(
             image: image,

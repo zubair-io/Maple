@@ -35,18 +35,58 @@ public enum PanoBoundaryWarpStatus: Sendable, Equatable, CaseIterable {
     }
 }
 
+/// The rectangle Auto Crop found, in pixels of the image the engine wrote (the
+/// whole canvas), which is `outputWidth` by `outputHeight`. The image is never
+/// trimmed: the rectangle becomes the panorama's crop (#5608).
+public struct PanoAutoCrop: Sendable, Equatable {
+    public let outputWidth: Int
+    public let outputHeight: Int
+    public let x: Int
+    public let y: Int
+    public let width: Int
+    public let height: Int
+
+    public init(outputWidth: Int, outputHeight: Int, x: Int, y: Int, width: Int, height: Int) {
+        self.outputWidth = outputWidth
+        self.outputHeight = outputHeight
+        self.x = x
+        self.y = y
+        self.width = width
+        self.height = height
+    }
+
+    /// The rectangle fits the image and is smaller than it.
+    var cropsAnything: Bool {
+        width > 0 && height > 0 && x >= 0 && y >= 0
+            && x + width <= outputWidth && y + height <= outputHeight
+            && (width < outputWidth || height < outputHeight)
+    }
+
+    /// The rectangle in the pixels of an image `scale` times this one's, such as
+    /// the preview PNG against the full canvas.
+    func rect(in imageWidth: Int, _ imageHeight: Int) -> CGRect {
+        let sx = Double(imageWidth) / Double(outputWidth)
+        let sy = Double(imageHeight) / Double(outputHeight)
+        return CGRect(
+            x: (Double(x) * sx).rounded(), y: (Double(y) * sy).rounded(),
+            width: (Double(width) * sx).rounded(), height: (Double(height) * sy).rounded())
+    }
+}
+
 /// What a preview or stitch did with the edge settings.
 public struct PanoEdgesReport: Sendable, Equatable {
     public let boundaryWarpStatus: PanoBoundaryWarpStatus
     /// Strength actually applied, in percent. Fractional when clamped.
     public let boundaryWarpApplied: Double
-    /// A crop rectangle was kept.
-    public let autoCropped: Bool
+    /// The rectangle Auto Crop found; `nil` when it was off or none fits.
+    public let crop: PanoAutoCrop?
 
-    public init(boundaryWarpStatus: PanoBoundaryWarpStatus, boundaryWarpApplied: Double, autoCropped: Bool) {
+    public var autoCropped: Bool { crop != nil }
+
+    public init(boundaryWarpStatus: PanoBoundaryWarpStatus, boundaryWarpApplied: Double, crop: PanoAutoCrop? = nil) {
         self.boundaryWarpStatus = boundaryWarpStatus
         self.boundaryWarpApplied = boundaryWarpApplied
-        self.autoCropped = autoCropped
+        self.crop = crop
     }
 
     /// The sentence that explains why the warp is not at the requested
@@ -74,7 +114,7 @@ public struct PanoEdgesReport: Sendable, Equatable {
     }
 
     public static let boundaryWarpHelp = "Stretches the edges toward a full rectangle."
-    public static let autoCropHelp = "Trims to the largest rectangle with no empty edges."
+    public static let autoCropHelp = "Crops to the largest rectangle with no empty edges."
 
     /// The line under the Boundary Warp slider. At 0% it is the plain help
     /// and never a reason; otherwise the latest report's reason replaces the

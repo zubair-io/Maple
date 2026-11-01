@@ -36,7 +36,8 @@ struct PanoPreviewSection: View {
   }
 
   private func previewImage(_ preview: PanoPreview) -> some View {
-    Image(decorative: preview.image, scale: 1)
+    let shown = preview.displayImage(autoCrop: session.options.autoCrop)
+    return Image(decorative: shown, scale: 1)
       .resizable()
       .aspectRatio(contentMode: .fit)
       .frame(maxWidth: .infinity, maxHeight: 220)
@@ -48,7 +49,7 @@ struct PanoPreviewSection: View {
       .accessibilityLabel(
         session.isPreviewing
           ? "Previous panorama preview, updating"
-          : "Panorama preview, \(preview.image.width) by \(preview.image.height) pixels")
+          : "Panorama preview, \(shown.width) by \(shown.height) pixels")
   }
 
   @ViewBuilder

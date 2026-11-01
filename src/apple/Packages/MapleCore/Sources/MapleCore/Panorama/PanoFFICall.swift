@@ -302,6 +302,11 @@ extension PanoEdgesReport {
         self.init(
             boundaryWarpStatus: status,
             boundaryWarpApplied: Double(report.boundary_warp_applied),
-            autoCropped: report.auto_cropped)
+            crop: report.auto_cropped
+                ? PanoAutoCrop(
+                    outputWidth: Int(report.output_width), outputHeight: Int(report.output_height),
+                    x: Int(report.crop_x), y: Int(report.crop_y),
+                    width: Int(report.crop_width), height: Int(report.crop_height))
+                : nil)
     }
 }
