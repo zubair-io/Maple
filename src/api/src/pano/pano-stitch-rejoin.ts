@@ -15,6 +15,8 @@ export interface StitchIdentity {
   retention: string;
   localAlign: string;
   strategy: string | null;
+  boundaryWarp: number;
+  autoCrop: boolean;
 }
 
 const sortedKey = (ids: readonly unknown[]): string => JSON.stringify([...ids].map(String).sort());
@@ -27,6 +29,9 @@ export function repeatsRunningStitch(active: JobWithId, next: StitchIdentity): b
     running.libraryId === next.libraryId &&
     running.retention === next.retention &&
     running.localAlign === next.localAlign &&
-    (running.strategy ?? null) === next.strategy
+    (running.strategy ?? null) === next.strategy &&
+    // A payload queued before the edge options existed means no warp and no crop.
+    (running.boundaryWarp ?? 0) === next.boundaryWarp &&
+    (running.autoCrop ?? false) === next.autoCrop
   );
 }
