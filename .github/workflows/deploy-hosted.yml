@@ -136,7 +136,7 @@ jobs:
       # across builds, so stamping the whole batch as immutable would pin
       # clients to a stale WASM binary for the life of the max-age.
       - name: Upload to blob storage
-        uses: azure/CLI@9f7ce6f37c31b777ec6c6b6d1dfe7db79f497956 # v2
+        uses: azure/CLI@9eb25b8360668fb0ecbafa808d40e2197b2f5f52 # v3.0.0
         with:
           inlineScript: |
             set -euo pipefail
