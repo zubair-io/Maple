@@ -48,3 +48,11 @@ fn uncompressed_preview_ifd_declaring_zero_height_develops_without_a_preview() {
     assert_eq!((rc, error), (0, None));
     assert!(written);
 }
+
+#[test]
+fn preview_ifd_with_signed_samples_develops_without_a_preview() {
+    let (rc, error, written) =
+        develop(&dng_with_preview_sub_ifd(PreviewStrip::SignedSamples, 8, 4));
+    assert_eq!((rc, error), (0, None));
+    assert!(written);
+}

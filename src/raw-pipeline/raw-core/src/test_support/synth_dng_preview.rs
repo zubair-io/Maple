@@ -5,6 +5,8 @@
 use super::synth_dng::*;
 
 const TAG_SUB_IFDS: u16 = 330;
+const TAG_SAMPLE_FORMAT: u16 = 339;
+const SAMPLE_FORMAT_INT: u16 = 2;
 const PHOTOMETRIC_RGB: u16 = 2;
 const PHOTOMETRIC_YCBCR: u16 = 6;
 const COMPRESSION_NONE: u16 = 1;
@@ -17,6 +19,9 @@ pub enum PreviewStrip {
     Uncompressed,
     /// A real 8x4 baseline JPEG strip, whatever dimensions the IFD declares.
     Jpeg,
+    /// An uncompressed preview IFD declaring signed samples (`SampleFormat`
+    /// 2); rawler's `plain_image_from_ifd` reaches an `unimplemented!` arm.
+    SignedSamples,
 }
 
 pub fn dng_with_preview_sub_ifd(
@@ -27,11 +32,15 @@ pub fn dng_with_preview_sub_ifd(
     let grey = SyntheticGreyDng::default();
     let raw_len = grey.width * grey.height * 2;
     let preview_data = match strip {
-        PreviewStrip::Uncompressed => vec![0x80; (declared_width * declared_height * 3) as usize],
+        PreviewStrip::Uncompressed | PreviewStrip::SignedSamples => {
+            vec![0x80; (declared_width * declared_height * 3) as usize]
+        }
         PreviewStrip::Jpeg => baseline_jpeg(),
     };
     let (compression, photometric) = match strip {
-        PreviewStrip::Uncompressed => (COMPRESSION_NONE, PHOTOMETRIC_RGB),
+        PreviewStrip::Uncompressed | PreviewStrip::SignedSamples => {
+            (COMPRESSION_NONE, PHOTOMETRIC_RGB)
+        }
         PreviewStrip::Jpeg => (COMPRESSION_JPEG, PHOTOMETRIC_YCBCR),
     };
 
@@ -49,6 +58,9 @@ pub fn dng_with_preview_sub_ifd(
         ifd.add_short(TAG_COMPRESSION, compression);
         ifd.add_short(TAG_PHOTOMETRIC, photometric);
         ifd.add_long(TAG_STRIP_OFFSETS, strips_at);
+        if matches!(strip, PreviewStrip::SignedSamples) {
+            ifd.add_short(TAG_SAMPLE_FORMAT, SAMPLE_FORMAT_INT);
+        }
         ifd.add_short(TAG_SAMPLES_PER_PIXEL, 3);
         ifd.add_long(TAG_ROWS_PER_STRIP, declared_height);
         ifd.add_long(TAG_STRIP_BYTE_COUNTS, preview_data.len() as u32);

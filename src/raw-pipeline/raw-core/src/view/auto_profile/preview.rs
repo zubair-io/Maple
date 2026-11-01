@@ -34,6 +34,7 @@
 //! Returns `None` only when no tier yields a preview. The bytes/WASM entry
 //! ([`extract_preview_from_bytes`]) has no exiftool tier at all (#870).
 
+use std::panic::AssertUnwindSafe;
 use std::path::Path;
 use std::process::Command;
 
@@ -278,11 +279,24 @@ fn rawsource_from_bytes(bytes: &[u8], ext: &str) -> RawSource<'static> {
 /// The first in-process source (in [`PreviewSource::IN_PROCESS`] order) that
 /// yields an image. See the module docs for why each tier exists and why the
 /// order is safe; the coverage audit evaluates the same sources (#5458).
+///
+/// Runs under `catch_unwind` like [`crate::preview::extract_embedded_preview`]:
+/// rawler panics on some malformed preview IFDs, and in the develop path that
+/// unwind would otherwise surface as rc 99. A panic means "no preview" (#5588).
 fn extract_preview_from_rawsource(src: &RawSource<'_>) -> Option<DynamicImage> {
-    let decoder = rawler::get_decoder(src).ok()?;
-    PreviewSource::IN_PROCESS
-        .into_iter()
-        .find_map(|source| extract_in_process(source, decoder.as_ref(), src))
+    std::panic::catch_unwind(AssertUnwindSafe(|| {
+        let decoder = rawler::get_decoder(src).ok()?;
+        PreviewSource::IN_PROCESS
+            .into_iter()
+            .find_map(|source| extract_in_process(source, decoder.as_ref(), src))
+    }))
+    .unwrap_or_else(|_| {
+        eprintln!(
+            "rawler panicked during preview extraction, treating as no preview: {}",
+            src.path().display()
+        );
+        None
+    })
 }
 
 /// TIFF container magic: little-endian `II 2A 00` or big-endian `MM 00 2A`. DNG
