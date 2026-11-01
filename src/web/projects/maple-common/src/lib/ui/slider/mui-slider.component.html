@@ -1,24 +1,40 @@
-<div
-  class="mui-slider mui-chrome-control-column"
-  [class.is-disabled]="disabled()"
-  [class.mui-chrome-control-disabled]="disabled()"
->
-  <div class="row mui-chrome-control-row">
-    <mui-text variant="tool-label" color="muted" class="label">{{ label() }}</mui-text>
-    <mui-text variant="value-chip" color="main" class="readout mui-chrome-control-readout">{{
-      valueLabel()
-    }}</mui-text>
+<div class="mui-slider mui-chrome-control-column" [class.is-disabled]="disabled()">
+  <div class="mui-chrome-control-column" [class.mui-chrome-control-disabled]="disabled()">
+    <div class="row mui-chrome-control-row">
+      <mui-text variant="tool-label" color="muted" class="label">{{ label() }}</mui-text>
+      <mui-text variant="value-chip" color="main" class="readout mui-chrome-control-readout">{{
+        valueLabel()
+      }}</mui-text>
+    </div>
+    <input
+      type="range"
+      class="track block h-11 w-full appearance-none bg-transparent outline-offset-4"
+      [min]="min()"
+      [max]="max()"
+      [step]="step()"
+      [value]="value()"
+      [disabled]="disabled()"
+      [attr.aria-label]="label()"
+      [attr.aria-valuetext]="spokenValue()"
+      [attr.aria-describedby]="describedBy()"
+      [style.--mui-slider-fill.%]="trackPct()"
+      (input)="onInput($any($event.target).value)"
+      (change)="onChange()"
+      (keydown)="onKeydown()"
+      (keyup)="onKeyup()"
+      (pointercancel)="finishChange()"
+    />
   </div>
-  <input
-    type="range"
-    class="track w-full h-1 appearance-none rounded-sm outline-offset-4 bg-[linear-gradient(to_right,var(--color-primary)_0%,var(--color-primary)_var(--mui-slider-fill,0%),var(--color-border)_var(--mui-slider-fill,0%),var(--color-border)_100%)]"
-    [min]="min()"
-    [max]="max()"
-    [step]="step()"
-    [value]="value()"
-    [disabled]="disabled()"
-    [attr.aria-label]="label()"
-    [style.--mui-slider-fill.%]="trackPct()"
-    (input)="onInput($any($event.target).value)"
-  />
+  <div class="helper" [id]="helperId" role="status">
+    @if (helper(); as text) {
+      <span class="flex items-start gap-1">
+        @if (helperTone() === 'warning') {
+          <mui-icon name="info" size="sm" class="mt-0.5 shrink-0 text-warn" />
+        }
+        <mui-text variant="body" [color]="helperTone() === 'warning' ? 'warning' : 'muted'">{{
+          text
+        }}</mui-text>
+      </span>
+    }
+  </div>
 </div>
