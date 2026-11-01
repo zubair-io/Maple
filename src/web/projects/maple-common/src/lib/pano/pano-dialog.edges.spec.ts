@@ -233,6 +233,37 @@ describe('PanoDialogComponent Edges group (#5576)', () => {
     });
   });
 
+  it('shows the preview cropped while Auto Crop is on, and whole again when it is turned off', () => {
+    open(true, true);
+    previewCreated('p1');
+    previewDone('p1');
+    expect(byId('pano-preview-crop')).toBeNull();
+
+    toggle().click();
+    fixture.detectChanges();
+    previewCreated('p2');
+    previewDone('p2', {
+      ...edgesReport(0, 'off', 0, true),
+      auto_crop: {
+        requested: true,
+        rect: { x: 200, y: 80, width: 1000, height: 400 },
+        invalid_px: 0,
+      },
+    });
+    const frame = byId('pano-preview-crop')!;
+    expect(frame.querySelector('img')!.style.left).toBe('-20%');
+    expect(frame.querySelector('img')!.style.top).toBe('-20%');
+    expect(frame.querySelector('img')!.style.width).toBe(`${(2047 / 1000) * 100}%`);
+
+    toggle().click();
+    fixture.detectChanges();
+    expect(byId('pano-preview-crop')).toBeNull();
+    previewCreated('p3');
+    http.expectOne('/api/pano/jobs/p3').flush(job('p3', {}));
+    fixture.componentInstance.onCancel();
+    http.expectOne({ method: 'DELETE', url: '/api/pano/jobs/p3' }).flush({ ok: true });
+  });
+
   it('says why the warp was limited, keeps the requested value, and drops the reason at 0%', () => {
     open(true, true);
     previewCreated('p1');

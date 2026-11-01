@@ -3,7 +3,7 @@
 // from epic #5570). The report's strengths are percents, the slider's own scale.
 
 export const BOUNDARY_WARP_HELP = 'Stretches the edges toward a full rectangle.';
-export const AUTO_CROP_HELP = 'Trims to the largest rectangle with no empty edges.';
+export const AUTO_CROP_HELP = 'Crops to the largest rectangle with no empty edges.';
 
 export interface PanoBoundaryWarpReport {
   boundary_warp: { applied: number; status: string };
