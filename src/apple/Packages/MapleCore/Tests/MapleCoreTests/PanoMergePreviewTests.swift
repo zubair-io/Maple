@@ -286,6 +286,7 @@ final class RecordingStitcher: PanoStitching, @unchecked Sendable {
     @MainActor var previewSizes: PanoStitchSizes?
     @MainActor var cancelledPreviews = 0
     @MainActor var holdPreviews = false
+    @MainActor var edgesReport: PanoEdgesReport?
     @MainActor var lastProgress: (@MainActor (PanoStage, Double) -> Void)?
 
     static func alignment(for options: PanoOptions) -> PanoAlignment {
@@ -316,16 +317,17 @@ final class RecordingStitcher: PanoStitching, @unchecked Sendable {
                 throw CancellationError()
             }
         }
-        let sizes = await MainActor.run {
+        let (sizes, edges) = await MainActor.run {
             progress(.compositing, 1.0)
-            return previewSizes
+            return (previewSizes, edgesReport)
         }
         let solved = Self.alignment(for: options)
         return PanoPreview(
             image: Self.image,
             alignment: solved,
             alignmentOutcome: alignment == nil ? .solved : (alignment == solved ? .reused : .stale(reason: "test")),
-            stitchSizes: sizes
+            stitchSizes: sizes,
+            edges: edges
         )
     }
 
@@ -336,15 +338,17 @@ final class RecordingStitcher: PanoStitching, @unchecked Sendable {
         maxCanvasPixels: Int?,
         progress: @escaping @MainActor (PanoStage, Double) -> Void
     ) async throws -> PanoResult {
-        await MainActor.run {
+        let edges = await MainActor.run {
             stitchAlignments.append(alignment)
             stitchOptions.append(options)
             stitchCaps.append(maxCanvasPixels)
+            return edgesReport
         }
         return PanoResult(
             outputURL: FileManager.default.temporaryDirectory.appendingPathComponent("recorded.png"),
             reportSummary: "recorded",
-            alignmentOutcome: alignment == Self.alignment(for: options) ? .reused : .solved
+            alignmentOutcome: alignment == Self.alignment(for: options) ? .reused : .solved,
+            edges: edges
         )
     }
 

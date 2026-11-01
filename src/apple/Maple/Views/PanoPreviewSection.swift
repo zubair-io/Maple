@@ -55,17 +55,34 @@ struct PanoPreviewSection: View {
     case .scheduled:
       HStack(spacing: 8) {
         ProgressView().controlSize(.small)
-        Text("Updating preview…").font(.subheadline)
+        Text(session.previewIsEdgesOnly ? "Updating edges…" : "Updating preview…")
+          .font(.subheadline)
       }
       .accessibilityElement(children: .ignore)
-      .accessibilityLabel("Panorama preview update scheduled")
+      .accessibilityLabel(
+        session.previewIsEdgesOnly
+          ? "Panorama edges update scheduled" : "Panorama preview update scheduled")
     case .running(let stage, let overall):
-      progress(stage: stage, overall: overall)
+      if session.previewIsEdgesOnly {
+        edgesProgress(overall: overall)
+      } else {
+        progress(stage: stage, overall: overall)
+      }
     case .ready:
       EmptyView()
     case .failed(let error):
       failure(error)
     }
+  }
+
+  private func edgesProgress(overall: Double) -> some View {
+    HStack(spacing: 8) {
+      ProgressView().controlSize(.small)
+      Text("Updating edges…").font(.subheadline)
+    }
+    .padding(.vertical, 4)
+    .accessibilityElement(children: .ignore)
+    .accessibilityLabel("Updating panorama edges")
   }
 
   private func progress(stage: PanoStage, overall: Double) -> some View {

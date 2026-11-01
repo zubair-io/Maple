@@ -39,11 +39,12 @@ enum PanoFFICall {
         maxCanvasPixels: Int?,
         atom: PanoProgressAtom,
         cancelFlag: CancelFlag
-    ) throws -> PanoAlignmentOutcome {
+    ) throws -> (outcome: PanoAlignmentOutcome, edges: PanoEdgesReport?) {
         let scratch = try ScratchDirectory()
         defer { scratch.remove() }
         let alignmentIn = try alignment.map { try scratch.write($0.json, named: "alignment-in.json") }
         let enums = CEnums(options, engine: engine)
+        var edgesReport = MaplePanoEdgesReport()
 
         let canvasCap = UInt64(max(maxCanvasPixels ?? 0, 0))
         panoFFILog.notice("maple_pano_stitch_aligned START: \(inputURLs.count) frames, \(engine.rawValue, privacy: .public) engine → \(outputURL.lastPathComponent, privacy: .public), alignment offered: \(alignment != nil), canvas cap: \(canvasCap) px")
@@ -52,8 +53,7 @@ enum PanoFFICall {
                 try withOptionalCString(alignmentIn) { alignmentInPath in
                     maple_pano_stitch_aligned(
                         paths.baseAddress, UInt(paths.count), outPath, alignmentInPath, canvasCap,
-                        // Boundary Warp / Auto Crop reach the UI in #5575.
-                        MaplePanoEdges(), nil,
+                        enums.edges, &edgesReport,
                         enums.retention, enums.localAlign, enums.strategy, enums.featureEngine,
                         panoProgressTrampoline, ctx, cancelFlag.pointer
                     )
@@ -61,8 +61,9 @@ enum PanoFFICall {
             }
         }
         let outcome = try outcome(rc: rc, call: "maple_pano_stitch_aligned", offered: alignment != nil)
+        let edges = PanoEdgesReport(edgesReport)
         panoFFILog.notice("maple_pano_stitch_aligned OK: \(outcome.summary, privacy: .public)")
-        return outcome
+        return (outcome, edges)
     }
 
     static func preview(
@@ -80,6 +81,7 @@ enum PanoFFICall {
         let previewPNG = scratch.url.appendingPathComponent("preview.png")
         let enums = CEnums(options, engine: engine)
         var sizes = MaplePanoPreviewSizes()
+        var edgesReport = MaplePanoEdgesReport()
 
         panoFFILog.notice("maple_pano_preview START: \(inputURLs.count) frames, \(engine.rawValue, privacy: .public) engine, alignment offered: \(alignment != nil)")
         let rc = try withInputs(inputURLs, atom: atom) { paths, ctx in
@@ -89,8 +91,7 @@ enum PanoFFICall {
                         maple_pano_preview(
                             paths.baseAddress, UInt(paths.count), pngPath,
                             alignmentInPath, alignmentOutPath, &sizes,
-                            // Boundary Warp / Auto Crop reach the UI in #5575.
-                            MaplePanoEdges(), nil,
+                            enums.edges, &edgesReport,
                             enums.retention, enums.localAlign, enums.strategy, enums.featureEngine,
                             panoProgressTrampoline, ctx, cancelFlag.pointer
                         )
@@ -109,7 +110,9 @@ enum PanoFFICall {
             scratchBytes: Int(clamping: sizes.scratch_bytes)
         )
         panoFFILog.notice("maple_pano_preview OK: \(image.width)×\(image.height), full stitch ≈ \(stitchSizes.canvasWidth)×\(stitchSizes.canvasHeight). \(outcome.summary, privacy: .public)")
-        return PanoPreview(image: image, alignment: solved, alignmentOutcome: outcome, stitchSizes: stitchSizes)
+        return PanoPreview(
+            image: image, alignment: solved, alignmentOutcome: outcome, stitchSizes: stitchSizes,
+            edges: PanoEdgesReport(edgesReport))
     }
 
     // MARK: - Return codes
@@ -168,6 +171,7 @@ enum PanoFFICall {
         let localAlign: MaplePanoLocalAlign
         let strategy: MaplePanoStrategy
         let featureEngine: MaplePanoFeatureEngine
+        let edges: MaplePanoEdges
 
         init(_ options: PanoOptions, engine: PanoFeatureEngine) {
             retention = switch options.retention {
@@ -187,6 +191,7 @@ enum PanoFFICall {
                 case .classical: Classical
                 case .ml:        Ml
             }
+            edges = MaplePanoEdges(boundary_warp: Float(options.boundaryWarp), auto_crop: options.autoCrop)
         }
     }
 
@@ -284,5 +289,19 @@ struct ScratchDirectory {
               let pid = name.dropFirst(prefix.count).split(separator: "-", maxSplits: 1).first.flatMap({ pid_t($0) }),
               pid > 0, pid != getpid() else { return false }
         return kill(pid, 0) != 0 && errno == ESRCH
+    }
+}
+
+extension PanoEdgesReport {
+    /// `nil` when the engine reported a status this build does not know, so
+    /// the sheet shows the plain help rather than failing.
+    init?(_ report: MaplePanoEdgesReport) {
+        guard let status = PanoBoundaryWarpStatus(ffiValue: Int(report.boundary_warp_status.rawValue)) else {
+            return nil
+        }
+        self.init(
+            boundaryWarpStatus: status,
+            boundaryWarpApplied: Double(report.boundary_warp_applied),
+            autoCropped: report.auto_cropped)
     }
 }

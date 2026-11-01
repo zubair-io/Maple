@@ -121,7 +121,7 @@ public final class RustPanoStitcher: PanoStitching {
         let inputURLs = try collectInputURLs(from: assets)
         let outputURL = try reserveOutputURL(near: inputURLs[0])
         defer { PanoOutputDestination.release(outputURL) }
-        let (outcome, matcher) = try await runWithFallback { engine in
+        let ((outcome, edges), matcher) = try await runWithFallback { engine in
             try await self.runOffMain(progress: progress) { atom, flag in
                 try PanoFFICall.stitch(
                     inputURLs: inputURLs,
@@ -138,7 +138,8 @@ public final class RustPanoStitcher: PanoStitching {
         let summary = "Stitched \(inputURLs.count) frames with the \(matcher.engine.displayName) using \(options.strategy.rawValue) strategy. " +
                       "Local align: \(options.localAlign.rawValue). Retention: \(options.retention.rawValue). " +
                       "Output: \(outputURL.lastPathComponent). \(outcome.summary)"
-        return PanoResult(outputURL: outputURL, reportSummary: summary, alignmentOutcome: outcome, matcher: matcher)
+        return PanoResult(
+            outputURL: outputURL, reportSummary: summary, alignmentOutcome: outcome, matcher: matcher, edges: edges)
     }
 
     public func preview(

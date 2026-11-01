@@ -418,6 +418,10 @@ SMBCopyOnlyRestoreTests
 # and alignment hand-off against an in-memory recording stitcher; no FFI.
 PanoMergePreviewTests
 
+# Panorama edges (#5575): Boundary Warp / Auto Crop reason copy, status
+# mapping, and the merge session's handling of an edge change; no FFI.
+PanoEdgesTests
+
 # Panorama output size (#5454): memory-fit model and the merge session's
 # Full/Smaller choice against an in-memory recording stitcher; no FFI.
 PanoMemoryModelTests

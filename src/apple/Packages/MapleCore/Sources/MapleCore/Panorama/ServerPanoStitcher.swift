@@ -65,6 +65,9 @@ public final class ServerPanoStitcher: PanoStitching {
 
     public var runsInDeviceMemory: Bool { false }
 
+    /// The server's stitch takes no edge settings yet (#5576).
+    public var supportsEdges: Bool { false }
+
     public init(jobs: any PanoServerJobs, pollInterval: Duration = .seconds(1), pollAttempts: Int = 6) {
         self.jobs = jobs
         self.pollInterval = pollInterval
