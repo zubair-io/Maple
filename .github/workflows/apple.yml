@@ -103,7 +103,7 @@ jobs:
 
       - name: Cache cbindgen binary
         id: cbindgen-cache
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.cargo/bin/cbindgen
           key: cbindgen-${{ env.CBINDGEN_VERSION }}-${{ runner.os }}-${{ runner.arch }}
@@ -137,7 +137,7 @@ jobs:
           ar -rc "$FRAMEWORK/macos-arm64_x86_64/libraw_ffi.a" /tmp/maple_stub.o
 
       - name: Cache SwiftPM build directory
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             src/apple/Packages/MapleCore/.build
@@ -228,7 +228,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - name: Cache cbindgen binary
         id: cbindgen-cache
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.cargo/bin/cbindgen
           key: cbindgen-${{ env.CBINDGEN_VERSION }}-${{ runner.os }}-${{ runner.arch }}
@@ -236,7 +236,7 @@ jobs:
         if: steps.cbindgen-cache.outputs.cache-hit != 'true'
         run: cargo install cbindgen --locked --version "$CBINDGEN_VERSION"
       - name: Cache host Rust build
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/registry
@@ -326,7 +326,7 @@ jobs:
             src/web/test-results/recipe-interchange/
           if-no-files-found: error
       - name: Cache SwiftPM regression build
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ${{ env.MAPLE_SWIFT_TEST_ROOT }}/Packages/MapleCore/.build

@@ -50,7 +50,7 @@ jobs:
       # `-Z build-std` rebuilds the standard library, which is slow uncached.
       # Mirror raw-pipeline.yml's cache step.
       - name: Cache cargo registry + raw-pipeline target
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/registry
@@ -421,7 +421,7 @@ jobs:
           bash src/web/scripts/sync-raw-wasm.sh
       - uses: dtolnay/rust-toolchain@stable
       - name: Cache native RAW build
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/registry
