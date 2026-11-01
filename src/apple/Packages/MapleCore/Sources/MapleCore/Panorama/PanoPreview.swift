@@ -48,19 +48,24 @@ public struct PanoPreview: @unchecked Sendable {
     /// stitcher cannot say (the mock).
     public let stitchSizes: PanoStitchSizes?
     public let matcher: PanoMatcherOutcome
+    /// What the engine did with the edge settings this preview was built
+    /// with; `nil` when the stitcher does not report it.
+    public let edges: PanoEdgesReport?
 
     public init(
         image: CGImage,
         alignment: PanoAlignment,
         alignmentOutcome: PanoAlignmentOutcome,
         stitchSizes: PanoStitchSizes? = nil,
-        matcher: PanoMatcherOutcome = .used(.classical)
+        matcher: PanoMatcherOutcome = .used(.classical),
+        edges: PanoEdgesReport? = nil
     ) {
         self.image = image
         self.alignment = alignment
         self.alignmentOutcome = alignmentOutcome
         self.stitchSizes = stitchSizes
         self.matcher = matcher
+        self.edges = edges
     }
 
     func with(matcher: PanoMatcherOutcome) -> PanoPreview {
@@ -69,7 +74,8 @@ public struct PanoPreview: @unchecked Sendable {
             alignment: alignment,
             alignmentOutcome: alignmentOutcome,
             stitchSizes: stitchSizes,
-            matcher: matcher
+            matcher: matcher,
+            edges: edges
         )
     }
 }

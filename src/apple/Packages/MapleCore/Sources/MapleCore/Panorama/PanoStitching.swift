@@ -47,14 +47,37 @@ public struct PanoOptions: Sendable, Equatable {
     public var retention: Retention = .keep
     public var localAlign: LocalAlign = .mesh
     public var strategy: Strategy = .auto
+    /// Boundary Warp strength in percent, 0 to 100 (the slider's own scale,
+    /// the same on the CLI, FFI and report). 0 leaves the edges as stitched.
+    /// Not part of the alignment key: changing it re-composites only.
+    public var boundaryWarp: Double = 0
+    /// Trim the output to the largest rectangle with no empty edges. Not part
+    /// of the alignment key.
+    public var autoCrop: Bool = false
 
     public init(retention: Retention = .keep,
                 localAlign: LocalAlign = .mesh,
-                strategy: Strategy = .auto) {
+                strategy: Strategy = .auto,
+                boundaryWarp: Double = 0,
+                autoCrop: Bool = false) {
         self.retention = retention
         self.localAlign = localAlign
         self.strategy = strategy
+        self.boundaryWarp = boundaryWarp
+        self.autoCrop = autoCrop
     }
+
+    /// These options with the edge settings back at their defaults. The edge
+    /// settings change neither the alignment nor the uncropped canvas, so
+    /// anything keyed on the solved geometry compares this.
+    public var withoutEdges: PanoOptions {
+        var copy = self
+        copy.boundaryWarp = 0
+        copy.autoCrop = false
+        return copy
+    }
+
+    public var hasEdgeSettings: Bool { boundaryWarp != 0 || autoCrop }
 
     public static let `default` = PanoOptions()
 }
@@ -152,6 +175,8 @@ public struct PanoResult: Sendable {
     /// Whether the run started from an offered preview alignment.
     public let alignmentOutcome: PanoAlignmentOutcome
     public let matcher: PanoMatcherOutcome
+    /// What the engine did with the edge settings; `nil` when it did not say.
+    public let edges: PanoEdgesReport?
     /// Set when the server stitched it (#5488): `outputURL` is then a path on
     /// the server, and the panorama is this asset in the server's library.
     public let serverAssetID: String?
@@ -164,6 +189,7 @@ public struct PanoResult: Sendable {
         reportSummary: String,
         alignmentOutcome: PanoAlignmentOutcome = .solved,
         matcher: PanoMatcherOutcome = .used(.classical),
+        edges: PanoEdgesReport? = nil,
         serverAssetID: String? = nil,
         storedOnServer: Bool? = nil
     ) {
@@ -171,6 +197,7 @@ public struct PanoResult: Sendable {
         self.reportSummary = reportSummary
         self.alignmentOutcome = alignmentOutcome
         self.matcher = matcher
+        self.edges = edges
         self.serverAssetID = serverAssetID
         self.storedOnServer = storedOnServer ?? (serverAssetID != nil)
     }
@@ -234,6 +261,10 @@ public protocol PanoStitching: AnyObject, Sendable {
     /// to this device's memory from a preview's fit. A server stitch is not.
     var runsInDeviceMemory: Bool { get }
 
+    /// Whether this stitcher applies Boundary Warp and Auto Crop. The merge
+    /// sheet shows the Edges section only when it does.
+    var supportsEdges: Bool { get }
+
     /// Free space where a stitch of `assets` would write, or `nil` when it
     /// writes nothing on this device or the space cannot be read.
     func freeSpace(for assets: [AssetRef]) -> PanoFreeSpace?
@@ -241,6 +272,8 @@ public protocol PanoStitching: AnyObject, Sendable {
 
 extension PanoStitching {
     public var runsInDeviceMemory: Bool { true }
+
+    public var supportsEdges: Bool { true }
 
     public func freeSpace(for assets: [AssetRef]) -> PanoFreeSpace? { nil }
 }

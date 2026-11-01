@@ -22,6 +22,8 @@ public struct MuiSlider: View {
   public let helper: String?
   public let helperTone: MuiSliderHelperTone
   public let onCommit: ((Double) -> Void)?
+  public let identifier: String?
+  public let helperIdentifier: String?
 
   @State private var valueAtEditStart: Double?
 
@@ -34,7 +36,9 @@ public struct MuiSlider: View {
     disabled: Bool = false,
     helper: String? = nil,
     helperTone: MuiSliderHelperTone = .muted,
-    onCommit: ((Double) -> Void)? = nil
+    onCommit: ((Double) -> Void)? = nil,
+    identifier: String? = nil,
+    helperIdentifier: String? = nil
   ) {
     self.label = label
     self._value = value
@@ -45,6 +49,8 @@ public struct MuiSlider: View {
     self.helper = helper
     self.helperTone = helperTone
     self.onCommit = onCommit
+    self.identifier = identifier
+    self.helperIdentifier = helperIdentifier
   }
 
   public var body: some View {
@@ -61,6 +67,7 @@ public struct MuiSlider: View {
           .frame(minHeight: Self.minimumTapHeight)
           .disabled(disabled)
           .accessibilityLabel(label)
+          .accessibilityIdentifier(identifier ?? "")
           .accessibilityValue(
             Self.accessibilityValue(
               value: value, range: range, step: step, unit: unit,
@@ -104,15 +111,15 @@ public struct MuiSlider: View {
     case .muted:
       MuiText(text, variant: .body, color: .muted)
         .fixedSize(horizontal: false, vertical: true)
-        .accessibilityHidden(true)
+        .accessibilityIdentifier(helperIdentifier ?? "")
     case .warning:
       HStack(alignment: .firstTextBaseline, spacing: MuiTokens.spacingXs) {
         MuiIcon(name: "info", size: .sm, color: MuiTokens.warn)
           .accessibilityHidden(true)
         MuiText(text, variant: .body, color: .warning)
           .fixedSize(horizontal: false, vertical: true)
+          .accessibilityIdentifier(helperIdentifier ?? "")
       }
-      .accessibilityHidden(true)
     }
   }
 

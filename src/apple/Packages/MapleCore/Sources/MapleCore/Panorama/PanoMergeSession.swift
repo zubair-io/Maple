@@ -100,6 +100,8 @@ public final class PanoMergeSession {
     public var options: PanoOptions = .default {
         didSet {
             guard options != oldValue, previewAssets.count >= 2, !isRunning else { return }
+            previewIsEdgesOnly = alignment != nil && options.withoutEdges == oldValue.withoutEdges
+                && (previewIsEdgesOnly || !isPreviewing)
             if case .running = previewState, previewRunStrategy == options.strategy {
                 rePreviewWhenCurrentFinishes = true
                 return
@@ -107,6 +109,20 @@ public final class PanoMergeSession {
             schedulePreview(after: previewDebounce)
         }
     }
+
+    // MARK: - Edges (#5575)
+
+    /// What the engine did with Boundary Warp and Auto Crop: the finished
+    /// stitch's report, else the latest preview's. It stays until a newer
+    /// report replaces it, so a reason does not vanish while a re-preview runs.
+    public var edgesReport: PanoEdgesReport? {
+        if case .done(let result) = state, let report = result.edges { return report }
+        return lastPreview?.edges
+    }
+
+    /// The preview now scheduled or running was started only by an edge
+    /// setting changing, so it re-composites from the alignment already held.
+    public private(set) var previewIsEdgesOnly = false
 
     // MARK: - Output size (#5454)
 
@@ -164,6 +180,7 @@ public final class PanoMergeSession {
     /// Options the latest finished preview, and so `memoryFit`, was solved
     /// for. Every option reaches the solver (retention and local alignment
     /// decide which frames survive), so any of them can change the canvas.
+    /// Always `withoutEdges`: the edge settings leave the canvas size alone.
     private var memoryFitOptions: PanoOptions?
     private let previewDebounce: Duration
     private var runGeneration: UInt64 = 0
@@ -206,6 +223,7 @@ public final class PanoMergeSession {
             chosenOutputSize = nil
         }
         previewAssets = assets
+        previewIsEdgesOnly = false
         guard assets.count >= 2 else {
             cancelPreview()
             return
@@ -247,11 +265,13 @@ public final class PanoMergeSession {
                 let space = await self.readFreeSpace(capturedStitcher, assets)
                 guard self.previewGeneration == gen else { return }
                 self.adopt(preview, of: assets, solvedFor: capturedOptions, space: space)
+                self.previewIsEdgesOnly = false
                 self.previewState = .ready
             } catch is CancellationError {
                 return
             } catch {
                 guard self.previewGeneration == gen else { return }
+                self.previewIsEdgesOnly = false
                 self.previewState = .failed(StitchError(underlying: error))
             }
             if self.rePreviewWhenCurrentFinishes {
@@ -280,7 +300,7 @@ public final class PanoMergeSession {
         diskFit = preview.stitchSizes.flatMap {
             diskModel.fit(sizes: $0, space: space)
         }
-        memoryFitOptions = options
+        memoryFitOptions = options.withoutEdges
     }
 
     /// On a device with a per-process memory limit, the stitch must not size
@@ -289,7 +309,7 @@ public final class PanoMergeSession {
     /// width. The same holds for the storage fit, whose PNG grows with the
     /// canvas. A stitch that runs elsewhere has no such limit to fit.
     private func needsFreshFit(for options: PanoOptions) -> Bool {
-        stitcher.runsInDeviceMemory && memoryFitOptions != options && (availableMemory() != nil || diskFit != nil)
+        stitcher.runsInDeviceMemory && memoryFitOptions != options.withoutEdges && (availableMemory() != nil || diskFit != nil)
     }
 
     /// The running preview whose alignment Create Panorama should wait for:
@@ -302,6 +322,7 @@ public final class PanoMergeSession {
 
     private func cancelPreview() {
         rePreviewWhenCurrentFinishes = false
+        previewIsEdgesOnly = false
         previewGeneration &+= 1
         previewTask?.cancel()
         previewState = .idle

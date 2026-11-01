@@ -89,6 +89,9 @@ struct PanoMergeView: View {
             onOpenPanoSettings: onOpenPanoSettings
           )
         }
+        if session.stitcher.supportsEdges {
+          PanoEdgesSection(session: session)
+        }
         optionsSection
         PanoOutputSizeSection(session: session)
 
@@ -442,6 +445,16 @@ struct PanoMergeView: View {
         .foregroundStyle(.secondary)
 
       PanoMatcherNote(matcher: result.matcher, onOpenPanoSettings: onOpenPanoSettings)
+
+      if let reason = result.edges?.boundaryWarpReason {
+        HStack(alignment: .firstTextBaseline, spacing: MuiTokens.spacingXs) {
+          MuiIcon(name: "info", size: .sm, color: MuiTokens.warn)
+            .accessibilityHidden(true)
+          MuiText(reason, variant: .body, color: .warning)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("pano-boundary-warp-result-reason")
+      }
 
       // M5 (complete): tapping Done (toolbar) calls onComplete which
       // hands outputURL to BrowseViewModel.injectPanoResult — the
