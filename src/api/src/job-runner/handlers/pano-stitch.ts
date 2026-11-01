@@ -47,6 +47,7 @@ import { errnoCode } from '../../fs/relocate-publish.ts';
 import { deleteSidecar, writeSidecarExclusive } from '../../fs/sidecar-io.ts';
 import { xmpSidecarPath } from '../../fs/xmp-sidecar-path.ts';
 import { panoCropSidecar } from '../../pano/pano-crop-sidecar.ts';
+import { markPngWithCrop } from '../../pano/pano-png-crop-mark.ts';
 import { readEdgesReport, type PanoEdgesReport } from '../../pano/pano-edges.ts';
 import { publishWhole } from '../../pano/pano-publish.ts';
 import { isWithinRoot, resolveRealPathThroughAncestors } from '../../fs/root.ts';
@@ -421,11 +422,15 @@ export const panoStitchHandler: JobHandler = {
       // ── 4. Import result PNG into the library ─────────────────────────────
       await ctx.reportProgress(PROGRESS_TOTAL, PROGRESS_TOTAL);
 
+      const cropSidecar = payload.autoCrop && edges ? panoCropSidecar(edges) : null;
+      if (cropSidecar !== null && edges?.auto_crop.rect) {
+        await markPngWithCrop(outputPng, edges.auto_crop.rect);
+      }
       const placed = await publishIntoLibrary(
         outputPng,
         { real: realRoot, registered: libPath },
         location,
-        payload.autoCrop && edges ? panoCropSidecar(edges) : null,
+        cropSidecar,
       );
       const outputAssetId = await importOutput(payload.libraryId, placed);
       const destAbs = registeredPath(placed.absPath);

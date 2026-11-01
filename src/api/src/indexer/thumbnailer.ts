@@ -361,6 +361,7 @@ async function renderBitmapThumbToFile(
     THUMB_LONG_EDGE_PX,
     THUMB_AVIF_QUALITY,
     ext,
+    isOriginal,
   ).catch((e: unknown) => {
     log.warn({ srcPath, err: e instanceof Error ? e.message : e }, 'FFI pool threw');
     return null;

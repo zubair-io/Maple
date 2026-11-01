@@ -254,6 +254,7 @@ class FfiWorkerPool {
     maxPx: number,
     quality: number,
     ext: string,
+    applyCrop = false,
   ): Promise<{ ok: boolean; error?: string }> {
     const id = this.requestId();
     return new Promise((resolve, reject) => {
@@ -269,6 +270,7 @@ class FfiWorkerPool {
               maxPx,
               quality,
               ext,
+              ...(applyCrop ? { applyCrop } : {}),
             }),
           onResponse: (msg) => {
             if (msg.type !== 'renderBitmap') return false;

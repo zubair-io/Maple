@@ -24,8 +24,9 @@ export function renderImageThumbToFileViaPool(
   maxPx: number,
   quality: number,
   ext: string,
+  applyCrop = false,
 ): Promise<{ ok: boolean; error?: string }> {
-  return ffiPool().renderBitmapThumbToFile(srcPath, outPath, maxPx, quality, ext);
+  return ffiPool().renderBitmapThumbToFile(srcPath, outPath, maxPx, quality, ext, applyCrop);
 }
 
 export function validateAvifViaPool(
