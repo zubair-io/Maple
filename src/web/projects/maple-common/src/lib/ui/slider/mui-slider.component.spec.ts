@@ -119,6 +119,18 @@ describe('MuiSliderComponent', () => {
       expect(track(fixture).hasAttribute('aria-describedby')).toBe(false);
     });
 
+    it('puts the host-supplied test id on the helper text only while there is one', () => {
+      const fixture = render();
+      fixture.componentRef.setInput('helperTestId', 'reason');
+      fixture.detectChanges();
+      expect(fixture.nativeElement.querySelector('[data-testid="reason"]')).toBeNull();
+      fixture.componentRef.setInput('helper', 'Not applied.');
+      fixture.detectChanges();
+      expect(fixture.nativeElement.querySelector('[data-testid="reason"]')?.textContent).toContain(
+        'Not applied.',
+      );
+    });
+
     it('keeps the helper out of the dimmed region while disabled', () => {
       const fixture = render();
       fixture.componentRef.setInput('helper', 'Not applied.');
