@@ -73,6 +73,8 @@ export const StitchBody = t.Object({
     retention: t.Union([t.Literal('keep'), t.Literal('strict')]),
     localAlign: t.Union([t.Literal('mesh'), t.Literal('off')]),
     strategy: t.Optional(t.Union([t.Literal('auto'), t.Literal('rotation'), t.Literal('tile')])),
+    boundaryWarp: t.Optional(t.Number({ minimum: 0, maximum: 100 })),
+    autoCrop: t.Optional(t.Boolean()),
   }),
   alignmentFrom: t.Optional(t.String()),
 });
@@ -90,12 +92,13 @@ const ConfigBody = t.Object({
 async function withProbedFlags(cfg: PanoConfigResolution) {
   const capabilities = cfg.maple_cli_path
     ? await probePanoCli(cfg.maple_cli_path)
-    : { strategy: false, featuresEngine: false, preview: false };
+    : { strategy: false, featuresEngine: false, preview: false, edges: false };
   return {
     ...cfg,
     strategy_supported: capabilities.strategy,
     features_engine_supported: capabilities.featuresEngine,
     preview_supported: capabilities.preview,
+    edges_supported: capabilities.edges,
   };
 }
 
@@ -150,6 +153,17 @@ export async function planStitch() {
   return plan.kind === 'refuse'
     ? { refusal: { error: plan.error, message: plan.message } }
     : { cfg: { ...cfg, maple_cli_path: mapleCli }, capabilities, plan };
+}
+
+/** The 409 for a request that asks for the edge options of a binary without them. */
+export function edgesRefusal(plan: StitchPlan, request: StitchRequest) {
+  const asked = (request.options.boundaryWarp ?? 0) > 0 || request.options.autoCrop === true;
+  return asked && !plan.capabilities.edges
+    ? {
+        error: 'pano_edges_unsupported',
+        message: 'The configured maple-cli predates Boundary Warp and Auto Crop.',
+      }
+    : null;
 }
 
 type StitchPlan = Exclude<Awaited<ReturnType<typeof planStitch>>, { refusal: unknown }>;
@@ -252,6 +266,8 @@ export async function panoJobPayload(
     modelsDir: cfg.models_dir,
     ortDylibPath: cfg.ort_dylib_path,
     matcherNote: plan.matcherNote,
+    boundaryWarp: request.options.boundaryWarp ?? 0,
+    autoCrop: request.options.autoCrop ?? false,
     alignmentIn: capabilities.preview ? await previewAlignment(request.alignmentFrom) : null,
   };
 }
@@ -279,6 +295,12 @@ export const panoRoutes = new Elysia({ prefix: '/api/pano' })
       if ('refusal' in stitchPlan) {
         set.status = 409;
         return stitchPlan.refusal;
+      }
+
+      const unsupportedEdges = edgesRefusal(stitchPlan, body);
+      if (unsupportedEdges) {
+        set.status = 409;
+        return unsupportedEdges;
       }
 
       // The handler does `new ObjectId(payload.libraryId)`; a malformed id

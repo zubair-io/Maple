@@ -88,6 +88,8 @@ export function panoOptionArgs(payload: PanoStitchPayload): string[] {
     ...(payload.featuresEngine ? ['--features-engine', payload.featuresEngine] : []),
     ...(payload.strategySupported && payload.strategy ? ['--strategy', payload.strategy] : []),
     ...(payload.modelsDir ? ['--models-dir', payload.modelsDir] : []),
+    ...(payload.boundaryWarp > 0 ? ['--boundary-warp', String(payload.boundaryWarp)] : []),
+    ...(payload.autoCrop ? ['--auto-crop'] : []),
   ];
 }
 

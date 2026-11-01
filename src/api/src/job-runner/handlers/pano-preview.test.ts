@@ -132,6 +132,7 @@ describe('panoPreviewHandler', () => {
     expect(outcome.result).toEqual({
       alignment: { status: 'solved', stale_reason: null },
       width: 2047,
+      edges: null,
       height: 722,
       seconds: 1.5,
       matcher: 'ml',
@@ -149,6 +150,58 @@ describe('panoPreviewHandler', () => {
     expect(
       run.endsWith(`-- ${path.join(tmpDir, 'lib', 'a.dng')} ${path.join(tmpDir, 'lib', 'b.dng')}`),
     ).toBe(true);
+    await fs.rm(dir, { recursive: true, force: true });
+  });
+
+  it('passes Boundary Warp and Auto Crop to the CLI and returns its edges report unchanged', async () => {
+    const cli = await writeFakePanoCli(tmpDir, { preview: true, edges: true });
+    const dir = newPreviewDir();
+
+    const outcome = await panoPreviewHandler.run(
+      payload(cli, dir, { boundaryWarp: 40, autoCrop: true }),
+      context().ctx,
+    );
+
+    expect(outcome.kind).toBe('done');
+    expect(outcome.result.edges).toEqual({
+      output: { width: 2047, height: 722 },
+      uncovered_px: 0,
+      boundary_warp: {
+        requested: 40,
+        applied: 40,
+        status: 'applied',
+        max_stretch: null,
+        min_jacobian: null,
+        predicted_coverage: null,
+        solve_ms: null,
+      },
+      auto_crop: { requested: true, rect: null, invalid_px: null },
+    });
+    const run = (await fakeCliRuns(cli)).at(-1);
+    expect(run).toContain('--boundary-warp 40');
+    expect(run).toContain('--auto-crop');
+    await fs.rm(dir, { recursive: true, force: true });
+  });
+
+  it('sends nothing new to the CLI at the defaults', async () => {
+    const cli = await writeFakePanoCli(tmpDir, { preview: true, edges: true });
+    const dir = newPreviewDir();
+
+    await panoPreviewHandler.run(payload(cli, dir), context().ctx);
+
+    const run = (await fakeCliRuns(cli)).at(-1);
+    expect(run).not.toContain('--boundary-warp');
+    expect(run).not.toContain('--auto-crop');
+    await fs.rm(dir, { recursive: true, force: true });
+  });
+
+  it('ignores an out-of-range strength in a persisted payload', async () => {
+    const cli = await writeFakePanoCli(tmpDir, { preview: true, edges: true });
+    const dir = newPreviewDir();
+
+    await panoPreviewHandler.run(payload(cli, dir, { boundaryWarp: 400 }), context().ctx);
+
+    expect((await fakeCliRuns(cli)).at(-1)).not.toContain('--boundary-warp');
     await fs.rm(dir, { recursive: true, force: true });
   });
 
@@ -209,6 +262,36 @@ describe('preview → stitch alignment hand-off', () => {
     expect(stitch.kind).toBe('done');
     expect(stitch.result.alignment).toEqual({ status: 'solved', stale_reason: null });
     expect((await fakeCliRuns(cli)).at(-1)).not.toContain('--alignment-in');
+  });
+});
+
+describe('stitch with Boundary Warp and Auto Crop (#5576)', () => {
+  it('passes both options, returns the edges report, and names the panorama apart from the plain one', async () => {
+    const cli = await writeFakePanoCli(tmpDir, { preview: true, edges: true });
+    const plain = await panoStitchHandler.run(
+      payload(cli, path.join(tmpDir, `stitch-plain-${process.pid}`)),
+      context().ctx,
+    );
+    const edged = await panoStitchHandler.run(
+      payload(cli, path.join(tmpDir, `stitch-edged-${process.pid}`), {
+        boundaryWarp: 25,
+        autoCrop: true,
+      }),
+      context().ctx,
+    );
+
+    expect(plain.kind).toBe('done');
+    expect(plain.result.edges).toMatchObject({ boundary_warp: { status: 'off' } });
+    expect(edged.kind).toBe('done');
+    expect(edged.result.edges).toMatchObject({
+      boundary_warp: { requested: 25, status: 'applied' },
+      auto_crop: { requested: true },
+    });
+    expect(edged.result.outputPath).not.toBe(plain.result.outputPath);
+    const runs = await fakeCliRuns(cli);
+    expect(runs.at(-1)).toContain('--boundary-warp 25');
+    expect(runs.at(-1)).toContain('--auto-crop');
+    expect(runs.at(-2)).not.toContain('--boundary-warp');
   });
 });
 

@@ -44,6 +44,7 @@ import path from 'node:path';
 import { ObjectId } from '../../db/object-id.ts';
 import { lstat, mkdir, withMirrorRoot } from '../../fs/mirrored.ts';
 import { errnoCode } from '../../fs/relocate-publish.ts';
+import { readEdgesReport, type PanoEdgesReport } from '../../pano/pano-edges.ts';
 import { publishWhole } from '../../pano/pano-publish.ts';
 import { isWithinRoot, resolveRealPathThroughAncestors } from '../../fs/root.ts';
 import { recordAndPublishAssetChange } from '../../db/changes.repo.ts';
@@ -83,6 +84,9 @@ export interface PanoStitchPayload {
   /** Set when ML was selected but the classical matcher runs instead (#5487). */
   matcherNote: string | null;
   alignmentIn: string | null;
+  /** Boundary Warp strength in percent, 0 to 100 (#5576). */
+  boundaryWarp: number;
+  autoCrop: boolean;
 }
 
 /** The report's `alignment` block; null from a binary that predates #4578. */
@@ -98,6 +102,7 @@ export interface PanoMatcherUsed {
 }
 
 interface PanoStitchResult extends PanoMatcherUsed {
+  edges: PanoEdgesReport | null;
   outputAssetId: string | null;
   outputPath: string;
   stagesCompleted: number;
@@ -128,6 +133,14 @@ export async function readAlignmentVerdict(
     .then((text) => JSON.parse(text) as { alignment?: PanoAlignmentVerdict })
     .catch(() => null);
   return report?.alignment ?? null;
+}
+
+function parseEdges(
+  raw: Record<string, unknown>,
+): Pick<PanoStitchPayload, 'boundaryWarp' | 'autoCrop'> {
+  const warp = raw.boundaryWarp;
+  const inRange = typeof warp === 'number' && Number.isFinite(warp) && warp >= 0 && warp <= 100;
+  return { boundaryWarp: inRange ? warp : 0, autoCrop: raw.autoCrop === true };
 }
 
 function optionalAbsolutePath(
@@ -199,6 +212,7 @@ export function parsePayload(raw: Record<string, unknown>): PanoStitchPayload {
     ),
     matcherNote: typeof raw.matcherNote === 'string' ? raw.matcherNote : null,
     alignmentIn: parseAlignmentIn(raw.alignmentIn),
+    ...parseEdges(raw),
   };
 }
 
@@ -314,6 +328,8 @@ export const panoStitchHandler: JobHandler = {
           localAlign: payload.localAlign,
           strategy: payload.strategy,
           matcher: matcherUsed(payload).matcher,
+          boundaryWarp: payload.boundaryWarp,
+          autoCrop: payload.autoCrop,
         }),
       );
       if (await alreadyMade(location.absPath)) {
@@ -324,6 +340,7 @@ export const panoStitchHandler: JobHandler = {
           outputPath: registeredPath(location.absPath),
           stagesCompleted: PROGRESS_TOTAL / PROGRESS_PER_STAGE,
           alignment: null,
+          edges: null,
           error: null,
           ...matcherUsed(payload),
         };
@@ -356,6 +373,7 @@ export const panoStitchHandler: JobHandler = {
           outputPath: outputPng,
           stagesCompleted,
           alignment: null,
+          edges: null,
           error: 'cancelled',
           ...matcherUsed(payload),
         };
@@ -373,7 +391,10 @@ export const panoStitchHandler: JobHandler = {
         throw cliFailure(run);
       }
 
-      const alignment = await readAlignmentVerdict(payload.outputDir);
+      const [alignment, edges] = await Promise.all([
+        readAlignmentVerdict(payload.outputDir),
+        readEdgesReport(reportPath(payload.outputDir)),
+      ]);
       log.info({ alignment, alignmentIn: payload.alignmentIn }, 'pano stitch alignment');
 
       // ── 4. Import result PNG into the library ─────────────────────────────
@@ -395,6 +416,7 @@ export const panoStitchHandler: JobHandler = {
         outputPath: destAbs,
         stagesCompleted,
         alignment,
+        edges,
         error: null,
         ...matcherUsed(payload),
       };

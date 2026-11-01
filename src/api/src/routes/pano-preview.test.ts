@@ -33,12 +33,14 @@ let live: LiveTestDatabase;
 let tmpDir = '';
 let previewCli = '';
 let legacyCli = '';
+let edgesCli = '';
 let folderId = '';
 
 beforeAll(async () => {
   tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'maple-pano-preview-routes-'));
   previewCli = await writeFakePanoCli(tmpDir, { preview: true });
   legacyCli = await writeFakePanoCli(tmpDir, { preview: false });
+  edgesCli = await writeFakePanoCli(tmpDir, { preview: true, edges: true });
 });
 
 afterAll(async () => {
@@ -259,5 +261,73 @@ describe('POST /api/pano/stitch with alignmentFrom', () => {
     const res = await send('POST', '/api/pano/stitch', { ...BODY(), alignmentFrom: id });
     expect(((await res.json()) as { alignmentReused: boolean }).alignmentReused).toBe(false);
     await fs.rm(dir, { recursive: true, force: true });
+  });
+});
+
+describe('Boundary Warp and Auto Crop options (#5576)', () => {
+  const withEdges = (options: Record<string, unknown>) => ({
+    ...BODY(),
+    options: { ...BODY().options, ...options },
+  });
+
+  it('reports edges_supported from the binary help', async () => {
+    await configure(edgesCli);
+    const supported = (await (await send('GET', '/api/pano/config')).json()) as Record<
+      string,
+      unknown
+    >;
+    expect(supported.edges_supported).toBe(true);
+    await configure(previewCli);
+    const plain = (await (await send('GET', '/api/pano/config')).json()) as Record<string, unknown>;
+    expect(plain.edges_supported).toBe(false);
+  });
+
+  it('queues a preview and a stitch carrying the chosen strength and crop', async () => {
+    await configure(edgesCli);
+    const options = { boundaryWarp: 62.5, autoCrop: true };
+    const preview = await send('POST', '/api/pano/preview', withEdges(options));
+    expect(preview.status).toBe(201);
+    const previewJob = await getJob(new ObjectId(((await preview.json()) as { id: string }).id));
+    expect(previewJob?.payload).toMatchObject({ boundaryWarp: 62.5, autoCrop: true });
+    const stitch = await send('POST', '/api/pano/stitch', withEdges(options));
+    expect(stitch.status).toBe(201);
+    const stitchJob = await getJob(new ObjectId(((await stitch.json()) as { id: string }).id));
+    expect(stitchJob?.payload).toMatchObject({ boundaryWarp: 62.5, autoCrop: true });
+  });
+
+  it('defaults to no warp and no crop when the options are absent', async () => {
+    await configure(edgesCli);
+    const res = await send('POST', '/api/pano/preview', BODY());
+    const job = await getJob(new ObjectId(((await res.json()) as { id: string }).id));
+    expect(job?.payload).toMatchObject({ boundaryWarp: 0, autoCrop: false });
+  });
+
+  it('rejects a strength outside 0 to 100 and a wrong type', async () => {
+    await configure(edgesCli);
+    const bad: Record<string, unknown>[] = [
+      { boundaryWarp: -1 },
+      { boundaryWarp: 100.5 },
+      { boundaryWarp: '50' },
+      { autoCrop: 'yes' },
+    ];
+    for (const options of bad) {
+      for (const url of ['/api/pano/preview', '/api/pano/stitch']) {
+        expect((await send('POST', url, withEdges(options))).status).toBe(422);
+      }
+    }
+  });
+
+  it('refuses a request that asks for edges from a binary without them', async () => {
+    await configure(previewCli);
+    for (const options of [{ boundaryWarp: 10 }, { autoCrop: true }]) {
+      for (const url of ['/api/pano/preview', '/api/pano/stitch']) {
+        const res = await send('POST', url, withEdges(options));
+        expect(res.status).toBe(409);
+        expect(((await res.json()) as { error: string }).error).toBe('pano_edges_unsupported');
+      }
+    }
+    expect((await send('POST', '/api/pano/preview', withEdges({ boundaryWarp: 0 }))).status).toBe(
+      201,
+    );
   });
 });

@@ -26,6 +26,7 @@ import {
   resolveInputPaths,
   runPanoCli,
 } from './pano-cli-process.ts';
+import { readEdgesReport, type PanoEdgesReport } from '../../pano/pano-edges.ts';
 import {
   alignmentDir,
   matcherUsed,
@@ -39,6 +40,7 @@ const log = childLogger('job:pano-preview');
 
 interface PanoPreviewResult extends PanoMatcherUsed {
   alignment: PanoAlignmentVerdict | null;
+  edges: PanoEdgesReport | null;
   width: number | null;
   height: number | null;
   seconds: number | null;
@@ -59,7 +61,7 @@ async function readPreviewReport(outputDir: string): Promise<PreviewReport> {
 
 const cancelled = (): JobHandlerResult => ({
   kind: 'cancelled',
-  result: { alignment: null, width: null, height: null, seconds: null },
+  result: { alignment: null, edges: null, width: null, height: null, seconds: null },
 });
 
 export const panoPreviewHandler: JobHandler = {
@@ -99,12 +101,14 @@ export const panoPreviewHandler: JobHandler = {
       if (run.exitCode !== 0) throw cliFailure(run);
 
       await ctx.reportProgress(PROGRESS_TOTAL, PROGRESS_TOTAL);
-      const [alignment, report] = await Promise.all([
+      const [alignment, report, edges] = await Promise.all([
         readAlignmentVerdict(payload.outputDir),
         readPreviewReport(payload.outputDir),
+        readEdgesReport(reportPath(payload.outputDir)),
       ]);
       const result: PanoPreviewResult = {
         alignment,
+        edges,
         width: report.width ?? null,
         height: report.height ?? null,
         seconds: report.timings_s?.total ?? null,
