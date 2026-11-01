@@ -48,10 +48,7 @@ pub(super) fn run_tile_from_outcome(
         write_s,
         t0,
     } = args;
-    let (width, height) = (
-        outcome.tile_report.canvas.width,
-        outcome.tile_report.canvas.height,
-    );
+    let (width, height) = outcome.tile_report.output_size();
 
     let [decode_s, features_s, graph_s, refine_s, solve_s, composite_s] = outcome.stage_timings_s;
 

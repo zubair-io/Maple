@@ -96,6 +96,10 @@ pub struct StitchOptions {
     /// ragged edge is stretched out to the output rectangle. `0` builds no
     /// map and leaves the output byte-identical.
     pub boundary_warp: f64,
+    /// Auto Crop (#5573): trim the output to its largest fully covered
+    /// rectangle, at whatever `boundary_warp` is chosen. On a 360° canvas
+    /// only rows are trimmed, so the wrap survives.
+    pub auto_crop: bool,
 }
 
 impl Default for StitchOptions {
@@ -124,6 +128,7 @@ impl Default for StitchOptions {
             feature_engine: super::FeatureEngine::default(),
             capture_owner: false,
             boundary_warp: 0.0,
+            auto_crop: false,
         }
     }
 }
@@ -228,12 +233,12 @@ pub enum StitchSuccess {
 }
 
 impl StitchSuccess {
-    /// The composited canvas `(width, height)` regardless of which
-    /// strategy ran.
+    /// The output `(width, height)` regardless of which strategy ran: the
+    /// Auto Crop rectangle's when one was kept.
     pub fn canvas_size(&self) -> (u32, u32) {
         match self {
-            Self::Rotation(o) => (o.comp_report.canvas.width, o.comp_report.canvas.height),
-            Self::Tile(o) => (o.tile_report.canvas.width, o.tile_report.canvas.height),
+            Self::Rotation(o) => o.comp_report.output_size(),
+            Self::Tile(o) => o.tile_report.output_size(),
         }
     }
 }

@@ -18,6 +18,8 @@ use crate::frame_store::{FrameRect, FrameRows, WINDOW_BYTES_PER_PX};
 pub(super) use crate::frame_store::{SourceView, SourceWindow};
 use crate::similarity::Similarity2d;
 
+use super::placement::{TileCanvasSpec, TilePose};
+
 /// Extra source pixels kept on every side of the computed tap range, so
 /// float rounding in the inverse map can never put a tap outside the
 /// window.
@@ -83,6 +85,27 @@ pub(super) fn spatial_cells(cw: usize, ch: usize, window_px: usize) -> Vec<Cell>
             })
         })
         .collect()
+}
+
+/// The canvas bounding box of a `(fw, fh)` frame placed by `pose`.
+pub(super) fn frame_canvas_box(
+    pose: &TilePose,
+    (fw, fh): (f64, f64),
+    canvas: &TileCanvasSpec,
+) -> CanvasBox {
+    [(0.0, 0.0), (fw, 0.0), (0.0, fh), (fw, fh)]
+        .iter()
+        .map(|&(x, y)| pose.sim.apply(x, y))
+        .map(|(x, y)| (x + canvas.offset_x, y + canvas.offset_y))
+        .fold(
+            (
+                f64::INFINITY,
+                f64::INFINITY,
+                f64::NEG_INFINITY,
+                f64::NEG_INFINITY,
+            ),
+            |(x0, y0, x1, y1), (x, y)| (x0.min(x), y0.min(y), x1.max(x), y1.max(y)),
+        )
 }
 
 /// Whether a canvas bbox `(x0, y0, x1, y1)` touches the canvas box `extent`

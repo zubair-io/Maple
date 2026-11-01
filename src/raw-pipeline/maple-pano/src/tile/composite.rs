@@ -3,7 +3,7 @@
 
 use crate::blend::{blend_multiband, levels_for_overlap_width, MAX_LEVELS};
 use crate::boundary_warp::{BoundaryWarp, BoundaryWarpReport};
-use crate::composite::{CanvasSink, UncoveredCount};
+use crate::composite::{output_size, AutoCropReport, CanvasSink, CropSink, UncoveredCount};
 use crate::error::PanoError;
 use crate::gain::{GainOptions, LensFalloff, LensGroups};
 use crate::ingest::PlanarImage;
@@ -12,10 +12,11 @@ use crate::local_align::LocalCorrection;
 
 use crate::frame_store::FrameRows;
 
+use super::footprint::{auto_crop_rect, TileCoverage};
 use super::masks::{estimate_min_overlap_width, voronoi_masks_region};
 use super::photometry::{solve_photometry, PhotometryOptions};
 use super::placement::{TileCanvasSpec, TilePose};
-use super::source::{read_window, Cell};
+use super::source::{frame_canvas_box, read_window, Cell};
 use super::warp::{inverse_similarity_with_offset, warp_to_tile_region};
 use super::{TileEdge, TILE_PX};
 
@@ -73,6 +74,8 @@ pub struct TileCompositeReport {
     pub boundary_warp: Option<BoundaryWarpReport>,
     /// Output pixels no frame covered.
     pub uncovered_px: u64,
+    /// The rectangle Auto Crop kept (#5573); `None` when none was requested.
+    pub auto_crop: Option<AutoCropReport>,
     /// Shared per-frame log-slope along frame-local x (#350 layer A).
     pub photometric_slope_x: f32,
     /// Shared per-frame log-slope along frame-local y (#350 layer A).
@@ -84,6 +87,13 @@ pub struct TileCompositeReport {
     /// Blind lens falloff per lens group (#4522); frames are input
     /// indices. Empty when ingest corrected every placed frame.
     pub falloff: Vec<LensFalloff>,
+}
+
+impl TileCompositeReport {
+    /// The output's size: the kept rectangle's when Auto Crop cropped it.
+    pub fn output_size(&self) -> (u32, u32) {
+        output_size(self.auto_crop, (self.canvas.width, self.canvas.height))
+    }
 }
 
 /// End-to-end tile composite with spatial tiling + multiband blend.
@@ -146,6 +156,7 @@ pub(crate) fn composite_tile(
     lenses: &LensGroups,
     gain_opts: &GainOptions,
     levels_override: Option<usize>,
+    auto_crop: bool,
     sink: &mut dyn CanvasSink,
 ) -> Result<TileCompositeReport, PanoError> {
     let output = boundary_warp.map(|map| map.on_canvas(canvas.width, canvas.height));
@@ -194,6 +205,14 @@ pub(crate) fn composite_tile(
     // Output goes to `sink` one full-width band of tiles at a time (#5452).
     let cw = canvas.width as usize;
     let ch = canvas.height as usize;
+    let crop_rect = auto_crop
+        .then(|| {
+            let coverage = TileCoverage::new(poses, full_dims, corrections, canvas);
+            auto_crop_rect(&coverage, canvas, output)
+        })
+        .flatten();
+    let mut cropped = CropSink::new(sink, crop_rect);
+    let sink = &mut cropped;
     sink.begin(canvas.width, canvas.height)?;
 
     // Per-frame canvas-space bounding boxes for spatial culling (#3086).
@@ -205,21 +224,7 @@ pub(crate) fn composite_tile(
         .iter()
         .map(|pose| {
             let (fw, fh) = full_dims[pose.frame_idx];
-            let (fw, fh) = (fw as f64, fh as f64);
-            let corners = [(0.0, 0.0), (fw, 0.0), (0.0, fh), (fw, fh)];
-            let mapped = corners
-                .iter()
-                .map(|&(x, y)| pose.sim.apply(x, y))
-                .map(|(x, y)| (x + canvas.offset_x, y + canvas.offset_y));
-            let (x0, y0, x1, y1) = mapped.fold(
-                (
-                    f64::INFINITY,
-                    f64::INFINITY,
-                    f64::NEG_INFINITY,
-                    f64::NEG_INFINITY,
-                ),
-                |(x0, y0, x1, y1), (x, y)| (x0.min(x), y0.min(y), x1.max(x), y1.max(y)),
-            );
+            let (x0, y0, x1, y1) = frame_canvas_box(pose, (fw as f64, fh as f64), canvas);
             let pad = max_correction_px * pose.sim.scale;
             (x0 - pad, y0 - pad, x1 + pad, y1 + pad)
         })
@@ -377,6 +382,10 @@ pub(crate) fn composite_tile(
         halo_px: halo,
         boundary_warp: None,
         uncovered_px: counted.uncovered,
+        auto_crop: auto_crop.then_some(AutoCropReport {
+            rect: crop_rect,
+            invalid_px: crop_rect.map_or(0, |_| counted.uncovered),
+        }),
         photometric_slope_x: phot_summary.slope_x,
         photometric_slope_y: phot_summary.slope_y,
         exposure_field_mean_abs_ev: phot_summary.field_mean_abs_ev,

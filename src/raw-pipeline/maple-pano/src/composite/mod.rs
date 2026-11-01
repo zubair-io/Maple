@@ -38,10 +38,15 @@
 //! ownership is kept run-length encoded ([`OwnerRuns`]) for the same reason.
 //! Measured peaks per stage are in `docs/pano.md` § Memory.
 
+mod crop;
 mod owner;
 mod sink;
 mod tiled;
 
+#[cfg(test)]
+pub(crate) use crop::largest_valid_rect;
+pub(crate) use crop::{output_size, CropAxes, CropSink, LargestRect};
+pub use crop::{AutoCropReport, CropRect};
 pub use owner::OwnerRuns;
 pub(crate) use sink::CancellableSink;
 pub(crate) use sink::UncoveredCount;
@@ -103,6 +108,15 @@ pub struct CompositeReport {
     pub boundary_warp: Option<BoundaryWarpReport>,
     /// Output pixels no frame covered.
     pub uncovered_px: u64,
+    /// The rectangle Auto Crop kept (#5573); `None` when none was requested.
+    pub auto_crop: Option<AutoCropReport>,
+}
+
+impl CompositeReport {
+    /// The output's size: the kept rectangle's when Auto Crop cropped it.
+    pub fn output_size(&self) -> (u32, u32) {
+        output_size(self.auto_crop, (self.canvas.width, self.canvas.height))
+    }
 }
 
 /// Composite posed frames onto an automatically constructed canvas.
@@ -202,6 +216,7 @@ pub fn composite(
             owner: None,
             boundary_warp: None,
             uncovered_px,
+            auto_crop: None,
         },
     ))
 }

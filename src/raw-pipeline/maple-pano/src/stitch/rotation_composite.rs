@@ -45,6 +45,7 @@ pub(super) fn composite(
         opts.canvas_tile_rows.unwrap_or(DEFAULT_TILE_ROWS),
         opts.seam_strategy,
         seam_constraints,
+        opts.auto_crop,
         sink,
     )
     .map_err(seam_gate::composite_error)?;

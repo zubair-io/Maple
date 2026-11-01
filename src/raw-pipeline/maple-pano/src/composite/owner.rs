@@ -2,6 +2,8 @@
 //! Ownership is piecewise constant along a row — a handful of runs where a
 //! dense `u16` map of a 256 MP canvas would be 512 MB.
 
+use super::CropRect;
+
 /// Owner per canvas pixel: a frame index, or `u16::MAX` where no frame
 /// covers it.
 #[derive(Debug, Clone, PartialEq)]
@@ -44,6 +46,29 @@ impl OwnerRuns {
             .any(|runs| runs.iter().any(|&(_, o)| o == fi))
     }
 
+    /// The owners inside `rect`, for an Auto Cropped output (#5573).
+    pub(crate) fn cropped(&self, rect: CropRect) -> Self {
+        let (x0, x1) = (rect.x, rect.x + rect.width);
+        let rows = self.rows[rect.y as usize..(rect.y + rect.height) as usize]
+            .iter()
+            .map(|runs| {
+                let first = runs.partition_point(|&(start, _)| start <= x0) - 1;
+                std::iter::once((0, runs[first].1))
+                    .chain(
+                        runs[first + 1..]
+                            .iter()
+                            .take_while(|&&(start, _)| start < x1)
+                            .map(|&(start, o)| (start - x0, o)),
+                    )
+                    .collect()
+            })
+            .collect();
+        Self {
+            width: rect.width,
+            rows,
+        }
+    }
+
     /// The dense row-major map, for callers that write it out whole.
     pub fn to_dense(&self) -> Vec<u16> {
         self.rows
@@ -80,5 +105,16 @@ mod tests {
         assert!(runs.owns_any(2, 1, 2));
         assert!(!runs.owns_any(2, 2, 3));
         assert!(runs.owns_any(1, 0, 3));
+        let rect = CropRect {
+            x: 1,
+            y: 0,
+            width: 4,
+            height: 3,
+        };
+        let cropped: Vec<u16> = dense
+            .iter()
+            .flat_map(|row| row[1..5].iter().copied())
+            .collect();
+        assert_eq!(runs.cropped(rect).to_dense(), cropped);
     }
 }

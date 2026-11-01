@@ -48,7 +48,9 @@ use crate::ingest::FramePriors;
 use crate::local_align::planar::fit_planar_corrections;
 use crate::strategy::StrategyReport;
 use crate::tile::placement::{solve_tile_poses, TileConstraint};
-use crate::tile::{composite_tile, verify_tile_edges, TileCompositeReport};
+use crate::tile::{
+    composite_tile, tile_footprint, verify_tile_edges, TileCompositeReport, TileCoverage,
+};
 use crate::twoview::PixelCorrespondence;
 
 use super::refine_pass::{refine_edges, RefinePassResult};
@@ -261,6 +263,7 @@ pub(super) fn tile_tail(
         &lenses,
         opts.local_align,
         opts.boundary_warp,
+        opts.auto_crop,
         |_, _| opts.max_canvas_px,
         sink,
         &mut progress,
@@ -317,6 +320,7 @@ pub(super) fn place_and_composite(
     lenses: &LensGroups,
     local_align: bool,
     boundary_warp: f64,
+    auto_crop: bool,
     canvas_cap_px: impl FnOnce(u32, u32) -> usize,
     sink: &mut dyn CanvasSink,
     progress: &mut dyn FnMut(u32, f32),
@@ -385,13 +389,8 @@ pub(super) fn place_and_composite(
         return Err(StitchError::Cancelled);
     }
     let warp = super::boundary::solve(boundary_warp, || {
-        crate::tile::tile_footprint(
-            &poses,
-            dims,
-            corrections.as_deref(),
-            &canvas_spec,
-            super::boundary::FOOTPRINT_MAX_PX,
-        )
+        let coverage = TileCoverage::new(&poses, dims, corrections.as_deref(), &canvas_spec);
+        tile_footprint(&coverage, &canvas_spec, super::boundary::FOOTPRINT_MAX_PX)
     });
     let tile_report = composite_tile(
         frames,
@@ -404,6 +403,7 @@ pub(super) fn place_and_composite(
         lenses,
         &Default::default(),
         None,
+        auto_crop,
         &mut CancellableSink::new(sink, is_cancelled),
     )
     .map_err(super::seam_gate::composite_error)?;

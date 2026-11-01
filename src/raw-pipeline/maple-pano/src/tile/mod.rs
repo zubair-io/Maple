@@ -102,7 +102,7 @@ mod vignette_tests;
 pub(crate) use composite::composite_tile;
 pub use composite::TileCompositeReport;
 pub use edge_consensus::verify_tile_edges;
-pub(crate) use footprint::tile_footprint;
+pub(crate) use footprint::{tile_footprint, TileCoverage};
 pub use placement::{
     apply_canvas_cap, solve_tile_poses, TileCanvasSpec, TilePlacement, TilePlacementError, TilePose,
 };
