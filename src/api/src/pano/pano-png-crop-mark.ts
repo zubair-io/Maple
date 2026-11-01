@@ -23,7 +23,7 @@ function chunk(type: string, data: Buffer): Buffer {
   return frame;
 }
 
-export function cropMarkText(rect: NonNullable<PanoEdgesReport['auto_crop']['rect']>): string {
+function cropMarkText(rect: NonNullable<PanoEdgesReport['auto_crop']['rect']>): string {
   return `${rect.x},${rect.y},${rect.width},${rect.height}`;
 }
 
