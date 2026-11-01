@@ -122,9 +122,9 @@ fn cropped(s: &Scene, canvas: &CanvasSpec, seam: SeamStrategy) -> (PlanarImage, 
     (collector.into_image(), report)
 }
 
-/// Auto Crop's output and report, checked against the uncropped output:
-/// every kept pixel is covered and equals the uncropped pixel.
-fn assert_crop_keeps_covered_pixels(
+/// Auto Crop's output and report, checked against the output without it:
+/// the pixels are identical, and the rectangle is the largest covered one.
+fn assert_crop_reports_covered_rectangle(
     s: &Scene,
     canvas: &CanvasSpec,
     seam: SeamStrategy,
@@ -136,22 +136,26 @@ fn assert_crop_keeps_covered_pixels(
     assert_eq!(
         Some(rect),
         largest_valid_rect(&whole, CropAxes::for_canvas(canvas)),
-        "{seam:?}: the crop must be the uncropped output's largest covered rectangle"
+        "{seam:?}: the crop must be the output's largest covered rectangle"
     );
     assert_eq!(crop.invalid_px, 0, "{seam:?}");
-    assert_eq!(report.uncovered_px, 0, "{seam:?}");
-    assert_eq!(report.output_size(), (rect.width, rect.height), "{seam:?}");
-    assert_eq!((kept.width(), kept.height()), (rect.width, rect.height));
-    for y in 0..rect.height {
-        for x in 0..rect.width {
-            let (k, w) = (
-                (y * rect.width + x) as usize,
-                ((y + rect.y) * whole.width() + x + rect.x) as usize,
-            );
-            assert!(kept.validity.get(x, y), "{seam:?} ({x},{y})");
-            assert_eq!(kept.r[k], whole.r[w], "{seam:?} ({x},{y})");
-            assert_eq!(kept.g[k], whole.g[w], "{seam:?} ({x},{y})");
-            assert_eq!(kept.b[k], whole.b[w], "{seam:?} ({x},{y})");
+    assert_eq!(report.uncovered_px as usize, uncovered(&whole), "{seam:?}");
+    assert_eq!(
+        report.output_size(),
+        (whole.width(), whole.height()),
+        "{seam:?}"
+    );
+    assert_eq!(
+        (kept.width(), kept.height()),
+        (whole.width(), whole.height())
+    );
+    assert_eq!(kept.r, whole.r, "{seam:?}");
+    assert_eq!(kept.g, whole.g, "{seam:?}");
+    assert_eq!(kept.b, whole.b, "{seam:?}");
+    assert_eq!(kept.validity, whole.validity, "{seam:?}");
+    for y in rect.y..rect.y + rect.height {
+        for x in rect.x..rect.x + rect.width {
+            assert!(whole.validity.get(x, y), "{seam:?} ({x},{y})");
         }
     }
     rect
@@ -226,16 +230,16 @@ fn the_output_bbox_holds_every_output_pixel_a_frame_covers() {
 }
 
 #[test]
-fn auto_crop_keeps_a_covered_rectangle_of_the_uncropped_output() {
+fn auto_crop_reports_a_covered_rectangle_without_trimming_the_output() {
     let s = scene();
     let (warped_canvas, _) = warped(&s, 0.6);
     for seam in [SeamStrategy::Voronoi, SeamStrategy::GraphCut] {
-        let unwarped = assert_crop_keeps_covered_pixels(&s, &s.canvas, seam);
+        let unwarped = assert_crop_reports_covered_rectangle(&s, &s.canvas, seam);
         assert!(
             unwarped.width < s.canvas.width || unwarped.height < s.canvas.height,
             "{seam:?}: the ragged ring must be trimmed"
         );
-        let warped = assert_crop_keeps_covered_pixels(&s, &warped_canvas, seam);
+        let warped = assert_crop_reports_covered_rectangle(&s, &warped_canvas, seam);
         assert!(
             warped.width as u64 * warped.height as u64
                 >= unwarped.width as u64 * unwarped.height as u64,
@@ -245,7 +249,7 @@ fn auto_crop_keeps_a_covered_rectangle_of_the_uncropped_output() {
 }
 
 #[test]
-fn auto_crop_trims_only_rows_on_a_360_degree_ring() {
+fn auto_crop_spans_the_whole_wrapping_axis_of_a_360_degree_ring() {
     let s = scene_of(cameras(12, true));
     assert!(s.canvas.is_full_wrap(), "the closed ring must wrap");
     let (canvas, report) = warped(&s, 1.0);
@@ -254,7 +258,7 @@ fn auto_crop_trims_only_rows_on_a_360_degree_ring() {
         crate::boundary_warp::BoundaryWarpStatus::RefusedFullWrap
     );
     for seam in [SeamStrategy::Voronoi, SeamStrategy::GraphCut] {
-        let rect = assert_crop_keeps_covered_pixels(&s, &canvas, seam);
+        let rect = assert_crop_reports_covered_rectangle(&s, &canvas, seam);
         assert_eq!((rect.x, rect.width), (0, s.canvas.width), "{seam:?}");
         assert!(
             rect.height < s.canvas.height,

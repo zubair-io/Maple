@@ -295,6 +295,37 @@ describe('stitch with Boundary Warp and Auto Crop (#5576)', () => {
   });
 });
 
+describe('stitch with Auto Crop (#5608)', () => {
+  it('records the reported rectangle as a crop in the panorama sidecar and leaves the pixels whole', async () => {
+    const cli = await writeFakePanoCli(tmpDir, { preview: true, edges: true });
+    await fs.writeFile(`${cli}.rect`, '{"x":47,"y":22,"width":1800,"height":600}');
+    try {
+      const withCrop = await panoStitchHandler.run(
+        payload(cli, path.join(tmpDir, `stitch-crop-${process.pid}`), { autoCrop: true }),
+        context().ctx,
+      );
+      const plain = await panoStitchHandler.run(
+        payload(cli, path.join(tmpDir, `stitch-nocrop-${process.pid}`)),
+        context().ctx,
+      );
+
+      expect(withCrop.kind).toBe('done');
+      const png = withCrop.result.outputPath as string;
+      expect(await fs.readFile(png, 'base64')).toBe(TINY_PNG_B64);
+      const sidecar = await fs.readFile(png.replace(/\.png$/, '.xmp'), 'utf8');
+      expect(sidecar).toContain('crs:HasCrop="True"');
+      expect(sidecar).toContain('crs:CropLeft="0.022960"');
+      expect(sidecar).toContain('crs:CropTop="0.030471"');
+      expect(sidecar).toContain('crs:CropRight="0.902296"');
+      expect(sidecar).toContain('crs:CropBottom="0.861496"');
+      const plainPng = plain.result.outputPath as string;
+      expect(await exists(plainPng.replace(/\.png$/, '.xmp'))).toBe(false);
+    } finally {
+      await fs.rm(`${cli}.rect`, { force: true });
+    }
+  });
+});
+
 describe('preview directories', () => {
   it('only owns direct children of the previews root', () => {
     const dir = newPreviewDir();

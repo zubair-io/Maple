@@ -63,8 +63,8 @@ pub struct PanoPreview {
     /// frames ([`super::scratch_bytes`]), the input to callers' free-disk
     /// checks.
     pub scratch_bytes: u64,
-    /// Boundary Warp and Auto Crop on the preview canvas; `width`/`height`
-    /// are already the cropped size.
+    /// Boundary Warp and Auto Crop on the preview canvas, whose size
+    /// `width`/`height` are; the crop rectangle is in those pixels.
     pub edges: EdgesReport,
     /// `[decode, features, match_graph, refine, solve, composite]` seconds;
     /// refine is always 0 (skipped), features and match_graph are 0 when

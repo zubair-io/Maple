@@ -4,7 +4,8 @@
  * classical matcher runs without ML paths), prints `pano: progress` lines, writes
  * whichever of `--display`, `--preview-out`, `--alignment-out` and `--report` it is
  * given, and reports `reused` when handed `--alignment-in`. Every invocation's
- * arguments are appended to `<cli>.args`, one line per run.
+ * arguments are appended to `<cli>.args`, one line per run. With `edges`, a
+ * `<cli>.rect` file holds the JSON rectangle `--auto-crop` reports (else null).
  */
 
 import fs from 'node:fs/promises';
@@ -60,7 +61,7 @@ STATUS=solved; [ -n "$ALIGN_IN" ] && STATUS=reused
 [ -n "$PREVIEW" ] && echo '${TINY_PNG_B64}' | base64 -d > "$PREVIEW"
 [ -n "$ALIGN_OUT" ] && echo '{"format_version":1}' > "$ALIGN_OUT"
 EDGES=""
-${opts.edges ? 'WARP_STATUS=off; [ "$WARP" != "0" ] && WARP_STATUS=applied; EDGES=",\\"edges\\":{\\"output\\":{\\"width\\":2047,\\"height\\":722},\\"uncovered_px\\":0,\\"boundary_warp\\":{\\"requested\\":$WARP,\\"applied\\":$WARP,\\"status\\":\\"$WARP_STATUS\\",\\"max_stretch\\":null,\\"min_jacobian\\":null,\\"predicted_coverage\\":null,\\"solve_ms\\":null},\\"auto_crop\\":{\\"requested\\":$CROP,\\"rect\\":null,\\"invalid_px\\":null}}"' : ''}
+${opts.edges ? 'WARP_STATUS=off; [ "$WARP" != "0" ] && WARP_STATUS=applied; RECT=null; [ -f "$0.rect" ] && [ "$CROP" = true ] && RECT="$(cat "$0.rect")"; EDGES=",\\"edges\\":{\\"output\\":{\\"width\\":2047,\\"height\\":722},\\"uncovered_px\\":0,\\"boundary_warp\\":{\\"requested\\":$WARP,\\"applied\\":$WARP,\\"status\\":\\"$WARP_STATUS\\",\\"max_stretch\\":null,\\"min_jacobian\\":null,\\"predicted_coverage\\":null,\\"solve_ms\\":null},\\"auto_crop\\":{\\"requested\\":$CROP,\\"rect\\":$RECT,\\"invalid_px\\":null}}"' : ''}
 [ -n "$REPORT" ] && echo "{\\"width\\":2047,\\"height\\":722,\\"alignment\\":{\\"status\\":\\"$STATUS\\",\\"stale_reason\\":null},\\"timings_s\\":{\\"total\\":1.5}$EDGES}" > "$REPORT"
 exit 0
 `,

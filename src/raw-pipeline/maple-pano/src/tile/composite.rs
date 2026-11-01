@@ -3,7 +3,7 @@
 
 use crate::blend::{blend_multiband, levels_for_overlap_width, MAX_LEVELS};
 use crate::boundary_warp::{BoundaryWarp, BoundaryWarpReport};
-use crate::composite::{output_size, AutoCropReport, CanvasSink, CropSink, UncoveredCount};
+use crate::composite::{AutoCropReport, CanvasSink, UncoveredCount};
 use crate::error::PanoError;
 use crate::gain::{GainOptions, LensFalloff, LensGroups};
 use crate::ingest::PlanarImage;
@@ -90,9 +90,9 @@ pub struct TileCompositeReport {
 }
 
 impl TileCompositeReport {
-    /// The output's size: the kept rectangle's when Auto Crop cropped it.
+    /// The output's size: the whole canvas, whatever Auto Crop found.
     pub fn output_size(&self) -> (u32, u32) {
-        output_size(self.auto_crop, (self.canvas.width, self.canvas.height))
+        (self.canvas.width, self.canvas.height)
     }
 }
 
@@ -211,8 +211,6 @@ pub(crate) fn composite_tile(
             auto_crop_rect(&coverage, canvas, output)
         })
         .flatten();
-    let mut cropped = CropSink::new(sink, crop_rect);
-    let sink = &mut cropped;
     sink.begin(canvas.width, canvas.height)?;
 
     // Per-frame canvas-space bounding boxes for spatial culling (#3086).
@@ -384,7 +382,7 @@ pub(crate) fn composite_tile(
         uncovered_px: counted.uncovered,
         auto_crop: auto_crop.then_some(AutoCropReport {
             rect: crop_rect,
-            invalid_px: crop_rect.map_or(0, |_| counted.uncovered),
+            invalid_px: 0,
         }),
         photometric_slope_x: phot_summary.slope_x,
         photometric_slope_y: phot_summary.slope_y,

@@ -1,12 +1,9 @@
-//! Auto Crop (#5573): the largest axis-aligned rectangle of the output whose
-//! every pixel is covered, found one row at a time in O(width) memory, and
-//! the sink that keeps only that rectangle.
+//! Auto Crop (#5573, #5608): the largest axis-aligned rectangle of the output
+//! whose every pixel is covered, found one row at a time in O(width) memory.
+//! The output keeps its whole canvas; the rectangle is only reported.
 
 use crate::canvas::CanvasSpec;
-use crate::error::PanoError;
-use crate::ingest::{PlanarImage, ValidityMask};
-
-use super::CanvasSink;
+use crate::ingest::PlanarImage;
 
 /// A rectangle of output pixels.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -23,13 +20,13 @@ impl CropRect {
     }
 }
 
-/// What Auto Crop did to one output.
+/// What Auto Crop found for one output.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct AutoCropReport {
-    /// The kept rectangle, in uncropped output pixels; `None` when no
-    /// covered rectangle exists and the output was left uncropped.
+    /// The largest covered rectangle, in output pixels; `None` when no
+    /// covered rectangle exists.
     pub rect: Option<CropRect>,
-    /// Uncovered pixels inside the kept rectangle.
+    /// Uncovered pixels inside the rectangle: 0, since it is covered by construction.
     pub invalid_px: u64,
 }
 
@@ -53,13 +50,6 @@ impl CropAxes {
             (true, true) => Self::FullHeight,
         }
     }
-}
-
-/// The size of an output `canvas` pixels big after `auto_crop`.
-pub(crate) fn output_size(auto_crop: Option<AutoCropReport>, canvas: (u32, u32)) -> (u32, u32) {
-    auto_crop
-        .and_then(|c| c.rect)
-        .map_or(canvas, |r| (r.width, r.height))
 }
 
 /// The largest all-covered rectangle of a coverage mask streamed top to
@@ -158,71 +148,6 @@ impl LargestRect {
         if rect.area() > self.best.map_or(0, |b| b.area()) {
             self.best = Some(rect);
         }
-    }
-}
-
-/// Forwards only `rect`'s rows and columns of each strip to `inner`, so
-/// every kept pixel is the uncropped output's pixel; everything when `rect`
-/// is `None`.
-pub(crate) struct CropSink<'a> {
-    inner: &'a mut dyn CanvasSink,
-    rect: Option<CropRect>,
-    next_row: u32,
-}
-
-impl<'a> CropSink<'a> {
-    pub fn new(inner: &'a mut dyn CanvasSink, rect: Option<CropRect>) -> Self {
-        Self {
-            inner,
-            rect,
-            next_row: 0,
-        }
-    }
-}
-
-impl CanvasSink for CropSink<'_> {
-    fn begin(&mut self, width: u32, height: u32) -> Result<(), PanoError> {
-        let (w, h) = self.rect.map_or((width, height), |r| (r.width, r.height));
-        self.inner.begin(w, h)
-    }
-
-    fn rows(&mut self, strip: &PlanarImage) -> Result<(), PanoError> {
-        let y0 = self.next_row;
-        self.next_row += strip.height();
-        let Some(rect) = self.rect else {
-            return self.inner.rows(strip);
-        };
-        let first = rect.y.max(y0);
-        let end = (rect.y + rect.height).min(self.next_row);
-        if first >= end {
-            return Ok(());
-        }
-        let (rows, sw) = (end - first, strip.width() as usize);
-        let (cols, row_range) = (
-            rect.x as usize..(rect.x + rect.width) as usize,
-            (first - y0) as usize..(end - y0) as usize,
-        );
-        let [r, g, b] = [&strip.r, &strip.g, &strip.b].map(|plane| {
-            row_range
-                .clone()
-                .flat_map(|y| {
-                    plane[y * sw + cols.start..y * sw + cols.end]
-                        .iter()
-                        .copied()
-                })
-                .collect::<Vec<_>>()
-        });
-        let mut validity = ValidityMask::new_filled(rect.width, rows, false);
-        for (ky, sy) in row_range.enumerate() {
-            for (kx, sx) in cols.clone().enumerate() {
-                if strip.validity.get(sx as u32, sy as u32) {
-                    validity.set(kx as u32, ky as u32, true);
-                }
-            }
-        }
-        self.inner.rows(&PlanarImage::from_planes(
-            rect.width, rows, r, g, b, validity,
-        ))
     }
 }
 

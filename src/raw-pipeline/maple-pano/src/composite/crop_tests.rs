@@ -1,5 +1,4 @@
 use super::*;
-use crate::composite::CanvasCollector;
 use crate::prng::SplitMix64;
 
 fn largest(mask: &[Vec<bool>], axes: CropAxes) -> Option<CropRect> {
@@ -118,70 +117,4 @@ fn a_wrapping_canvas_keeps_its_whole_periodic_axis() {
         height: 3,
     };
     assert_eq!(largest(&columns, CropAxes::FullHeight), Some(expected));
-}
-
-fn canvas(w: u32, h: u32, rng: &mut SplitMix64) -> PlanarImage {
-    let n = (w * h) as usize;
-    let mut plane = || (0..n).map(|_| rng.next_range(0.0, 1.0) as f32).collect();
-    let (r, g, b) = (plane(), plane(), plane());
-    let mut validity = ValidityMask::new_filled(w, h, true);
-    validity.set(0, 0, false);
-    PlanarImage::from_planes(w, h, r, g, b, validity)
-}
-
-fn stream(image: &PlanarImage, strip_rows: u32, rect: Option<CropRect>) -> PlanarImage {
-    let (w, h) = (image.width(), image.height());
-    let mut collector = CanvasCollector::default();
-    let mut sink = CropSink::new(&mut collector, rect);
-    sink.begin(w, h).expect("begin");
-    for y0 in (0..h).step_by(strip_rows as usize) {
-        let y1 = (y0 + strip_rows).min(h);
-        let rows = (y0 * w) as usize..(y1 * w) as usize;
-        let mut validity = ValidityMask::new_filled(w, y1 - y0, false);
-        for y in y0..y1 {
-            for x in 0..w {
-                validity.set(x, y - y0, image.validity.get(x, y));
-            }
-        }
-        let strip = PlanarImage::from_planes(
-            w,
-            y1 - y0,
-            image.r[rows.clone()].to_vec(),
-            image.g[rows.clone()].to_vec(),
-            image.b[rows].to_vec(),
-            validity,
-        );
-        sink.rows(&strip).expect("rows");
-    }
-    collector.into_image()
-}
-
-#[test]
-fn the_crop_sink_keeps_the_uncropped_pixels_at_any_strip_height() {
-    let image = canvas(13, 11, &mut SplitMix64::new(1));
-    let rect = CropRect {
-        x: 3,
-        y: 2,
-        width: 7,
-        height: 6,
-    };
-    for strip_rows in [1, 2, 4, 5, 11] {
-        let kept = stream(&image, strip_rows, Some(rect));
-        assert_eq!((kept.width(), kept.height()), (7, 6), "strip {strip_rows}");
-        for y in 0..6 {
-            for x in 0..7 {
-                let (sx, sy) = (x + rect.x, y + rect.y);
-                let (k, s) = ((y * 7 + x) as usize, (sy * 13 + sx) as usize);
-                let ctx = format!("strip {strip_rows} ({x},{y})");
-                assert_eq!(kept.r[k], image.r[s], "{ctx}");
-                assert_eq!(kept.g[k], image.g[s], "{ctx}");
-                assert_eq!(kept.b[k], image.b[s], "{ctx}");
-                assert_eq!(kept.validity.get(x, y), image.validity.get(sx, sy), "{ctx}");
-            }
-        }
-    }
-    let whole = stream(&image, 4, None);
-    assert_eq!((whole.width(), whole.height()), (13, 11));
-    assert_eq!(whole.r, image.r);
-    assert!(!whole.validity.get(0, 0));
 }

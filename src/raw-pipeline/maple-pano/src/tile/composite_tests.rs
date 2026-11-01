@@ -393,18 +393,18 @@ fn a_full_strength_boundary_warp_leaves_no_output_pixel_uncovered() {
             crate::composite::largest_valid_rect(&whole, crate::composite::CropAxes::Both)
         );
         assert_eq!(crop.invalid_px, 0);
-        assert_eq!((kept.width(), kept.height()), (rect.width, rect.height));
-        assert_eq!(report.output_size(), (rect.width, rect.height));
-        for y in 0..rect.height {
-            for x in 0..rect.width {
-                let (k, w) = (
-                    (y * rect.width + x) as usize,
-                    ((y + rect.y) * whole.width() + x + rect.x) as usize,
-                );
-                assert!(kept.validity.get(x, y), "({x},{y}) uncovered");
-                assert_eq!(kept.r[k], whole.r[w], "({x},{y})");
-                assert_eq!(kept.g[k], whole.g[w], "({x},{y})");
-                assert_eq!(kept.b[k], whole.b[w], "({x},{y})");
+        assert_eq!(
+            (kept.width(), kept.height()),
+            (whole.width(), whole.height())
+        );
+        assert_eq!(report.output_size(), (whole.width(), whole.height()));
+        assert_eq!(kept.r, whole.r);
+        assert_eq!(kept.g, whole.g);
+        assert_eq!(kept.b, whole.b);
+        assert_eq!(kept.validity, whole.validity);
+        for y in rect.y..rect.y + rect.height {
+            for x in rect.x..rect.x + rect.width {
+                assert!(whole.validity.get(x, y), "({x},{y}) uncovered");
             }
         }
     }

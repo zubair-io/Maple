@@ -45,8 +45,8 @@ mod tiled;
 
 #[cfg(test)]
 pub(crate) use crop::largest_valid_rect;
-pub(crate) use crop::{output_size, CropAxes, CropSink, LargestRect};
 pub use crop::{AutoCropReport, CropRect};
+pub(crate) use crop::{CropAxes, LargestRect};
 pub use owner::OwnerRuns;
 pub(crate) use sink::CancellableSink;
 pub(crate) use sink::UncoveredCount;
@@ -108,14 +108,14 @@ pub struct CompositeReport {
     pub boundary_warp: Option<BoundaryWarpReport>,
     /// Output pixels no frame covered.
     pub uncovered_px: u64,
-    /// The rectangle Auto Crop kept (#5573); `None` when none was requested.
+    /// The rectangle Auto Crop found (#5573); `None` when none was requested.
     pub auto_crop: Option<AutoCropReport>,
 }
 
 impl CompositeReport {
-    /// The output's size: the kept rectangle's when Auto Crop cropped it.
+    /// The output's size: the whole canvas, whatever Auto Crop found.
     pub fn output_size(&self) -> (u32, u32) {
-        output_size(self.auto_crop, (self.canvas.width, self.canvas.height))
+        (self.canvas.width, self.canvas.height)
     }
 }
 
