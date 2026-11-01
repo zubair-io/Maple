@@ -28,7 +28,7 @@
   </div>
   <div class="helper" [id]="helperId" role="status">
     @if (helper(); as text) {
-      <span class="flex items-start gap-1">
+      <span class="flex items-start gap-1" [attr.data-testid]="helperTestId()">
         @if (helperTone() === 'warning') {
           <mui-icon name="info" size="sm" class="mt-0.5 shrink-0 text-warn" />
         }

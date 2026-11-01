@@ -44,6 +44,8 @@ export class MuiSliderComponent {
   readonly disabled = input<boolean>(false);
   readonly helper = input<string | null>(null);
   readonly helperTone = input<MuiSliderHelperTone>('muted');
+  /** `data-testid` for the helper text, so a host can target its reason line. */
+  readonly helperTestId = input<string | null>(null);
 
   /** Fires once with the final value when a drag or key press ends, and not
    * when the value ends where the change began. */
