@@ -72,6 +72,40 @@ import UniformTypeIdentifiers
     #expect((image.width, image.height) == (32, 16))
   }
 
+  private struct DiskFull: Error {}
+
+  @Test func aFailureWhileMarkingLeavesThePngByteForByteIntact() throws {
+    let original = try pngData(width: 32, height: 16)
+    let url = FileManager.default.temporaryDirectory.appendingPathComponent(
+      "intact-\(UUID().uuidString).png")
+    defer { try? FileManager.default.removeItem(at: url) }
+    try original.write(to: url)
+
+    #expect(throws: DiskFull.self) {
+      try PanoAutoCropRecord.markPNG(at: url, with: crop) { handle, tail in
+        try handle.write(contentsOf: tail.prefix(5))
+        throw DiskFull()
+      }
+    }
+
+    #expect(try Data(contentsOf: url) == original)
+  }
+
+  @Test func aFailedMarkTakesTheCropSidecarBackOut() throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(
+      "unmarked-\(UUID().uuidString)", isDirectory: true)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let panorama = directory.appendingPathComponent("panorama-1.png")
+    try Data("not a png at all".utf8).write(to: panorama)
+
+    #expect(throws: (any Error).self) {
+      try PanoAutoCropRecord.record(crop, forPanorama: panorama)
+    }
+
+    #expect(!FileManager.default.fileExists(atPath: directory.appendingPathComponent("panorama-1.xmp").path))
+  }
+
   @Test func recordingWritesTheSidecarBesideThePanoramaAndNeverReplacesOne() throws {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(
       "record-\(UUID().uuidString)", isDirectory: true)

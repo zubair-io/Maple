@@ -29,17 +29,29 @@ enum PanoAutoCropRecord {
     /// when the rectangle is no crop. An existing sidecar is never replaced.
     static func record(_ crop: PanoAutoCrop, forPanorama panorama: URL) throws {
         guard let xml = sidecarXML(for: crop) else { return }
-        try Data(xml.utf8).write(
-            to: SidecarPath.sidecarURL(for: panorama), options: .withoutOverwriting)
-        try markPNG(at: panorama, with: crop)
+        let sidecar = SidecarPath.sidecarURL(for: panorama)
+        try Data(xml.utf8).write(to: sidecar, options: .withoutOverwriting)
+        do {
+            try markPNG(at: panorama, with: crop)
+        } catch {
+            try? FileManager.default.removeItem(at: sidecar)
+            throw error
+        }
     }
 
     static func markText(_ crop: PanoAutoCrop) -> String {
         "\(crop.x),\(crop.y),\(crop.width),\(crop.height)"
     }
 
-    /// Inserts the mark before the closing `IEND` chunk.
-    static func markPNG(at url: URL, with crop: PanoAutoCrop) throws {
+    /// Inserts the mark before the closing `IEND` chunk without ever leaving the
+    /// PNG without one: the mark and a new `IEND` are appended past the old
+    /// `IEND` first, and a failure there cuts the file back to its original
+    /// length. Only then do the first 12 bytes of that tail overwrite the old
+    /// `IEND`, a write into space the file already holds.
+    static func markPNG(
+        at url: URL, with crop: PanoAutoCrop,
+        appendTail: (FileHandle, Data) throws -> Void = { try $0.write(contentsOf: $1) }
+    ) throws {
         let handle = try FileHandle(forUpdating: url)
         defer { try? handle.close() }
         let size = try handle.seekToEnd()
@@ -49,10 +61,16 @@ enum PanoAutoCropRecord {
         guard try handle.read(upToCount: iend.count) == iend else {
             throw CocoaError(.fileReadCorruptFile)
         }
-        try handle.truncate(atOffset: size - UInt64(iend.count))
-        try handle.seekToEnd()
-        try handle.write(contentsOf: chunk("tEXt", Data("\(markKeyword)\0\(markText(crop))".utf8)))
-        try handle.write(contentsOf: iend)
+        let tail = chunk("tEXt", Data("\(markKeyword)\0\(markText(crop))".utf8)) + iend
+        do {
+            try handle.seek(toOffset: size)
+            try appendTail(handle, Data(tail.dropFirst(iend.count)))
+        } catch {
+            try? handle.truncate(atOffset: size)
+            throw error
+        }
+        try handle.seek(toOffset: size - UInt64(iend.count))
+        try handle.write(contentsOf: tail.prefix(iend.count))
         try handle.synchronize()
     }
 
