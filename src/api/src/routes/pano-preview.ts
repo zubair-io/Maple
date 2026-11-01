@@ -22,6 +22,7 @@ import { child as childLogger } from '../log.ts';
 import { newPreviewDir, ownedPreviewDir, PREVIEW_FILES } from '../pano/pano-previews.ts';
 import { activePanoJob, admitPanoPreview, panoJobRunning } from '../pano/pano-admission.ts';
 import {
+  edgesRefusal,
   findPanoJob,
   panoJobPayload,
   planStitch,
@@ -48,6 +49,11 @@ export const panoPreviewRoutes = new Elysia({ prefix: '/api/pano' })
           error: 'pano_preview_unsupported',
           message: 'The configured maple-cli predates the quick panorama preview.',
         };
+      }
+      const unsupportedEdges = edgesRefusal(stitchPlan, body);
+      if (unsupportedEdges) {
+        set.status = 409;
+        return unsupportedEdges;
       }
       const stitching = await activePanoJob('pano_stitch');
       if (stitching !== null) {

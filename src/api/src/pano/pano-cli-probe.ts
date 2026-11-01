@@ -19,12 +19,15 @@ export interface PanoCliCapabilities {
   featuresEngine: boolean;
   /** `--preview-out` / `--alignment-in` / `--alignment-out` (#4578). */
   preview: boolean;
+  /** `--boundary-warp` / `--auto-crop` (#5574). */
+  edges: boolean;
 }
 
 const NO_CAPABILITIES: PanoCliCapabilities = {
   strategy: false,
   featuresEngine: false,
   preview: false,
+  edges: false,
 };
 
 let cached: { key: string; capabilities: PanoCliCapabilities } | null = null;
@@ -64,6 +67,7 @@ export async function probePanoCli(cliPath: string): Promise<PanoCliCapabilities
       strategy: help.includes('--strategy'),
       featuresEngine: help.includes('--features-engine'),
       preview: help.includes('--preview-out') && help.includes('--alignment-in'),
+      edges: help.includes('--boundary-warp') && help.includes('--auto-crop'),
     }))
     .catch(() => NO_CAPABILITIES);
   cached = { key, capabilities };

@@ -16,23 +16,26 @@ export const TINY_PNG_B64 =
 export interface FakeCliOptions {
   /** Whether `--help` lists `--preview-out` and `--alignment-in`. */
   preview: boolean;
+  /** Whether `--help` lists `--boundary-warp` and `--auto-crop`; the report then carries an `edges` block echoing them. */
+  edges?: boolean;
   exitCode?: number;
 }
 
 export async function writeFakePanoCli(dir: string, opts: FakeCliOptions): Promise<string> {
   const cli = path.join(
     dir,
-    `fake-maple-cli-${opts.preview ? 'preview' : 'legacy'}-${opts.exitCode ?? 0}`,
+    `fake-maple-cli-${opts.preview ? 'preview' : 'legacy'}${opts.edges ? '-edges' : ''}-${opts.exitCode ?? 0}`,
   );
   const helpFlags = opts.preview
     ? '--strategy --features-engine <E> --preview-out <PNG> --alignment-in <JSON> --alignment-out <JSON>'
     : '--strategy --features-engine <E>';
+  const helpWithEdges = opts.edges ? `${helpFlags} --boundary-warp <PCT> --auto-crop` : helpFlags;
   await fs.writeFile(
     cli,
     `#!/bin/sh
 echo "$*" >> "$0.args"
-case "$*" in *--help*) echo "Usage: maple-cli pano stitch ${helpFlags}"; exit 0;; esac
-DISPLAY=""; PREVIEW=""; ALIGN_OUT=""; ALIGN_IN=""; REPORT=""
+case "$*" in *--help*) echo "Usage: maple-cli pano stitch ${helpWithEdges}"; exit 0;; esac
+DISPLAY=""; PREVIEW=""; ALIGN_OUT=""; ALIGN_IN=""; REPORT=""; WARP=0; CROP=false
 while [ $# -gt 0 ]; do
   case "$1" in
     --display) shift; DISPLAY="$1";;
@@ -40,6 +43,8 @@ while [ $# -gt 0 ]; do
     --alignment-out) shift; ALIGN_OUT="$1";;
     --alignment-in) shift; ALIGN_IN="$1";;
     --report) shift; REPORT="$1";;
+    --boundary-warp) shift; WARP="$1";;
+    --auto-crop) CROP=true;;
   esac
   shift
 done
@@ -54,7 +59,9 @@ STATUS=solved; [ -n "$ALIGN_IN" ] && STATUS=reused
 [ -n "$DISPLAY" ] && echo '${TINY_PNG_B64}' | base64 -d > "$DISPLAY"
 [ -n "$PREVIEW" ] && echo '${TINY_PNG_B64}' | base64 -d > "$PREVIEW"
 [ -n "$ALIGN_OUT" ] && echo '{"format_version":1}' > "$ALIGN_OUT"
-[ -n "$REPORT" ] && echo "{\\"width\\":2047,\\"height\\":722,\\"alignment\\":{\\"status\\":\\"$STATUS\\",\\"stale_reason\\":null},\\"timings_s\\":{\\"total\\":1.5}}" > "$REPORT"
+EDGES=""
+${opts.edges ? 'WARP_STATUS=off; [ "$WARP" != "0" ] && WARP_STATUS=applied; EDGES=",\\"edges\\":{\\"output\\":{\\"width\\":2047,\\"height\\":722},\\"uncovered_px\\":0,\\"boundary_warp\\":{\\"requested\\":$WARP,\\"applied\\":$WARP,\\"status\\":\\"$WARP_STATUS\\",\\"max_stretch\\":null,\\"min_jacobian\\":null,\\"predicted_coverage\\":null,\\"solve_ms\\":null},\\"auto_crop\\":{\\"requested\\":$CROP,\\"rect\\":null,\\"invalid_px\\":null}}"' : ''}
+[ -n "$REPORT" ] && echo "{\\"width\\":2047,\\"height\\":722,\\"alignment\\":{\\"status\\":\\"$STATUS\\",\\"stale_reason\\":null},\\"timings_s\\":{\\"total\\":1.5}$EDGES}" > "$REPORT"
 exit 0
 `,
   );

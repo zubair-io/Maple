@@ -27,9 +27,13 @@ export interface PanoOutputIdentity {
   localAlign: string;
   strategy: string | null;
   matcher: string;
+  /** Percent; 0 is the unwarped default. */
+  boundaryWarp: number;
+  autoCrop: boolean;
 }
 
 function identityKey(identity: PanoOutputIdentity): string {
+  const edgesChosen = identity.boundaryWarp > 0 || identity.autoCrop;
   const canonical = JSON.stringify([
     [...identity.assetIds].sort(),
     [...identity.inputStamps].sort(),
@@ -37,6 +41,8 @@ function identityKey(identity: PanoOutputIdentity): string {
     identity.localAlign,
     identity.strategy,
     identity.matcher,
+    // Appended only when chosen, so a panorama made without edge options keeps its name.
+    ...(edgesChosen ? [identity.boundaryWarp, identity.autoCrop] : []),
   ]);
   return createHash('sha256').update(canonical).digest('hex').slice(0, 8);
 }
