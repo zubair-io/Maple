@@ -21,12 +21,18 @@ afterEach(() => {
   live.close();
 });
 
-const stitchPayload = (assetIds: string[]) => ({
+const stitchPayload = (
+  assetIds: string[],
+  edges: { boundaryWarp?: number; autoCrop?: boolean } = {},
+) => ({
   assetIds,
   libraryId: 'lib',
   retention: 'keep',
   localAlign: 'mesh',
   strategy: null,
+  boundaryWarp: 0,
+  autoCrop: false,
+  ...edges,
 });
 
 /** The race: the read before the insert has not yet seen the winning stitch. */
@@ -46,6 +52,40 @@ describe('admitPanoStitch behind a racing request', () => {
     if ('created' in winner && 'rejoined' in loser) {
       expect(loser.rejoined._id.toHexString()).toBe(winner.created._id.toHexString());
     }
+  });
+
+  it('refuses the same frames with a different Boundary Warp or Auto Crop', async () => {
+    await admitPanoStitch(stitchPayload(['a', 'b'], { boundaryWarp: 40 }));
+    for (const edges of [{ boundaryWarp: 60 }, { boundaryWarp: 0 }, { autoCrop: true }]) {
+      const read = missTheWinnerOnce();
+      const raced = await admitPanoStitch(
+        stitchPayload(['a', 'b'], { boundaryWarp: 40, ...edges }),
+      );
+      read.mockRestore();
+      expect('running' in raced).toBe(true);
+      expect('running' in (await admitPanoStitch(stitchPayload(['a', 'b'], edges)))).toBe(true);
+    }
+  });
+
+  it('rejoins a repeat with identical edge options', async () => {
+    const edges = { boundaryWarp: 40, autoCrop: true };
+    const winner = await admitPanoStitch(stitchPayload(['a', 'b'], edges));
+    const repeat = await admitPanoStitch(stitchPayload(['b', 'a'], edges));
+    expect('created' in winner && 'rejoined' in repeat).toBe(true);
+    if ('created' in winner && 'rejoined' in repeat) {
+      expect(repeat.rejoined._id.toHexString()).toBe(winner.created._id.toHexString());
+    }
+  });
+
+  it('rejoins a default request onto a legacy payload without the edge fields', async () => {
+    const { boundaryWarp: _warp, autoCrop: _crop, ...legacy } = stitchPayload(['a', 'b']);
+    const winner = await jobsRepo.createJob({ kind: 'pano_stitch', payload: legacy });
+    const repeat = await admitPanoStitch(stitchPayload(['a', 'b']));
+    expect('rejoined' in repeat && repeat.rejoined._id.toHexString()).toBe(
+      winner._id.toHexString(),
+    );
+    const cropped = await admitPanoStitch(stitchPayload(['a', 'b'], { autoCrop: true }));
+    expect('running' in cropped).toBe(true);
   });
 
   it('refuses a different stitch with the winner as the running job', async () => {
