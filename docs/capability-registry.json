@@ -944,17 +944,17 @@
         "src/api/src/fs/xmp.ts",
         "src/api/src/fs/xmp-sidecar-path.ts"
       ],
-      "corpus_hash": "blake3:88ef09fb27818d3037a321e4632b7b1f8014b8bcbf031905c41beab9baa59410",
+      "corpus_hash": "blake3:9c365097e76d943abf015aa7abff355f47388abf758a3f5112ad352fa56ead87",
       "status": "satisfied",
       "record": {
         "backend": "bun",
-        "corpus_hash": "blake3:88ef09fb27818d3037a321e4632b7b1f8014b8bcbf031905c41beab9baa59410",
+        "corpus_hash": "blake3:9c365097e76d943abf015aa7abff355f47388abf758a3f5112ad352fa56ead87",
         "expected_cases": 4,
         "executed_cases": 4,
         "failed_cases": 0,
         "skipped_cases": 0,
-        "git_sha": "054090d04ddd6d00bc4532b22521641cb88f7acd",
-        "recorded_at": "2026-11-01T18:09:21Z",
+        "git_sha": "f0fe4bc1278f3609c6982cafa487dc2c06e2d179",
+        "recorded_at": "2026-11-01T18:11:04Z",
         "command": "/bin/bash /private/tmp/claude-501/-Users-riabuz-Projects--Maple--claude-worktrees-maple-code-review-validation-0bd9ad/b69c721f-c5d3-4c55-bcdf-c48c165dacbf/scratchpad/apitest.sh"
       }
     },
