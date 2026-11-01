@@ -52,6 +52,8 @@ enum PanoFFICall {
                 try withOptionalCString(alignmentIn) { alignmentInPath in
                     maple_pano_stitch_aligned(
                         paths.baseAddress, UInt(paths.count), outPath, alignmentInPath, canvasCap,
+                        // Boundary Warp / Auto Crop reach the UI in #5575.
+                        MaplePanoEdges(), nil,
                         enums.retention, enums.localAlign, enums.strategy, enums.featureEngine,
                         panoProgressTrampoline, ctx, cancelFlag.pointer
                     )
@@ -87,6 +89,8 @@ enum PanoFFICall {
                         maple_pano_preview(
                             paths.baseAddress, UInt(paths.count), pngPath,
                             alignmentInPath, alignmentOutPath, &sizes,
+                            // Boundary Warp / Auto Crop reach the UI in #5575.
+                            MaplePanoEdges(), nil,
                             enums.retention, enums.localAlign, enums.strategy, enums.featureEngine,
                             panoProgressTrampoline, ctx, cancelFlag.pointer
                         )

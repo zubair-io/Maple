@@ -112,6 +112,15 @@ The key is the identity of every input — canonical path, byte size, modificati
 
 Surfaces: `maple-cli pano stitch --preview-out <png>` (plus `--alignment-out`, and `--alignment-in` on a later preview or full stitch; the report carries `"alignment": {"status": "solved" | "reused" | "stale", "stale_reason"}`), and the C-FFI entries `maple_pano_preview` / `maple_pano_stitch_aligned` below.
 
+**Edges (#5570).** Boundary Warp stretches the panorama's ragged edge toward the full output rectangle, and Auto Crop trims the output to its largest rectangle with no empty edges. Both apply to the preview as well as the full stitch. Neither is part of the alignment key, so changing one reuses the alignment and skips matching. On every outside surface the warp strength is a percent from 0 to 100, the slider's scale. At 0 with Auto Crop off, the output is byte-identical to a stitch without these options. The warp is refused on a 360° panorama, where Auto Crop keeps the wrapping axis whole, and it is held below the requested strength where a stronger warp would fold the image. On the CLI, `maple-cli pano stitch --boundary-warp <0-100> --auto-crop` adds an `edges` block to the stitch and preview reports:
+
+- `output` is the size of the image that was written, after any crop.
+- `uncovered_px` counts output pixels no frame covers.
+- `boundary_warp` holds `requested`, `applied` (both percents) and `status`. The status is one of `off`, `applied`, `clamped_fold`, `refused_full_wrap`, `refused_disconnected`, `refused_empty`, `refused_shape`, `refused_fold` or `refused_solve`. The block also carries `max_stretch`, `min_jacobian`, `predicted_coverage` and `solve_ms`, which are null when the status is `off`.
+- `auto_crop` holds `requested`, `rect` (`{x, y, width, height}` in uncropped canvas pixels, null when no fully covered rectangle exists) and `invalid_px`. `rect` and `invalid_px` are both null when Auto Crop is off.
+
+The existing `canvas` block stays the uncropped canvas.
+
 While a preview or stitch runs, `maple-cli` writes one `pano: progress <stage> <label> <percent>%` line to stderr each time a stage (0 decode, 1 features, 2 match_graph, 3 refine, 4 solve, 5 composite) moves by a whole percent. Decoding and feature extraction advance per frame. Matching, which dominates a preview (about 90 of 105 s on pano_01), advances with the first frame of each candidate pair as the pairs are matched in ascending order — monotone but uneven, since early frames have more candidates. Composite and refinement advance per strip or edge. The Self Hosted job runner and the Windows stitch dialog both parse these lines.
 
 On Windows the stitch dialog previews as soon as it opens (#4581). Changing an option waits 600 ms for further changes, kills the preview still running, and starts a new one offered the last preview's alignment — so retention and local-alignment changes re-preview without matching again, while a strategy change re-solves. "Create panorama" passes the newest alignment to the full stitch, and the result message says whether it was reused. Preview images and alignment files live in a per-dialog folder under `%TEMP%\Maple\Pano`, removed when the stitch ends; folders a crashed session left behind are removed the next time the dialog opens.
@@ -185,6 +194,7 @@ int32_t maple_pano_stitch(
 | −7   | pipeline error — decode, match, BA, composite, or write                                         |
 | −8   | degenerate rotation geometry; retry with Auto or Tile                                           |
 | −9   | not enough free space on the temp volume for the decoded frames; a smaller output does not help |
+| −10  | an edge option is out of range: `edges.boundary_warp` outside 0–100 (preview pair only)         |
 
 The quick-preview pair (#4578, `pano_preview.rs`) shares those conventions and codes:
 
@@ -195,6 +205,8 @@ int32_t maple_pano_preview(
     const char *alignment_in_path,      // nullable: reuse when it still matches
     const char *alignment_out_path,     // nullable: write the solved alignment JSON
     MaplePanoPreviewSizes *out_sizes,   // nullable: what the full stitch will hold (#5454)
+    MaplePanoEdges edges,               // Boundary Warp percent + Auto Crop (#5574); {0, false} = off
+    MaplePanoEdgesReport *out_edges,    // nullable: what the edge options did
     MaplePanoRetention retention, MaplePanoLocalAlign local_align, MaplePanoStrategy strategy,
     MaplePanoFeatureEngine engine,
     MaplePanoProgressFn progress_cb, void *cb_user, const MapleCancelFlag *cancel);
@@ -203,12 +215,15 @@ int32_t maple_pano_stitch_aligned(
     const char *const *raw_paths, size_t count, const char *out_png_path,
     const char *alignment_in_path,      // nullable: null behaves exactly like maple_pano_stitch
     uint64_t max_canvas_px,             // output canvas pixel cap; 0 = the default 256 MP (#5454)
+    MaplePanoEdges edges, MaplePanoEdgesReport *out_edges,
     MaplePanoRetention retention, MaplePanoLocalAlign local_align, MaplePanoStrategy strategy,
     MaplePanoFeatureEngine engine,
     MaplePanoProgressFn progress_cb, void *cb_user, const MapleCancelFlag *cancel);
 ```
 
 `MaplePanoPreviewSizes` is `{ uint32_t full_width, full_height; uint64_t largest_frame_px; uint64_t scratch_bytes; }`: the estimated full-stitch canvas under the same options and the default cap, the pixel count of the largest frame at full resolution, and the temp-volume space the stitch's decoded-frame store will need (#5555). The store holds every frame at full resolution, so `scratch_bytes` does not depend on the output size. `maple_pano_sweep_scratch()` removes stores that a terminated process left in the temp directory and keeps a live process's; every store creation already does the same, and the app also calls it at launch. On the rotation path the estimate scales each surviving proxy camera to full resolution (focal length and frame size by that frame's own proxy ratio) and runs the full stitch's `auto_canvas` on them under the cap, so with mixed input resolutions the densest frame sets the size, as it does in the stitch. On the tile path the canvas is in the anchor frame's pixels (placement fixes frame 0 at the identity), so the estimate scales the natural proxy canvas by frame 0's ratio on each axis and shrinks it uniformly to the cap. It solves on proxy-accuracy matches, so it lands within a few percent of the refined stitch (3.9 % in height on pano_01's first three frames). A canvas larger than `max_canvas_px` is shrunk uniformly to fit, on both strategies. The cap applies to the real stitched canvas, so an estimate a few percent off in shape shifts the capped width by about half that. The cap is not part of the alignment key, so a capped stitch still reuses the preview's alignment. The rotation path's degenerate-geometry guard compares the natural canvas against the larger of the requested cap and the 256 MP default. Without that, a small output cap on a wide panorama would read as runaway geometry and fail the stitch.
+
+`MaplePanoEdges` is `{ float boundary_warp; bool auto_crop; }`, with the strength as a percent from 0 to 100. `MaplePanoEdgesReport` is `{ MaplePanoBoundaryWarpStatus boundary_warp_status; float boundary_warp_applied; bool auto_cropped; }`. Its status cases are `WarpOff`, `WarpApplied`, `WarpClampedFold`, `WarpRefusedFullWrap`, `WarpRefusedDisconnected`, `WarpRefusedEmpty`, `WarpRefusedShape`, `WarpRefusedFold` and `WarpRefusedSolve`. The `Warp` prefix is there because C enum cases share one namespace. `out_edges` is written only when the return code is ≥ 0. The preview PNG comes back already warped and cropped, while `MaplePanoPreviewSizes` stays the uncropped canvas, which is what the stitch's memory use follows.
 
 Both return `1` (soft) when an offered alignment was stale or unreadable and matching re-ran, with the reason in `maple_last_error()`; `−5` covers any non-UTF-8 output or alignment path. The preview reports progress stage 3 complete immediately, since it skips refinement. Windows drives the same flow through `maple-cli` and does not bind these.
 

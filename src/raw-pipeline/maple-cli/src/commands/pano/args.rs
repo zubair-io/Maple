@@ -141,6 +141,17 @@ pub struct StitchArgs {
     /// Write the solved (or reused) alignment JSON here.
     #[arg(long, conflicts_with = "manifest")]
     pub(super) alignment_out: Option<PathBuf>,
+    /// Boundary Warp strength (#5572), a percent from 0 to 100: how far the
+    /// ragged edge is stretched out toward the full rectangle. 0 leaves the
+    /// output byte-identical. Refused on 360° panoramas; clamped where a
+    /// stronger warp would fold the image — the report's `edges` block says
+    /// which.
+    #[arg(long, default_value_t = 0.0, value_parser = super::edges::parse_strength)]
+    pub(super) boundary_warp: f64,
+    /// Auto Crop (#5573): trim the output to its largest rectangle with no
+    /// empty edges. On a 360° panorama the wrapping axis is kept whole.
+    #[arg(long)]
+    pub(super) auto_crop: bool,
 }
 
 impl StitchArgs {

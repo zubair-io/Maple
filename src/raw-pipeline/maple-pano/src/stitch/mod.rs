@@ -88,6 +88,7 @@ mod alignment;
 mod alignment_codec;
 mod boundary;
 mod degenerate;
+mod edges;
 mod engine;
 mod focal_bootstrap;
 mod frames;
@@ -110,6 +111,7 @@ pub use alignment::{
     AlignedFrame, AlignmentKey, AlignmentReuse, InputIdentity, SolvedAlignment,
     ALIGNMENT_FORMAT_VERSION,
 };
+pub use edges::EdgesReport;
 pub use engine::FeatureEngine;
 pub use focal_bootstrap::FocalSeedSource;
 pub use frames::{scratch_bytes, sweep_orphaned_scratch};

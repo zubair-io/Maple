@@ -41,8 +41,8 @@ use maple_pano::ba::RetentionPolicy;
 use maple_pano::exif_embed::build_exif_blob;
 use maple_pano::render::PngMetadata;
 use maple_pano::stitch::{
-    stitch_reusing, AlignmentReuse, DisplayPng, FeatureEngine, PngCanvasSink, SolvedAlignment,
-    StitchError, StitchOptions,
+    stitch_reusing, AlignmentReuse, DisplayPng, EdgesReport, FeatureEngine, PngCanvasSink,
+    SolvedAlignment, StitchError, StitchOptions,
 };
 use maple_pano::strategy::StrategyRequest;
 use raw_core::read_exif;
@@ -91,7 +91,8 @@ pub(super) fn stitch_options(
 /// `alignment_in` (#4578): a solved-alignment file from `maple_pano_preview`.
 /// When it still matches the inputs and options, matching is skipped; when
 /// it doesn't (or can't be read) the stitch re-solves and returns `1` with
-/// the reason in `maple_last_error()`.
+/// the reason in `maple_last_error()`. The edges report comes back with any
+/// non-negative code.
 pub(super) fn run_stitch_apple(
     input_paths: Vec<String>,
     out_png_path: String,
@@ -99,7 +100,7 @@ pub(super) fn run_stitch_apple(
     opts: StitchOptions,
     cb: SendProgressCallback,
     send_cancel: SendCancelPtr,
-) -> i32 {
+) -> (i32, Option<EdgesReport>) {
     let inputs: Vec<PathBuf> = input_paths.iter().map(PathBuf::from).collect();
     let mut progress = progress_adapter(cb);
     let is_cancelled = cancel_adapter(send_cancel);
@@ -129,7 +130,7 @@ pub(super) fn run_stitch_apple(
         if !parent.as_os_str().is_empty() {
             if let Err(e) = std::fs::create_dir_all(parent) {
                 set_last_error(format!("maple_pano_stitch: create output dir: {e}"));
-                return -7;
+                return (-7, None);
             }
         }
     }
@@ -163,7 +164,7 @@ pub(super) fn run_stitch_apple(
         &is_cancelled,
     ) {
         Ok(run) => run,
-        Err(e) => return error_rc("maple_pano_stitch", e),
+        Err(e) => return (error_rc("maple_pano_stitch", e), None),
     };
     match sink.finish() {
         Ok(sidecars) => {
@@ -174,11 +175,14 @@ pub(super) fn run_stitch_apple(
             if let Err(e) = sidecars.map_or(Ok(()), |s| s.write(out_path)) {
                 eprintln!("maple_pano_stitch: derivative generation failed (non-fatal): {e}");
             }
-            reuse_rc("maple_pano_stitch", &run.reuse, unreadable)
+            (
+                reuse_rc("maple_pano_stitch", &run.reuse, unreadable),
+                Some(run.success.edges()),
+            )
         }
         Err(e) => {
             set_last_error(format!("maple_pano_stitch: write PNG: {e}"));
-            -7
+            (-7, None)
         }
     }
 }

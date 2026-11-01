@@ -49,6 +49,8 @@
 //!      and cannot be rotation-stitched — retry with Auto or Tile strategy)
 //! −9   not enough free space on the temp volume for the decoded frames
 //!      (detail, with the bytes needed and available, in last_error)
+//! −10  an edge option is out of range (`maple_pano_preview` /
+//!      `maple_pano_stitch_aligned`: `edges.boundary_warp` outside 0–100)
 //! ```
 
 use crate::cancel::SendCancelPtr;
@@ -262,6 +264,7 @@ pub unsafe extern "C" fn maple_pano_stitch(
                 cb, // SendProgressCallback (Send) — pano_apple deconstructs it
                 send_cancel,
             )
+            .0
         })
     }
 
@@ -364,6 +367,11 @@ pub extern "C" fn maple_pano_ort_selftest() -> i32 {
 #[cfg(any(target_os = "macos", target_os = "ios"))]
 #[path = "pano_apple.rs"]
 mod pano_apple;
+
+// Boundary Warp / Auto Crop options and report (#5574).
+#[path = "pano_edges.rs"]
+mod pano_edges;
+pub use pano_edges::{MaplePanoBoundaryWarpStatus, MaplePanoEdges, MaplePanoEdgesReport};
 
 // Quick preview + alignment-reusing stitch entries (#4578).
 #[path = "pano_preview.rs"]

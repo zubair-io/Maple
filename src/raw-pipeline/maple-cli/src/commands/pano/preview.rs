@@ -100,6 +100,7 @@ pub(super) fn run_preview(
         "width": preview.width,
         "height": preview.height,
         "alignment": alignment_report(&verdict(preview.reuse, unreadable)),
+        "edges": super::edges::edges_report(args.boundary_warp, args.auto_crop, &preview.edges),
         "timings_s": {
             "decode": decode,
             "features": features,

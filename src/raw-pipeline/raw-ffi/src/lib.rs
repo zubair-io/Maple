@@ -250,9 +250,9 @@ pub use gpu_live::{MapleGpuLiveParams, MapleGpuLiveSession};
 // Enabled by `pano` (macOS) or `pano-ios` (iOS static-link, M6 #1244).
 #[cfg(any(feature = "pano", feature = "pano-ios"))]
 pub use pano::{
-    maple_pano_preview, maple_pano_stitch, maple_pano_stitch_aligned, MaplePanoFeatureEngine,
-    MaplePanoLocalAlign, MaplePanoPreviewSizes, MaplePanoProgressFn, MaplePanoRetention,
-    MaplePanoStrategy,
+    maple_pano_preview, maple_pano_stitch, maple_pano_stitch_aligned, MaplePanoBoundaryWarpStatus,
+    MaplePanoEdges, MaplePanoEdgesReport, MaplePanoFeatureEngine, MaplePanoLocalAlign,
+    MaplePanoPreviewSizes, MaplePanoProgressFn, MaplePanoRetention, MaplePanoStrategy,
 };
 // ORT smoke test entry (iOS + iOS-sim only, M6 #1244). Gated on `pano-ios`
 // AND `target_os = "ios"` — macOS uses load-dynamic ORT so `ort::init()` (no

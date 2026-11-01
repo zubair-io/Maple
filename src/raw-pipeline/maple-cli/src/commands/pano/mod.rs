@@ -32,6 +32,7 @@
 //! does so before invoking this command).
 
 mod discovery;
+mod edges;
 mod io;
 mod preview;
 mod progress;
@@ -47,7 +48,6 @@ use maple_pano::exif_embed::build_exif_blob;
 use maple_pano::render::PngMetadata;
 use maple_pano::stitch::{self, DisplayPng, PngCanvasSink, StitchOptions, StitchSuccess};
 use raw_core::read_exif;
-use serde_json::Value;
 
 use discovery::filter_conforming_frames;
 use io::{stitch_report, ReportContext};
@@ -248,9 +248,8 @@ fn stitch_options(args: &StitchArgs, gate_budgets: (f64, f64)) -> Result<StitchO
         grid: args.grid_layout(),
         feature_engine: args.features_engine.to_engine(),
         capture_owner: true,
-        // The `--boundary-warp` and `--auto-crop` flags land in #5574.
-        boundary_warp: 0.0,
-        auto_crop: false,
+        boundary_warp: args.boundary_warp / 100.0,
+        auto_crop: args.auto_crop,
     })
 }
 
@@ -295,6 +294,7 @@ fn stitch_set(
     sink.finish().map_err(|e| e.to_string())?;
     let write_s = t_out.elapsed().as_secs_f64();
     let (width, height) = run.success.canvas_size();
+    let edges_block = edges::edges_report(args.boundary_warp, args.auto_crop, &run.success.edges());
     let alignment = preview::alignment_report(&preview::verdict(run.reuse, unreadable));
     let report = match run.success {
         StitchSuccess::Rotation(outcome) => {
@@ -391,20 +391,14 @@ fn stitch_set(
             t0,
         })?,
     };
-    let report = with_alignment(report, alignment);
+    let report = edges::with_block(
+        edges::with_block(report, "alignment", alignment),
+        "edges",
+        edges_block,
+    );
     if let Some(path) = &outs.report {
         let pretty = serde_json::to_string_pretty(&report).expect("report serializes");
         std::fs::write(path, &pretty).map_err(|e| format!("{}: {e}", path.display()))?;
     }
     Ok(report)
-}
-
-fn with_alignment(report: Value, alignment: Value) -> Value {
-    match report {
-        Value::Object(mut fields) => {
-            fields.insert("alignment".into(), alignment);
-            Value::Object(fields)
-        }
-        other => other,
-    }
 }
