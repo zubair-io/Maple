@@ -32,7 +32,6 @@ export class MuiPanoramaEdgesComponent {
 
   private readonly id = nextEdgesId++;
   readonly cropHelpId = `mui-panorama-edges-crop-help-${this.id}`;
-  readonly warpHelp = BOUNDARY_WARP_HELP;
   readonly cropHelp = AUTO_CROP_HELP;
   readonly warpHelper = computed(() => this.reason() ?? BOUNDARY_WARP_HELP);
 }
