@@ -117,7 +117,7 @@ Built only from atoms. Web: `lib/ui/<name>/`, re-exported through `molecules1-la
 | Preview Image       |  ✓  |   ✓   |    ✓    | —                                                           |
 | Rating & Flags      |  ✓  |   ✓   |    ✓    | —                                                           |
 | Search Bar          |  ✓  |   ✓   |    ✓    | —                                                           |
-| Slider              |  ✓  |   ✓   |    ✓    | —                                                           |
+| Slider              |  ✓  |   ✓   |    ✓    | [slider.md](design/maple-ui/components/slider.md)           |
 | Suggestion Menu     |  ✓  |   ✓   |    ✓    | —                                                           |
 | Tabs                |  ✓  |   ✓   |    ✓    | —                                                           |
 | Toast Container     |  ✓  |   ✓   |    ✓    | —                                                           |
