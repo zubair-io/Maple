@@ -28,9 +28,7 @@ use crate::local_align::LocalCorrection;
 use crate::seam::{SeamConstraint, SeamConstraintError, SeamStrategy};
 use crate::warp::warp_window_to_canvas_strip;
 
-use super::{
-    AutoCropReport, CanvasCollector, CanvasSink, CompositeReport, CropSink, UncoveredCount,
-};
+use super::{AutoCropReport, CanvasCollector, CanvasSink, CompositeReport, UncoveredCount};
 
 /// Compute per-frame Voronoi depth scores over one canvas strip.
 ///
@@ -221,14 +219,6 @@ pub fn composite_tiled(
     Ok(CompositeReport {
         exposure_field: exposure_field.map(|field| field.summary),
         uncovered_px: counted.uncovered,
-        auto_crop: report.auto_crop.map(|crop| AutoCropReport {
-            invalid_px: if crop.rect.is_some() {
-                counted.uncovered
-            } else {
-                0
-            },
-            ..crop
-        }),
         ..report
     })
 }
@@ -365,7 +355,7 @@ fn voronoi_blend(
             }
         },
         warp_strip,
-        &mut CropSink::new(sink, survey.crop_rect),
+        sink,
     )?;
     let report = CompositeReport {
         canvas: canvas.clone(),
@@ -376,10 +366,7 @@ fn voronoi_blend(
         min_overlap_width_px: survey.min_overlap_px,
         seam_strategy: SeamStrategy::Voronoi,
         exposure_field: None,
-        owner: survey.owner.take().map(|owner| match survey.crop_rect {
-            Some(rect) => owner.cropped(rect),
-            None => owner,
-        }),
+        owner: survey.owner.take(),
         boundary_warp: None,
         uncovered_px: 0,
         auto_crop: auto_crop.then_some(AutoCropReport {

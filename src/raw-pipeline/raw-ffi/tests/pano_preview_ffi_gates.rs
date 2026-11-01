@@ -406,7 +406,14 @@ fn edges_reach_the_preview_and_the_aligned_stitch() {
 
     let (rc, _, _, plain) = run("plain.png", None, MaplePanoEdges::default());
     assert_eq!(rc, 0, "preview: {}", last_error());
-    assert_eq!(plain, MaplePanoEdgesReport::default());
+    assert_eq!(
+        MaplePanoEdgesReport {
+            output_width: 0,
+            output_height: 0,
+            ..plain
+        },
+        MaplePanoEdgesReport::default()
+    );
 
     let cropped_only = MaplePanoEdges {
         boundary_warp: 0.0,
@@ -424,11 +431,23 @@ fn edges_reach_the_preview_and_the_aligned_stitch() {
         MaplePanoBoundaryWarpStatus::WarpOff
     );
     assert!(report.auto_cropped);
-    let (whole, cropped) = (rgb16(&at("plain.png")), rgb16(&at("cropped.png")));
+    let (whole, kept) = (rgb16(&at("plain.png")), rgb16(&at("cropped.png")));
+    assert_eq!(kept.dimensions(), whole.dimensions());
+    assert_eq!(
+        kept.as_raw(),
+        whole.as_raw(),
+        "Auto Crop must not change pixels"
+    );
+    assert_eq!(
+        (report.output_width, report.output_height),
+        whole.dimensions()
+    );
     assert!(
-        cropped.width() <= whole.width() && cropped.height() <= whole.height(),
-        "{:?} within {:?}",
-        cropped.dimensions(),
+        report.crop_width > 0
+            && report.crop_height > 0
+            && report.crop_x + report.crop_width <= report.output_width
+            && report.crop_y + report.crop_height <= report.output_height,
+        "{report:?} within {:?}",
         whole.dimensions()
     );
 

@@ -35,7 +35,7 @@ use crate::ingest::PlanarImage;
 use crate::local_align::LocalCorrection;
 use crate::seam::{self, SeamConstraint, SeamMasks};
 
-use super::super::{AutoCropReport, CanvasSink, CompositeReport, CropSink};
+use super::super::{AutoCropReport, CanvasSink, CompositeReport};
 use super::{check_inputs, strips, warp_frame_strip};
 
 #[allow(clippy::too_many_arguments)]
@@ -136,7 +136,7 @@ fn graph_cut_blend(
         |fi, y0, y1| survey.footprint_touches(fi, y0, y1),
         weight,
         warp_strip,
-        &mut CropSink::new(sink, survey.crop_rect),
+        sink,
     )?;
     let report = CompositeReport {
         canvas: canvas.clone(),

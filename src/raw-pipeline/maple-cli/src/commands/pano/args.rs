@@ -148,8 +148,10 @@ pub struct StitchArgs {
     /// which.
     #[arg(long, default_value_t = 0.0, value_parser = super::edges::parse_strength)]
     pub(super) boundary_warp: f64,
-    /// Auto Crop (#5573): trim the output to its largest rectangle with no
-    /// empty edges. On a 360° panorama the wrapping axis is kept whole.
+    /// Auto Crop (#5573, #5608): report the largest rectangle with no empty
+    /// edges as the report's `edges.auto_crop.rect`, in pixels of the written
+    /// image, which keeps its whole canvas. On a 360° panorama the rectangle
+    /// spans the wrapping axis.
     #[arg(long)]
     pub(super) auto_crop: bool,
 }

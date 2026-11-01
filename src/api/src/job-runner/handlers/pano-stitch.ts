@@ -44,6 +44,9 @@ import path from 'node:path';
 import { ObjectId } from '../../db/object-id.ts';
 import { lstat, mkdir, withMirrorRoot } from '../../fs/mirrored.ts';
 import { errnoCode } from '../../fs/relocate-publish.ts';
+import { writeSidecarExclusive } from '../../fs/sidecar-io.ts';
+import { xmpSidecarPath } from '../../fs/xmp-sidecar-path.ts';
+import { panoCropSidecar } from '../../pano/pano-crop-sidecar.ts';
 import { readEdgesReport, type PanoEdgesReport } from '../../pano/pano-edges.ts';
 import { publishWhole } from '../../pano/pano-publish.ts';
 import { isWithinRoot, resolveRealPathThroughAncestors } from '../../fs/root.ts';
@@ -284,15 +287,26 @@ async function alreadyMade(absPath: string): Promise<boolean> {
  * replacing whatever holds the name; the folder is re-checked once it exists.
  * The bytes are copied and verified beside the name first, so a crash never
  * leaves a truncated panorama that a retry would take as already made. Mirrors
- * are addressed through the library's registered spelling. */
+ * are addressed through the library's registered spelling. A crop sidecar goes
+ * down first, so the indexer never sees the panorama without its crop; one
+ * already there is left alone, it may carry edits (#5608). */
 async function publishIntoLibrary(
   outputPng: string,
   root: { real: string; registered: string },
   location: PanoOutputLocation,
+  cropSidecar: string | null,
 ): Promise<PanoOutputLocation> {
   return withMirrorRoot(root.real, root.registered, async () => {
     await mkdir(path.dirname(location.absPath), { recursive: true });
     const placed = await containedLocation(root.real, location);
+    if (cropSidecar !== null) {
+      const written = await writeSidecarExclusive(
+        xmpSidecarPath(placed.absPath),
+        cropSidecar,
+        'pano_stitch: writing the crop sidecar failed',
+      );
+      if (!written.ok && 'error' in written) throw new Error(written.error);
+    }
     await publishWhole(outputPng, placed.absPath);
     return placed;
   });
@@ -404,6 +418,7 @@ export const panoStitchHandler: JobHandler = {
         outputPng,
         { real: realRoot, registered: libPath },
         location,
+        payload.autoCrop && edges ? panoCropSidecar(edges) : null,
       );
       const outputAssetId = await importOutput(payload.libraryId, placed);
       const destAbs = registeredPath(placed.absPath);

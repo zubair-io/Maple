@@ -14,7 +14,8 @@ use crate::error::set_last_error;
 pub struct MaplePanoEdges {
     /// Boundary Warp strength, a percent in `[0, 100]`.
     pub boundary_warp: f32,
-    /// Trim to the largest rectangle with no empty edges.
+    /// Report the largest rectangle with no empty edges. The image keeps
+    /// its whole canvas; the rectangle is the crop to record beside it.
     pub auto_crop: bool,
 }
 
@@ -44,19 +45,34 @@ pub struct MaplePanoEdgesReport {
     /// The strength actually applied, a percent in `[0, 100]`; below the
     /// requested one when clamped, 0 when off or refused.
     pub boundary_warp_applied: f32,
-    /// A crop rectangle was kept; false when Auto Crop was off or no fully
+    /// A crop rectangle was found; false when Auto Crop was off or no fully
     /// covered rectangle exists.
     pub auto_cropped: bool,
+    /// The written image's size, which the crop rectangle is in.
+    pub output_width: u32,
+    pub output_height: u32,
+    /// The crop rectangle in output pixels; all 0 unless `auto_cropped`.
+    pub crop_x: u32,
+    pub crop_y: u32,
+    pub crop_width: u32,
+    pub crop_height: u32,
 }
 
 impl From<&EdgesReport> for MaplePanoEdgesReport {
     fn from(edges: &EdgesReport) -> Self {
         let warp = edges.boundary_warp.as_ref();
+        let crop = edges.auto_crop.and_then(|c| c.rect);
         Self {
             boundary_warp_status: warp
                 .map_or(MaplePanoBoundaryWarpStatus::WarpOff, |w| status(w.status)),
             boundary_warp_applied: warp.map_or(0.0, |w| (w.applied * 100.0) as f32),
-            auto_cropped: edges.auto_crop.is_some_and(|c| c.rect.is_some()),
+            auto_cropped: crop.is_some(),
+            output_width: edges.output.0,
+            output_height: edges.output.1,
+            crop_x: crop.map_or(0, |r| r.x),
+            crop_y: crop.map_or(0, |r| r.y),
+            crop_width: crop.map_or(0, |r| r.width),
+            crop_height: crop.map_or(0, |r| r.height),
         }
     }
 }
@@ -139,6 +155,43 @@ mod tests {
             uncovered_px: 0,
             output: (1, 1),
         });
-        assert_eq!(report, MaplePanoEdgesReport::default());
+        assert_eq!(
+            report,
+            MaplePanoEdgesReport {
+                output_width: 1,
+                output_height: 1,
+                ..Default::default()
+            }
+        );
+    }
+
+    #[test]
+    fn a_found_rectangle_is_reported_in_output_pixels() {
+        let rect = maple_pano::composite::CropRect {
+            x: 3,
+            y: 5,
+            width: 40,
+            height: 20,
+        };
+        let report = MaplePanoEdgesReport::from(&EdgesReport {
+            boundary_warp: None,
+            auto_crop: Some(maple_pano::composite::AutoCropReport {
+                rect: Some(rect),
+                invalid_px: 0,
+            }),
+            uncovered_px: 0,
+            output: (50, 30),
+        });
+        assert!(report.auto_cropped);
+        assert_eq!((report.output_width, report.output_height), (50, 30));
+        assert_eq!(
+            (
+                report.crop_x,
+                report.crop_y,
+                report.crop_width,
+                report.crop_height
+            ),
+            (3, 5, 40, 20)
+        );
     }
 }
