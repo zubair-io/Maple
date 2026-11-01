@@ -44,7 +44,7 @@ import path from 'node:path';
 import { ObjectId } from '../../db/object-id.ts';
 import { lstat, mkdir, withMirrorRoot } from '../../fs/mirrored.ts';
 import { errnoCode } from '../../fs/relocate-publish.ts';
-import { writeSidecarExclusive } from '../../fs/sidecar-io.ts';
+import { deleteSidecar, writeSidecarExclusive } from '../../fs/sidecar-io.ts';
 import { xmpSidecarPath } from '../../fs/xmp-sidecar-path.ts';
 import { panoCropSidecar } from '../../pano/pano-crop-sidecar.ts';
 import { readEdgesReport, type PanoEdgesReport } from '../../pano/pano-edges.ts';
@@ -299,15 +299,22 @@ async function publishIntoLibrary(
   return withMirrorRoot(root.real, root.registered, async () => {
     await mkdir(path.dirname(location.absPath), { recursive: true });
     const placed = await containedLocation(root.real, location);
-    if (cropSidecar !== null) {
-      const written = await writeSidecarExclusive(
-        xmpSidecarPath(placed.absPath),
+    const sidecarPath = xmpSidecarPath(placed.absPath);
+    const created =
+      cropSidecar !== null &&
+      (await writeSidecarExclusive(
+        sidecarPath,
         cropSidecar,
         'pano_stitch: writing the crop sidecar failed',
-      );
-      if (!written.ok && 'error' in written) throw new Error(written.error);
+      ));
+    if (created && !created.ok && 'error' in created) throw new Error(created.error);
+    try {
+      await publishWhole(outputPng, placed.absPath);
+    } catch (err) {
+      if (created && created.ok)
+        await deleteSidecar(sidecarPath, 'pano_stitch: removing the crop sidecar');
+      throw err;
     }
-    await publishWhole(outputPng, placed.absPath);
     return placed;
   });
 }

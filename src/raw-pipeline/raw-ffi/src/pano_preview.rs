@@ -141,7 +141,7 @@ pub extern "C" fn maple_pano_sweep_scratch() -> i32 {
 ///   stitch will hold (see [`MaplePanoPreviewSizes`]) so the caller can size
 ///   its memory budget and pick a `max_canvas_px` for
 ///   `maple_pano_stitch_aligned`. Written only when the return is ≥ 0.
-///   The sizes are the uncropped canvas's, which the memory use follows.
+///   The sizes are the canvas's, which the memory use follows.
 /// `edges` — Boundary Warp strength and Auto Crop; `{0, false}` changes
 ///   nothing. The preview PNG comes back warped but whole: Auto Crop only
 ///   reports its rectangle through `out_edges`. Neither is part of the

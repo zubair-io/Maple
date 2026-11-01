@@ -31,9 +31,9 @@ const edge = (pixels: number, extent: number): string => (pixels / extent).toFix
  * its smaller output; the pixels are already cropped, so nothing is recorded.
  */
 export function panoCropSidecar(edges: PanoEdgesReport): string | null {
-  const { rect } = edges.auto_crop;
+  const rect = edges.auto_crop?.rect;
   const { output } = edges;
-  if (rect === null || !insideOutput(rect, output)) return null;
+  if (!rect || !output || !insideOutput(rect, output)) return null;
   if (rect.width === output.width && rect.height === output.height) return null;
   return applyTransferPatch('', {
     attributes: {
