@@ -408,7 +408,8 @@ private final class LocalCopyRecorder: PanoStitching {
 
   @Test func theAddedResultKeepsTheStitchOutcomeIncludingTheEdgeReport() {
     let edges = PanoEdgesReport(
-      boundaryWarpStatus: .clampedFold, boundaryWarpApplied: 41, autoCropped: true)
+      boundaryWarpStatus: .clampedFold, boundaryWarpApplied: 41,
+      crop: PanoAutoCrop(outputWidth: 100, outputHeight: 50, x: 5, y: 5, width: 90, height: 40))
     let local = PanoResult(
       outputURL: URL(fileURLWithPath: "/cache/p.png"), reportSummary: "",
       alignmentOutcome: .reused, matcher: .classicalFallback(reason: "x"), edges: edges)

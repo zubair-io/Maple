@@ -23,7 +23,7 @@ final class PanoEdgesTests: XCTestCase {
     }
 
     private func report(_ status: PanoBoundaryWarpStatus, applied: Double = 0) -> PanoEdgesReport {
-        PanoEdgesReport(boundaryWarpStatus: status, boundaryWarpApplied: applied, autoCropped: false)
+        PanoEdgesReport(boundaryWarpStatus: status, boundaryWarpApplied: applied)
     }
 
     // MARK: - Copy

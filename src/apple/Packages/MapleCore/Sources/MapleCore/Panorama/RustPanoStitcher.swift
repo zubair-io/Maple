@@ -135,11 +135,25 @@ public final class RustPanoStitcher: PanoStitching {
                 )
             }
         }
+        let cropNote = Self.recordAutoCrop(edges?.crop, forPanorama: outputURL)
         let summary = "Stitched \(inputURLs.count) frames with the \(matcher.engine.displayName) using \(options.strategy.rawValue) strategy. " +
                       "Local align: \(options.localAlign.rawValue). Retention: \(options.retention.rawValue). " +
-                      "Output: \(outputURL.lastPathComponent). \(outcome.summary)"
+                      "Output: \(outputURL.lastPathComponent). \(outcome.summary)\(cropNote)"
         return PanoResult(
             outputURL: outputURL, reportSummary: summary, alignmentOutcome: outcome, matcher: matcher, edges: edges)
+    }
+
+    /// Auto Crop leaves the PNG whole and records the crop beside it (#5608). A
+    /// failure keeps the panorama, whole, and says so in the summary.
+    private static func recordAutoCrop(_ crop: PanoAutoCrop?, forPanorama url: URL) -> String {
+        guard let crop else { return "" }
+        do {
+            try PanoAutoCropRecord.record(crop, forPanorama: url)
+            return ""
+        } catch {
+            panoLog.error("Could not record the Auto Crop: \(error.localizedDescription, privacy: .public)")
+            return " Auto Crop could not be saved (\(error.localizedDescription)); the panorama is uncropped."
+        }
     }
 
     public func preview(
