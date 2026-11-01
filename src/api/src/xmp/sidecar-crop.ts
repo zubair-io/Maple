@@ -8,7 +8,7 @@ import { readFile } from '../fs/mirrored.ts';
 import { xmpSidecarPath } from '../fs/xmp-sidecar-path.ts';
 import { canonicalXmpName, descriptions, xmlSpans } from './transfer-document.ts';
 
-export interface NormalizedCrop {
+interface NormalizedCrop {
   left: number;
   top: number;
   right: number;

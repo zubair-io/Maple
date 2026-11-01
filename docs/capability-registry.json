@@ -944,18 +944,18 @@
         "src/api/src/fs/xmp.ts",
         "src/api/src/fs/xmp-sidecar-path.ts"
       ],
-      "corpus_hash": "blake3:4c41132f2513e42b083f6f4d885fcd6c31d622df5760fd4e47a869811414f1a0",
+      "corpus_hash": "blake3:88ef09fb27818d3037a321e4632b7b1f8014b8bcbf031905c41beab9baa59410",
       "status": "satisfied",
       "record": {
         "backend": "bun",
-        "corpus_hash": "blake3:4c41132f2513e42b083f6f4d885fcd6c31d622df5760fd4e47a869811414f1a0",
+        "corpus_hash": "blake3:88ef09fb27818d3037a321e4632b7b1f8014b8bcbf031905c41beab9baa59410",
         "expected_cases": 4,
         "executed_cases": 4,
         "failed_cases": 0,
         "skipped_cases": 0,
-        "git_sha": "e782d1e2e44e455b3952a7cfe7fc8bee64eb14e0",
-        "recorded_at": "2026-10-25T19:19:45Z",
-        "command": "bash -c cd\\ src/api\\ \\&\\&\\ bun\\ test\\ src/routes/xmp.sidecar-contract.test.ts\\ --timeout\\ 30000"
+        "git_sha": "054090d04ddd6d00bc4532b22521641cb88f7acd",
+        "recorded_at": "2026-11-01T18:09:21Z",
+        "command": "/bin/bash /private/tmp/claude-501/-Users-riabuz-Projects--Maple--claude-worktrees-maple-code-review-validation-0bd9ad/b69c721f-c5d3-4c55-bcdf-c48c165dacbf/scratchpad/apitest.sh"
       }
     },
     {
