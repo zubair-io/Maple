@@ -8,7 +8,11 @@ import { API_BASE_URL } from '../api/api-base-url.token';
 import { LibraryStateService } from '../state/library-state.service';
 import type { PanoConfig } from '../api/pano.service';
 
-const CONFIG = (strategySupported: boolean, previewSupported = false): PanoConfig => ({
+const CONFIG = (
+  strategySupported: boolean,
+  previewSupported = false,
+  edgesSupported = false,
+): PanoConfig => ({
   maple_cli_path: '/opt/maple-cli',
   models_dir: '/models',
   ort_dylib_path: null,
@@ -17,6 +21,7 @@ const CONFIG = (strategySupported: boolean, previewSupported = false): PanoConfi
   strategy_supported: strategySupported,
   features_engine_supported: true,
   preview_supported: previewSupported,
+  edges_supported: edgesSupported,
   source: {
     maple_cli_path: 'db',
     models_dir: 'db',

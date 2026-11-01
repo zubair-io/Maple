@@ -24,8 +24,10 @@ const FRAMES: readonly MuiPanoramaFrame[] = [
       [frames]="frames()"
       [(projection)]="projection"
       [(blendMode)]="blendMode"
+      [boundaryWarpReason]="reason()"
       [stitching]="stitching()"
       [progress]="progress()"
+      (boundaryWarpCommitted)="committedWarp.push($event)"
       (mergeRequested)="onMergeRequested($event)"
       (dismissed)="dismissedCount = dismissedCount + 1"
     />
@@ -38,6 +40,8 @@ class HostComponent {
   readonly blendMode = signal('linear');
   readonly stitching = signal(false);
   readonly progress = signal(0);
+  readonly reason = signal<string | null>(null);
+  readonly committedWarp: number[] = [];
   dismissedCount = 0;
   lastSettings: MuiPanoramaMergeSettings | null = null;
 
@@ -81,7 +85,66 @@ describe('MuiPanoramaMergeModalComponent', () => {
       '.mui-panorama-merge-modal-footer button',
     );
     (buttons[1] as HTMLButtonElement).click();
-    expect(host.lastSettings).toEqual({ projection: 'spherical', blendMode: 'linear' });
+    expect(host.lastSettings).toEqual({
+      projection: 'spherical',
+      blendMode: 'linear',
+      boundaryWarp: 0,
+      autoCrop: false,
+    });
+  });
+
+  it('shows the Edges group between Blend mode and the progress bar, and carries its values into Merge', () => {
+    const { fixture, host } = render();
+    host.stitching.set(true);
+    fixture.detectChanges();
+    const body = fixture.nativeElement.querySelector(
+      '.mui-panorama-merge-modal-body',
+    ) as HTMLElement;
+    const order = [...body.children].map((el) => el.tagName.toLowerCase());
+    expect(order.indexOf('mui-panorama-edges')).toBeGreaterThan(order.indexOf('div', 2));
+    expect(order.indexOf('mui-panorama-edges')).toBeLessThan(order.indexOf('mui-progress'));
+
+    host.stitching.set(false);
+    fixture.detectChanges();
+    const slider = fixture.nativeElement.querySelector(
+      '[data-testid="pano-boundary-warp"] input',
+    ) as HTMLInputElement;
+    slider.value = '40';
+    slider.dispatchEvent(new Event('input'));
+    slider.dispatchEvent(new Event('change'));
+    (
+      fixture.nativeElement.querySelector(
+        '[data-testid="pano-auto-crop"] button',
+      ) as HTMLButtonElement
+    ).click();
+    fixture.detectChanges();
+    (
+      fixture.nativeElement.querySelectorAll(
+        '.mui-panorama-merge-modal-footer button',
+      )[1] as HTMLButtonElement
+    ).click();
+    expect(host.lastSettings).toMatchObject({ boundaryWarp: 40, autoCrop: true });
+    expect(host.committedWarp).toEqual([40]);
+  });
+
+  it('disables the edge controls while stitching and shows the reason at full opacity', () => {
+    const { fixture, host } = render();
+    host.reason.set('Not applied: warping this shape would fold the image.');
+    host.stitching.set(true);
+    fixture.detectChanges();
+    const slider = fixture.nativeElement.querySelector(
+      '[data-testid="pano-boundary-warp"] input',
+    ) as HTMLInputElement;
+    const toggle = fixture.nativeElement.querySelector(
+      '[data-testid="pano-auto-crop"] button',
+    ) as HTMLButtonElement;
+    expect(slider.disabled).toBe(true);
+    expect(toggle.disabled).toBe(true);
+    const reason = fixture.nativeElement.querySelector(
+      '[data-testid="pano-boundary-warp-reason"]',
+    ) as HTMLElement;
+    expect(reason.textContent).toContain('would fold the image');
+    expect(reason.closest('.mui-chrome-control-disabled')).toBeNull();
   });
 
   it('shows a progress bar while stitching', () => {
