@@ -20,7 +20,8 @@
       [style.--mui-slider-fill.%]="trackPct()"
       (input)="onInput($any($event.target).value)"
       (change)="onChange()"
-      (keydown)="onKeydown()"
+      (keydown)="onKeydown($event)"
+      (blur)="onBlur()"
       (keyup)="onKeyup()"
       (pointercancel)="finishChange()"
     />

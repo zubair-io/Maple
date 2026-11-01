@@ -14,6 +14,17 @@ export type MuiSliderHelperTone = 'muted' | 'warning';
 
 let nextHelperId = 0;
 
+const VALUE_KEYS: ReadonlySet<string> = new Set([
+  'ArrowLeft',
+  'ArrowRight',
+  'ArrowUp',
+  'ArrowDown',
+  'Home',
+  'End',
+  'PageUp',
+  'PageDown',
+]);
+
 @Component({
   selector: 'mui-slider',
   standalone: true,
@@ -73,12 +84,20 @@ export class MuiSliderComponent {
   }
 
   // fallow-ignore-next-line unused-class-member -- bound from the templateUrl view.
-  onKeydown(): void {
-    this.keyHeld = true;
+  onKeydown(event: KeyboardEvent): void {
+    if (VALUE_KEYS.has(event.key)) this.keyHeld = true;
   }
 
   // fallow-ignore-next-line unused-class-member -- bound from the templateUrl view.
   onKeyup(): void {
+    if (!this.keyHeld) return;
+    this.keyHeld = false;
+    this.finishChange();
+  }
+
+  // The key-up of a key held while focus leaves goes to another element.
+  // fallow-ignore-next-line unused-class-member -- bound from the templateUrl view.
+  onBlur(): void {
     this.keyHeld = false;
     this.finishChange();
   }
