@@ -1,5 +1,5 @@
 // PanoPreviewSection.swift — The automatic low-resolution panorama preview in
-// PanoMergeView (#4579).
+// PanoMergeView (#4579), pinned above the scrolling options (#5609).
 //
 // The preview starts as soon as the sheet opens with two or more frames and
 // re-runs (debounced, in PanoMergeSession) when an option changes. A fresh
@@ -16,26 +16,30 @@ struct PanoPreviewSection: View {
   var onOpenPanoSettings: (() -> Void)? = nil
 
   var body: some View {
-    Section {
+    VStack(alignment: .leading, spacing: 8) {
       if let preview = session.lastPreview {
         previewImage(preview)
         PanoMatcherNote(matcher: preview.matcher, onOpenPanoSettings: onOpenPanoSettings)
       }
       status
-    } header: {
-      Text("Preview")
-    } footer: {
       if let preview = session.lastPreview, !session.isPreviewing {
         Text(preview.alignmentOutcome.summary + " Create Panorama starts from this alignment.")
+          .font(.footnote)
+          .foregroundStyle(.secondary)
       }
     }
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .padding(.horizontal)
+    .padding(.vertical, 8)
+    .background(.bar)
+    .overlay(alignment: .bottom) { Divider() }
   }
 
   private func previewImage(_ preview: PanoPreview) -> some View {
     Image(decorative: preview.image, scale: 1)
       .resizable()
       .aspectRatio(contentMode: .fit)
-      .frame(maxWidth: .infinity, maxHeight: 280)
+      .frame(maxWidth: .infinity, maxHeight: 220)
       .clipShape(RoundedRectangle(cornerRadius: MapleTokens.Radius.sm))
       .opacity(session.isPreviewing ? 0.45 : 1)
       .animation(.easeInOut(duration: 0.2), value: session.isPreviewing)

@@ -1,5 +1,5 @@
 // PanoEdgesSection.swift — Boundary Warp and Auto Crop in PanoMergeView
-// (#5575, epic #5570), directly under the preview.
+// (#5575, epic #5570), the last group of options (#5609).
 //
 // Both settings only re-composite: the session keeps the alignment it already
 // has, so a change refreshes the preview without matching again. The slider

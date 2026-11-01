@@ -16,7 +16,8 @@
 // dismisses this sheet and opens that tab).
 //
 // Quick preview (#4579): opening the sheet with two or more frames starts a
-// low-resolution preview (PanoPreviewSection); option changes re-run it. The
+// low-resolution preview (PanoPreviewSection), pinned above the scrolling
+// options with Edges last (#5609); option changes re-run it. The
 // preview's solved alignment stays in the session, and "Create Panorama"
 // hands it to the full stitch so matching is not repeated.
 //
@@ -82,18 +83,12 @@ struct PanoMergeView: View {
         if awaitingDownload, let route = session.downloadRoute {
           PanoDownloadSection(
             download: route.download, onRetry: { route.download.estimate(assets) })
-        } else {
-          PanoPreviewSection(
-            session: session,
-            onRetry: { session.preview(assets: assets) },
-            onOpenPanoSettings: onOpenPanoSettings
-          )
-        }
-        if session.stitcher.supportsEdges {
-          PanoEdgesSection(session: session)
         }
         optionsSection
         PanoOutputSizeSection(session: session)
+        if session.stitcher.supportsEdges {
+          PanoEdgesSection(session: session)
+        }
 
         switch session.state {
         case .idle:
@@ -111,6 +106,15 @@ struct PanoMergeView: View {
         }
       }
       .formStyle(.grouped)
+      .safeAreaInset(edge: .top, spacing: 0) {
+        if !awaitingDownload || session.downloadRoute == nil {
+          PanoPreviewSection(
+            session: session,
+            onRetry: { session.preview(assets: assets) },
+            onOpenPanoSettings: onOpenPanoSettings
+          )
+        }
+      }
       .task {
         if let serverStitcher {
           serverUnavailable = await serverStitcher.unavailableReason()

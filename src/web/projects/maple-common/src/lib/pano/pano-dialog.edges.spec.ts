@@ -171,12 +171,12 @@ describe('PanoDialogComponent Edges group (#5576)', () => {
     expect(byId('pano-boundary-warp-reason')).toBeNull();
     expect(toggle().getAttribute('aria-checked')).toBe('false');
     const order = [
-      ...root.querySelectorAll('[data-testid="pano-preview"], mui-panorama-edges, #pano-retention'),
+      ...root.querySelectorAll('[data-testid="pano-preview"], #pano-retention, mui-panorama-edges'),
     ];
     expect(order.map((el) => el.tagName.toLowerCase())).toEqual([
       'div',
-      'mui-panorama-edges',
       'select',
+      'mui-panorama-edges',
     ]);
     http.expectOne('/api/pano/jobs/p1').flush(job('p1', {}));
     fixture.componentInstance.onCancel();

@@ -47,12 +47,15 @@
 
           <!-- Quick preview (#4580) -->
           @if (previewSupported()) {
-            <div class="flex flex-col gap-1.5" data-testid="pano-preview">
+            <div
+              class="sticky -top-4 z-10 -mx-4 -mt-3 flex flex-col gap-1.5 bg-surface px-4 pt-4 pb-2"
+              data-testid="pano-preview"
+            >
               @let image = preview.image();
               @let run = preview.run();
               @if (image) {
                 <img
-                  class="max-h-[240px] w-full rounded-[5px] bg-black object-contain transition-opacity duration-200"
+                  class="max-h-[min(240px,26vh)] w-full rounded-[5px] bg-black object-contain transition-opacity duration-200"
                   [class.opacity-50]="run.kind === 'running'"
                   [src]="image.url"
                   alt="Panorama preview"
@@ -97,16 +100,6 @@
                 </p>
               }
             </div>
-          }
-
-          <!-- Edges: Boundary Warp + Auto Crop (#5576) -->
-          @if (edgesSupported()) {
-            <mui-panorama-edges
-              [(boundaryWarp)]="boundaryWarp"
-              [(autoCrop)]="autoCrop"
-              [reason]="warpReason()"
-              (warpCommit)="committedWarp.set($event)"
-            />
           }
 
           <!-- Retention -->
@@ -181,6 +174,16 @@
                 <option value="tile">Tile</option>
               </select>
             </div>
+          }
+
+          <!-- Edges: Boundary Warp + Auto Crop (#5576) -->
+          @if (edgesSupported()) {
+            <mui-panorama-edges
+              [(boundaryWarp)]="boundaryWarp"
+              [(autoCrop)]="autoCrop"
+              [reason]="warpReason()"
+              (warpCommit)="committedWarp.set($event)"
+            />
           }
         </div>
 
