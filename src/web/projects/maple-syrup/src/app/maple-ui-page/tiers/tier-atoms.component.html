@@ -473,6 +473,43 @@
           max-height: 100%;
           display: flex;
           align-items: center;
+          gap: 14px;
+          justify-content: center;
+          background: #1c1917;
+          border-radius: 8px;
+          padding: 10px 14px;
+        "
+      >
+        <mui-toggle [checked]="toggleOn" label="Auto Crop" (checkedChange)="toggleOn = $event" />
+        <mui-toggle [checked]="false" label="Off" [disabled]="true" />
+      </div>
+    </div>
+    <div>
+      <div style="font-weight: 600; font-size: 14px; color: #292524">Toggle</div>
+      <div style="font-size: 12px; color: #78716c; margin-top: 2px">
+        Immediate-effect on/off switch
+      </div>
+    </div>
+  </div>
+  <div
+    style="
+      border: 1px solid #e7e5e4;
+      border-radius: 8px;
+      padding: 20px;
+      background: #ffffff;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      min-height: 150px;
+    "
+  >
+    <div style="min-height: 56px; display: flex; align-items: center; overflow: hidden">
+      <div
+        style="
+          max-width: 100%;
+          max-height: 100%;
+          display: flex;
+          align-items: center;
           justify-content: center;
           background: #1c1917;
           border-radius: 8px;

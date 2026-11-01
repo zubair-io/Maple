@@ -352,6 +352,7 @@ export * from './lib/ui/list/mui-list.component';
 // Maple UI design system (#3000), wave 2 — Form/Media/Feedback atoms.
 export * from './lib/ui/input/mui-input.component';
 export * from './lib/ui/checkbox/mui-checkbox.component';
+export * from './lib/ui/toggle/mui-toggle.component';
 export * from './lib/ui/select/mui-select.component';
 export * from './lib/ui/segmented-toggle/mui-segmented-toggle.component';
 export * from './lib/ui/image/mui-image.component';

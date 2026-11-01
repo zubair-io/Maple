@@ -1,0 +1,24 @@
+<button
+  type="button"
+  role="switch"
+  class="mui-toggle group relative inline-flex items-center gap-2 border-none bg-transparent p-0 font-[inherit] text-text-main before:absolute before:left-0 before:top-1/2 before:h-11 before:w-full before:min-w-11 before:-translate-y-1/2 before:content-[''] enabled:cursor-pointer disabled:cursor-not-allowed disabled:opacity-45"
+  [attr.aria-checked]="checked()"
+  [attr.aria-label]="label() ? null : ariaLabel()"
+  [attr.aria-describedby]="ariaDescribedBy()"
+  [disabled]="disabled()"
+  (click)="onClick()"
+>
+  <span
+    class="track relative h-5 w-[34px] shrink-0 rounded-full transition-colors duration-200 ease-out group-focus-visible:outline-2 group-focus-visible:outline-offset-2 group-focus-visible:outline-primary"
+    [class]="checked() ? 'bg-primary' : 'bg-border'"
+    aria-hidden="true"
+  >
+    <span
+      class="thumb absolute left-0.5 top-0.5 h-4 w-4 rounded-full transition-[transform,background-color] duration-200 ease-out"
+      [class]="checked() ? 'translate-x-[14px] bg-text-main' : 'translate-x-0 bg-text-muted'"
+    ></span>
+  </span>
+  @if (label()) {
+    <span class="label text-[13px]">{{ label() }}</span>
+  }
+</button>

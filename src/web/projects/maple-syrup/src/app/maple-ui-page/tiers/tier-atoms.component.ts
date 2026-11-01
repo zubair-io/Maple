@@ -6,6 +6,7 @@ import {
   MuiButtonComponent,
   MuiCanvasSurfaceComponent,
   MuiCheckboxComponent,
+  MuiToggleComponent,
   MuiDividerComponent,
   MuiIconComponent,
   MuiImageComponent,
@@ -48,6 +49,7 @@ import type { MuiListItem, MuiSegmentedToggleOption } from '@maple-common';
     MuiListComponent,
     MuiInputComponent,
     MuiCheckboxComponent,
+    MuiToggleComponent,
     MuiSegmentedToggleComponent,
     MuiImageComponent,
     MuiRemoteImageComponent,
@@ -63,6 +65,8 @@ import type { MuiListItem, MuiSegmentedToggleOption } from '@maple-common';
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class TierAtomsComponent {
+  toggleOn = true;
+
   // Fixed reference instant for the Timestamp specimen — a live `Date.now()`
   // would make the "2m ago" card silently drift as the page stays open.
   readonly timestampNow = new Date();
