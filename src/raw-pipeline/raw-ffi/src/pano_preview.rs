@@ -15,7 +15,11 @@
 //!  1   success, but the offered alignment was stale or unreadable, so
 //!      matching re-ran; `maple_last_error()` names the reason
 //! −5   an output or alignment path is not valid UTF-8
+//! −10  `edges.boundary_warp` is not a percent from 0 to 100
 //! ```
+//!
+//! Both take Boundary Warp and Auto Crop as [`MaplePanoEdges`] and report
+//! what they did through an optional [`MaplePanoEdgesReport`] (#5574).
 
 use std::ffi::{c_char, c_void, CStr};
 
@@ -26,6 +30,7 @@ use crate::MapleCancelFlag;
 #[cfg(any(target_os = "macos", target_os = "ios"))]
 use crate::error::with_large_stack;
 
+use super::pano_edges::{MaplePanoEdges, MaplePanoEdgesReport};
 use super::{
     MaplePanoFeatureEngine, MaplePanoLocalAlign, MaplePanoProgressFn, MaplePanoRetention,
     MaplePanoStrategy, SendProgressCallback,
@@ -136,6 +141,12 @@ pub extern "C" fn maple_pano_sweep_scratch() -> i32 {
 ///   stitch will hold (see [`MaplePanoPreviewSizes`]) so the caller can size
 ///   its memory budget and pick a `max_canvas_px` for
 ///   `maple_pano_stitch_aligned`. Written only when the return is ≥ 0.
+///   The sizes are the uncropped canvas's, which the memory use follows.
+/// `edges` — Boundary Warp strength and Auto Crop; `{0, false}` changes
+///   nothing. The preview PNG comes back warped and cropped. Neither is
+///   part of the alignment's key, so changing them reuses the alignment.
+/// `out_edges` — optional (null = don't report); what `edges` did to the
+///   preview. Written only when the return is ≥ 0.
 /// Remaining arguments (including `engine`) as `maple_pano_stitch`. Progress stage 3
 /// (refinement) is reported complete immediately — the preview skips it.
 ///
@@ -155,6 +166,8 @@ pub unsafe extern "C" fn maple_pano_preview(
     alignment_in_path: *const c_char,
     alignment_out_path: *const c_char,
     out_sizes: *mut MaplePanoPreviewSizes,
+    edges: MaplePanoEdges,
+    out_edges: *mut MaplePanoEdgesReport,
     retention: MaplePanoRetention,
     local_align: MaplePanoLocalAlign,
     strategy: MaplePanoStrategy,
@@ -184,6 +197,14 @@ pub unsafe extern "C" fn maple_pano_preview(
 
     #[cfg(any(target_os = "macos", target_os = "ios"))]
     {
+        let opts = match super::pano_edges::with_edges(
+            NAME,
+            super::pano_apple::stitch_options(retention, local_align, strategy, engine),
+            edges,
+        ) {
+            Ok(opts) => opts,
+            Err(rc) => return rc,
+        };
         let full = std::sync::Arc::new(std::sync::OnceLock::new());
         let worker_full = std::sync::Arc::clone(&full);
         let rc = with_large_stack(move || {
@@ -192,17 +213,22 @@ pub unsafe extern "C" fn maple_pano_preview(
                 out_png,
                 alignment_in,
                 alignment_out,
-                super::pano_apple::stitch_options(retention, local_align, strategy, engine),
+                opts,
                 cb,
                 send_cancel,
             );
-            if let Some(sizes) = estimate {
-                let _ = worker_full.set(sizes);
+            if let Some(reported) = estimate {
+                let _ = worker_full.set(reported);
             }
             rc
         });
-        if let (Some(&sizes), false) = (full.get(), out_sizes.is_null()) {
-            *out_sizes = sizes;
+        if let Some(&(sizes, reported)) = full.get() {
+            if !out_sizes.is_null() {
+                *out_sizes = sizes;
+            }
+            if !out_edges.is_null() {
+                *out_edges = reported;
+            }
         }
         rc
     }
@@ -215,6 +241,8 @@ pub unsafe extern "C" fn maple_pano_preview(
             alignment_in,
             alignment_out,
             out_sizes,
+            edges,
+            out_edges,
             retention,
             local_align,
             strategy,
@@ -239,6 +267,7 @@ pub unsafe extern "C" fn maple_pano_preview(
 /// `max_canvas_px` — the output canvas pixel cap; a canvas larger than this
 ///   is shrunk uniformly to fit. 0 = the default cap (256 MP). A smaller cap
 ///   lowers the composite's memory, not decode or refinement's.
+/// `edges`, `out_edges` — as `maple_pano_preview`, for the full stitch.
 /// All other arguments and codes as `maple_pano_stitch`.
 ///
 /// # Safety
@@ -253,6 +282,8 @@ pub unsafe extern "C" fn maple_pano_stitch_aligned(
     out_png_path: *const c_char,
     alignment_in_path: *const c_char,
     max_canvas_px: u64,
+    edges: MaplePanoEdges,
+    out_edges: *mut MaplePanoEdgesReport,
     retention: MaplePanoRetention,
     local_align: MaplePanoLocalAlign,
     strategy: MaplePanoStrategy,
@@ -281,19 +312,37 @@ pub unsafe extern "C" fn maple_pano_stitch_aligned(
 
     #[cfg(any(target_os = "macos", target_os = "ios"))]
     {
-        with_large_stack(move || {
-            super::pano_apple::run_stitch_apple(
+        let opts = match super::pano_edges::with_edges(
+            NAME,
+            with_canvas_cap(
+                super::pano_apple::stitch_options(retention, local_align, strategy, engine),
+                max_canvas_px,
+            ),
+            edges,
+        ) {
+            Ok(opts) => opts,
+            Err(rc) => return rc,
+        };
+        let reported = std::sync::Arc::new(std::sync::OnceLock::new());
+        let worker_reported = std::sync::Arc::clone(&reported);
+        let rc = with_large_stack(move || {
+            let (rc, edges) = super::pano_apple::run_stitch_apple(
                 paths,
                 out_png,
                 alignment_in,
-                with_canvas_cap(
-                    super::pano_apple::stitch_options(retention, local_align, strategy, engine),
-                    max_canvas_px,
-                ),
+                opts,
                 cb,
                 send_cancel,
-            )
-        })
+            );
+            if let Some(edges) = edges {
+                let _ = worker_reported.set(MaplePanoEdgesReport::from(&edges));
+            }
+            rc
+        });
+        if let (Some(&edges), false) = (reported.get(), out_edges.is_null()) {
+            *out_edges = edges;
+        }
+        rc
     }
 
     #[cfg(not(any(target_os = "macos", target_os = "ios")))]
@@ -303,6 +352,8 @@ pub unsafe extern "C" fn maple_pano_stitch_aligned(
             out_png,
             alignment_in,
             max_canvas_px,
+            edges,
+            out_edges,
             retention,
             local_align,
             strategy,
@@ -357,7 +408,10 @@ mod apple {
         opts: StitchOptions,
         cb: SendProgressCallback,
         send_cancel: SendCancelPtr,
-    ) -> (i32, Option<super::MaplePanoPreviewSizes>) {
+    ) -> (
+        i32,
+        Option<(super::MaplePanoPreviewSizes, super::MaplePanoEdgesReport)>,
+    ) {
         let inputs: Vec<PathBuf> = input_paths.iter().map(PathBuf::from).collect();
         let (offered, unreadable) = read_alignment(alignment_in.as_deref());
         let result = preview(
@@ -391,12 +445,15 @@ mod apple {
         match written {
             Ok(()) => (
                 reuse_rc(NAME, &pv.reuse, unreadable),
-                Some(super::MaplePanoPreviewSizes {
-                    full_width: pv.full_canvas_estimate.0,
-                    full_height: pv.full_canvas_estimate.1,
-                    largest_frame_px: pv.largest_frame_px,
-                    scratch_bytes: pv.scratch_bytes,
-                }),
+                Some((
+                    super::MaplePanoPreviewSizes {
+                        full_width: pv.full_canvas_estimate.0,
+                        full_height: pv.full_canvas_estimate.1,
+                        largest_frame_px: pv.largest_frame_px,
+                        scratch_bytes: pv.scratch_bytes,
+                    },
+                    super::MaplePanoEdgesReport::from(&pv.edges),
+                )),
             ),
             Err(msg) => {
                 set_last_error(format!("{NAME}: {msg}"));

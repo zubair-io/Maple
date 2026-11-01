@@ -23,8 +23,8 @@ use std::time::Instant;
 
 use raw_ffi::{
     maple_last_error, maple_pano_preview, maple_pano_stitch, maple_pano_stitch_aligned,
-    MaplePanoFeatureEngine, MaplePanoLocalAlign, MaplePanoPreviewSizes, MaplePanoRetention,
-    MaplePanoStrategy,
+    MaplePanoBoundaryWarpStatus, MaplePanoEdges, MaplePanoEdgesReport, MaplePanoFeatureEngine,
+    MaplePanoLocalAlign, MaplePanoPreviewSizes, MaplePanoRetention, MaplePanoStrategy,
 };
 
 const FRAMES: usize = 3;
@@ -86,6 +86,7 @@ impl Frames {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn preview(
     frames: &Frames,
     out: &Path,
@@ -94,9 +95,11 @@ fn preview(
     local_align: MaplePanoLocalAlign,
     strategy: MaplePanoStrategy,
     engine: MaplePanoFeatureEngine,
-) -> (i32, f64, MaplePanoPreviewSizes) {
+    edges: MaplePanoEdges,
+) -> (i32, f64, MaplePanoPreviewSizes, MaplePanoEdgesReport) {
     let (out, a_in, a_out) = (c(out), alignment_in.map(c), alignment_out.map(c));
     let mut sizes = MaplePanoPreviewSizes::default();
+    let mut reported = MaplePanoEdgesReport::default();
     let t = Instant::now();
     let rc = unsafe {
         maple_pano_preview(
@@ -106,6 +109,8 @@ fn preview(
             a_in.as_ref().map_or(std::ptr::null(), |s| s.as_ptr()),
             a_out.as_ref().map_or(std::ptr::null(), |s| s.as_ptr()),
             &mut sizes,
+            edges,
+            &mut reported,
             MaplePanoRetention::Keep,
             local_align,
             strategy,
@@ -115,7 +120,7 @@ fn preview(
             std::ptr::null(),
         )
     };
-    (rc, t.elapsed().as_secs_f64(), sizes)
+    (rc, t.elapsed().as_secs_f64(), sizes, reported)
 }
 
 fn rgb16(path: &Path) -> image::ImageBuffer<image::Rgb<u16>, Vec<u16>> {
@@ -137,7 +142,7 @@ fn preview_alignment_reuse_and_identical_full_stitch() {
     let tmp = tempfile::tempdir().expect("temp dir");
     let at = |name: &str| tmp.path().join(name);
 
-    let (rc, fresh_s, _) = preview(
+    let (rc, fresh_s, _, _) = preview(
         &frames,
         &at("preview.png"),
         None,
@@ -145,6 +150,7 @@ fn preview_alignment_reuse_and_identical_full_stitch() {
         MaplePanoLocalAlign::Mesh,
         MaplePanoStrategy::Auto,
         MaplePanoFeatureEngine::Ml,
+        MaplePanoEdges::default(),
     );
     assert_eq!(rc, 0, "fresh preview: {}", last_error());
     let shot = rgb16(&at("preview.png"));
@@ -154,7 +160,7 @@ fn preview_alignment_reuse_and_identical_full_stitch() {
         "preview long edge {long_edge}"
     );
 
-    let (rc, reused_s, _) = preview(
+    let (rc, reused_s, _, _) = preview(
         &frames,
         &at("preview-off.png"),
         Some(&at("alignment.json")),
@@ -162,11 +168,12 @@ fn preview_alignment_reuse_and_identical_full_stitch() {
         MaplePanoLocalAlign::Off,
         MaplePanoStrategy::Auto,
         MaplePanoFeatureEngine::Ml,
+        MaplePanoEdges::default(),
     );
     assert_eq!(rc, 0, "composite-only change must reuse: {}", last_error());
     eprintln!("pano_preview_ffi_gates: preview fresh {fresh_s:.1}s, reused {reused_s:.1}s");
 
-    let (rc, _, _) = preview(
+    let (rc, _, _, _) = preview(
         &frames,
         &at("preview-tile.png"),
         Some(&at("alignment.json")),
@@ -174,6 +181,7 @@ fn preview_alignment_reuse_and_identical_full_stitch() {
         MaplePanoLocalAlign::Mesh,
         MaplePanoStrategy::Tile,
         MaplePanoFeatureEngine::Ml,
+        MaplePanoEdges::default(),
     );
     assert_eq!(rc, 1, "geometry change must not reuse");
     assert!(
@@ -212,6 +220,8 @@ fn preview_alignment_reuse_and_identical_full_stitch() {
             aligned_png.as_ptr(),
             alignment.as_ptr(),
             0,
+            MaplePanoEdges::default(),
+            std::ptr::null_mut(),
             MaplePanoRetention::Keep,
             MaplePanoLocalAlign::Mesh,
             MaplePanoStrategy::Auto,
@@ -252,7 +262,7 @@ fn preview_sizes_predict_the_full_stitch_and_a_cap_bounds_it() {
     let tmp = tempfile::tempdir().expect("temp dir");
     let at = |name: &str| tmp.path().join(name);
 
-    let (rc, _, sizes) = preview(
+    let (rc, _, sizes, _) = preview(
         &frames,
         &at("preview.png"),
         None,
@@ -260,6 +270,7 @@ fn preview_sizes_predict_the_full_stitch_and_a_cap_bounds_it() {
         MaplePanoLocalAlign::Mesh,
         MaplePanoStrategy::Auto,
         MaplePanoFeatureEngine::Classical,
+        MaplePanoEdges::default(),
     );
     assert_eq!(rc, 0, "preview: {}", last_error());
 
@@ -272,6 +283,8 @@ fn preview_sizes_predict_the_full_stitch_and_a_cap_bounds_it() {
                 out.as_ptr(),
                 alignment.as_ptr(),
                 cap,
+                MaplePanoEdges::default(),
+                std::ptr::null_mut(),
                 MaplePanoRetention::Keep,
                 MaplePanoLocalAlign::Mesh,
                 MaplePanoStrategy::Auto,
@@ -332,5 +345,133 @@ fn preview_sizes_predict_the_full_stitch_and_a_cap_bounds_it() {
         0,
         "a 1/16-area output cap must still stitch: {}",
         last_error()
+    );
+}
+
+/// Edge options out of range fail before any work, with no fixture.
+#[test]
+fn an_out_of_range_boundary_warp_is_refused() {
+    let frames = Frames::new(&[PathBuf::from("a.dng"), PathBuf::from("b.dng")]);
+    let tmp = tempfile::tempdir().expect("temp dir");
+    for bad in [-1.0, 100.5, f32::NAN] {
+        let (rc, _, _, _) = preview(
+            &frames,
+            &tmp.path().join("preview.png"),
+            None,
+            None,
+            MaplePanoLocalAlign::Mesh,
+            MaplePanoStrategy::Auto,
+            MaplePanoFeatureEngine::Classical,
+            MaplePanoEdges {
+                boundary_warp: bad,
+                auto_crop: false,
+            },
+        );
+        assert_eq!(rc, -10, "{bad}: {}", last_error());
+        assert!(
+            last_error().contains("edges.boundary_warp"),
+            "{}",
+            last_error()
+        );
+    }
+}
+
+/// Boundary Warp and Auto Crop reach the preview and the aligned stitch
+/// (#5574), the alignment is reused across an edge change, and the report
+/// says what was done. Classical engine, pano_01's first three frames.
+#[test]
+fn edges_reach_the_preview_and_the_aligned_stitch() {
+    let paths = match pano_01_frames() {
+        Ok(p) => p,
+        Err(reason) => {
+            eprintln!("pano_preview_ffi_gates: SKIP-PASS — {reason}");
+            return;
+        }
+    };
+    let frames = Frames::new(&paths);
+    let tmp = tempfile::tempdir().expect("temp dir");
+    let at = |name: &str| tmp.path().join(name);
+    let run = |out: &str, alignment_in: Option<&Path>, edges| {
+        preview(
+            &frames,
+            &at(out),
+            alignment_in,
+            Some(&at("alignment.json")),
+            MaplePanoLocalAlign::Mesh,
+            MaplePanoStrategy::Auto,
+            MaplePanoFeatureEngine::Classical,
+            edges,
+        )
+    };
+
+    let (rc, _, _, plain) = run("plain.png", None, MaplePanoEdges::default());
+    assert_eq!(rc, 0, "preview: {}", last_error());
+    assert_eq!(plain, MaplePanoEdgesReport::default());
+
+    let cropped_only = MaplePanoEdges {
+        boundary_warp: 0.0,
+        auto_crop: true,
+    };
+    let (rc, _, _, report) = run("cropped.png", Some(&at("alignment.json")), cropped_only);
+    assert_eq!(
+        rc,
+        0,
+        "an edge change must reuse the alignment: {}",
+        last_error()
+    );
+    assert_eq!(
+        report.boundary_warp_status,
+        MaplePanoBoundaryWarpStatus::WarpOff
+    );
+    assert!(report.auto_cropped);
+    let (whole, cropped) = (rgb16(&at("plain.png")), rgb16(&at("cropped.png")));
+    assert!(
+        cropped.width() <= whole.width() && cropped.height() <= whole.height(),
+        "{:?} within {:?}",
+        cropped.dimensions(),
+        whole.dimensions()
+    );
+
+    let warped = MaplePanoEdges {
+        boundary_warp: 100.0,
+        auto_crop: true,
+    };
+    let (rc, _, _, report) = run("warped.png", Some(&at("alignment.json")), warped);
+    assert_eq!(rc, 0, "{}", last_error());
+    assert_ne!(
+        report.boundary_warp_status,
+        MaplePanoBoundaryWarpStatus::WarpOff,
+        "a requested warp must report what it did"
+    );
+    assert!(
+        (0.0..=100.0).contains(&report.boundary_warp_applied),
+        "{report:?}"
+    );
+
+    let (out, alignment) = (c(&at("full.png")), c(&at("alignment.json")));
+    let mut full = MaplePanoEdgesReport::default();
+    let rc = unsafe {
+        maple_pano_stitch_aligned(
+            frames.ptrs.as_ptr(),
+            frames.ptrs.len(),
+            out.as_ptr(),
+            alignment.as_ptr(),
+            0,
+            warped,
+            &mut full,
+            MaplePanoRetention::Keep,
+            MaplePanoLocalAlign::Mesh,
+            MaplePanoStrategy::Auto,
+            MaplePanoFeatureEngine::Classical,
+            None,
+            std::ptr::null_mut(),
+            std::ptr::null(),
+        )
+    };
+    assert_eq!(rc, 0, "aligned stitch: {}", last_error());
+    assert!(full.auto_cropped, "{full:?}");
+    assert_ne!(
+        full.boundary_warp_status,
+        MaplePanoBoundaryWarpStatus::WarpOff
     );
 }

@@ -22,7 +22,7 @@ use std::time::Instant;
 use crate::ba::{self, BaOptions};
 use crate::camera::Camera;
 use crate::canvas::{auto_canvas, CanvasOptions, CanvasSpec, ProjectionMode};
-use crate::composite::{composite_tiled_frames, CanvasCollector};
+use crate::composite::{composite_tiled, CanvasCollector};
 use crate::frame_store::InMemory;
 use crate::gain::{solve_exposure_field, solve_photometry, GainMode, GainOptions};
 use crate::ingest::PlanarImage;
@@ -31,7 +31,9 @@ use crate::local_align::LocalCorrection;
 use crate::strategy::Strategy;
 
 use super::alignment::{usable, AlignmentKey, AlignmentReuse, SolvedAlignment};
+use super::boundary;
 use super::degenerate::reject_degenerate_canvas;
+use super::edges::EdgesReport;
 use super::io::develop_for_display;
 use super::tile_stitch::{place_and_composite, TilePlaced};
 use super::types::{StitchError, StitchOptions};
@@ -61,6 +63,9 @@ pub struct PanoPreview {
     /// frames ([`super::scratch_bytes`]), the input to callers' free-disk
     /// checks.
     pub scratch_bytes: u64,
+    /// Boundary Warp and Auto Crop on the preview canvas; `width`/`height`
+    /// are already the cropped size.
+    pub edges: EdgesReport,
     /// `[decode, features, match_graph, refine, solve, composite]` seconds;
     /// refine is always 0 (skipped), features and match_graph are 0 when
     /// the alignment was reused.
@@ -129,12 +134,19 @@ pub fn preview(
         })
         .max()
         .unwrap_or(0);
-    let (image, full_canvas_estimate, solve_s, composite_s) = match &alignment.tile_graph {
+    let Composited {
+        image,
+        full_canvas_estimate,
+        solve_s,
+        composite_s,
+        edges,
+    } = match &alignment.tile_graph {
         Some(tile_graph) => {
             let frames = InMemory(&proxies);
             let mut collector = CanvasCollector::default();
             let mut natural = (0, 0);
             let TilePlaced {
+                tile_report,
                 solve_s,
                 composite_s,
                 ..
@@ -144,9 +156,8 @@ pub fn preview(
                 &frames,
                 &alignment.lenses,
                 opts.local_align,
-                // The preview honours Boundary Warp and Auto Crop in #5574.
-                0.0,
-                false,
+                opts.boundary_warp,
+                opts.auto_crop,
                 |w, h| {
                     natural = (w, h);
                     long_edge_pixel_cap(w, h)
@@ -158,12 +169,17 @@ pub fn preview(
             // Tile placement fixes frame 0 at the identity, so canvas
             // pixels are the anchor frame's pixels.
             let anchor_scale = alignment.frames[0].proxy_scale;
-            (
-                collector.into_image(),
-                tile_full_canvas_estimate(natural, anchor_scale, opts.max_canvas_px),
+            Composited {
+                image: collector.into_image(),
+                full_canvas_estimate: tile_full_canvas_estimate(
+                    natural,
+                    anchor_scale,
+                    opts.max_canvas_px,
+                ),
                 solve_s,
                 composite_s,
-            )
+                edges: (&tile_report).into(),
+            }
         }
         None => rotation_preview(&alignment, proxies, opts, &mut progress, &is_cancelled)?,
     };
@@ -183,6 +199,7 @@ pub fn preview(
         ],
         alignment,
         reuse,
+        edges,
         largest_frame_px,
         scratch_bytes: super::scratch_bytes(inputs)?,
         full_canvas_estimate,
@@ -239,6 +256,15 @@ fn rotation_full_canvas_estimate(
     Ok((canvas.width, canvas.height))
 }
 
+/// The preview's composite and what it cost.
+struct Composited {
+    image: PlanarImage,
+    full_canvas_estimate: (u32, u32),
+    solve_s: f64,
+    composite_s: f64,
+    edges: EdgesReport,
+}
+
 /// A frame that survived the preview solve, with what the composite needs.
 struct KeptProxy {
     input: usize,
@@ -255,7 +281,7 @@ fn rotation_preview(
     opts: &StitchOptions,
     progress: &mut dyn FnMut(u32, f32),
     is_cancelled: &dyn Fn() -> bool,
-) -> Result<(PlanarImage, (u32, u32), f64, f64), StitchError> {
+) -> Result<Composited, StitchError> {
     let t4 = Instant::now();
     progress(4, 0.0);
     if is_cancelled() {
@@ -338,20 +364,36 @@ fn rotation_preview(
     .frames;
     let exposure_field =
         solve_exposure_field(&frames, &cameras, &photometry, &local, &canvas).map_err(to_err)?;
-    let (image, _) = composite_tiled_frames(
-        &frames,
+    let (output_canvas, boundary_warp) =
+        boundary::warped_canvas(&canvas, opts.boundary_warp, || {
+            boundary::rotation_footprint(&cameras, &local, &canvas)
+        });
+    let mut collector = CanvasCollector::default();
+    let report = composite_tiled(
+        &InMemory(&frames),
         &cameras,
         &photometry,
         &local,
         Some(&exposure_field),
-        &canvas,
+        &output_canvas,
         opts.canvas_tile_rows.unwrap_or(512),
         opts.seam_strategy,
         &[],
+        opts.auto_crop,
+        &mut collector,
     )
     .map_err(to_err)?;
     progress(5, 1.0);
-    Ok((image, full_estimate, solve_s, t5.elapsed().as_secs_f64()))
+    Ok(Composited {
+        image: collector.into_image(),
+        full_canvas_estimate: full_estimate,
+        solve_s,
+        composite_s: t5.elapsed().as_secs_f64(),
+        edges: EdgesReport {
+            boundary_warp,
+            ..(&report).into()
+        },
+    })
 }
 
 /// The natural proxy canvas shrunk to the preview long edge.

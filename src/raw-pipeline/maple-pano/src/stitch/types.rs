@@ -241,6 +241,14 @@ impl StitchSuccess {
             Self::Tile(o) => o.tile_report.output_size(),
         }
     }
+
+    /// What Boundary Warp and Auto Crop did, regardless of strategy.
+    pub fn edges(&self) -> super::EdgesReport {
+        match self {
+            Self::Rotation(o) => (&o.comp_report).into(),
+            Self::Tile(o) => (&o.tile_report).into(),
+        }
+    }
 }
 
 // ─── Errors ──────────────────────────────────────────────────────────────────
