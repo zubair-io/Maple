@@ -154,12 +154,32 @@ public enum PanoServerUpload {
     else {
       throw PanoFrameDownloadError.notOnServer(frame.absPath)
     }
-    guard
-      case .ok(let uploaded) = try await remote.uploadFile(
-        folderID: frame.folderID, targetRelativePath: target, fileURL: result.outputURL,
-        mtime: nil)
-    else {
+    return try await add(result, target: target) { path, file in
+      guard
+        case .ok(let uploaded) = try await remote.uploadFile(
+          folderID: frame.folderID, targetRelativePath: path, fileURL: file, mtime: nil)
+      else { return nil }
+      return (uploaded.absPath, uploaded.assetID)
+    }
+  }
+
+  /// Uploads the panorama, then the crop sidecar the stitch wrote beside it
+  /// (#5608): the PNG is the whole canvas, so without its sidecar the server's
+  /// copy would show the empty edges. The sidecar goes second because the
+  /// server binds an uploaded sidecar to the photo it belongs to.
+  static func add(
+    _ result: PanoResult, target: String,
+    upload: (String, URL) async throws -> (absPath: String, assetID: String?)?
+  ) async throws -> PanoResult {
+    guard let uploaded = try await upload(target, result.outputURL) else {
       throw PanoFrameDownloadError.uploadRefused(result.outputURL.lastPathComponent)
+    }
+    let sidecar = SidecarPath.sidecarURL(for: result.outputURL)
+    if FileManager.default.fileExists(atPath: sidecar.path) {
+      let sidecarTarget = (target as NSString).deletingPathExtension + ".xmp"
+      guard try await upload(sidecarTarget, sidecar) != nil else {
+        throw PanoFrameDownloadError.uploadRefused(sidecar.lastPathComponent)
+      }
     }
     return addedResult(from: result, absPath: uploaded.absPath, assetID: uploaded.assetID)
   }
