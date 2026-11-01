@@ -35,7 +35,7 @@ use crate::ingest::PlanarImage;
 use crate::local_align::LocalCorrection;
 use crate::seam::{self, SeamConstraint, SeamMasks};
 
-use super::super::{CanvasSink, CompositeReport};
+use super::super::{AutoCropReport, CanvasSink, CompositeReport, CropSink};
 use super::{check_inputs, strips, warp_frame_strip};
 
 #[allow(clippy::too_many_arguments)]
@@ -48,6 +48,7 @@ pub(super) fn composite_tiled_graph_cut(
     canvas: &CanvasSpec,
     tile_rows: u32,
     seam_constraints: &[SeamConstraint],
+    auto_crop: bool,
     sink: &mut dyn CanvasSink,
 ) -> Result<CompositeReport, PanoError> {
     check_inputs(
@@ -76,6 +77,7 @@ pub(super) fn composite_tiled_graph_cut(
             exposure_field,
             canvas,
             tile_rows,
+            auto_crop,
             sink,
         );
     };
@@ -87,6 +89,7 @@ pub(super) fn composite_tiled_graph_cut(
         canvas,
         tile_rows,
         &seam,
+        auto_crop,
         |fi, tile_y0, tile_y1| {
             warp_frame_strip(
                 frames,
@@ -114,10 +117,16 @@ fn graph_cut_blend(
     canvas: &CanvasSpec,
     tile_rows: u32,
     seam: &SeamMasks,
+    auto_crop: bool,
     warp_strip: impl FnMut(usize, u32, u32) -> Result<PlanarImage, PanoError>,
     sink: &mut dyn CanvasSink,
 ) -> Result<CompositeReport, PanoError> {
-    let survey = strips::survey(cameras, local_corrections, canvas, false);
+    let weight = |fi: usize, x: usize, y: usize| {
+        let (ux, uy) = canvas.unwarp(x as f64 + 0.5, y as f64 + 0.5);
+        seam.weight(fi, ux, uy)
+    };
+    let crop_weight = auto_crop.then_some(&weight as &strips::CropWeight);
+    let survey = strips::survey(cameras, local_corrections, canvas, false, crop_weight);
     let levels = levels_for_overlap_width(survey.min_overlap_px);
     strips::blend_strips(
         (canvas.width, canvas.height),
@@ -125,12 +134,9 @@ fn graph_cut_blend(
         tile_rows,
         levels,
         |fi, y0, y1| survey.footprint_touches(fi, y0, y1),
-        |fi, x, y| {
-            let (ux, uy) = canvas.unwarp(x as f64 + 0.5, y as f64 + 0.5);
-            seam.weight(fi, ux, uy)
-        },
+        weight,
         warp_strip,
-        sink,
+        &mut CropSink::new(sink, survey.crop_rect),
     )?;
     let report = CompositeReport {
         canvas: canvas.clone(),
@@ -144,6 +150,10 @@ fn graph_cut_blend(
         owner: None,
         boundary_warp: None,
         uncovered_px: 0,
+        auto_crop: auto_crop.then_some(AutoCropReport {
+            rect: survey.crop_rect,
+            invalid_px: 0,
+        }),
     };
     Ok(report)
 }

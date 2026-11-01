@@ -24,7 +24,7 @@ use rayon::prelude::*;
 use crate::blend::BandAccumulator;
 use crate::camera::Camera;
 use crate::canvas::CanvasSpec;
-use crate::composite::{CanvasSink, OwnerRuns};
+use crate::composite::{CanvasSink, CropAxes, CropRect, LargestRect, OwnerRuns};
 use crate::error::PanoError;
 use crate::ingest::{PlanarImage, ValidityMask};
 use crate::local_align::LocalCorrection;
@@ -49,6 +49,8 @@ pub(super) struct Survey {
     /// Voronoi owner per canvas pixel; kept only when the caller weights by
     /// hard ownership.
     pub(super) owner: Option<OwnerRuns>,
+    /// Auto Crop's rectangle (#5573), when one was asked for and exists.
+    pub(super) crop_rect: Option<CropRect>,
     pub(super) footprint_rows: Vec<Option<(u32, u32)>>,
     pub(super) min_overlap_px: usize,
 }
@@ -64,11 +66,18 @@ impl Survey {
 /// planes of this many canvas rows (#5452).
 const SURVEY_ROWS: u32 = 64;
 
+/// The blend's seam weight of frame `fi` at output pixel `(x, y)`.
+pub(super) type CropWeight<'a> = dyn Fn(usize, usize, usize) -> f32 + Sync + 'a;
+
+/// `crop_weight`, when given, asks for Auto Crop's rectangle: a pixel
+/// counts as covered when some frame both covers it and carries positive
+/// weight there, the same test the blend's validity makes.
 pub(super) fn survey(
     cameras: &[Camera],
     local_corrections: &[Option<LocalCorrection>],
     canvas: &CanvasSpec,
     keep_owner: bool,
+    crop_weight: Option<&CropWeight<'_>>,
 ) -> Survey {
     let k = cameras.len();
     let cw = canvas.width as usize;
@@ -77,6 +86,8 @@ pub(super) fn survey(
     let mut footprint_rows: Vec<Option<(u32, u32)>> = vec![None; k];
     let mut overlap_count = vec![vec![0usize; k]; k];
     let mut overlap_rows: Vec<Vec<BTreeSet<usize>>> = vec![vec![BTreeSet::new(); k]; k];
+    let mut crop =
+        crop_weight.map(|_| LargestRect::new(canvas.width, CropAxes::for_canvas(canvas)));
 
     for tile_y0 in (0..canvas.height).step_by(tile_rows as usize) {
         let tile_y1 = (tile_y0 + tile_rows).min(canvas.height);
@@ -107,13 +118,36 @@ pub(super) fn survey(
                 .chunks_exact(cw)
                 .for_each(|row| owner.push_row(row));
         }
+        if let (Some(crop), Some(weight)) = (crop.as_mut(), crop_weight) {
+            crop.push_rows(&covered_pixels(&depths, cw, tile_y0, weight));
+        }
     }
 
     Survey {
         owner,
+        crop_rect: crop.and_then(LargestRect::finish),
         footprint_rows,
         min_overlap_px: min_overlap_width(k, &overlap_count, &overlap_rows),
     }
+}
+
+/// Per pixel of a survey pass from canvas row `y0`, row-major, whether
+/// some frame both covers it and carries positive `weight` there.
+fn covered_pixels(depths: &[Vec<f32>], cw: usize, y0: u32, weight: &CropWeight<'_>) -> Vec<bool> {
+    let mut covered = vec![false; depths.first().map_or(0, Vec::len)];
+    covered
+        .par_chunks_mut(cw)
+        .enumerate()
+        .for_each(|(sy, row)| {
+            let y = y0 as usize + sy;
+            for (x, slot) in row.iter_mut().enumerate() {
+                *slot = depths
+                    .iter()
+                    .enumerate()
+                    .any(|(fi, d)| d[sy * cw + x] >= 0.0 && weight(fi, x, y) > 0.0);
+            }
+        });
+    covered
 }
 
 /// Blend the whole canvas strip by strip, handing each finished strip to

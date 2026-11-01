@@ -28,7 +28,9 @@ use crate::local_align::LocalCorrection;
 use crate::seam::{SeamConstraint, SeamConstraintError, SeamStrategy};
 use crate::warp::warp_window_to_canvas_strip;
 
-use super::{CanvasCollector, CanvasSink, CompositeReport, UncoveredCount};
+use super::{
+    AutoCropReport, CanvasCollector, CanvasSink, CompositeReport, CropSink, UncoveredCount,
+};
 
 /// Compute per-frame Voronoi depth scores over one canvas strip.
 ///
@@ -183,6 +185,7 @@ pub fn composite_tiled(
     tile_rows: u32,
     seam_strategy: SeamStrategy,
     seam_constraints: &[SeamConstraint],
+    auto_crop: bool,
     sink: &mut dyn CanvasSink,
 ) -> Result<CompositeReport, PanoError> {
     let mut counted = UncoveredCount::new(sink);
@@ -199,6 +202,7 @@ pub fn composite_tiled(
             exposure_field,
             canvas,
             tile_rows,
+            auto_crop,
             sink,
         ),
         SeamStrategy::GraphCut => graph_cut::composite_tiled_graph_cut(
@@ -210,12 +214,21 @@ pub fn composite_tiled(
             canvas,
             tile_rows,
             seam_constraints,
+            auto_crop,
             sink,
         ),
     }?;
     Ok(CompositeReport {
         exposure_field: exposure_field.map(|field| field.summary),
         uncovered_px: counted.uncovered,
+        auto_crop: report.auto_crop.map(|crop| AutoCropReport {
+            invalid_px: if crop.rect.is_some() {
+                counted.uncovered
+            } else {
+                0
+            },
+            ..crop
+        }),
         ..report
     })
 }
@@ -229,6 +242,7 @@ fn composite_tiled_voronoi(
     exposure_field: Option<&ExposureField>,
     canvas: &CanvasSpec,
     tile_rows: u32,
+    auto_crop: bool,
     sink: &mut dyn CanvasSink,
 ) -> Result<CompositeReport, PanoError> {
     check_inputs(
@@ -245,6 +259,7 @@ fn composite_tiled_voronoi(
         local_corrections,
         canvas,
         tile_rows,
+        auto_crop,
         |fi, y0, y1| {
             warp_frame_strip(
                 frames,
@@ -312,6 +327,7 @@ pub fn composite_tiled_frames(
         tile_rows,
         seam_strategy,
         seam_constraints,
+        false,
         &mut collector,
     )?;
     Ok((collector.into_image(), report))
@@ -319,16 +335,20 @@ pub fn composite_tiled_frames(
 
 /// Voronoi weighting: each covered canvas pixel belongs wholly to the frame
 /// whose projection of it sits deepest inside that frame.
+#[allow(clippy::too_many_arguments)]
 fn voronoi_blend(
     cameras: &[Camera],
     photometry: &[FramePhotometry],
     local_corrections: &[Option<LocalCorrection>],
     canvas: &CanvasSpec,
     tile_rows: u32,
+    auto_crop: bool,
     warp_strip: impl FnMut(usize, u32, u32) -> Result<PlanarImage, PanoError>,
     sink: &mut dyn CanvasSink,
 ) -> Result<CompositeReport, PanoError> {
-    let mut survey = strips::survey(cameras, local_corrections, canvas, true);
+    let any_owner = |_: usize, _: usize, _: usize| 1.0_f32;
+    let crop_weight = auto_crop.then_some(&any_owner as &strips::CropWeight);
+    let mut survey = strips::survey(cameras, local_corrections, canvas, true, crop_weight);
     let owner = survey.owner.as_ref().expect("survey kept the owner map");
     let levels = levels_for_overlap_width(survey.min_overlap_px);
     strips::blend_strips(
@@ -345,7 +365,7 @@ fn voronoi_blend(
             }
         },
         warp_strip,
-        sink,
+        &mut CropSink::new(sink, survey.crop_rect),
     )?;
     let report = CompositeReport {
         canvas: canvas.clone(),
@@ -356,9 +376,16 @@ fn voronoi_blend(
         min_overlap_width_px: survey.min_overlap_px,
         seam_strategy: SeamStrategy::Voronoi,
         exposure_field: None,
-        owner: survey.owner.take(),
+        owner: survey.owner.take().map(|owner| match survey.crop_rect {
+            Some(rect) => owner.cropped(rect),
+            None => owner,
+        }),
         boundary_warp: None,
         uncovered_px: 0,
+        auto_crop: auto_crop.then_some(AutoCropReport {
+            rect: survey.crop_rect,
+            invalid_px: 0,
+        }),
     };
     Ok(report)
 }

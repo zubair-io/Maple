@@ -95,6 +95,7 @@ fn ripple(frames: Vec<PlanarImage>, lenses: &LensGroups) -> (f64, Vec<crate::gai
         lenses,
         &GainOptions::default(),
         Some(1),
+        false,
         &mut collector,
     )
     .expect("composite");
@@ -157,6 +158,7 @@ fn tile_ingest_corrected_set_is_bit_identical() {
             lenses,
             &GainOptions::default(),
             Some(1),
+            false,
             &mut collector,
         )
         .expect("composite");

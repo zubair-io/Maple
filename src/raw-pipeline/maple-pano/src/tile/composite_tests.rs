@@ -202,6 +202,7 @@ fn composite_with_far_frame_places_all_content() {
         &crate::gain::LensGroups::ingest_corrected(full_dims.len()),
         &GainOptions::default(),
         Some(2),
+        false,
         &mut collector,
     )
     .expect("composite");
@@ -350,9 +351,9 @@ fn a_full_strength_boundary_warp_leaves_no_output_pixel_uncovered() {
     };
     let full_dims = vec![(fw, fh); frames.len()];
     let frames = InMemory(&frames);
-    let uncovered = |map: Option<&crate::boundary_warp::BoundaryWarp>| {
+    let run = |map: Option<&crate::boundary_warp::BoundaryWarp>, auto_crop: bool| {
         let mut collector = CanvasCollector::default();
-        composite_tile(
+        let report = composite_tile(
             &frames,
             &full_dims,
             &[],
@@ -363,20 +364,48 @@ fn a_full_strength_boundary_warp_leaves_no_output_pixel_uncovered() {
             &crate::gain::LensGroups::ingest_corrected(full_dims.len()),
             &GainOptions::default(),
             Some(2),
+            auto_crop,
             &mut collector,
         )
-        .expect("composite")
-        .uncovered_px
+        .expect("composite");
+        (collector.into_image(), report)
     };
     assert!(
-        uncovered(None) > 0,
+        run(None, false).1.uncovered_px > 0,
         "the placed frames must leave a ragged edge"
     );
-    let footprint = tile_footprint(&poses, &full_dims, None, &canvas, 1 << 20);
+    let coverage = TileCoverage::new(&poses, &full_dims, None, &canvas);
+    let footprint = tile_footprint(&coverage, &canvas, 1 << 20);
     let outcome = crate::boundary_warp::solve(&footprint, 1.0);
     assert_eq!(
         outcome.report.status,
         crate::boundary_warp::BoundaryWarpStatus::Applied
     );
-    assert_eq!(uncovered(outcome.map.as_ref()), 0);
+    assert_eq!(run(outcome.map.as_ref(), false).1.uncovered_px, 0);
+
+    for map in [None, outcome.map.as_ref()] {
+        let (whole, _) = run(map, false);
+        let (kept, report) = run(map, true);
+        let crop = report.auto_crop.expect("Auto Crop was requested");
+        let rect = crop.rect.expect("a covered rectangle exists");
+        assert_eq!(
+            Some(rect),
+            crate::composite::largest_valid_rect(&whole, crate::composite::CropAxes::Both)
+        );
+        assert_eq!(crop.invalid_px, 0);
+        assert_eq!((kept.width(), kept.height()), (rect.width, rect.height));
+        assert_eq!(report.output_size(), (rect.width, rect.height));
+        for y in 0..rect.height {
+            for x in 0..rect.width {
+                let (k, w) = (
+                    (y * rect.width + x) as usize,
+                    ((y + rect.y) * whole.width() + x + rect.x) as usize,
+                );
+                assert!(kept.validity.get(x, y), "({x},{y}) uncovered");
+                assert_eq!(kept.r[k], whole.r[w], "({x},{y})");
+                assert_eq!(kept.g[k], whole.g[w], "({x},{y})");
+                assert_eq!(kept.b[k], whole.b[w], "({x},{y})");
+            }
+        }
+    }
 }
