@@ -6,41 +6,11 @@
  * so a sustained outage stops hammering DNS instead of timing out on every row.
  */
 
+import { isTransientNetworkError } from '../../cloudflare/r2-network-error.ts';
+
 /** Consecutive unreachable HEADs before the pass gives up. Two default-sized
  * chunks: a lone slow request never trips it, an outage does within seconds. */
 export const R2_TRIP_AFTER_CONSECUTIVE_FAILURES = 16;
-
-const TRANSIENT_CODES = new Set([
-  'EAI_AGAIN',
-  'ENOTFOUND',
-  'ECONNREFUSED',
-  'ECONNRESET',
-  'ETIMEDOUT',
-  'EHOSTUNREACH',
-  'ENETUNREACH',
-  'EPIPE',
-  'ConnectionRefused',
-  'ConnectionClosed',
-  'FailedToOpenSocket',
-  'UND_ERR_CONNECT_TIMEOUT',
-  'UND_ERR_SOCKET',
-]);
-
-const TRANSIENT_MESSAGE =
-  /operation timed out|EAI_AGAIN|fetch failed|unable to connect|socket connection was closed|connection (reset|refused|closed)|R2 head failed \((429|5\d\d)\)/i;
-
-/** True for failures of the path to R2 (DNS, connect, timeout, R2-side 429/5xx)
- * as opposed to an answer R2 gave about the request (bad credentials, 4xx). */
-export function isTransientNetworkError(err: unknown): boolean {
-  if (!(err instanceof Error)) return false;
-  const code = (err as { code?: unknown }).code;
-  return (
-    err.name === 'TimeoutError' ||
-    err.name === 'AbortError' ||
-    (typeof code === 'string' && TRANSIENT_CODES.has(code)) ||
-    TRANSIENT_MESSAGE.test(err.message)
-  );
-}
 
 /** Many failures collapsed into what one log line needs. */
 export class FailureDigest {
