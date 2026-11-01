@@ -101,6 +101,12 @@ mod degenerate_preview_tests {
     }
 
     #[test]
+    fn preview_ifd_with_signed_samples_yields_no_preview() {
+        let bytes = dng_with_preview_sub_ifd(PreviewStrip::SignedSamples, 8, 4);
+        assert!(extract_preview_from_bytes(&bytes, "dng").is_none());
+    }
+
+    #[test]
     fn well_formed_jpeg_preview_ifd_is_still_extracted() {
         let bytes = dng_with_preview_sub_ifd(PreviewStrip::Jpeg, 8, 4);
         let image = extract_preview_from_bytes(&bytes, "dng")
