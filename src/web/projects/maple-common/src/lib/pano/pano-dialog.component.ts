@@ -44,6 +44,7 @@ import {
   PanoStitchRequest,
 } from '../api/pano.service';
 import { PanoPreviewStore } from './pano-preview.store';
+import { panoPreviewCrop } from './pano-preview-crop';
 import { panoProgressFraction, panoProgressLabel } from './pano-progress';
 import { LibraryStateService } from '../state/library-state.service';
 import { viewRouteCommands } from '../addressing/route-address';
@@ -143,6 +144,10 @@ export class PanoDialogComponent implements OnDestroy {
     const shownCrop = report?.auto_crop.requested ?? false;
     return shownWarp !== Math.round(this.committedWarp()) || shownCrop !== this.autoCrop();
   });
+  /** Auto Crop's rectangle on the shown preview, which is the whole canvas. */
+  readonly previewCrop = computed(() =>
+    this.autoCrop() ? panoPreviewCrop(this.preview.image()?.result?.edges) : null,
+  );
   readonly assetCount = computed(() => this.assetIds().length);
 
   /** Human-readable progress label derived from the job's stage progress. */

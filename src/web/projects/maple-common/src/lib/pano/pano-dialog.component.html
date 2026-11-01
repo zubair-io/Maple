@@ -54,12 +54,31 @@
               @let image = preview.image();
               @let run = preview.run();
               @if (image) {
-                <img
-                  class="max-h-[min(240px,26vh)] w-full rounded-[5px] bg-black object-contain transition-opacity duration-200"
-                  [class.opacity-50]="run.kind === 'running'"
-                  [src]="image.url"
-                  alt="Panorama preview"
-                />
+                @if (previewCrop(); as crop) {
+                  <div
+                    class="relative mx-auto overflow-hidden rounded-[5px] bg-black transition-opacity duration-200"
+                    data-testid="pano-preview-crop"
+                    [class.opacity-50]="run.kind === 'running'"
+                    [style.aspect-ratio]="crop.ratio"
+                    [style.width]="crop.frameWidth"
+                  >
+                    <img
+                      class="absolute max-w-none"
+                      [style.width.%]="crop.imageWidthPercent"
+                      [style.left.%]="crop.imageLeftPercent"
+                      [style.top.%]="crop.imageTopPercent"
+                      [src]="image.url"
+                      alt="Panorama preview, cropped"
+                    />
+                  </div>
+                } @else {
+                  <img
+                    class="max-h-[min(240px,26vh)] w-full rounded-[5px] bg-black object-contain transition-opacity duration-200"
+                    [class.opacity-50]="run.kind === 'running'"
+                    [src]="image.url"
+                    alt="Panorama preview"
+                  />
+                }
                 @if (image.result?.matcherNote; as note) {
                   <p
                     class="m-0 text-[11px] leading-[1.5] text-text-muted"
