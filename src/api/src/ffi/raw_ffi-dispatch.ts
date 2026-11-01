@@ -103,6 +103,7 @@ export async function handleFfiRequest(
         req.maxPx,
         req.ext,
         req.quality,
+        req.applyCrop === true,
       );
       return { type: 'renderBitmap', id: req.id, ok };
     } catch (e) {

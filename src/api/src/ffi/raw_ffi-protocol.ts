@@ -76,6 +76,8 @@ export interface RenderBitmapRequest {
   maxPx: number;
   quality: number;
   ext: string;
+  /** Crop to the crop the source's sidecar records (#5608). */
+  applyCrop?: boolean;
 }
 
 /** Decode-validate an AVIF this pipeline just wrote (`thumbs/avif-checks.ts`). */

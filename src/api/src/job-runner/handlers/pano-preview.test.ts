@@ -311,7 +311,11 @@ describe('stitch with Auto Crop (#5608)', () => {
 
       expect(withCrop.kind).toBe('done');
       const png = withCrop.result.outputPath as string;
-      expect(await fs.readFile(png, 'base64')).toBe(TINY_PNG_B64);
+      const marked = await fs.readFile(png);
+      expect(marked.includes(Buffer.from('Maple Auto Crop\0' + '47,22,1800,600'))).toBe(true);
+      const plainBytes = await fs.readFile(plain.result.outputPath as string, 'base64');
+      expect(plainBytes).toBe(TINY_PNG_B64);
+      expect(withCrop.result.outputAssetId).not.toBe(plain.result.outputAssetId);
       const sidecar = await fs.readFile(png.replace(/\.png$/, '.xmp'), 'utf8');
       expect(sidecar).toContain('crs:HasCrop="True"');
       expect(sidecar).toContain('crs:CropLeft="0.022960"');

@@ -384,6 +384,7 @@ async function renderBitmapPreviewToFile(
     PREVIEW_LONG_EDGE_PX,
     70,
     ext,
+    isOriginal,
   ).catch((e: unknown) => logRenderFailure({ srcPath }, e, 'FFI pool threw'));
   if (result === false) return false;
   if (!result.ok) {
