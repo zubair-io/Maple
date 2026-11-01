@@ -58,6 +58,14 @@ final class MuiSliderTests: XCTestCase {
     XCTAssertNil(MuiSlider.accessibilityHint(helper: nil, helperTone: .muted))
   }
 
+  func testOnlyANonEmptyWarningHelperIsAnnounced() {
+    let reason = "Not applied: warping this shape would fold the image."
+    XCTAssertEqual(MuiSlider.warningReason(helper: reason, helperTone: .warning), reason)
+    XCTAssertNil(MuiSlider.warningReason(helper: reason, helperTone: .muted))
+    XCTAssertNil(MuiSlider.warningReason(helper: "", helperTone: .warning))
+    XCTAssertNil(MuiSlider.warningReason(helper: nil, helperTone: .warning))
+  }
+
   func testCommitFiresOnlyWhenTheValueChanged() {
     XCTAssertTrue(MuiSlider.shouldCommit(start: 10, end: 11))
     XCTAssertFalse(MuiSlider.shouldCommit(start: 10, end: 10))
