@@ -139,7 +139,7 @@ jobs:
       - uses: actions/checkout@v7.0.1
       - uses: dtolnay/rust-toolchain@stable
       - name: Cache cargo registry + raw-pipeline target
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/registry
@@ -356,7 +356,7 @@ jobs:
       - uses: actions/checkout@v7.0.1
       - uses: dtolnay/rust-toolchain@stable
       - name: Cache cargo registry + raw-pipeline target
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/registry
@@ -499,7 +499,7 @@ jobs:
       - uses: actions/checkout@v7.0.1
       - uses: dtolnay/rust-toolchain@stable
       - name: Cache cargo registry + raw-pipeline target
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/registry
@@ -561,7 +561,7 @@ jobs:
       - name: 'Diagnostic input integrity (real EXR/CLI, #4082)'
         run: python3 -m unittest discover -s src/scripts -p test_diagnostic_evidence.py
       - name: Cache cargo registry + raw-pipeline target
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/registry
@@ -664,7 +664,7 @@ jobs:
 
       - name: Cache cargo registry + raw-pipeline target
         if: steps.probe.outputs.have_raws == 'true'
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/registry
@@ -741,7 +741,7 @@ jobs:
 
       - name: Cache cargo registry + raw-pipeline target
         if: steps.probe.outputs.have_fixtures == 'true'
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/registry
