@@ -76,7 +76,7 @@ public struct MuiSlider: View {
         helperLine(helper)
       }
     }
-    .onChange(of: warningReason) { _, reason in
+    .onChange(of: warningReason, initial: true) { _, reason in
       guard let reason else { return }
       AccessibilityNotification.Announcement(reason).post()
     }
@@ -87,7 +87,15 @@ public struct MuiSlider: View {
   }
 
   private var warningReason: String? {
-    helperTone == .warning ? helper : nil
+    Self.warningReason(helper: helper, helperTone: helperTone)
+  }
+
+  /// The reason to announce: a warning helper with text. `onChange(initial:)`
+  /// posts it once when the slider appears with a reason already present, and
+  /// again only when the reason changes.
+  static func warningReason(helper: String?, helperTone: MuiSliderHelperTone) -> String? {
+    guard helperTone == .warning, let helper, !helper.isEmpty else { return nil }
+    return helper
   }
 
   @ViewBuilder
