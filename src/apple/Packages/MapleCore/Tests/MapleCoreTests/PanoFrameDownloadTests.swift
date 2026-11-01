@@ -406,6 +406,22 @@ private final class LocalCopyRecorder: PanoStitching {
     #expect(PanoServerUpload.uploadPath(for: result, beside: frame, root: "/elsewhere") == nil)
   }
 
+  @Test func theAddedResultKeepsTheStitchOutcomeIncludingTheEdgeReport() {
+    let edges = PanoEdgesReport(
+      boundaryWarpStatus: .clampedFold, boundaryWarpApplied: 41, autoCropped: true)
+    let local = PanoResult(
+      outputURL: URL(fileURLWithPath: "/cache/p.png"), reportSummary: "",
+      alignmentOutcome: .reused, matcher: .classicalFallback(reason: "x"), edges: edges)
+    let added = PanoServerUpload.addedResult(
+      from: local, absPath: "/srv/Panoramas/p.png", assetID: "asset-1")
+    #expect(added.edges == edges)
+    #expect(added.alignmentOutcome == .reused)
+    #expect(added.matcher == local.matcher)
+    #expect(added.serverAssetID == "asset-1")
+    #expect(added.storedOnServer)
+    #expect(added.outputURL.path == "/srv/Panoramas/p.png")
+  }
+
   @Test func stitchesTheLocalCopiesAndAddsTheResultToTheLibrary() async throws {
     let cloud = ["A.dng", "B.dng"].map(cloudFrame)
     let local = [URL(fileURLWithPath: "/tmp/a.dng"), URL(fileURLWithPath: "/tmp/b.dng")]

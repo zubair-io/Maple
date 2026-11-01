@@ -161,12 +161,19 @@ public enum PanoServerUpload {
     else {
       throw PanoFrameDownloadError.uploadRefused(result.outputURL.lastPathComponent)
     }
-    return PanoResult(
-      outputURL: URL(fileURLWithPath: uploaded.absPath),
+    return addedResult(from: result, absPath: uploaded.absPath, assetID: uploaded.assetID)
+  }
+
+  /// The result once its output is on the server: the outcome of the
+  /// on-device stitch (alignment, matcher, edge report) is carried over.
+  static func addedResult(from result: PanoResult, absPath: String, assetID: String?) -> PanoResult {
+    PanoResult(
+      outputURL: URL(fileURLWithPath: absPath),
       reportSummary: "Stitched on this device and added beside the frames on the server.",
       alignmentOutcome: result.alignmentOutcome,
       matcher: result.matcher,
-      serverAssetID: uploaded.assetID,
+      edges: result.edges,
+      serverAssetID: assetID,
       storedOnServer: true)
   }
 
