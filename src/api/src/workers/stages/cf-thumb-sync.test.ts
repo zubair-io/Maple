@@ -149,10 +149,33 @@ describe('cf-thumb-sync stage', () => {
     );
   });
 
-  it('propagates an R2 upload failure by throwing (retry/backoff owned by the runner)', async () => {
-    stubFetch(500);
+  it('throws on a permanent R2 answer (retry/backoff owned by the runner)', async () => {
+    stubFetch(403);
     const asset = await makeAsset('d.jpg', 'd'.repeat(32));
 
-    await expect(cfThumbSyncStage.handler(asset as never, {} as never)).rejects.toThrow(/500/);
+    await expect(cfThumbSyncStage.handler(asset as never, {} as never)).rejects.toThrow(/403/);
+  });
+
+  it('defers without throwing when R2 answers 5xx', async () => {
+    stubFetch(500);
+    const asset = await makeAsset('e.jpg', 'e'.repeat(32));
+
+    const result = await cfThumbSyncStage.handler(asset as never, {} as never);
+    expect(result).toHaveProperty('defer.reason');
+    expect((result as { defer: { retryAt: Date } }).defer.retryAt.getTime()).toBeGreaterThan(
+      Date.now(),
+    );
+  });
+
+  it('defers without throwing when the network request itself fails', async () => {
+    globalThis.fetch = (async () => {
+      throw Object.assign(new Error('getaddrinfo EAI_AGAIN acct123.r2.cloudflarestorage.com'), {
+        code: 'EAI_AGAIN',
+      });
+    }) as unknown as typeof fetch;
+    const asset = await makeAsset('f.jpg', 'f'.repeat(32));
+
+    const result = await cfThumbSyncStage.handler(asset as never, {} as never);
+    expect((result as { defer: { reason: string } }).defer.reason).toContain('EAI_AGAIN');
   });
 });

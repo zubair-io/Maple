@@ -33,9 +33,12 @@
  * safeguard, this stage also proactively deletes the edge copy if it
  * processes a hidden asset that carries a sync timestamp.
  *
- * Retry/backoff and dead-lettering are entirely `run-stage.ts`'s generic
- * job — this handler just throws on failure (mirrors `geocode.ts`), rather
- * than hand-rolling its own retry loop the way the old JobRunner job did.
+ * Retry/backoff and dead-lettering are `run-stage.ts`'s generic job — this
+ * handler throws on a failure that is about the row (rejected credentials, an
+ * unreadable thumbnail), rather than hand-rolling its own retry loop the way
+ * the old JobRunner job did. A failure of the path to R2 (DNS, connect,
+ * timeout, 429/5xx) is about the network, not the row: it defers without
+ * spending an attempt, so an outage of any length dead-letters nothing (#5589).
  */
 
 import { THUMB_TARGET_VERSION } from '../derivative-versions.ts';
@@ -49,6 +52,7 @@ import {
   resolveCloudflareConfig,
 } from '../../cloudflare/cloudflare-config.repo.ts';
 import { uploadThumbToR2 } from '../../cloudflare/r2-client.ts';
+import { isTransientNetworkError } from '../../cloudflare/r2-network-error.ts';
 import { thumbR2Key } from '../../cloudflare/thumb-key.ts';
 import { cleanupR2ThumbForHiddenAsset } from '../../cloudflare/hidden-cleanup.ts';
 import { cfThumbSyncedStatements } from '../../db/repos/assets.stage-patches.ts';
@@ -59,6 +63,11 @@ import { defineStage, runStage, type RunStageHandle, type StageResult } from '..
  * stalled request from hanging the stage's concurrency slot indefinitely.
  * Same value the old inline thumb.ts hook used. */
 const CF_UPLOAD_TIMEOUT_MS = 5_000;
+
+/** How long a row waits after R2 could not be reached. A fixed delay rather
+ * than the failure ladder: the failure is the network's, not the row's, so the
+ * row's attempt budget is untouched and the retry can be steady. */
+const R2_UNREACHABLE_RETRY_MS = 5 * 60_000;
 
 const cfThumbSyncStage = defineStage({
   name: 'cf-thumb-sync',
@@ -116,13 +125,23 @@ const cfThumbSyncStage = defineStage({
     }
 
     const key = thumbR2Key({ slug, relDir: primary.path, filename: primary.filename });
-    await uploadThumbToR2(
-      config,
-      key,
-      bytes,
-      'image/avif',
-      AbortSignal.timeout(CF_UPLOAD_TIMEOUT_MS),
-    );
+    try {
+      await uploadThumbToR2(
+        config,
+        key,
+        bytes,
+        'image/avif',
+        AbortSignal.timeout(CF_UPLOAD_TIMEOUT_MS),
+      );
+    } catch (err) {
+      if (!isTransientNetworkError(err)) throw err;
+      return {
+        defer: {
+          reason: `r2-unreachable: ${err instanceof Error ? err.message : String(err)}`,
+          retryAt: new Date(Date.now() + R2_UNREACHABLE_RETRY_MS),
+        },
+      };
+    }
     // The stamp is a statement the runner commits in the same transaction as
     // this stage's success row, so "uploaded" and "recorded as uploaded" cannot
     // land apart from one another.
