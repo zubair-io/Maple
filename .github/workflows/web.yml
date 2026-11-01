@@ -92,7 +92,7 @@ jobs:
         run: bun run brand:check
 
       - name: Download raw-wasm package
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: web-raw-wasm
           path: src/raw-pipeline/raw-wasm/pkg/
@@ -194,7 +194,7 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Download raw-wasm package
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: web-raw-wasm
           path: src/raw-pipeline/raw-wasm/pkg/
@@ -236,7 +236,7 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Download raw-wasm package
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: web-raw-wasm
           path: src/raw-pipeline/raw-wasm/pkg/
@@ -339,7 +339,7 @@ jobs:
 
       - name: Download raw-wasm package
         if: steps.fixture.outputs.available == 'true'
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: web-raw-wasm
           path: src/raw-pipeline/raw-wasm/pkg/
@@ -409,7 +409,7 @@ jobs:
         working-directory: src/api
         run: bun install --frozen-lockfile
       - name: Download raw-wasm package
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: web-raw-wasm
           path: src/raw-pipeline/raw-wasm/pkg/
