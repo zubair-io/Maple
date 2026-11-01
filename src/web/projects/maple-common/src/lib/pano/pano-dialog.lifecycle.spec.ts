@@ -17,6 +17,7 @@ const config = (strategySupported: boolean): PanoConfig => ({
   strategy_supported: strategySupported,
   features_engine_supported: true,
   preview_supported: false,
+  edges_supported: false,
   source: {
     maple_cli_path: 'db',
     models_dir: 'db',

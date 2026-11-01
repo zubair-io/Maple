@@ -23,6 +23,10 @@ export interface PanoStitchOptions {
   localAlign: PanoLocalAlign;
   /** Only included when strategySupported is true. */
   strategy?: PanoStrategy;
+  /** Boundary Warp strength in percent, 0 to 100. Only sent when above 0. */
+  boundaryWarp?: number;
+  /** Only sent when on. */
+  autoCrop?: boolean;
 }
 
 export interface PanoStitchRequest {
@@ -72,17 +76,43 @@ export interface PanoMatcherUsed {
   matcherNote?: string | null;
 }
 
+/** What Boundary Warp and Auto Crop did to the written image: the `edges`
+ *  block of the maple-cli report, passed through unchanged. Strengths are
+ *  percents. `status` is `off`, `applied`, `clamped_fold` or a `refused_*`
+ *  reason; a status this build does not know is shown as no reason. */
+export interface PanoEdgesReport {
+  output: { width: number; height: number };
+  uncovered_px: number;
+  boundary_warp: {
+    requested: number;
+    applied: number;
+    status: string;
+    max_stretch: number | null;
+    min_jacobian: number | null;
+    predicted_coverage: number | null;
+    solve_ms: number | null;
+  };
+  auto_crop: {
+    requested: boolean;
+    rect: { x: number; y: number; width: number; height: number } | null;
+    invalid_px: number | null;
+  };
+}
+
 export interface PanoJobResult extends PanoMatcherUsed {
   outputAssetId: string | null;
   outputPath: string;
   stagesCompleted: number;
   alignment?: PanoAlignmentVerdict | null;
+  /** Null from a binary that predates Boundary Warp and Auto Crop. */
+  edges?: PanoEdgesReport | null;
   error: string | null;
 }
 
 /** `result` of a finished `pano_preview` job. */
 export interface PanoPreviewResult extends PanoMatcherUsed {
   alignment: PanoAlignmentVerdict | null;
+  edges?: PanoEdgesReport | null;
   width: number | null;
   height: number | null;
   seconds: number | null;
@@ -115,6 +145,8 @@ export interface PanoConfig {
   features_engine_supported: boolean;
   /** Whether the binary supports the quick preview (`--preview-out`, #4580). */
   preview_supported: boolean;
+  /** Whether the binary supports Boundary Warp and Auto Crop (`--boundary-warp`). */
+  edges_supported: boolean;
   source: {
     maple_cli_path: ConfigSource;
     models_dir: ConfigSource;

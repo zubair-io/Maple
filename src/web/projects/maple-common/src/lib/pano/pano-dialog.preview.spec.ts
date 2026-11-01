@@ -9,7 +9,7 @@ import { LibraryStateService } from '../state/library-state.service';
 import type { PanoConfig, PanoJobView } from '../api/pano.service';
 import { PREVIEW_DEBOUNCE_MS, PREVIEW_POLL_MS } from './pano-preview.store';
 
-const config = (previewSupported: boolean): PanoConfig => ({
+const config = (previewSupported: boolean, edgesSupported = false): PanoConfig => ({
   maple_cli_path: '/opt/maple-cli',
   models_dir: '/models',
   ort_dylib_path: null,
@@ -18,6 +18,7 @@ const config = (previewSupported: boolean): PanoConfig => ({
   strategy_supported: false,
   features_engine_supported: true,
   preview_supported: previewSupported,
+  edges_supported: edgesSupported,
   source: {
     maple_cli_path: 'db',
     models_dir: 'db',

@@ -37,6 +37,14 @@
       />
     </div>
 
+    <mui-panorama-edges
+      [(boundaryWarp)]="boundaryWarp"
+      [(autoCrop)]="autoCrop"
+      [reason]="boundaryWarpReason()"
+      [disabled]="stitching()"
+      (warpCommit)="boundaryWarpCommitted.emit($event)"
+    />
+
     @if (stitching()) {
       <mui-progress shape="bar" [value]="progress()" label="Stitching…" />
     }

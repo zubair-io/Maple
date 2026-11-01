@@ -48,6 +48,8 @@ import { panoProgressFraction, panoProgressLabel } from './pano-progress';
 import { LibraryStateService } from '../state/library-state.service';
 import { viewRouteCommands } from '../addressing/route-address';
 import { MuiButtonComponent } from '../ui/button/mui-button.component';
+import { MuiPanoramaEdgesComponent } from '../ui/panorama-edges/mui-panorama-edges.component';
+import { panoBoundaryWarpReason } from '../ui/panorama-edges/pano-edges-reason';
 
 type DialogPhase =
   | 'idle'
@@ -78,7 +80,7 @@ function stitchErrorMessage(err: HttpErrorResponse, code: string): string {
 @Component({
   selector: 'app-pano-dialog',
   standalone: true,
-  imports: [MuiButtonComponent],
+  imports: [MuiButtonComponent, MuiPanoramaEdgesComponent],
   providers: [PanoPreviewStore],
   templateUrl: './pano-dialog.component.html',
   styleUrl: './pano-dialog.component.scss',
@@ -116,9 +118,31 @@ export class PanoDialogComponent implements OnDestroy {
   readonly retention = signal<PanoRetention>(DEFAULT_RETENTION);
   readonly localAlign = signal<PanoLocalAlign>(DEFAULT_LOCAL_ALIGN);
   readonly strategy = signal<PanoStrategy>(DEFAULT_STRATEGY);
+  /** The slider's value while dragging; the preview waits for `committedWarp`. */
+  readonly boundaryWarp = signal(0);
+  readonly committedWarp = signal(0);
+  readonly autoCrop = signal(false);
 
   readonly strategySupported = computed(() => this.config()?.strategy_supported ?? false);
   readonly previewSupported = computed(() => this.config()?.preview_supported ?? false);
+  readonly edgesSupported = computed(() => this.config()?.edges_supported ?? false);
+
+  /** Why Boundary Warp did not apply as asked, from the newest report: the
+   * shown preview's while the options are open, the stitch's once it is done.
+   * It stays until a newer report replaces it, and never shows at 0%. */
+  readonly warpReason = computed(() =>
+    this.committedWarp() === 0 ? null : panoBoundaryWarpReason(this.preview.image()?.result?.edges),
+  );
+  readonly stitchWarpReason = computed(() => panoBoundaryWarpReason(this.job()?.result?.edges));
+  /** A preview is running for edge settings the shown image was not made with. */
+  readonly edgesRefreshing = computed(() => {
+    const shown = this.preview.image();
+    if (shown === null || this.preview.run().kind !== 'running') return false;
+    const report = shown.result?.edges;
+    const shownWarp = Math.round(report?.boundary_warp.requested ?? 0);
+    const shownCrop = report?.auto_crop.requested ?? false;
+    return shownWarp !== Math.round(this.committedWarp()) || shownCrop !== this.autoCrop();
+  });
   readonly assetCount = computed(() => this.assetIds().length);
 
   /** Human-readable progress label derived from the job's stage progress. */
@@ -155,6 +179,9 @@ export class PanoDialogComponent implements OnDestroy {
         this.retention.set(DEFAULT_RETENTION);
         this.localAlign.set(DEFAULT_LOCAL_ALIGN);
         this.strategy.set(DEFAULT_STRATEGY);
+        this.boundaryWarp.set(0);
+        this.committedWarp.set(0);
+        this.autoCrop.set(false);
         this._abandonSubmit();
         this._stopPolling();
       }
@@ -181,6 +208,10 @@ export class PanoDialogComponent implements OnDestroy {
       retention: this.retention(),
       localAlign: this.localAlign(),
       ...(this.strategySupported() ? { strategy: this.strategy() } : {}),
+      ...(this.edgesSupported() && this.committedWarp() > 0
+        ? { boundaryWarp: this.committedWarp() }
+        : {}),
+      ...(this.edgesSupported() && this.autoCrop() ? { autoCrop: true } : {}),
     };
   }
 

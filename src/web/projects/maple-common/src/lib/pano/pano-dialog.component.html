@@ -67,7 +67,13 @@
                 }
               }
               @if (run.kind === 'running') {
-                <p class="m-0 text-[11px] text-text-muted">Preview — {{ previewLabel() }}</p>
+                <p class="m-0 text-[11px] text-text-muted">
+                  @if (edgesRefreshing()) {
+                    Updating edges…
+                  } @else {
+                    Preview — {{ previewLabel() }}
+                  }
+                </p>
                 <div
                   class="relative h-1 overflow-hidden rounded-sm bg-border"
                   role="progressbar"
@@ -91,6 +97,16 @@
                 </p>
               }
             </div>
+          }
+
+          <!-- Edges: Boundary Warp + Auto Crop (#5576) -->
+          @if (edgesSupported()) {
+            <mui-panorama-edges
+              [(boundaryWarp)]="boundaryWarp"
+              [(autoCrop)]="autoCrop"
+              [reason]="warpReason()"
+              (warpCommit)="committedWarp.set($event)"
+            />
           }
 
           <!-- Retention -->
@@ -223,6 +239,14 @@
           class="flex max-h-[60vh] min-h-[80px] flex-col items-center justify-center gap-3.5 overflow-y-auto p-4"
         >
           <p class="m-0 text-[12px] text-text-main">Panorama ready.</p>
+          @if (stitchWarpReason(); as reason) {
+            <p
+              class="m-0 text-[11px] leading-[1.5] text-warn"
+              data-testid="pano-boundary-warp-reason"
+            >
+              {{ reason }}
+            </p>
+          }
           @if (stitchMatcherNote(); as note) {
             <p
               class="m-0 text-[11px] leading-[1.5] text-text-muted"
