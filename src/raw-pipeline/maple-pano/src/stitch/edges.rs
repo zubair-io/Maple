@@ -12,7 +12,7 @@ pub struct EdgesReport {
     pub auto_crop: Option<AutoCropReport>,
     /// Output pixels no frame covers.
     pub uncovered_px: u64,
-    /// The written image's `(width, height)`, after any crop.
+    /// The written image's `(width, height)`, the whole canvas.
     pub output: (u32, u32),
 }
 
