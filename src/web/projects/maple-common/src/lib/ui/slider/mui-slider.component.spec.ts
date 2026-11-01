@@ -182,6 +182,34 @@ describe('MuiSliderComponent', () => {
       expect(commits).toEqual([0.6]);
     });
 
+    it('commits a drag after Tab moved focus away and back, with no key-up on the slider', () => {
+      const { fixture, commits } = setup();
+      const el = track(fixture);
+      el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab' }));
+      el.dispatchEvent(new Event('blur'));
+      drag(el, '0.8');
+      el.dispatchEvent(new Event('change'));
+      expect(commits).toEqual([0.8]);
+    });
+
+    it('does not suppress a drag commit because of a non-value key press', () => {
+      const { fixture, commits } = setup();
+      const el = track(fixture);
+      el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab' }));
+      drag(el, '0.8');
+      el.dispatchEvent(new Event('change'));
+      expect(commits).toEqual([0.8]);
+    });
+
+    it('finalizes a pending key change when focus leaves before the key-up', () => {
+      const { fixture, commits } = setup();
+      const el = track(fixture);
+      el.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight' }));
+      drag(el, '0.4');
+      el.dispatchEvent(new Event('blur'));
+      expect(commits).toEqual([0.4]);
+    });
+
     it('starts a fresh change after a commit', () => {
       const { fixture, commits } = setup();
       const el = track(fixture);
