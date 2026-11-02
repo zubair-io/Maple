@@ -158,6 +158,84 @@ describe('PanoDialogComponent quick preview (#4580)', () => {
     expect(fixture.componentInstance.phase()).toBe('polling');
   });
 
+  describe('stitch progress while the full stitch runs', () => {
+    const q = (selector: string) =>
+      fixture.nativeElement.querySelector(selector) as HTMLElement | null;
+
+    function stitching(progress = { current: 250, total: 600 }): void {
+      open(true);
+      previewCreated('p1');
+      previewDone('p1');
+      fixture.componentInstance.onSubmit();
+      fixture.detectChanges();
+      http
+        .expectOne('/api/pano/stitch')
+        .flush({ id: 's1' }, { status: 201, statusText: 'Created' });
+      vi.advanceTimersByTime(0);
+      fixture.detectChanges();
+      vi.advanceTimersByTime(2_000);
+      http.expectOne('/api/pano/jobs/s1').flush({
+        ...previewJob('s1', { progress }),
+        kind: 'pano_stitch',
+      });
+      fixture.detectChanges();
+    }
+
+    it('shows the queuing text inside the pinned preview before the job exists', () => {
+      open(true);
+      previewCreated('p1');
+      previewDone('p1');
+      fixture.componentInstance.onSubmit();
+      fixture.detectChanges();
+      expect(
+        q('[data-testid="pano-preview"] [data-testid="pano-stitch-progress"]')?.textContent,
+      ).toContain('Queuing job…');
+      http
+        .expectOne('/api/pano/stitch')
+        .flush({ id: 's1' }, { status: 201, statusText: 'Created' });
+      fixture.componentInstance.onCancel();
+    });
+
+    it('renders the stage and bar inside the sticky preview, under the image', () => {
+      stitching();
+      const preview = q('[data-testid="pano-preview"]')!;
+      expect(preview.querySelector('img[alt="Panorama preview"]')).not.toBeNull();
+      expect(preview.querySelector('[data-testid="pano-stitch-progress"]')?.textContent).toContain(
+        'Matching frames',
+      );
+      expect(preview.querySelectorAll('[role="progressbar"]').length).toBe(1);
+      fixture.componentInstance.onCancel();
+      http.expectOne({ method: 'DELETE', url: '/api/pano/jobs/s1' }).flush({ ok: true });
+    });
+
+    it('hides the preview status text and locks the options while it runs', () => {
+      stitching();
+      const preview = q('[data-testid="pano-preview"]')!;
+      expect(preview.textContent).not.toContain('Preview —');
+      expect(preview.textContent).not.toContain('Updating edges');
+      expect(q('#pano-retention')!.closest('[inert]')).not.toBeNull();
+      const buttons = [...fixture.nativeElement.querySelectorAll('mui-button')].map((b: Element) =>
+        b.textContent?.trim(),
+      );
+      expect(buttons).toContain('Cancel job');
+      expect(buttons).not.toContain('Create panorama');
+      fixture.componentInstance.onCancel();
+      http.expectOne({ method: 'DELETE', url: '/api/pano/jobs/s1' }).flush({ ok: true });
+    });
+
+    it('keeps the standalone progress screen on a binary without a preview', () => {
+      open(false);
+      fixture.componentInstance.onSubmit();
+      http
+        .expectOne('/api/pano/stitch')
+        .flush({ id: 's1' }, { status: 201, statusText: 'Created' });
+      fixture.detectChanges();
+      expect(q('[data-testid="pano-preview"]')).toBeNull();
+      expect(q('[data-testid="pano-stitch-progress"]')).not.toBeNull();
+      fixture.componentInstance.onCancel();
+    });
+  });
+
   it('says which matcher ran when ML fell back to classical (#5487)', () => {
     const matcherNote = 'Used the classical matcher because the models aren’t installed.';
     const fallback = { matcher: 'classical' as const, matcherNote };

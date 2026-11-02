@@ -66,6 +66,8 @@ struct PanoMergeView: View {
   var onOpenPanoSettings: (() -> Void)? = nil
 
   @State private var thumbnails = ThumbnailProvider.local()
+  /// The sheet's height, which caps the pinned preview.
+  @State private var sheetHeight: CGFloat = 0
   /// Why the frames' server can't stitch; `nil` when it can or is unchecked.
   @State private var serverUnavailable: String?
   /// The server check has answered. Until then Run On and Create are held,
@@ -93,12 +95,8 @@ struct PanoMergeView: View {
         switch session.state {
         case .idle:
           EmptyView()
-        case .finishingAlignment:
-          progressSection(title: "Finishing alignment…", overall: previewFraction)
-        case .running(let stage, _, let overall):
-          progressSection(
-            title: runsOnServer && overall == 0 ? "Waiting for the server…" : stage.displayName,
-            overall: overall)
+        case .finishingAlignment, .running:
+          EmptyView()
         case .done(let result):
           resultSection(result: result)
         case .error(let stitchError):
@@ -110,11 +108,14 @@ struct PanoMergeView: View {
         if !awaitingDownload || session.downloadRoute == nil {
           PanoPreviewSection(
             session: session,
+            stitchProgress: session.stitchProgress(runsOnServer: runsOnServer),
+            maxImageHeight: PanoPreviewLayout.maxImageHeight(sheetHeight: sheetHeight),
             onRetry: { session.preview(assets: assets) },
             onOpenPanoSettings: onOpenPanoSettings
           )
         }
       }
+      .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { sheetHeight = $0 }
       .task {
         if let serverStitcher {
           serverUnavailable = await serverStitcher.unavailableReason()
@@ -393,36 +394,6 @@ struct PanoMergeView: View {
 
     } header: {
       Text("Options")
-    }
-  }
-
-  /// Progress of the preview a pending Create Panorama is waiting on.
-  private var previewFraction: Double {
-    if case .running(_, let overall) = session.previewState { return overall }
-    return 1
-  }
-
-  @ViewBuilder
-  private func progressSection(title: String, overall: Double) -> some View {
-    Section {
-      VStack(alignment: .leading, spacing: 8) {
-        HStack {
-          Text(title)
-            .font(.subheadline)
-          Spacer()
-          Text(Int(overall * 100).description + "%")
-            .font(.caption)
-            .foregroundStyle(.secondary)
-            .monospacedDigit()
-        }
-        ProgressView(value: overall)
-          .progressViewStyle(.linear)
-          .accessibilityLabel(
-            "\(title), overall panorama merge progress: \(Int(overall * 100)) percent")
-      }
-      .padding(.vertical, 4)
-    } header: {
-      Text("Progress")
     }
   }
 
