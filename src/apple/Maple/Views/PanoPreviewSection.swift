@@ -12,6 +12,9 @@ import SwiftUI
 
 struct PanoPreviewSection: View {
   let session: PanoMergeSession
+  /// The full stitch's progress; shown here, under the image, while it runs.
+  var stitchProgress: PanoStitchProgress? = nil
+  var maxImageHeight: CGFloat = PanoPreviewLayout.unmeasuredHeight
   let onRetry: () -> Void
   var onOpenPanoSettings: (() -> Void)? = nil
 
@@ -21,8 +24,12 @@ struct PanoPreviewSection: View {
         previewImage(preview)
         PanoMatcherNote(matcher: preview.matcher, onOpenPanoSettings: onOpenPanoSettings)
       }
-      status
-      if let preview = session.lastPreview, !session.isPreviewing {
+      if let stitchProgress {
+        stitchStatus(stitchProgress)
+      } else {
+        status
+      }
+      if stitchProgress == nil, let preview = session.lastPreview, !session.isPreviewing {
         Text(preview.alignmentOutcome.summary + " Create Panorama starts from this alignment.")
           .font(.footnote)
           .foregroundStyle(.secondary)
@@ -40,7 +47,7 @@ struct PanoPreviewSection: View {
     return Image(decorative: shown, scale: 1)
       .resizable()
       .aspectRatio(contentMode: .fit)
-      .frame(maxWidth: .infinity, maxHeight: 220)
+      .frame(maxWidth: .infinity, maxHeight: maxImageHeight)
       .clipShape(RoundedRectangle(cornerRadius: MapleTokens.Radius.sm))
       .opacity(session.isPreviewing ? 0.45 : 1)
       .animation(.easeInOut(duration: 0.2), value: session.isPreviewing)
@@ -50,6 +57,26 @@ struct PanoPreviewSection: View {
         session.isPreviewing
           ? "Previous panorama preview, updating"
           : "Panorama preview, \(shown.width) by \(shown.height) pixels")
+  }
+
+  private func stitchStatus(_ progress: PanoStitchProgress) -> some View {
+    let percent = Int((progress.fraction * 100).rounded())
+    return VStack(alignment: .leading, spacing: 8) {
+      HStack {
+        Text(progress.title)
+          .font(.subheadline)
+        Spacer()
+        Text("\(percent)%")
+          .font(.caption)
+          .foregroundStyle(.secondary)
+          .monospacedDigit()
+      }
+      ProgressView(value: progress.fraction)
+        .progressViewStyle(.linear)
+    }
+    .accessibilityElement(children: .ignore)
+    .accessibilityLabel(
+      "\(progress.title), overall panorama merge progress: \(percent) percent")
   }
 
   @ViewBuilder

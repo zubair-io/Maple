@@ -30,6 +30,7 @@ import {
   effect,
   untracked,
 } from '@angular/core';
+import { NgTemplateOutlet } from '@angular/common';
 import { HttpErrorResponse } from '@angular/common/http';
 import { Router } from '@angular/router';
 import { Subscription, interval } from 'rxjs';
@@ -81,7 +82,7 @@ function stitchErrorMessage(err: HttpErrorResponse, code: string): string {
 @Component({
   selector: 'app-pano-dialog',
   standalone: true,
-  imports: [MuiButtonComponent, MuiPanoramaEdgesComponent],
+  imports: [NgTemplateOutlet, MuiButtonComponent, MuiPanoramaEdgesComponent],
   providers: [PanoPreviewStore],
   templateUrl: './pano-dialog.component.html',
   styleUrl: './pano-dialog.component.scss',
@@ -149,6 +150,11 @@ export class PanoDialogComponent implements OnDestroy {
     this.autoCrop() ? panoPreviewCrop(this.preview.image()?.result?.edges) : null,
   );
   readonly assetCount = computed(() => this.assetIds().length);
+  /** The full stitch is being queued or is running. */
+  readonly stitching = computed(() => this.phase() === 'submitting' || this.phase() === 'polling');
+  readonly stitchLabel = computed(() =>
+    this.phase() === 'submitting' ? 'Queuing job…' : this.progressLabel(),
+  );
 
   /** Human-readable progress label derived from the job's stage progress. */
   readonly progressLabel = computed(() => panoProgressLabel(this.job()?.progress));
