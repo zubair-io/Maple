@@ -32,14 +32,19 @@
 
 import { randomBytes } from 'node:crypto';
 import path from 'node:path';
-import { ObjectId } from '../db/object-id.ts';
+import type { ObjectId } from '../db/object-id.ts';
 import { child as childLogger } from '../log.ts';
-import { canonicalBaseFromSidecarFilename } from '../fs/browse.ts';
 import { hashFileForId as realHashFileForId } from '../indexer/id.ts';
 import { handleEvent as realHandleEvent } from '../workers/discover/handle-event.ts';
 import { copyFileAtomic, resolveDest, destAbsPath } from './copy.ts';
 import { buildImportFiles } from './scan.ts';
-import { probeDuplicate, resumeLandedPrimary, type ResumeSeams } from './resume.ts';
+import { groupFiles } from './group-files.ts';
+import {
+  probeDuplicate,
+  resumeLandedPrimary,
+  type RecordFile,
+  type ResumeSeams,
+} from './resume.ts';
 import {
   claimImport,
   updateImportProgress,
@@ -100,51 +105,6 @@ export type ImportTickResult =
   | { kind: 'cancelled'; importId: string }
   | { kind: 'failed'; importId: string; error: string };
 
-interface FileGroups {
-  /** Indices of primary entries (image/movie), in files[] order. */
-  primaries: number[];
-  /** primary index → its sidecar entry indices. */
-  sidecars: Map<number, number[]>;
-}
-
-/**
- * Group a flat files[] by primary: each primary (image/movie) maps to its
- * sidecars, paired on destination directory + the key its sidecar resolves to
- * (image stem for `IMG_1.xmp`, full video filename for `clip.mov.xmp`). Pure —
- * unit tested directly.
- */
-export function groupFiles(files: ImportFileEntry[]): FileGroups {
-  const primaries: number[] = [];
-  const primaryByKey = new Map<string, number>();
-  const sidecars = new Map<number, number[]>();
-
-  // Register every primary and the key its sidecar resolves to. Videos use the
-  // full-name sidecar convention (`clip.mov.xmp`), so they key on the full
-  // filename, not the stem — a Live Photo's motion clip can never collide with
-  // its same-stem still (M5 — #1635). Single pass: distinct keys, no contest.
-  files.forEach((f, i) => {
-    if (f.kind === 'sidecar') return;
-    primaries.push(i);
-    sidecars.set(i, []);
-    const dir = path.posix.dirname(f.dest);
-    const name = path.posix.basename(f.dest);
-    const base = f.kind === 'movie' ? name : path.posix.basename(name, path.posix.extname(name));
-    primaryByKey.set(`${dir}\0${base}`, i);
-  });
-
-  files.forEach((f, i) => {
-    if (f.kind !== 'sidecar') return;
-    const dir = path.posix.dirname(f.dest);
-    const base = canonicalBaseFromSidecarFilename(path.posix.basename(f.dest));
-    const parent = base ? primaryByKey.get(`${dir}\0${base}`) : undefined;
-    // buildImportFiles only emits sidecars attached to a primary, so this is
-    // defensive — an unattachable sidecar is dropped rather than copied.
-    if (parent !== undefined) sidecars.get(parent)!.push(i);
-  });
-
-  return { primaries, sidecars };
-}
-
 /** POSIX stem (basename without extension) of a rel path. */
 function stemOf(destRel: string): string {
   const base = path.posix.basename(destRel);
@@ -162,11 +122,7 @@ function stemOf(destRel: string): string {
  *   remapSidecarDest('2024/03/IMG (conflict from Mac).xmp', 'IMG', 'IMG-1')
  *     → '2024/03/IMG-1 (conflict from Mac).xmp'
  */
-export function remapSidecarDest(
-  sidecarDestRel: string,
-  origStem: string,
-  newStem: string,
-): string {
+function remapSidecarDest(sidecarDestRel: string, origStem: string, newStem: string): string {
   const dir = path.posix.dirname(sidecarDestRel);
   const filename = path.posix.basename(sidecarDestRel);
   // The sidecar's canonical base equals origStem (it was paired on that), so
@@ -257,29 +213,9 @@ export class ImportRunner {
     // read them back from that table rather than off the claim — the file list
     // is a row per file and never a field on the import itself, which is what
     // keeps a folder of any size from being bounded by one record's size.
-    let files: ImportFileEntry[];
-    if (claim.scan_pending) {
-      const scanned = await buildImportFiles(
-        claim.source_root,
-        {},
-        {
-          loadNearbyCandidates: (minMs, maxMs) =>
-            loadNearbyAssetCandidates(claim.library_id, minMs, maxMs),
-        },
-      );
-      if (scanned.length === 0) {
-        await failImport(
-          id,
-          `No importable photos, sidecars, or movies in ${claim.source_root}.`,
-          this.now,
-        );
-        return { kind: 'failed', importId: id.toHexString(), error: 'no importable files' };
-      }
-      await setImportFiles(id, scanned, this.leaseMs, this.now);
-      files = scanned;
-    } else {
-      files = await getImportFiles(id);
-    }
+    const loaded = await this.loadFiles(claim);
+    if ('result' in loaded) return loaded.result;
+    const { files } = loaded;
 
     const { primaries, sidecars } = groupFiles(files);
     const counts = { copied: 0, skipped: 0, failed: 0 };
@@ -317,98 +253,7 @@ export class ImportRunner {
         return { kind: 'cancelled', importId: id.toHexString() };
       }
 
-      const primary = files[pIdx];
-      const sidecarIdxs = sidecars.get(pIdx) ?? [];
-
-      // A pre-failed primary (e.g. an unsafe filename the scan couldn't build a
-      // safe destination for — see buildImportFiles) must NOT be hashed or
-      // copied: doing so would overwrite its `failed` state and feed an
-      // unvalidated dest to the filesystem. Re-record it as failed (so counts
-      // are right) and fail its sidecars via the existing `pr.state !== 'copied'`
-      // branch below — never orphaning a sidecar next to an absent image.
-      if (primary.state === 'failed') {
-        const reason = primary.error ?? 'rejected during scan';
-        log.warn(
-          { importId: id.toHexString(), src: primary.src, dest: primary.dest, reason },
-          'skipping pre-failed import file',
-        );
-        await record(pIdx, 'failed', reason, primary.dest);
-        for (const sIdx of sidecarIdxs) {
-          await record(sIdx, 'failed', files[sIdx].error ?? reason, files[sIdx].dest);
-        }
-        continue;
-      }
-
-      // A retry meets a primary that already landed. Re-hashing it would hit the
-      // dedup check below and skip its still-pending sidecars as duplicates.
-      if (primary.state === 'copied') {
-        await resumeLandedPrimary({
-          libraryRoot: claim.library_root,
-          files,
-          primaryIndex: pIdx,
-          sidecarIndexes: sidecarIdxs,
-          record,
-          seams: this.resumeSeams(claim),
-        });
-        continue;
-      }
-
-      // Dedup decision at the image. Movies never live in `assets`, so they
-      // skip the hash check and rely on the on-disk identical-skip below.
-      const probe = await probeDuplicate(this.deps, primary);
-      if (probe.error !== null) {
-        for (const sIdx of sidecarIdxs) {
-          await record(sIdx, 'failed', probe.error, files[sIdx].dest);
-        }
-        await record(pIdx, 'failed', probe.error, primary.dest);
-        continue;
-      }
-
-      if (probe.isDuplicate) {
-        // Skip the image AND its sidecars — the image is already in the
-        // library; a fresh sidecar copy would be orphaned.
-        for (const sIdx of sidecarIdxs) {
-          await record(sIdx, 'skipped_duplicate', null, files[sIdx].dest);
-        }
-        await record(pIdx, 'skipped_duplicate', null, primary.dest);
-        continue;
-      }
-
-      // Copy the PRIMARY first so the sidecars can follow its RESOLVED stem.
-      // If an on-disk collision renamed `IMG.dng` → `IMG-1.dng`, the sidecar
-      // must become `IMG-1.xmp` or the edits detach from their image
-      // (invariant #1: the sidecar is the contract). See remapSidecarDest.
-      const pr = await this.copyOne(claim.library_root, primary.src, primary.dest);
-      await record(pIdx, pr.state, pr.error, pr.destRel);
-
-      const origStem = stemOf(primary.dest);
-      const newStem = stemOf(pr.destRel);
-
-      for (const sIdx of sidecarIdxs) {
-        if (pr.state !== 'copied') {
-          // Image was skipped (identical already present) or failed — never
-          // orphan the sidecar by copying it next to an absent/other image.
-          await record(
-            sIdx,
-            pr.state === 'failed' ? 'failed' : 'skipped_duplicate',
-            pr.error,
-            files[sIdx].dest,
-          );
-          continue;
-        }
-        const scDest =
-          newStem === origStem
-            ? files[sIdx].dest
-            : remapSidecarDest(files[sIdx].dest, origStem, newStem);
-        const r = await this.copyOne(claim.library_root, files[sIdx].src, scDest);
-        await record(sIdx, r.state, r.error, r.destRel);
-      }
-
-      // Hand the image to the indexer only if it actually landed. Its
-      // sidecars are already on disk under the resolved stem.
-      if (primary.kind === 'image' && pr.state === 'copied') {
-        await this.handOffToIndexer(claim, id, destAbsPath(claim.library_root, pr.destRel));
-      }
+      await this.processGroup(claim, files, pIdx, sidecars.get(pIdx) ?? [], record);
     }
 
     // Terminal status: an import that copied or skipped at least one file is
@@ -423,6 +268,135 @@ export class ImportRunner {
     }
     await completeImport(id, counts, this.now);
     return { kind: 'done', importId: id.toHexString() };
+  }
+
+  /** The import's file rows, scanning first for an Auto Import; `result` when it cannot proceed. */
+  private async loadFiles(
+    claim: ClaimedImport,
+  ): Promise<{ files: ImportFileEntry[] } | { result: ImportTickResult }> {
+    if (!claim.scan_pending) return { files: await getImportFiles(claim._id) };
+    const scanned = await buildImportFiles(
+      claim.source_root,
+      {},
+      {
+        loadNearbyCandidates: (minMs, maxMs) =>
+          loadNearbyAssetCandidates(claim.library_id, minMs, maxMs),
+      },
+    );
+    if (scanned.length === 0) {
+      await failImport(
+        claim._id,
+        `No importable photos, sidecars, or movies in ${claim.source_root}.`,
+        this.now,
+      );
+      return {
+        result: { kind: 'failed', importId: claim._id.toHexString(), error: 'no importable files' },
+      };
+    }
+    await setImportFiles(claim._id, scanned, this.leaseMs, this.now);
+    return { files: scanned };
+  }
+
+  /** Copies, skips or fails one primary together with its sidecars. */
+  private async processGroup(
+    claim: ClaimedImport,
+    files: ImportFileEntry[],
+    pIdx: number,
+    sidecarIdxs: number[],
+    record: RecordFile,
+  ): Promise<void> {
+    const id = claim._id;
+    const primary = files[pIdx];
+
+    // A pre-failed primary (e.g. an unsafe filename the scan couldn't build a
+    // safe destination for — see buildImportFiles) must NOT be hashed or
+    // copied: doing so would overwrite its `failed` state and feed an
+    // unvalidated dest to the filesystem. Re-record it as failed (so counts
+    // are right) and fail its sidecars via the existing `pr.state !== 'copied'`
+    // branch below — never orphaning a sidecar next to an absent image.
+    if (primary.state === 'failed') {
+      const reason = primary.error ?? 'rejected during scan';
+      log.warn(
+        { importId: id.toHexString(), src: primary.src, dest: primary.dest, reason },
+        'skipping pre-failed import file',
+      );
+      await record(pIdx, 'failed', reason, primary.dest);
+      for (const sIdx of sidecarIdxs) {
+        await record(sIdx, 'failed', files[sIdx].error ?? reason, files[sIdx].dest);
+      }
+      return;
+    }
+
+    // A retry meets a primary that already landed. Re-hashing it would hit the
+    // dedup check below and skip its still-pending sidecars as duplicates.
+    if (primary.state === 'copied') {
+      await resumeLandedPrimary({
+        libraryRoot: claim.library_root,
+        files,
+        primaryIndex: pIdx,
+        sidecarIndexes: sidecarIdxs,
+        record,
+        seams: this.resumeSeams(claim),
+      });
+      return;
+    }
+
+    // Dedup decision at the image. Movies never live in `assets`, so they
+    // skip the hash check and rely on the on-disk identical-skip below.
+    const probe = await probeDuplicate(this.deps, primary);
+    if (probe.error !== null) {
+      for (const sIdx of sidecarIdxs) {
+        await record(sIdx, 'failed', probe.error, files[sIdx].dest);
+      }
+      await record(pIdx, 'failed', probe.error, primary.dest);
+      return;
+    }
+
+    if (probe.isDuplicate) {
+      // Skip the image AND its sidecars — the image is already in the
+      // library; a fresh sidecar copy would be orphaned.
+      for (const sIdx of sidecarIdxs) {
+        await record(sIdx, 'skipped_duplicate', null, files[sIdx].dest);
+      }
+      await record(pIdx, 'skipped_duplicate', null, primary.dest);
+      return;
+    }
+
+    // Copy the PRIMARY first so the sidecars can follow its RESOLVED stem.
+    // If an on-disk collision renamed `IMG.dng` → `IMG-1.dng`, the sidecar
+    // must become `IMG-1.xmp` or the edits detach from their image
+    // (invariant #1: the sidecar is the contract). See remapSidecarDest.
+    const pr = await this.copyOne(claim.library_root, primary.src, primary.dest);
+    await record(pIdx, pr.state, pr.error, pr.destRel);
+
+    const origStem = stemOf(primary.dest);
+    const newStem = stemOf(pr.destRel);
+
+    for (const sIdx of sidecarIdxs) {
+      if (pr.state !== 'copied') {
+        // Image was skipped (identical already present) or failed — never
+        // orphan the sidecar by copying it next to an absent/other image.
+        await record(
+          sIdx,
+          pr.state === 'failed' ? 'failed' : 'skipped_duplicate',
+          pr.error,
+          files[sIdx].dest,
+        );
+        return;
+      }
+      const scDest =
+        newStem === origStem
+          ? files[sIdx].dest
+          : remapSidecarDest(files[sIdx].dest, origStem, newStem);
+      const r = await this.copyOne(claim.library_root, files[sIdx].src, scDest);
+      await record(sIdx, r.state, r.error, r.destRel);
+    }
+
+    // Hand the image to the indexer only if it actually landed. Its
+    // sidecars are already on disk under the resolved stem.
+    if (primary.kind === 'image' && pr.state === 'copied') {
+      await this.handOffToIndexer(claim, id, destAbsPath(claim.library_root, pr.destRel));
+    }
   }
 
   private resumeSeams(claim: ClaimedImport): ResumeSeams {
@@ -512,16 +486,19 @@ export class ImportRunner {
 
   private async runLoop(): Promise<void> {
     while (!this.shuttingDown) {
-      let result: ImportTickResult;
-      try {
-        result = await this.tick();
-      } catch (err) {
-        log.warn({ err: err instanceof Error ? err.message : String(err) }, 'tick error');
-        result = { kind: 'no-claim' };
-      }
+      const result = await this.tickOrIdle();
       if (result.kind === 'no-claim') {
         await this.sleep(this.pollMs);
       }
+    }
+  }
+
+  private async tickOrIdle(): Promise<ImportTickResult> {
+    try {
+      return await this.tick();
+    } catch (err) {
+      log.warn({ err: err instanceof Error ? err.message : String(err) }, 'tick error');
+      return { kind: 'no-claim' };
     }
   }
 }
@@ -549,9 +526,3 @@ export async function stopImportRunner(): Promise<void> {
   _singleton = null;
   log.info('stopped');
 }
-
-export function _resetImportRunnerForTests(): void {
-  _singleton = null;
-}
-
-export { ObjectId };
