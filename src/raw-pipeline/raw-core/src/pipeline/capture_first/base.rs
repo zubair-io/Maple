@@ -89,7 +89,7 @@ impl CaptureBase {
             camera,
             &creative.profile,
             developed,
-            Site::Frame,
+            Site::Frame { orientation },
             chain,
             cancel,
         )?;

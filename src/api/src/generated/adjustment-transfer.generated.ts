@@ -140,6 +140,7 @@ export const ADJUSTMENT_TRANSFER_MODES: Readonly<Record<string, AdjustmentTransf
   local_adjustments: 'Unsupported',
   inpaint_removals: 'Unsupported',
   retouch_spots: 'Unsupported',
+  retouch_frame: 'Unsupported',
   mask_rasters: 'Unsupported',
   capture_sharpening_radius: 'Unsupported',
   wb_sample_x: 'Unsupported',

@@ -9,6 +9,7 @@ using Maple.WinUI.Services.Xmp;
 namespace Maple.WinUI.Services;
 
 public readonly record struct NativeDetailRegion(uint X, uint Y, uint Width, uint Height);
+public readonly record struct RepairSourceFrame(uint Orientation, uint UprightWidth, uint UprightHeight);
 public sealed record NativeDetailImage(NativeDetailRegion Region, MapleRawGeometry Geometry, DecodedImage Image);
 
 // #3876: retained mosaic and bounded capture patches (#5377), rendered with the
@@ -27,8 +28,8 @@ public sealed class NativeDetailDecoder : IAsyncDisposable
     public Task<MapleRawGeometry> ReadGeometryAsync(string path, AdjustmentState model, CancellationToken cancellation) =>
         RunAsync(path, model, cancellation, () => _geometry);
 
-    public Task<uint> ReadOrientationAsync(string path, AdjustmentState model, CancellationToken cancellation) =>
-        RunAsync(path, model, cancellation, () => _orientation);
+    public Task<RepairSourceFrame> ReadRepairFrameAsync(string path, AdjustmentState model, CancellationToken cancellation) =>
+        RunAsync(path, model, cancellation, () => new RepairSourceFrame(_orientation, _geometry.SensorWidth, _geometry.SensorHeight));
 
     public Task<NativeDetailImage> DecodeAsync(string path, AdjustmentState model, DecodedImage anchor,
         NativeDetailRegion region, CancellationToken cancellation) =>

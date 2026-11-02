@@ -45,7 +45,7 @@ use crate::{
     cancel::CancelToken,
     color::dcp::{self, DcpProfile},
     error::{Error, Result},
-    image::{ColorSpace, Image},
+    image::{ColorSpace, ExifOrientation, Image},
     math::Matrix3,
     stages::{bm3d, capture_sharpening, chroma_prefilter, retouch},
     xmp::AdjustmentModel,
@@ -73,13 +73,17 @@ macro_rules! label {
 pub(crate) use label;
 
 /// Where the buffer sits in the developed frame. Repair spots address the
-/// whole frame, so a tile passes its window.
+/// whole frame, so a tile passes its window. `orientation` is the RAW's EXIF
+/// orientation: spots are authored upright, the buffer is sensor-framed.
 #[derive(Clone, Copy)]
 pub(crate) enum Site {
-    Frame,
+    Frame {
+        orientation: ExifOrientation,
+    },
     Window {
         origin: (i32, i32),
         full: (u32, u32),
+        orientation: ExifOrientation,
     },
 }
 
@@ -138,18 +142,22 @@ fn capture_prefix(
     });
     camera.space = ColorSpace::SceneLinearRec2020;
     let mut capture = camera;
-    let (origin, full) = match site {
-        Site::Frame => ((0, 0), (capture.width, capture.height)),
-        Site::Window { origin, full } => (origin, full),
-    };
-    stage(label!(chain, "capture_retouch"), || {
-        retouch::apply_windowed_cancellable(
-            &mut capture,
-            &model.retouch_spots,
+    let (origin, full, orientation) = match site {
+        Site::Frame { orientation } => ((0, 0), (capture.width, capture.height), orientation),
+        Site::Window {
             origin,
             full,
-            cancel,
-        )
+            orientation,
+        } => (origin, full, orientation),
+    };
+    let spots = retouch::orient_spots_to_sensor(
+        &model.retouch_spots,
+        model.retouch_frame,
+        orientation,
+        full,
+    );
+    stage(label!(chain, "capture_retouch"), || {
+        retouch::apply_windowed_cancellable(&mut capture, &spots, origin, full, cancel)
     })?;
     dump(chain, "03c_retouch", &capture);
     Ok(capture)

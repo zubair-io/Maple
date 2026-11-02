@@ -60,16 +60,17 @@ public sealed partial class MainWindow
         AddRepairValue("Size (% of image width)", s => s.Radius * 100, (s, v) => s with { Radius = v / 100 }, .01);
         AddRepairValue("Feather (%)", s => s.Feather * 100, (s, v) => s with { Feather = v / 100 });
         AddRepairValue("Opacity (%)", s => s.Opacity * 100, (s, v) => s with { Opacity = v / 100 });
-        AddRepairValue("Destination X (%)", s => OrientedRepairPoint(s, false).X * 100, (s, v) => SetRepairCoordinate(s, false, true, v / 100));
-        AddRepairValue("Destination Y (%)", s => OrientedRepairPoint(s, false).Y * 100, (s, v) => SetRepairCoordinate(s, false, false, v / 100));
-        AddRepairValue("Source X (%)", s => OrientedRepairPoint(s, true).X * 100, (s, v) => SetRepairCoordinate(s, true, true, v / 100));
-        AddRepairValue("Source Y (%)", s => OrientedRepairPoint(s, true).Y * 100, (s, v) => SetRepairCoordinate(s, true, false, v / 100));
+        AddRepairValue("Destination X (%)", s => s.X * 100, (s, v) => s with { X = v / 100 });
+        AddRepairValue("Destination Y (%)", s => s.Y * 100, (s, v) => s with { Y = v / 100 });
+        AddRepairValue("Source X (%)", s => s.SourceX * 100, (s, v) => s with { SourceX = v / 100 });
+        AddRepairValue("Source Y (%)", s => s.SourceY * 100, (s, v) => s with { SourceY = v / 100 });
         _repairPanel.Children.Add(_repairDelete);
         PanelRetouchHost.Children.Add(_repairPanel);
         SyncRetouchPanel();
     }
 
-    private bool CanEditRepairs => ViewModel.AdjustmentsReady && !ViewModel.IsRasterSource;
+    private bool CanEditRepairs => ViewModel.AdjustmentsReady && !ViewModel.IsRasterSource
+        && !ViewModel.Adjustments.Retouch.IsLegacyFrame;
     private void DeleteSelectedRepair()
     {
         if (!CanEditRepairs || SelectedRepair == null) return;
@@ -77,16 +78,6 @@ public sealed partial class MainWindow
         var state = XmpRetouch.Remove(ViewModel.Adjustments.Retouch, _repairSelection);
         _repairSelection = Math.Min(_repairSelection, state.Spots.Count - 1);
         ApplyRepairs(state);
-    }
-    private MaskPoint OrientedRepairPoint(RetouchSpot spot, bool source) => RepairCanvasMap.Orient(
-        source ? new(spot.SourceX, spot.SourceY) : new(spot.X, spot.Y), _repairOrientation is >= 1 and <= 8 ? _repairOrientation : 1);
-
-    private RetouchSpot SetRepairCoordinate(RetouchSpot spot, bool source, bool xAxis, double value)
-    {
-        var point = OrientedRepairPoint(spot, source);
-        point = new(xAxis ? value : point.X, xAxis ? point.Y : value);
-        var frame = RepairCanvasMap.Orient(point, _repairOrientation switch { 6 => 8, 8 => 6, >= 1 and <= 8 => _repairOrientation, _ => 1 });
-        return source ? spot with { SourceX = frame.X, SourceY = frame.Y } : spot with { X = frame.X, Y = frame.Y };
     }
     private RetouchSpot? SelectedRepair => _repairSelection >= 0 && _repairSelection < ViewModel.Adjustments.Retouch.Spots.Count
         ? ViewModel.Adjustments.Retouch.Spots[_repairSelection].Spot : null;
@@ -120,7 +111,8 @@ public sealed partial class MainWindow
 
     private void ApplyRepairs(RetouchState state)
     {
-        if (state.Xml == ViewModel.Adjustments.Retouch.Xml) return;
+        var current = ViewModel.Adjustments.Retouch;
+        if (state.Xml == current.Xml && state.IsLegacyFrame == current.IsLegacyFrame) return;
         // One committed field/gesture is one undo entry and one cancellable
         // decode. Ordinary slider rendering remains independent.
         ViewModel.ApplyDecodeFieldEdit(model => model.Retouch = state);

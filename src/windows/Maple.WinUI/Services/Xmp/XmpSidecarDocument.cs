@@ -111,6 +111,9 @@ namespace Maple.WinUI.Services.Xmp
         /// </summary>
         public int WbScaleVersion { get; set; } = 5;
 
+        /// <summary>`papp:RetouchFrameVersion="2"` was present: the repair list is upright (#4473).</summary>
+        public bool RetouchFrameStamped { get; set; }
+
         /// <summary>Unknown attributes on `rdf:Description`, re-emitted sorted canonically.</summary>
         public List<XmpAttribute> PassthroughAttributes { get; set; } = new();
 

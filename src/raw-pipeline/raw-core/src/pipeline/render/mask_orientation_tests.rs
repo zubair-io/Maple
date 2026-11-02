@@ -23,7 +23,7 @@ const SENSOR_W: u32 = 36;
 const SENSOR_H: u32 = 20;
 const DIGEST: &str = "0123456789abcdef";
 
-fn sensor_raw(orientation: ExifOrientation) -> RawImage {
+pub(super) fn sensor_raw(orientation: ExifOrientation) -> RawImage {
     let bytes = SyntheticGreyDng {
         width: SENSOR_W,
         height: SENSOR_H,
@@ -48,7 +48,7 @@ fn sensor_raw(orientation: ExifOrientation) -> RawImage {
     raw
 }
 
-fn upright_twin(raw: &RawImage) -> RawImage {
+pub(super) fn upright_twin(raw: &RawImage) -> RawImage {
     let (width, height, raw_data) =
         apply_orientation(&raw.raw_data, raw.width, raw.height, raw.orientation);
     RawImage {
@@ -184,7 +184,7 @@ fn mask_cases() -> Vec<(&'static str, AdjustmentModel)> {
     ]
 }
 
-fn export(
+pub(super) fn export(
     raw: &RawImage,
     model: &AdjustmentModel,
     max_long_edge: Option<u32>,
@@ -205,7 +205,7 @@ fn export(
     (w, h, rgb)
 }
 
-fn max_code_delta(a: &[u8], b: &[u8]) -> u8 {
+pub(super) fn max_code_delta(a: &[u8], b: &[u8]) -> u8 {
     a.iter()
         .zip(b)
         .map(|(x, y)| x.abs_diff(*y))

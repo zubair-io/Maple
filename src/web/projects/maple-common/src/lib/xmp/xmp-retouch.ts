@@ -186,6 +186,18 @@ function correctionBlock(spot: RetouchSpot, indent: string): string {
 }
 
 /**
+ * `papp:RetouchFrameVersion` (#4473): every written spot list is expressed
+ * over the upright image. raw-core reads an unstamped Maple list as the legacy
+ * sensor frame, so a list that is written is always stamped; a list read
+ * without the stamp was authored by this app, which has always been upright.
+ */
+export const RETOUCH_FRAME_VERSION_KEY = 'papp:RetouchFrameVersion';
+
+export function retouchFrameParts(model: Partial<AdjustmentModel>): string[] {
+  return (model.retouchSpots ?? []).length === 0 ? [] : [`${RETOUCH_FRAME_VERSION_KEY}="2"`];
+}
+
+/**
  * Emit the `crs:RetouchAreas` container for `model.retouchSpots`, each line
  * prefixed so the container sits at `indent`. Byte-identical to raw-core's
  * `serialize_retouch_areas` and Swift's `_buildRetouchAreasBlock` for the

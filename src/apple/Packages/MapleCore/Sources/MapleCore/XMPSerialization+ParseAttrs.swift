@@ -345,6 +345,10 @@ extension _XMPParserDelegate {
     case "crs:HasCrop", "crs:CropConstrainToWarp": break
     // Consumed at document level in `didStartElement` (#1780).
     case "papp:WbScaleVersion": break
+    // Repair-spot frame stamp (#4473): Apple authored upright before the
+    // stamp existed, so an unstamped list is read as upright; the writer
+    // restamps it on the next save.
+    case "papp:RetouchFrameVersion": break
     // Lightroom culling
     case "xmp:Rating":
       culling.stars = XMPParser.ratingValue(value)

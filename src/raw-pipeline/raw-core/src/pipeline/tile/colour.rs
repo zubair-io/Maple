@@ -7,7 +7,7 @@ use crate::{
     cancel::CancelToken,
     color::dcp::{self, DcpProfile},
     error::Result,
-    image::{Image, RawImage},
+    image::{ExifOrientation, Image, RawImage},
     pipeline::capture_first::{self, Chain, CreativeAnchors, CreativeStage, Site},
     stages::wb_camera,
     xmp::AdjustmentModel,
@@ -33,11 +33,13 @@ pub(super) fn capture_colour(
     profile: &DcpProfile,
     model: &AdjustmentModel,
     window: TileWindow,
+    orientation: ExifOrientation,
     cancel: CancelToken<'_>,
 ) -> Result<Image> {
     let site = Site::Window {
         origin: window.origin,
         full: window.full,
+        orientation,
     };
     capture_first::capture_in_basis(camera_rgb, profile, model, site, Chain::Tile, cancel)
 }
@@ -60,6 +62,7 @@ pub(super) fn develop_colour(camera_rgb: Image, input: TileColour<'_>) -> Result
     let site = Site::Window {
         origin: window.origin,
         full: window.full,
+        orientation: raw.orientation,
     };
     let (capture, space) =
         capture_first::capture(camera_rgb, &profile, model, site, Chain::Tile, cancel)?;

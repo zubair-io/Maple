@@ -285,6 +285,8 @@ pub struct AdjustmentModel {
     pub inpaint_removals: Vec<super::inpaint::Removal>,
     /// Clone / heal repair spots (#3409, not part of `ADJUSTMENT_SCHEMA`).
     pub retouch_spots: Vec<super::retouch::RetouchSpot>,
+    /// Frame `retouch_spots` is expressed in (#4473, not part of `ADJUSTMENT_SCHEMA`).
+    pub retouch_frame: super::retouch::RetouchFrame,
     /// Tone-curve application mode (#436): `PerChannel` (default) vs `RatioPreserving`.
     pub tone_curve_mode: ToneCurveMode,
 

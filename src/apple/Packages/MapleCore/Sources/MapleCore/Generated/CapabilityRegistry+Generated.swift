@@ -482,7 +482,7 @@ public enum CapabilityRegistry {
       assetClasses: [.raw],
       previewPaths: [.cpuReference, .gpuLive],
       exportPaths: [.mapleCli, .appleFfi, .wasm, .apiFfi, .windowsDll],
-      fields: ["retouch_spots"],
+      fields: ["retouch_spots", "retouch_frame"],
       integration: [.sidecarContractApple, .sidecarContractApi, .gpuChainParityLavapipe],
       qualification: [],
       releaseState: .core

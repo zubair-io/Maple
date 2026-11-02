@@ -9,7 +9,7 @@ use crate::{
     cancel::CancelToken,
     color::dcp::{self, DcpProfile},
     error::Result,
-    image::{ColorSpace, Image},
+    image::{ColorSpace, ExifOrientation, Image},
     pipeline::stage,
     xmp::{AdjustmentModel, AutoExposureMode},
 };
@@ -55,10 +55,12 @@ pub(crate) fn export_capture(
     camera: Image,
     creative: CreativeStage,
     model: &AdjustmentModel,
+    orientation: ExifOrientation,
     chain: Chain,
     cancel: CancelToken<'_>,
 ) -> Result<(Image, CreativeStage)> {
-    let (capture, space) = capture(camera, &creative.profile, model, Site::Frame, chain, cancel)?;
+    let site = Site::Frame { orientation };
+    let (capture, space) = capture(camera, &creative.profile, model, site, chain, cancel)?;
     let ae_gain = match model.auto_exposure {
         AutoExposureMode::Off => 1.0,
         AutoExposureMode::On => {

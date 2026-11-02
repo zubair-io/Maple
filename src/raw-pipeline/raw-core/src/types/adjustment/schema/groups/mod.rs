@@ -354,6 +354,8 @@ pub const NON_COPYABLE_FIELDS: &[&str] = &[
     // texture the repair was chosen for. Permanently excluded, same reason
     // as `inpaint_removals` above.
     "retouch_spots",
+    // Frame stamp for the list above (#4473); meaningless without it.
+    "retouch_frame",
     // Bitmap-mask raster registry (#3271). Each `MaskRaster` is a decoded
     // pixel buffer keyed to THIS image's Vision-generated skin mask — like
     // `inpaint_removals`, raster-derived and meaningless on another image.

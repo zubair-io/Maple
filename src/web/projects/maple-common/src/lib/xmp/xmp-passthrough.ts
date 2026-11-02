@@ -14,6 +14,7 @@ import {
 import {
   parseRetouchAreasContainer,
   parseRetouchInfoContainer,
+  RETOUCH_FRAME_VERSION_KEY,
   retouchContainerKind,
 } from './xmp-retouch';
 import type { RetouchSpot } from '../models/retouch-spot';
@@ -52,6 +53,7 @@ const KNOWN_ATTRIBUTES = new Set<string>([
   'papp:ToneCurveMode',
   'crs:ConvertToGrayscale',
   'papp:WbScaleVersion',
+  RETOUCH_FRAME_VERSION_KEY,
   'crs:HasCrop',
   'crs:CropTop',
   'crs:CropLeft',

@@ -49,6 +49,7 @@ pub(super) fn flat_key(key: &str) -> bool {
             key,
             "crs:WhiteBalance"
                 | "papp:WbScaleVersion"
+                | "papp:RetouchFrameVersion"
                 | "papp:InpaintRemovals"
                 | "papp:LensProfile"
                 | "papp:LocalAdjustments"

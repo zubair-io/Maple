@@ -24,6 +24,7 @@ const RAW_CORE_ONLY_FIELDS: ReadonlySet<string> = new Set([
   'local_adjustments',
   'inpaint_removals',
   'mask_rasters',
+  'retouch_frame',
 ]);
 
 /** Web model keys that are not canonical schema fields: the WB preset

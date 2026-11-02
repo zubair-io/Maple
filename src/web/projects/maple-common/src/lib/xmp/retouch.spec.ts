@@ -147,6 +147,20 @@ describe('crs:RetouchAreas (#3409)', () => {
     expect(resaved).toContain(CANONICAL_BLOCK);
   });
 
+  it('stamps the upright frame once, and only when there are spots (#4473)', () => {
+    const { model, passthrough } = parser.parseAdjustmentModel(document(CANONICAL_BLOCK));
+    const resaved = serializer.serialize({ ...defaultAdjustmentModel(), ...model }, passthrough);
+    expect(resaved.split('papp:RetouchFrameVersion="2"').length - 1).toBe(1);
+
+    const reparsed = parser.parseAdjustmentModel(resaved);
+    const again = serializer.serialize(
+      { ...defaultAdjustmentModel(), ...reparsed.model },
+      reparsed.passthrough,
+    );
+    expect(again.split('RetouchFrameVersion').length - 1).toBe(1);
+    expect(serializer.serialize(defaultAdjustmentModel())).not.toContain('RetouchFrameVersion');
+  });
+
   it('imports a spot whose source is encoded as an offset', () => {
     const block = `      <crs:RetouchAreas>
         <rdf:Seq>

@@ -63,6 +63,7 @@ prefix_policy! {
         profile,
         inpaint_removals,
         retouch_spots,
+        retouch_frame,
         chroma_prefilter,
         hot_pixel_suppression,
         deep_denoise,

@@ -4,7 +4,7 @@
 
 use super::*;
 use crate::color::illuminant::Illuminant;
-use crate::image::{CfaPattern, RawImage};
+use crate::image::{CfaPattern, ExifOrientation, RawImage};
 use crate::pipeline::{
     apply_scene_linear_chain_f32, develop_scene_linear_from_raw_with_quality_with_gain,
     develop_scene_linear_sized_from_raw_with_quality_with_gain, scene_linear_chain_haze_map,
@@ -155,7 +155,9 @@ fn the_capture_result_never_sees_the_white_balance() {
             camera.clone(),
             &profile,
             model,
-            Site::Frame,
+            Site::Frame {
+                orientation: ExifOrientation::Normal,
+            },
             Chain::Full,
             CancelToken::never(),
         )
@@ -175,7 +177,9 @@ fn a_capture_without_an_engaged_stage_passes_the_camera_buffer_through() {
         camera.clone(),
         &profile,
         &AdjustmentModel::default(),
-        Site::Frame,
+        Site::Frame {
+            orientation: ExifOrientation::Normal,
+        },
         Chain::Full,
         CancelToken::never(),
     )
@@ -223,7 +227,9 @@ fn the_per_tick_chain_runs_the_same_creative_stage() {
         camera,
         &profile,
         &engaged_capture(),
-        Site::Frame,
+        Site::Frame {
+            orientation: ExifOrientation::Normal,
+        },
         Chain::Full,
         CancelToken::never(),
     )
@@ -269,7 +275,9 @@ fn the_haze_map_is_measured_on_the_creative_prefix_the_render_dehazes() {
         camera,
         &profile,
         &engaged_capture(),
-        Site::Frame,
+        Site::Frame {
+            orientation: ExifOrientation::Normal,
+        },
         Chain::Full,
         CancelToken::never(),
     )

@@ -632,7 +632,7 @@
       "asset_classes": ["raw"],
       "preview_paths": ["cpu_reference", "gpu_live"],
       "export_paths": ["maple_cli", "apple_ffi", "wasm", "api_ffi", "windows_dll"],
-      "fields": ["retouch_spots"],
+      "fields": ["retouch_spots", "retouch_frame"],
       "integration": [
         {
           "source": "sidecar_contract_apple",
