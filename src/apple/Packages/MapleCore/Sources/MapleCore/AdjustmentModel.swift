@@ -316,6 +316,11 @@ public struct AdjustmentModel: Codable, Sendable, Equatable, Hashable {
   /// (`XMPSerialization+Retouch.swift`).
   public var retouchSpots: [RetouchSpot]  // default []
 
+  /// `true` (nil otherwise, so older persisted models still decode) for a list read without `papp:RetouchFrameVersion` from a Maple
+  /// sidecar (#4473): it predates the upright-frame stamp, is written back
+  /// unstamped, and becomes upright when a spot is edited. Never set by authoring.
+  public var retouchListIsLegacy: Bool?
+
   /// DNG-embedded lens corrections (#376) — the master switch plus the
   /// per-family strength of the distortion (`WarpRectilinear`), lateral-CA
   /// (each plane's deviation from the green reference plane) and vignetting

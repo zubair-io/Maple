@@ -309,7 +309,7 @@ extension XMPSerializer {
     // Repair-spot frame (#4473): the list is expressed over the upright
     // image. Raw-core reads an unstamped Maple list as the legacy sensor
     // frame, so any list that is written is stamped.
-    if !model.retouchSpots.isEmpty {
+    if !model.retouchSpots.isEmpty, model.retouchListIsLegacy != true {
       attrs.append(("papp:RetouchFrameVersion", "2"))
     }
     // DNG-embedded lens corrections (#376) — ACR-compatible `crs:`

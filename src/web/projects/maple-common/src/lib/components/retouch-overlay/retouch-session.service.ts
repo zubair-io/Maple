@@ -186,6 +186,6 @@ export class RetouchSessionService {
   private write(retouchSpots: RetouchSpot[]): void {
     const a = this.library.focusedAsset();
     if (!a) return;
-    this.library.updateAdjustment(a.id, { retouchSpots });
+    this.library.updateAdjustment(a.id, { retouchSpots, retouchFrameLegacy: false });
   }
 }

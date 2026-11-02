@@ -188,13 +188,16 @@ function correctionBlock(spot: RetouchSpot, indent: string): string {
 /**
  * `papp:RetouchFrameVersion` (#4473): every written spot list is expressed
  * over the upright image. raw-core reads an unstamped Maple list as the legacy
- * sensor frame, so a list that is written is always stamped; a list read
- * without the stamp was authored by this app, which has always been upright.
+ * sensor frame, so an upright list that is written is always stamped. A list
+ * read without the stamp from a Maple sidecar stays unstamped until a spot is
+ * edited here (`retouchFrameLegacy`), because another host may have written it.
  */
 export const RETOUCH_FRAME_VERSION_KEY = 'papp:RetouchFrameVersion';
 
 export function retouchFrameParts(model: Partial<AdjustmentModel>): string[] {
-  return (model.retouchSpots ?? []).length === 0 ? [] : [`${RETOUCH_FRAME_VERSION_KEY}="2"`];
+  return (model.retouchSpots ?? []).length === 0 || model.retouchFrameLegacy
+    ? []
+    : [`${RETOUCH_FRAME_VERSION_KEY}="2"`];
 }
 
 /**

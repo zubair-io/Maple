@@ -168,6 +168,13 @@ export interface AdjustmentModel extends GeneratedAdjustmentModel {
    */
   retouchSpots: RetouchSpot[];
   /**
+   * `true` when the list was read without
+   * `papp:RetouchFrameVersion` from a Maple sidecar (#4473): it may be another
+   * host's decode-frame list, so it is written back unstamped and a spot edit
+   * adopts it as upright by clearing this flag.
+   */
+  retouchFrameLegacy: boolean;
+  /**
    * WB slider-scale version of this model's temperature/tint
    * (#1780/#1875/#1893/#1894). `1` = pre-#1756 scale (post-DCP CAT16,
    * 6500 K identity) — raw-core converts on use; `5` = the Robertson
@@ -193,6 +200,7 @@ export function defaultAdjustmentModel(): AdjustmentModel {
     crop: defaultCrop(),
     localAdjustments: [],
     retouchSpots: [],
+    retouchFrameLegacy: false,
     wbScaleVersion: 5,
     partialWhiteBalance: null,
   };

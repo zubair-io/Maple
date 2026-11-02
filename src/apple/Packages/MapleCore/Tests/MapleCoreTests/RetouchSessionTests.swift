@@ -36,6 +36,19 @@ final class RetouchSessionTests: EditorTestCase {
         XCTAssertTrue(spot.isEffective)
     }
 
+    func testEditingALegacyFrameListAdoptsItAsUpright() {
+        let state = makeState()
+        let existing = state.retouch.place(at: RetouchPoint(x: 0.4, y: 0.6))
+        state.session.model.retouchListIsLegacy = true
+        state.retouch.select(existing.id)
+        state.retouch.delete(existing.id)
+        XCTAssertNil(state.session.model.retouchListIsLegacy)
+
+        state.session.model.retouchListIsLegacy = true
+        state.retouch.place(at: RetouchPoint(x: 0.2, y: 0.2))
+        XCTAssertNil(state.session.model.retouchListIsLegacy)
+    }
+
     func testPlacingCommitsOneRepairTransactionScopedToDecode() {
         let state = makeState()
         state.retouch.place(at: RetouchPoint(x: 0.4, y: 0.6))

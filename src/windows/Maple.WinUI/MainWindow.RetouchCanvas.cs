@@ -50,8 +50,9 @@ public sealed partial class MainWindow
             _repairMappingPhoto = photo;
             var stored = ViewModel.Adjustments.Retouch;
             if (stored.IsLegacyFrame)
-                ApplyRepairs(XmpRetouch.ToUpright(stored, (int)frame.Orientation, frame.UprightWidth, frame.UprightHeight));
-            else SyncRetouchPanel();
+                ViewModel.NormalizeRetouchFrame(legacy =>
+                    XmpRetouch.ToUpright(legacy, (int)frame.Orientation, frame.UprightWidth, frame.UprightHeight));
+            SyncRetouchPanel();
         }
         catch (OperationCanceledException) { }
         catch (Exception error)

@@ -74,6 +74,28 @@ namespace Maple.WinUI.ViewModels
             CommitPendingAdjustmentGesture();
         }
 
+        /// <summary>
+        /// Load-time normalisation of a legacy decode-frame repair list (#4473). It
+        /// preserves what the photo looks like, so it is not an edit: the current
+        /// model and every history snapshot are converted in place, otherwise an
+        /// undo would restore a legacy list the Heal tool refuses to edit.
+        /// </summary>
+        public void NormalizeRetouchFrame(Func<RetouchState, RetouchState> convert)
+        {
+            if (!AdjustmentsReady) return;
+            void Apply(AdjustmentState? snapshot)
+            {
+                if (snapshot is { Retouch.IsLegacyFrame: true }) snapshot.Retouch = convert(snapshot.Retouch);
+            }
+            Apply(Adjustments);
+            Apply(_undoBaseline);
+            Apply(_originalModel);
+            foreach (var snapshot in _undoStack) Apply(snapshot);
+            foreach (var snapshot in _redoStack) Apply(snapshot);
+            Renderer.RequestRender(Adjustments.Clone());
+            ScheduleSidecarWrite();
+        }
+
         public void Undo()
         {
             if (!AdjustmentsReady) return;

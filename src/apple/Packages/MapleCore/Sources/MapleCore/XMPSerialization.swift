@@ -68,6 +68,13 @@ public struct XMPParser {
     // Repair spots (#3409) — same nested-element walker shape; see
     // `XMPSerialization+Retouch.swift`.
     m.retouchSpots = delegate.retouch.finish()
+    // An unstamped Maple list is the legacy sensor frame (#4473). It is kept
+    // exactly as read and left unstamped, so an unrelated save cannot relabel
+    // another host's decode-frame spots as upright; the first spot edit here
+    // adopts the list as upright.
+    m.retouchListIsLegacy =
+      !m.retouchSpots.isEmpty && !delegate.sawRetouchFrameStamp && delegate.sawPappNamespace
+      ? true : nil
     // WB scale versioning (#1780/#1875/#1893/#1894), resolved at
     // document level: an explicit `papp:WbScaleVersion` stamp wins;
     // otherwise a document carrying the Maple `papp:` namespace AND an
@@ -153,6 +160,7 @@ final class _XMPParserDelegate: NSObject, XMLParserDelegate {
   var temperatureSeen = false
   var tintSeen = false
   var wbScaleStamp: Int? = nil
+  var sawRetouchFrameStamp: Bool = false
   /// Namespace aliases identify Maple provenance without changing the
   /// historical prefix-based WB-scale migration above.
   var sawMapleNamespaceURI: Bool = false
@@ -301,6 +309,7 @@ final class _XMPParserDelegate: NSObject, XMLParserDelegate {
     if attributeDict["crs:Temperature"] != nil || attributeDict["crs:Tint"] != nil {
       sawExplicitWb = true
     }
+    if attributeDict["papp:RetouchFrameVersion"] == "2" { sawRetouchFrameStamp = true }
     if let stamp = attributeDict["papp:WbScaleVersion"], let v = Int(stamp),
       (1...5).contains(v)
     {
