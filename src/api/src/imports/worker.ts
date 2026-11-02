@@ -168,6 +168,13 @@ export function remapSidecarDest(
   return dir === '.' ? `${newStem}${rest}` : `${dir}/${newStem}${rest}`;
 }
 
+type RecordFile = (
+  index: number,
+  state: ImportFileEntry['state'],
+  error: string | null,
+  destRel: string,
+) => Promise<void>;
+
 export class ImportRunner {
   private readonly workerId: string;
   private readonly pollMs: number;
@@ -335,38 +342,22 @@ export class ImportRunner {
       // A retry meets a primary that already landed. Re-hashing it would hit the
       // dedup check below and skip its still-pending sidecars as duplicates.
       if (primary.state === 'copied') {
-        await record(pIdx, 'copied', null, primary.dest);
-        const landed = await this.copyPendingSidecars(
-          claim.library_root,
-          files,
-          sidecarIdxs,
-          record,
-        );
-        if (primary.kind === 'image' && landed > 0) {
-          await this.handOffToIndexer(claim, id, destAbsPath(claim.library_root, primary.dest));
-        }
+        await this.resumeLandedPrimary(claim, files, pIdx, sidecarIdxs, record);
         continue;
       }
 
       // Dedup decision at the image. Movies never live in `assets`, so they
       // skip the hash check and rely on the on-disk identical-skip below.
-      let isDuplicate = false;
-      if (primary.kind === 'image') {
-        try {
-          const h = await this.deps.hashFileForId(primary.src);
-          isDuplicate = await this.deps.assetExistsForHash(h.maple_id, h.sha1_head);
-        } catch (err) {
-          // A hash failure (unreadable source) fails just this group.
-          const msg = err instanceof Error ? err.message : String(err);
-          for (const sIdx of sidecarIdxs) {
-            await record(sIdx, 'failed', msg, files[sIdx].dest);
-          }
-          await record(pIdx, 'failed', msg, primary.dest);
-          continue;
+      const probe = await this.probeDuplicate(primary);
+      if (probe.error !== null) {
+        for (const sIdx of sidecarIdxs) {
+          await record(sIdx, 'failed', probe.error, files[sIdx].dest);
         }
+        await record(pIdx, 'failed', probe.error, primary.dest);
+        continue;
       }
 
-      if (isDuplicate) {
+      if (probe.isDuplicate) {
         // Skip the image AND its sidecars — the image is already in the
         // library; a fresh sidecar copy would be orphaned.
         for (const sIdx of sidecarIdxs) {
@@ -427,6 +418,35 @@ export class ImportRunner {
     return { kind: 'done', importId: id.toHexString() };
   }
 
+  /** A hash failure (unreadable source) is returned as `error` and fails just this group. */
+  private async probeDuplicate(
+    primary: ImportFileEntry,
+  ): Promise<{ isDuplicate: boolean; error: string | null }> {
+    if (primary.kind !== 'image') return { isDuplicate: false, error: null };
+    try {
+      const h = await this.deps.hashFileForId(primary.src);
+      const isDuplicate = await this.deps.assetExistsForHash(h.maple_id, h.sha1_head);
+      return { isDuplicate, error: null };
+    } catch (err) {
+      return { isDuplicate: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  }
+
+  private async resumeLandedPrimary(
+    claim: ClaimedImport,
+    files: ImportFileEntry[],
+    pIdx: number,
+    sidecarIdxs: number[],
+    record: RecordFile,
+  ): Promise<void> {
+    const primary = files[pIdx];
+    await record(pIdx, 'copied', null, primary.dest);
+    const landed = await this.copyPendingSidecars(claim.library_root, files, sidecarIdxs, record);
+    if (primary.kind === 'image' && landed > 0) {
+      await this.handOffToIndexer(claim, claim._id, destAbsPath(claim.library_root, primary.dest));
+    }
+  }
+
   private async handOffToIndexer(
     claim: ClaimedImport,
     id: ObjectId,
@@ -455,12 +475,7 @@ export class ImportRunner {
     libraryRoot: string,
     files: ImportFileEntry[],
     sidecarIdxs: number[],
-    record: (
-      index: number,
-      state: ImportFileEntry['state'],
-      error: string | null,
-      destRel: string,
-    ) => Promise<void>,
+    record: RecordFile,
   ): Promise<number> {
     let newlyCopied = 0;
     for (const sIdx of sidecarIdxs) {
