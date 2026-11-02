@@ -161,6 +161,25 @@ describe('crs:RetouchAreas (#3409)', () => {
     expect(serializer.serialize(defaultAdjustmentModel())).not.toContain('RetouchFrameVersion');
   });
 
+  it('keeps an unstamped Maple list legacy and unstamped until a spot is edited (#4473)', () => {
+    const maple = document(CANONICAL_BLOCK).replace(
+      '<rdf:Description',
+      '<rdf:Description xmlns:papp="http://ns.justmaple.app/photo/1.0/" papp:Profile="Auto"',
+    );
+    const { model, passthrough } = parser.parseAdjustmentModel(maple);
+    expect(model.retouchFrameLegacy).toBe(true);
+    const resaved = serializer.serialize({ ...defaultAdjustmentModel(), ...model }, passthrough);
+    expect(resaved).not.toContain('RetouchFrameVersion');
+    expect(parser.parseAdjustmentModel(resaved).model.retouchFrameLegacy).toBe(true);
+
+    const adopted = serializer.serialize(
+      { ...defaultAdjustmentModel(), ...model, retouchFrameLegacy: false },
+      passthrough,
+    );
+    expect(adopted.split('papp:RetouchFrameVersion="2"').length - 1).toBe(1);
+    expect(parser.parseAdjustmentModel(adopted).model.retouchFrameLegacy).not.toBe(true);
+  });
+
   it('imports a spot whose source is encoded as an offset', () => {
     const block = `      <crs:RetouchAreas>
         <rdf:Seq>

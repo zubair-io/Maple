@@ -136,9 +136,9 @@ final class RetouchXMPTests: XCTestCase {
         XCTAssertTrue(resaved.contains("crs:SpotType=\"clone\""))
     }
 
-    /// #4473: every written list is stamped as upright, an unstamped legacy list
-    /// is restamped by the next save without doubling the attribute, and a
-    /// document without spots carries no stamp at all.
+    /// #4473: every written list is stamped as upright (here a Lightroom-style
+    /// document without the Maple namespace), never doubled, and a document
+    /// without spots carries no stamp at all.
     func testTheUprightFrameStampIsWrittenOnceAndOnlyWithSpots() throws {
         let source = document(canonicalBlock)
         XCTAssertFalse(source.contains("RetouchFrameVersion"))
@@ -157,6 +157,26 @@ final class RetouchXMPTests: XCTestCase {
         let empty = XMPSerializer.serialize(
             model: .default, culling: CullingState(), omitWhiteBalance: true)
         XCTAssertFalse(empty.contains("RetouchFrameVersion"))
+    }
+
+    /// An unstamped Maple list may be another host's decode-frame list, so an
+    /// unrelated save leaves it unstamped; editing a spot adopts it as upright.
+    func testAnUnstampedMapleListIsKeptLegacyUntilASpotIsEdited() throws {
+        let source = document(canonicalBlock).replacingOccurrences(
+            of: "xmlns:crs=", with: "xmlns:papp=\"http://ns.justmaple.app/photo/1.0/\"\n      xmlns:crs=")
+        var (model, culling) = try XMPParser.parse(source)
+        XCTAssertEqual(model.retouchListIsLegacy, true)
+        let passthrough = XMPParser.parsePassthrough(source)
+        let resaved = XMPSerializer.serialize(
+            model: model, culling: culling, omitWhiteBalance: true, passthrough: passthrough)
+        XCTAssertFalse(resaved.contains("RetouchFrameVersion"))
+        XCTAssertEqual(try XMPParser.parse(resaved).0.retouchListIsLegacy, true)
+
+        model.retouchListIsLegacy = nil
+        let adopted = XMPSerializer.serialize(
+            model: model, culling: culling, omitWhiteBalance: true, passthrough: passthrough)
+        XCTAssertEqual(adopted.components(separatedBy: "papp:RetouchFrameVersion=\"2\"").count - 1, 1)
+        XCTAssertNil(try XMPParser.parse(adopted).0.retouchListIsLegacy)
     }
 
     func testImportsASpotWhoseSourceIsEncodedAsAnOffset() throws {

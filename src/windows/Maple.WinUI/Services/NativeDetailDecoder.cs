@@ -29,7 +29,7 @@ public sealed class NativeDetailDecoder : IAsyncDisposable
         RunAsync(path, model, cancellation, () => _geometry);
 
     public Task<RepairSourceFrame> ReadRepairFrameAsync(string path, AdjustmentState model, CancellationToken cancellation) =>
-        RunAsync(path, model, cancellation, () => new RepairSourceFrame(_orientation, _geometry.SensorWidth, _geometry.SensorHeight));
+        RunAsync(path, model, cancellation, () => new RepairSourceFrame(_orientation, _geometry.CropWidth, _geometry.CropHeight));
 
     public Task<NativeDetailImage> DecodeAsync(string path, AdjustmentState model, DecodedImage anchor,
         NativeDetailRegion region, CancellationToken cancellation) =>

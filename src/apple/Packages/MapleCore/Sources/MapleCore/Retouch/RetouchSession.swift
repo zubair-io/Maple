@@ -73,6 +73,7 @@ public final class RetouchSession {
             radius: brushRadius,
             feather: brushFeather,
             opacity: brushOpacity)
+        session.model.retouchListIsLegacy = nil
         session.model.retouchSpots.append(spot)
         selectedSpotID = spot.id
         return spot
@@ -83,6 +84,7 @@ public final class RetouchSession {
         else { return }
         endGesture()
         commit("Delete spot")
+        session.model.retouchListIsLegacy = nil
         session.model.retouchSpots.remove(at: index)
         let remaining = session.model.retouchSpots
         selectedSpotID =
@@ -94,6 +96,7 @@ public final class RetouchSession {
         guard !session.model.retouchSpots.isEmpty else { return }
         endGesture()
         commit("Reset heal")
+        session.model.retouchListIsLegacy = nil
         session.model.retouchSpots = []
         selectedSpotID = nil
     }
@@ -123,6 +126,7 @@ public final class RetouchSession {
         } else {
             beginGesture()
         }
+        session.model.retouchListIsLegacy = nil
         session.model.retouchSpots[index] = next
     }
 

@@ -107,7 +107,7 @@ public static class XmpRetouch
     /// Re-expresses a legacy decode-frame list over the upright image (#4473):
     /// both points follow the EXIF orientation and the radius, a fraction of the
     /// sensor width, becomes a fraction of the upright width so the disc keeps
-    /// its pixel size. The extent is the oriented one the native geometry reports. Unknown entries, attributes and children are untouched.
+    /// its pixel size. The extent is the oriented default-crop frame the stored fractions address (the native geometry's CropWidth/CropHeight). Unknown entries, attributes and children are untouched.
     /// </summary>
     public static RetouchState ToUpright(RetouchState state, int orientation, double uprightWidth, double uprightHeight)
     {

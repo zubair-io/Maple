@@ -30,7 +30,11 @@ const RAW_CORE_ONLY_FIELDS: ReadonlySet<string> = new Set([
 /** Web model keys that are not canonical schema fields: the WB preset
  * selector is a UI convenience that resolves to temperature / tint (see
  * `adjustment-model.ts`'s own header comment). */
-const WEB_ONLY_KEYS: ReadonlySet<string> = new Set(['whiteBalancePreset', 'partialWhiteBalance']);
+const WEB_ONLY_KEYS: ReadonlySet<string> = new Set([
+  'whiteBalancePreset',
+  'partialWhiteBalance',
+  'retouchFrameLegacy',
+]);
 
 const WEB_COVERING: readonly CapabilityEvidenceSource[] = [
   'sidecar_contract_api',
