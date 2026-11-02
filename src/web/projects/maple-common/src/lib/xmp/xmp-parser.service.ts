@@ -15,7 +15,7 @@ import { resolveWbScaleVersion, normalizeParsedWb, inferForeignWbSource } from '
 import { parseMetadataBlock } from './xmp-metadata';
 import { authoredCullingOf, parseCullingBlock } from './xmp-culling';
 import { collectXmpPassthrough } from './xmp-passthrough';
-import { RETOUCH_FRAME_VERSION_KEY } from './xmp-retouch';
+import { markLegacyRetouchFrame } from './xmp-retouch';
 import { finalizeCrop } from './xmp-crop';
 import { walkAdjustmentAttributes, applyLegacyAliases } from './xmp-adjustment-walk';
 import {
@@ -136,19 +136,13 @@ export class XmpParserService {
       model.crop = crop;
     }
 
-    const passthrough = collectXmpPassthrough(sourceDescription ?? desc, model, document);
-    if (
-      (model.retouchSpots?.length ?? 0) > 0 &&
-      sawPappAnywhere &&
-      attrOf(desc, [RETOUCH_FRAME_VERSION_KEY]) !== '2'
-    ) {
-      model.retouchFrameLegacy = true;
-    }
+    const bucket = collectXmpPassthrough(sourceDescription ?? desc, model, document);
+    markLegacyRetouchFrame(model, desc, sawPappAnywhere);
 
     return {
       model,
       passthrough: {
-        ...passthrough,
+        ...bucket,
         authoredCulling: authoredCullingOf(desc),
       },
       metadata: parseMetadataBlock(desc),
