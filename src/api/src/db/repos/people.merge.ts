@@ -33,6 +33,7 @@ import type { SqlStatement } from '../sqlite/protocol.ts';
 import { peopleDb, type SqliteDb } from './db-handle.ts';
 import { readPerson, type PersonRow } from './people.rows.ts';
 import {
+  ADOPT_VISIBILITY_SQL,
   CLAIM_SURVIVOR_SQL,
   CLEAR_SUGGESTIONS_POINTING_AT_SQL,
   MARK_MERGED_SQL,
@@ -70,7 +71,9 @@ function mergeStatements(survivorHex: string, orphanHex: string, name: string): 
 
 /**
  * Repoint `orphan`'s faces onto `survivor`, tombstone the orphan, and give the
- * survivor `name`.
+ * survivor `name`. The survivor adopts the `hidden` / `excluded` flags of
+ * `visibilityFrom` (the merge target; defaults to the survivor itself), so the
+ * merged photos take the visibility of the person the operator merged into.
  *
  * The single primitive both merge paths share — the rename collision in
  * `people.repo.ts` and the explicit multi-select merge below.
@@ -80,9 +83,22 @@ export async function mergeInto(
   orphan: ObjectId,
   name: string,
   dbOverride?: SqliteDb,
+  visibilityFrom: ObjectId = survivor,
 ): Promise<void> {
   const db = peopleDb(dbOverride);
-  await db.transaction([...mergeStatements(survivor.toHexString(), orphan.toHexString(), name)]);
+  const survivorHex = survivor.toHexString();
+  const visibilityHex = visibilityFrom.toHexString();
+  await db.transaction([
+    ...(visibilityHex === survivorHex
+      ? []
+      : [
+          {
+            sql: ADOPT_VISIBILITY_SQL,
+            params: [visibilityHex, visibilityHex, survivorHex],
+          },
+        ]),
+    ...mergeStatements(survivorHex, orphan.toHexString(), name),
+  ]);
 }
 
 /**
