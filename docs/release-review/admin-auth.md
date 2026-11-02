@@ -12,7 +12,7 @@ Release v0.1.6, reviewed against `origin/main` at `cf50ef2eca`. Scope is the Sel
 | S4  | Path jail to registered roots, stream tokens      | works with P1    | F1, F2, F3                    |
 | S5  | Server deploy and migrations (SQLite, Docker/Bun) | works with P2    | F7                            |
 
-One P0 was found (F1, fixed in #5636). Nothing was found that lets an unauthenticated caller, or a member acting within their granted permissions, read or modify anything outside the registered libraries, other than F1 below, which needs a product decision.
+One P0 was found (F1, fixed in #5636). Nothing was found that lets an unauthenticated caller read or modify anything outside the registered libraries. F1 let a member widen the jail; F2 remains open for the owner to decide.
 
 ## What was verified and holds
 
