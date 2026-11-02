@@ -221,7 +221,7 @@ export async function renamePerson(
   const survivorIsSubject = subject._id.toString() < collision._id.toString();
   const survivor = survivorIsSubject ? subject : collision;
   const orphan = survivorIsSubject ? collision : subject;
-  await mergeInto(survivor._id, orphan._id, trimmed, dbOverride);
+  await mergeInto(survivor._id, orphan._id, trimmed, dbOverride, collision._id);
 
   const fresh = await findById(db, survivor._id.toHexString());
   if (!fresh) throw new Error('survivor disappeared mid-merge');
