@@ -39,6 +39,7 @@ import { hashFileForId as realHashFileForId } from '../indexer/id.ts';
 import { handleEvent as realHandleEvent } from '../workers/discover/handle-event.ts';
 import { copyFileAtomic, resolveDest, destAbsPath } from './copy.ts';
 import { buildImportFiles } from './scan.ts';
+import { probeDuplicate, resumeLandedPrimary, type ResumeSeams } from './resume.ts';
 import {
   claimImport,
   updateImportProgress,
@@ -53,6 +54,8 @@ import {
   type ClaimedImport,
 } from './repo.ts';
 import { loadNearbyAssetCandidates } from './nearby.ts';
+import { rearmStageByFilenames } from '../db/repos/stage-state.repo.ts';
+import { SIDECAR_METADATA_INDEX_STAGE_NAME } from '../workers/stages/sidecar-metadata-index.ts';
 import type { ImportFileEntry } from '../db/schema.ts';
 
 const POLL_MS_DEFAULT = 1_000;
@@ -70,12 +73,16 @@ export interface ImportRunnerDeps {
   hashFileForId: typeof realHashFileForId;
   assetExistsForHash: typeof realAssetExistsForHash;
   handleEvent: typeof realHandleEvent;
+  rearmSidecarMetadataIndex: (imageFilename: string) => Promise<void>;
 }
 
 const DEFAULT_DEPS: ImportRunnerDeps = {
   hashFileForId: realHashFileForId,
   assetExistsForHash: realAssetExistsForHash,
   handleEvent: realHandleEvent,
+  rearmSidecarMetadataIndex: async (imageFilename) => {
+    await rearmStageByFilenames(SIDECAR_METADATA_INDEX_STAGE_NAME, [imageFilename]);
+  },
 };
 
 export interface ImportRunnerConfig {
@@ -167,13 +174,6 @@ export function remapSidecarDest(
   const rest = filename.startsWith(origStem) ? filename.slice(origStem.length) : filename;
   return dir === '.' ? `${newStem}${rest}` : `${dir}/${newStem}${rest}`;
 }
-
-type RecordFile = (
-  index: number,
-  state: ImportFileEntry['state'],
-  error: string | null,
-  destRel: string,
-) => Promise<void>;
 
 export class ImportRunner {
   private readonly workerId: string;
@@ -342,13 +342,20 @@ export class ImportRunner {
       // A retry meets a primary that already landed. Re-hashing it would hit the
       // dedup check below and skip its still-pending sidecars as duplicates.
       if (primary.state === 'copied') {
-        await this.resumeLandedPrimary(claim, files, pIdx, sidecarIdxs, record);
+        await resumeLandedPrimary({
+          libraryRoot: claim.library_root,
+          files,
+          primaryIndex: pIdx,
+          sidecarIndexes: sidecarIdxs,
+          record,
+          seams: this.resumeSeams(claim),
+        });
         continue;
       }
 
       // Dedup decision at the image. Movies never live in `assets`, so they
       // skip the hash check and rely on the on-disk identical-skip below.
-      const probe = await this.probeDuplicate(primary);
+      const probe = await probeDuplicate(this.deps, primary);
       if (probe.error !== null) {
         for (const sIdx of sidecarIdxs) {
           await record(sIdx, 'failed', probe.error, files[sIdx].dest);
@@ -418,33 +425,25 @@ export class ImportRunner {
     return { kind: 'done', importId: id.toHexString() };
   }
 
-  /** A hash failure (unreadable source) is returned as `error` and fails just this group. */
-  private async probeDuplicate(
-    primary: ImportFileEntry,
-  ): Promise<{ isDuplicate: boolean; error: string | null }> {
-    if (primary.kind !== 'image') return { isDuplicate: false, error: null };
-    try {
-      const h = await this.deps.hashFileForId(primary.src);
-      const isDuplicate = await this.deps.assetExistsForHash(h.maple_id, h.sha1_head);
-      return { isDuplicate, error: null };
-    } catch (err) {
-      return { isDuplicate: false, error: err instanceof Error ? err.message : String(err) };
-    }
-  }
-
-  private async resumeLandedPrimary(
-    claim: ClaimedImport,
-    files: ImportFileEntry[],
-    pIdx: number,
-    sidecarIdxs: number[],
-    record: RecordFile,
-  ): Promise<void> {
-    const primary = files[pIdx];
-    await record(pIdx, 'copied', null, primary.dest);
-    const landed = await this.copyPendingSidecars(claim.library_root, files, sidecarIdxs, record);
-    if (primary.kind === 'image' && landed > 0) {
-      await this.handOffToIndexer(claim, claim._id, destAbsPath(claim.library_root, primary.dest));
-    }
+  private resumeSeams(claim: ClaimedImport): ResumeSeams {
+    return {
+      copyOne: (libraryRoot, src, destRel) => this.copyOne(libraryRoot, src, destRel),
+      handOffToIndexer: (absPath) => this.handOffToIndexer(claim, claim._id, absPath),
+      rearmSidecarIndex: async (imageFilename) => {
+        try {
+          await this.deps.rearmSidecarMetadataIndex(imageFilename);
+        } catch (err) {
+          log.warn(
+            {
+              importId: claim._id.toHexString(),
+              imageFilename,
+              err: err instanceof Error ? err.message : String(err),
+            },
+            'could not re-arm sidecar metadata indexing after a retried sidecar copy',
+          );
+        }
+      },
+    };
   }
 
   private async handOffToIndexer(
@@ -468,27 +467,6 @@ export class ImportRunner {
         'indexer hand-off failed (file copied, will be picked up on next scan)',
       );
     }
-  }
-
-  /** Returns how many still-pending sidecars were newly copied; the rest are re-recorded as is. */
-  private async copyPendingSidecars(
-    libraryRoot: string,
-    files: ImportFileEntry[],
-    sidecarIdxs: number[],
-    record: RecordFile,
-  ): Promise<number> {
-    let newlyCopied = 0;
-    for (const sIdx of sidecarIdxs) {
-      const sidecar = files[sIdx];
-      if (sidecar.state !== 'pending') {
-        await record(sIdx, sidecar.state, sidecar.error, sidecar.dest);
-        continue;
-      }
-      const r = await this.copyOne(libraryRoot, sidecar.src, sidecar.dest);
-      if (r.state === 'copied') newlyCopied += 1;
-      await record(sIdx, r.state, r.error, r.destRel);
-    }
-    return newlyCopied;
   }
 
   /** Copy `src` to `destRel` under the library, resolving on-disk collisions.

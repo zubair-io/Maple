@@ -443,12 +443,16 @@ describe('ImportRunner.tick', () => {
     });
 
     let indexed = false;
+    const rearmed: string[] = [];
     const runner = new ImportRunner({
       workerId: 'w-retry-sidecar',
       deps: {
         assetExistsForHash: async () => indexed,
         handleEvent: async () => {
           indexed = true;
+        },
+        rearmSidecarMetadataIndex: async (name) => {
+          rearmed.push(name);
         },
       },
     });
@@ -460,12 +464,14 @@ describe('ImportRunner.tick', () => {
     });
 
     await fs.rename(stashed, src['IMG.xmp']);
+    expect(rearmed).toEqual([]);
     expect(await retryImport(created._id)).toBe(true);
     expect((await runner.tick()).kind).toBe('done');
 
     expect(await fs.readFile(path.join(lib, '2024/03/IMG.xmp'), 'utf8')).toBe(
       'bytes-retry-sidecar-IMG.xmp',
     );
+    expect(rearmed).toEqual(['IMG.dng']);
     expect((await repo.getImport(created._id))!.counts).toEqual({
       copied: 2,
       skipped: 0,
