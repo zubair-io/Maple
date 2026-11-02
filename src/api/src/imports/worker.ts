@@ -332,6 +332,22 @@ export class ImportRunner {
         continue;
       }
 
+      // A retry meets a primary that already landed. Re-hashing it would hit the
+      // dedup check below and skip its still-pending sidecars as duplicates.
+      if (primary.state === 'copied') {
+        await record(pIdx, 'copied', null, primary.dest);
+        const landed = await this.copyPendingSidecars(
+          claim.library_root,
+          files,
+          sidecarIdxs,
+          record,
+        );
+        if (primary.kind === 'image' && landed > 0) {
+          await this.handOffToIndexer(claim, id, destAbsPath(claim.library_root, primary.dest));
+        }
+        continue;
+      }
+
       // Dedup decision at the image. Movies never live in `assets`, so they
       // skip the hash check and rely on the on-disk identical-skip below.
       let isDuplicate = false;
@@ -393,23 +409,7 @@ export class ImportRunner {
       // Hand the image to the indexer only if it actually landed. Its
       // sidecars are already on disk under the resolved stem.
       if (primary.kind === 'image' && pr.state === 'copied') {
-        const absPath = destAbsPath(claim.library_root, pr.destRel);
-        try {
-          await this.deps.handleEvent(
-            { kind: 'created', absPath },
-            claim.library_id,
-            claim.library_root,
-          );
-        } catch (err) {
-          log.warn(
-            {
-              importId: id.toHexString(),
-              absPath,
-              err: err instanceof Error ? err.message : String(err),
-            },
-            'indexer hand-off failed (file copied, will be picked up on next scan)',
-          );
-        }
+        await this.handOffToIndexer(claim, id, destAbsPath(claim.library_root, pr.destRel));
       }
     }
 
@@ -425,6 +425,55 @@ export class ImportRunner {
     }
     await completeImport(id, counts, this.now);
     return { kind: 'done', importId: id.toHexString() };
+  }
+
+  private async handOffToIndexer(
+    claim: ClaimedImport,
+    id: ObjectId,
+    absPath: string,
+  ): Promise<void> {
+    try {
+      await this.deps.handleEvent(
+        { kind: 'created', absPath },
+        claim.library_id,
+        claim.library_root,
+      );
+    } catch (err) {
+      log.warn(
+        {
+          importId: id.toHexString(),
+          absPath,
+          err: err instanceof Error ? err.message : String(err),
+        },
+        'indexer hand-off failed (file copied, will be picked up on next scan)',
+      );
+    }
+  }
+
+  /** Returns how many still-pending sidecars were newly copied; the rest are re-recorded as is. */
+  private async copyPendingSidecars(
+    libraryRoot: string,
+    files: ImportFileEntry[],
+    sidecarIdxs: number[],
+    record: (
+      index: number,
+      state: ImportFileEntry['state'],
+      error: string | null,
+      destRel: string,
+    ) => Promise<void>,
+  ): Promise<number> {
+    let newlyCopied = 0;
+    for (const sIdx of sidecarIdxs) {
+      const sidecar = files[sIdx];
+      if (sidecar.state !== 'pending') {
+        await record(sIdx, sidecar.state, sidecar.error, sidecar.dest);
+        continue;
+      }
+      const r = await this.copyOne(libraryRoot, sidecar.src, sidecar.dest);
+      if (r.state === 'copied') newlyCopied += 1;
+      await record(sIdx, r.state, r.error, r.destRel);
+    }
+    return newlyCopied;
   }
 
   /** Copy `src` to `destRel` under the library, resolving on-disk collisions.

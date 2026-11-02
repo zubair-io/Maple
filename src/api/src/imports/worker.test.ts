@@ -27,6 +27,7 @@ import { ImportRunner, groupFiles } from './worker.ts';
 import type { ImportFileEntry } from '../db/schema.ts';
 import { createLiveTestDatabase, insertFolder } from '../db/sqlite/test-sqlite.test-helpers.ts';
 import * as repo from './repo.ts';
+import { retryImport } from './retry.ts';
 
 let tmp: string;
 let previousMapleRoots: string | undefined;
@@ -422,6 +423,54 @@ describe('ImportRunner.tick', () => {
     expect(await fs.readFile(path.join(lib, '2024/03/GOOD.dng'), 'utf8')).toBe(
       'bytes-prefailed-GOOD.dng',
     );
+  });
+
+  it('retry copies a sidecar whose image already landed instead of skipping it as a duplicate', async () => {
+    using live = await createLiveTestDatabase();
+    const src = await stageSources('retry-sidecar', ['IMG.dng', 'IMG.xmp']);
+    const lib = path.join(tmp, 'retry-sidecar', 'lib');
+    const stashed = `${src['IMG.xmp']}.stashed`;
+    await fs.rename(src['IMG.xmp'], stashed);
+
+    const created = await repo.createImport({
+      source_root: path.join(tmp, 'retry-sidecar', 'src'),
+      library_id: seedLibraryAt(live.db, lib),
+      library_root: lib,
+      files: [
+        entry(src['IMG.xmp'], '2024/03/IMG.xmp', 'sidecar'),
+        entry(src['IMG.dng'], '2024/03/IMG.dng', 'image'),
+      ],
+    });
+
+    let indexed = false;
+    const runner = new ImportRunner({
+      workerId: 'w-retry-sidecar',
+      deps: {
+        assetExistsForHash: async () => indexed,
+        handleEvent: async () => {
+          indexed = true;
+        },
+      },
+    });
+    expect((await runner.tick()).kind).toBe('done');
+    expect((await repo.getImport(created._id))!.counts).toEqual({
+      copied: 1,
+      skipped: 0,
+      failed: 1,
+    });
+
+    await fs.rename(stashed, src['IMG.xmp']);
+    expect(await retryImport(created._id)).toBe(true);
+    expect((await runner.tick()).kind).toBe('done');
+
+    expect(await fs.readFile(path.join(lib, '2024/03/IMG.xmp'), 'utf8')).toBe(
+      'bytes-retry-sidecar-IMG.xmp',
+    );
+    expect((await repo.getImport(created._id))!.counts).toEqual({
+      copied: 2,
+      skipped: 0,
+      failed: 0,
+    });
   });
 
   it('marks an import failed when every file failed (#795)', async () => {
