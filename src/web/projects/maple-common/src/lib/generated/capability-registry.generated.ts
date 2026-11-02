@@ -457,7 +457,7 @@ export const CAPABILITY_REGISTRY: readonly CapabilityRecord[] = [
     assetClasses: ['raw'],
     previewPaths: ['cpu_reference', 'gpu_live'],
     exportPaths: ['maple_cli', 'apple_ffi', 'wasm', 'api_ffi', 'windows_dll'],
-    fields: ['retouch_spots'],
+    fields: ['retouch_spots', 'retouch_frame'],
     integration: ['sidecar_contract_apple', 'sidecar_contract_api', 'gpu_chain_parity_lavapipe'],
     qualification: [],
     releaseState: 'core',

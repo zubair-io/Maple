@@ -20,7 +20,6 @@ public sealed partial class MainWindow
         Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent) };
     private CancellationTokenSource? _repairMappingRequest;
     private object? _repairMappingPhoto;
-    private int _repairOrientation;
     private RetouchState? _repairDraft;
     private RetouchSpot? _repairDragStart;
     private MaskPoint _repairAnchor;
@@ -40,17 +39,19 @@ public sealed partial class MainWindow
     private async Task PrepareRepairCanvasAsync()
     {
         var photo = ViewModel.SelectedPhoto;
-        if (photo == null || !CanEditRepairs) return;
+        if (photo == null || !ViewModel.AdjustmentsReady || ViewModel.IsRasterSource) return;
         _repairMappingRequest?.Cancel();
         _repairMappingRequest?.Dispose();
         var owner = _repairMappingRequest = new CancellationTokenSource();
         try
         {
-            var orientation = await _detailDecoder.ReadOrientationAsync(photo.EditPath, ViewModel.Adjustments.Clone(), owner.Token);
+            var frame = await _detailDecoder.ReadRepairFrameAsync(photo.EditPath, ViewModel.Adjustments.Clone(), owner.Token);
             if (_closing || owner.IsCancellationRequested || photo != ViewModel.SelectedPhoto || _activeGroup != "Heal") return;
-            _repairOrientation = (int)orientation;
             _repairMappingPhoto = photo;
-            SyncRetouchPanel();
+            var stored = ViewModel.Adjustments.Retouch;
+            if (stored.IsLegacyFrame)
+                ApplyRepairs(XmpRetouch.ToUpright(stored, (int)frame.Orientation, frame.UprightWidth, frame.UprightHeight));
+            else SyncRetouchPanel();
         }
         catch (OperationCanceledException) { }
         catch (Exception error)
@@ -60,8 +61,8 @@ public sealed partial class MainWindow
     }
 
     private RepairCanvasMap? RepairMap => ReferenceEquals(_repairMappingPhoto, ViewModel.SelectedPhoto)
-        && _repairOrientation is >= 1 and <= 8 && ContentFitRect() is { } fit && fit.H > 0
-        ? new(_repairOrientation, fit.W / fit.H, ViewModel.Adjustments) : null;
+        && ContentFitRect() is { } fit && fit.H > 0
+        ? new(fit.W / fit.H, ViewModel.Adjustments) : null;
 
     private void ExitRetouchCanvas()
     {

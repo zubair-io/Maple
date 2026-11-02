@@ -63,12 +63,13 @@ impl CameraReady {
 
 /// Returns the scene and the auto-exposure gain applied to it.
 pub(crate) fn develop_colour(camera_rgb: Image, input: ColourInput<'_>) -> Result<(Image, f32)> {
+    let orientation = input.raw.orientation;
     let (creative, rest) = creative_of(input);
     let (capture, space) = capture_first::capture(
         camera_rgb,
         &creative.profile,
         rest.model,
-        Site::Frame,
+        Site::Frame { orientation },
         rest.chain,
         rest.cancel,
     )?;
@@ -85,9 +86,16 @@ pub(crate) fn capture_colour(
     camera_rgb: Image,
     input: ColourInput<'_>,
 ) -> Result<(Image, CreativeStage)> {
+    let orientation = input.raw.orientation;
     let (creative, rest) = creative_of(input);
-    let (mut capture, creative) =
-        capture_first::export_capture(camera_rgb, creative, rest.model, rest.chain, rest.cancel)?;
+    let (mut capture, creative) = capture_first::export_capture(
+        camera_rgb,
+        creative,
+        rest.model,
+        orientation,
+        rest.chain,
+        rest.cancel,
+    )?;
     capture.whites_anchor_ev = Some(rest.whites_anchor_ev);
     Ok((capture, creative))
 }

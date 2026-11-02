@@ -49,6 +49,11 @@ pub(super) fn parse_events<'a>(
     // WB (nothing to convert; scale-agnostic) — is V5 (#1894).
     let mut papp_seen = false;
     let mut stamp: Option<WbScaleVersion> = None;
+    // Repair-spot frame (#4473): an explicit `papp:RetouchFrameVersion` wins;
+    // an unstamped Maple-authored list predates the stamp and is sensor-framed
+    // (every render read it that way); a document with no `papp:` namespace
+    // (Lightroom) is expressed over the upright image.
+    let mut retouch_stamp: Option<RetouchFrame> = None;
     // Persisted authoring records are never current development attributes.
     // Their scoped namespace must not reclassify foreign WB as legacy Maple.
     let mut workflow_depth = 0usize;
@@ -117,7 +122,13 @@ pub(super) fn parse_events<'a>(
                 if local_adj.start(&name, &e)? || retouch.start(&name, &e)? {
                     // handled
                 } else if !curves.start(&name) {
-                    apply_attributes(&e, &mut model, &mut papp_seen, &mut stamp)?;
+                    apply_attributes(
+                        &e,
+                        &mut model,
+                        &mut papp_seen,
+                        &mut stamp,
+                        &mut retouch_stamp,
+                    )?;
                 }
             }
             Ok(Event::Empty(e)) => {
@@ -148,7 +159,13 @@ pub(super) fn parse_events<'a>(
                     }
                 }
                 if !local_adj.empty(&name, &e)? && !retouch.empty(&name, &e)? {
-                    apply_attributes(&e, &mut model, &mut papp_seen, &mut stamp)?;
+                    apply_attributes(
+                        &e,
+                        &mut model,
+                        &mut papp_seen,
+                        &mut stamp,
+                        &mut retouch_stamp,
+                    )?;
                 }
             }
             Ok(Event::Text(t)) => {
@@ -191,6 +208,12 @@ pub(super) fn parse_events<'a>(
         model.local_adjustments = canonical_layers;
     }
     retouch.finish(&mut model);
+    model.retouch_frame =
+        retouch_stamp.unwrap_or(if papp_seen && !model.retouch_spots.is_empty() {
+            RetouchFrame::Sensor
+        } else {
+            RetouchFrame::Upright
+        });
     let unstamped_is_v1 = papp_seen && (model.temperature_seen || model.tint_seen);
     // Unstamped, non-Maple (or WB-less) documents are V5 (#1894): an
     // ACR/Lightroom-authored crs:Tint is expressed in ACR's own convention,

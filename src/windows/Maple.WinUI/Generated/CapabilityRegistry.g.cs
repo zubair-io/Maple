@@ -181,7 +181,7 @@ namespace Maple.WinUI.Generated
                 new CapabilityAssetClass[] { CapabilityAssetClass.Raw },
                 new CapabilityPreviewPath[] { CapabilityPreviewPath.CpuReference, CapabilityPreviewPath.GpuLive },
                 new CapabilityExportPath[] { CapabilityExportPath.MapleCli, CapabilityExportPath.AppleFfi, CapabilityExportPath.Wasm, CapabilityExportPath.ApiFfi, CapabilityExportPath.WindowsDll },
-                new string[] { "retouch_spots" },
+                new string[] { "retouch_spots", "retouch_frame" },
                 new CapabilityEvidenceSource[] { CapabilityEvidenceSource.SidecarContractApple, CapabilityEvidenceSource.SidecarContractApi, CapabilityEvidenceSource.GpuChainParityLavapipe },
                 new CapabilityEvidenceSource[] {  },
                 CapabilityReleaseState.Core),

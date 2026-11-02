@@ -200,7 +200,7 @@ Generated from `src/raw-pipeline/raw-core/src/capability_registry/` (the registr
 - Asset classes: `raw`
 - Preview paths: `cpu_reference`, `gpu_live`
 - Export paths: `maple_cli`, `apple_ffi`, `wasm`, `api_ffi`, `windows_dll`
-- Fields: `retouch_spots`
+- Fields: `retouch_spots`, `retouch_frame`
 - Integration evidence:
   - `sidecar_contract_apple` — satisfied
   - `sidecar_contract_api` — satisfied

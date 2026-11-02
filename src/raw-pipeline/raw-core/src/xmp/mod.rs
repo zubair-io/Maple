@@ -3,6 +3,7 @@
 //! `AdjustmentModel` value.
 
 use crate::error::{Error, Result};
+use crate::types::retouch::RetouchFrame;
 use quick_xml::escape::escape;
 use quick_xml::events::BytesStart;
 
@@ -67,6 +68,7 @@ fn apply_attributes(
     model: &mut AdjustmentModel,
     papp_seen: &mut bool,
     stamp: &mut Option<WbScaleVersion>,
+    retouch_stamp: &mut Option<RetouchFrame>,
 ) -> Result<()> {
     // Track whether the new-style `papp:CaptureSharpeningSigma`
     // attribute has been written into `capture_sharpening_sigma`
@@ -125,6 +127,12 @@ fn apply_attributes(
                 other => return Err(Error::Xmp(format!("unknown WbScaleVersion: {}", other))),
             });
         }
+        if key == "papp:RetouchFrameVersion" {
+            *retouch_stamp =
+                Some(RetouchFrame::from_stamp(value.as_ref()).ok_or_else(|| {
+                    Error::Xmp(format!("unknown RetouchFrameVersion: {}", value))
+                })?);
+        }
         set_field(
             model,
             key,
@@ -164,6 +172,9 @@ pub fn serialize(model: &AdjustmentModel) -> String {
         Profile::Neutral => "Neutral",
     };
     out.push_str(&format!(r#" papp:Profile="{profile}""#));
+    if let (false, Some(stamp)) = (model.retouch_spots.is_empty(), model.retouch_frame.stamp()) {
+        out.push_str(&format!(r#" papp:RetouchFrameVersion="{stamp}""#));
+    }
     // Brightness (#1102) — emitted only when non-default (0), matching the
     // Swift/TS writers' omit-on-default convention.
     if model.brightness != 0.0 {

@@ -257,6 +257,7 @@ public static class AdjustmentFields
         ["perspective_x"] = "Absolute",
         ["perspective_y"] = "Absolute",
         ["profile"] = "Absolute",
+        ["retouch_frame"] = "Unsupported",
         ["retouch_spots"] = "Unsupported",
         ["saturation"] = "Absolute",
         ["saturation_adjustment_aqua"] = "Absolute",

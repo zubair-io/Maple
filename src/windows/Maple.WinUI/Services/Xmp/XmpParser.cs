@@ -31,7 +31,7 @@ namespace Maple.WinUI.Services.Xmp
             var names = new HashSet<string>(XmpSchema.NumericFields.Select(f => f.Key))
             {
                 "papp:CaptureSharpeningRadius", // legacy read-only alias (#456/#464)
-                "papp:WbScaleVersion",
+                "papp:WbScaleVersion", XmpRetouch.FrameVersionKey,
                 "crs:Version", "crs:ProcessVersion", "crs:HasSettings",
                 "papp:HighlightRecoveryMode", "papp:AutoExposure",
                 "papp:Look", "papp:Profile", "papp:FilmLook", "papp:Demosaic",
@@ -82,6 +82,8 @@ namespace Maple.WinUI.Services.Xmp
             var sawPapp = DocumentCarriesPappNamespace(source);
             ParseAttributes(primary, doc, sawPapp);
             ParseChildren(primary, doc, xml);
+            if (!doc.RetouchFrameStamped && sawPapp)
+                doc.Adjustments.Retouch = doc.Adjustments.Retouch.AsLegacyFrame();
             doc.Adjustments.LocalAdjustments = XmpLayerOrder.Sorted(doc.Adjustments.LocalAdjustments);
             CollectSiblingPassthrough(rdf, primary, doc);
             return doc;
@@ -129,6 +131,13 @@ namespace Maple.WinUI.Services.Xmp
                     case "crs:Version": doc.Version = attr.Value; break;
                     case "crs:ProcessVersion": doc.ProcessVersion = attr.Value; break;
                     case "crs:HasSettings": break;
+                    case XmpRetouch.FrameVersionKey:
+                        // An unstamped Maple repair list predates the upright frame
+                        // (#4473) and is converted once the RAW's orientation is
+                        // known; a Lightroom document carries no `papp:` namespace
+                        // and is already upright.
+                        doc.RetouchFrameStamped = attr.Value == "2";
+                        break;
                     case "papp:WbScaleVersion":
                         // Mirrors Swift's `(1...5).contains(v)` guard: a
                         // stamp outside the known range is treated as

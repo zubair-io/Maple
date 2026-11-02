@@ -43,7 +43,10 @@ use crate::image::{ColorSpace, Image};
 use crate::types::retouch::RetouchSpot;
 
 mod geometry;
+mod orient;
 mod patch;
+
+pub(crate) use orient::orient_spots_to_sensor;
 
 /// Apply every spot to the whole frame. Infallible in practice — the
 /// full-frame window contains every clamped footprint by construction — but

@@ -435,6 +435,7 @@ const CANONICAL_GOLDEN_DOCUMENT = `<?xpacket begin="\uFEFF" id="W5M0MpCehiHzreSz
       papp:HighlightRecoveryMode="Blend"
       papp:HotPixelSuppression="On"
       papp:Profile="Neutral"
+      papp:RetouchFrameVersion="2"
       papp:ToneCurveMode="RatioPreserving"
       papp:WbMethod="DiagonalRec2020"
       papp:WbScaleVersion="5">

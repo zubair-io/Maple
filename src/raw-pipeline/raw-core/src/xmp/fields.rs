@@ -440,9 +440,10 @@ pub(super) fn set_field(
             }
             m.lens_profile = value.to_owned();
         }
-        "crs:HasCrop" => {}             // consumed in the pre-pass
-        "crs:CropConstrainToWarp" => {} // ACR compat — no Maple semantics
-        "papp:WbScaleVersion" => {}     // consumed at document level in `parse` (#1780)
+        "crs:HasCrop" => {}              // consumed in the pre-pass
+        "crs:CropConstrainToWarp" => {}  // ACR compat — no Maple semantics
+        "papp:WbScaleVersion" => {}      // consumed at document level in `parse` (#1780)
+        "papp:RetouchFrameVersion" => {} // consumed at document level in `parse` (#4473)
         // Black & white mix (#276) — ACR-compatible `crs:ConvertToGrayscale`
         // + `crs:GrayMixer*`, handled in the sibling module (600-LOC budget).
         _ => {

@@ -249,7 +249,14 @@ pub(super) fn develop_scene_linear_from_padded_mosaic(
         } => (decoded_wb_anchor, ae_gain),
         TileOutput::Capture => {
             return Ok(DevelopedTile {
-                image: capture_colour(camera_rgb, &profile, model, window, cancel)?,
+                image: capture_colour(
+                    camera_rgb,
+                    &profile,
+                    model,
+                    window,
+                    raw.orientation,
+                    cancel,
+                )?,
                 inner,
             })
         }

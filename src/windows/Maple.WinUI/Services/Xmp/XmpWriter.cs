@@ -37,6 +37,10 @@ namespace Maple.WinUI.Services.Xmp
             }
 
             AppendEnumFields(parts, doc.Adjustments);
+            if (doc.Adjustments.Retouch is { IsLegacyFrame: false, Spots.Count: > 0 })
+            {
+                parts.Add($"{XmpRetouch.FrameVersionKey}=\"2\"");
+            }
             XmpWhiteBalance.AppendAttributes(parts, doc.Adjustments);
             AppendCropFields(parts, doc.Adjustments);
             AppendCullingFields(parts, doc);

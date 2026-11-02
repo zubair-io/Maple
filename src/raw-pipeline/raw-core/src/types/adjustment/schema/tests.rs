@@ -121,6 +121,7 @@ fn schema_matches_struct() {
         mask_rasters,
         inpaint_removals,
         retouch_spots,
+        retouch_frame: _,
         tone_curve_mode,
         tone_curve_luma,
         tone_curve_red,

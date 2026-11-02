@@ -325,6 +325,7 @@ export const ADJUSTMENT_NON_COPYABLE_FIELDS: readonly string[] = [
   'local_adjustments',
   'inpaint_removals',
   'retouch_spots',
+  'retouch_frame',
   'mask_rasters',
   'capture_sharpening_radius',
   'wb_sample_x',

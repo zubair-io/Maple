@@ -136,6 +136,29 @@ final class RetouchXMPTests: XCTestCase {
         XCTAssertTrue(resaved.contains("crs:SpotType=\"clone\""))
     }
 
+    /// #4473: every written list is stamped as upright, an unstamped legacy list
+    /// is restamped by the next save without doubling the attribute, and a
+    /// document without spots carries no stamp at all.
+    func testTheUprightFrameStampIsWrittenOnceAndOnlyWithSpots() throws {
+        let source = document(canonicalBlock)
+        XCTAssertFalse(source.contains("RetouchFrameVersion"))
+        let (model, culling) = try XMPParser.parse(source)
+        let passthrough = XMPParser.parsePassthrough(source)
+        let resaved = XMPSerializer.serialize(
+            model: model, culling: culling, omitWhiteBalance: true, passthrough: passthrough)
+        XCTAssertEqual(resaved.components(separatedBy: "papp:RetouchFrameVersion=\"2\"").count - 1, 1)
+
+        let (reparsed, reparsedCulling) = try XMPParser.parse(resaved)
+        let again = XMPSerializer.serialize(
+            model: reparsed, culling: reparsedCulling, omitWhiteBalance: true,
+            passthrough: XMPParser.parsePassthrough(resaved))
+        XCTAssertEqual(again.components(separatedBy: "RetouchFrameVersion").count - 1, 1)
+
+        let empty = XMPSerializer.serialize(
+            model: .default, culling: CullingState(), omitWhiteBalance: true)
+        XCTAssertFalse(empty.contains("RetouchFrameVersion"))
+    }
+
     func testImportsASpotWhoseSourceIsEncodedAsAnOffset() throws {
         let block = """
                   <crs:RetouchAreas>

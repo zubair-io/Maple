@@ -148,6 +148,7 @@ impl Default for AdjustmentModel {
             inpaint_removals: Vec::new(),
             // Per-#3409: an empty repair list is a bit-identical skip.
             retouch_spots: Vec::new(),
+            retouch_frame: crate::types::retouch::RetouchFrame::Upright,
             // Per-#436: `PerChannel` is the pre-existing behavior. Default
             // chosen for backward compatibility — `RatioPreserving` is opt-in.
             tone_curve_mode: ToneCurveMode::PerChannel,
