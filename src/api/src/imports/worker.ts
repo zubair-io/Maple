@@ -131,6 +131,20 @@ function remapSidecarDest(sidecarDestRel: string, origStem: string, newStem: str
   return dir === '.' ? `${newStem}${rest}` : `${dir}/${newStem}${rest}`;
 }
 
+async function recordWholeGroup(
+  record: RecordFile,
+  files: ImportFileEntry[],
+  pIdx: number,
+  sidecarIdxs: number[],
+  state: 'failed' | 'skipped_duplicate',
+  error: string | null,
+): Promise<void> {
+  for (const sIdx of sidecarIdxs) {
+    await record(sIdx, state, error, files[sIdx].dest);
+  }
+  await record(pIdx, state, error, files[pIdx].dest);
+}
+
 export class ImportRunner {
   private readonly workerId: string;
   private readonly pollMs: number;
@@ -315,15 +329,7 @@ export class ImportRunner {
     // are right) and fail its sidecars via the existing `pr.state !== 'copied'`
     // branch below — never orphaning a sidecar next to an absent image.
     if (primary.state === 'failed') {
-      const reason = primary.error ?? 'rejected during scan';
-      log.warn(
-        { importId: id.toHexString(), src: primary.src, dest: primary.dest, reason },
-        'skipping pre-failed import file',
-      );
-      await record(pIdx, 'failed', reason, primary.dest);
-      for (const sIdx of sidecarIdxs) {
-        await record(sIdx, 'failed', files[sIdx].error ?? reason, files[sIdx].dest);
-      }
+      await this.recordPreFailedGroup(id, files, pIdx, sidecarIdxs, record);
       return;
     }
 
@@ -345,22 +351,49 @@ export class ImportRunner {
     // skip the hash check and rely on the on-disk identical-skip below.
     const probe = await probeDuplicate(this.deps, primary);
     if (probe.error !== null) {
-      for (const sIdx of sidecarIdxs) {
-        await record(sIdx, 'failed', probe.error, files[sIdx].dest);
-      }
-      await record(pIdx, 'failed', probe.error, primary.dest);
+      await recordWholeGroup(record, files, pIdx, sidecarIdxs, 'failed', probe.error);
       return;
     }
 
     if (probe.isDuplicate) {
       // Skip the image AND its sidecars — the image is already in the
       // library; a fresh sidecar copy would be orphaned.
-      for (const sIdx of sidecarIdxs) {
-        await record(sIdx, 'skipped_duplicate', null, files[sIdx].dest);
-      }
-      await record(pIdx, 'skipped_duplicate', null, primary.dest);
+      await recordWholeGroup(record, files, pIdx, sidecarIdxs, 'skipped_duplicate', null);
       return;
     }
+
+    await this.copyGroup(claim, files, pIdx, sidecarIdxs, record);
+  }
+
+  /** Re-records a primary the scan already rejected, and fails its sidecars with it. */
+  private async recordPreFailedGroup(
+    id: ObjectId,
+    files: ImportFileEntry[],
+    pIdx: number,
+    sidecarIdxs: number[],
+    record: RecordFile,
+  ): Promise<void> {
+    const primary = files[pIdx];
+    const reason = primary.error ?? 'rejected during scan';
+    log.warn(
+      { importId: id.toHexString(), src: primary.src, dest: primary.dest, reason },
+      'skipping pre-failed import file',
+    );
+    await record(pIdx, 'failed', reason, primary.dest);
+    for (const sIdx of sidecarIdxs) {
+      await record(sIdx, 'failed', files[sIdx].error ?? reason, files[sIdx].dest);
+    }
+  }
+
+  /** Copies a new primary, then its sidecars under the primary's resolved stem. */
+  private async copyGroup(
+    claim: ClaimedImport,
+    files: ImportFileEntry[],
+    pIdx: number,
+    sidecarIdxs: number[],
+    record: RecordFile,
+  ): Promise<void> {
+    const primary = files[pIdx];
 
     // Copy the PRIMARY first so the sidecars can follow its RESOLVED stem.
     // If an on-disk collision renamed `IMG.dng` → `IMG-1.dng`, the sidecar
@@ -395,7 +428,7 @@ export class ImportRunner {
     // Hand the image to the indexer only if it actually landed. Its
     // sidecars are already on disk under the resolved stem.
     if (primary.kind === 'image' && pr.state === 'copied') {
-      await this.handOffToIndexer(claim, id, destAbsPath(claim.library_root, pr.destRel));
+      await this.handOffToIndexer(claim, claim._id, destAbsPath(claim.library_root, pr.destRel));
     }
   }
 
