@@ -37,7 +37,19 @@ pub fn solve_photometry_streaming(
     lenses: &LensGroups,
     opts: &GainOptions,
 ) -> Result<PhotometrySolution, PanoError> {
-    let set = collect_overlap_set_streaming(frames, cameras, opts)?;
+    solve_photometry_observed(frames, cameras, lenses, opts, &mut |_| Ok(()))
+}
+
+/// [`solve_photometry_streaming`] calling `observe` with the fraction of
+/// frames swept before each one; an `Err` from it aborts the solve.
+pub(crate) fn solve_photometry_observed(
+    frames: &dyn FrameRows,
+    cameras: &[Camera],
+    lenses: &LensGroups,
+    opts: &GainOptions,
+    observe: &mut dyn FnMut(f32) -> Result<(), PanoError>,
+) -> Result<PhotometrySolution, PanoError> {
+    let set = collect_overlap_set_observed(frames, cameras, opts, observe)?;
     solve_with_falloff(&set, cameras, lenses, opts.mode)
 }
 
@@ -45,6 +57,15 @@ pub(crate) fn collect_overlap_set_streaming(
     frames: &dyn FrameRows,
     cameras: &[Camera],
     opts: &GainOptions,
+) -> Result<OverlapSet, PanoError> {
+    collect_overlap_set_observed(frames, cameras, opts, &mut |_| Ok(()))
+}
+
+fn collect_overlap_set_observed(
+    frames: &dyn FrameRows,
+    cameras: &[Camera],
+    opts: &GainOptions,
+    observe: &mut dyn FnMut(f32) -> Result<(), PanoError>,
 ) -> Result<OverlapSet, PanoError> {
     let n = frames.frame_count();
     if n != cameras.len() {
@@ -60,6 +81,7 @@ pub(crate) fn collect_overlap_set_streaming(
     let mut windows = Vec::with_capacity(n);
     let mut pairs = Vec::new();
     for k in 0..n {
+        observe(k as f32 / n as f32)?;
         let later: Vec<usize> = ((k + 1)..n)
             .filter(|&j| frames_may_overlap(&cameras[k], &cameras[j]))
             .collect();

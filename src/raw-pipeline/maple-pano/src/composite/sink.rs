@@ -6,12 +6,25 @@
 use crate::error::PanoError;
 use crate::ingest::{PlanarImage, ValidityMask};
 
+/// The stretches of a compositor's run that can take long before any strip
+/// reaches the sink.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CompositePhase {
+    Survey,
+    Strips,
+}
+
 pub trait CanvasSink {
     /// Called once, before the first strip, with the canvas size.
     fn begin(&mut self, width: u32, height: u32) -> Result<(), PanoError>;
     /// The next full-width strip of finished rows. Uncovered pixels are
     /// zero and invalid.
     fn rows(&mut self, strip: &PlanarImage) -> Result<(), PanoError>;
+    /// The compositor has finished `fraction` (0..=1) of `phase`. Also its
+    /// cancellation checkpoint between strips.
+    fn advance(&mut self, _phase: CompositePhase, _fraction: f32) -> Result<(), PanoError> {
+        Ok(())
+    }
 }
 
 /// Forwards to `inner` until `is_cancelled` reports true, then fails the
@@ -20,6 +33,7 @@ pub trait CanvasSink {
 pub(crate) struct CancellableSink<'a> {
     inner: &'a mut dyn CanvasSink,
     is_cancelled: &'a dyn Fn() -> bool,
+    on_advance: Option<&'a dyn Fn(CompositePhase, f32)>,
 }
 
 impl<'a> CancellableSink<'a> {
@@ -27,6 +41,21 @@ impl<'a> CancellableSink<'a> {
         Self {
             inner,
             is_cancelled,
+            on_advance: None,
+        }
+    }
+
+    /// As [`Self::new`], also forwarding every [`CanvasSink::advance`] to
+    /// `on_advance`.
+    pub fn with_progress(
+        inner: &'a mut dyn CanvasSink,
+        is_cancelled: &'a dyn Fn() -> bool,
+        on_advance: &'a dyn Fn(CompositePhase, f32),
+    ) -> Self {
+        Self {
+            inner,
+            is_cancelled,
+            on_advance: Some(on_advance),
         }
     }
 
@@ -48,6 +77,14 @@ impl CanvasSink for CancellableSink<'_> {
     fn rows(&mut self, strip: &PlanarImage) -> Result<(), PanoError> {
         self.checkpoint()?;
         self.inner.rows(strip)
+    }
+
+    fn advance(&mut self, phase: CompositePhase, fraction: f32) -> Result<(), PanoError> {
+        self.checkpoint()?;
+        if let Some(on_advance) = self.on_advance {
+            on_advance(phase, fraction);
+        }
+        self.inner.advance(phase, fraction)
     }
 }
 
@@ -75,6 +112,10 @@ impl CanvasSink for UncoveredCount<'_> {
         let pixels = strip.width() as u64 * strip.height() as u64;
         self.uncovered += pixels - strip.validity.count_valid() as u64;
         self.inner.rows(strip)
+    }
+
+    fn advance(&mut self, phase: CompositePhase, fraction: f32) -> Result<(), PanoError> {
+        self.inner.advance(phase, fraction)
     }
 }
 

@@ -40,7 +40,9 @@ pub use field::{
 };
 pub(crate) mod vignette;
 pub use falloff::PhotometrySolution;
+pub(crate) use field::solve_exposure_field_observed;
 pub use lens::{LensFalloff, LensGroups};
+pub(crate) use streaming::solve_photometry_observed;
 pub use streaming::solve_photometry_streaming;
 
 use falloff::solve_with_falloff;

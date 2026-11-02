@@ -8,9 +8,12 @@
 use crate::camera::Camera;
 use crate::frame_store::FrameRows;
 use crate::gain::{
-    solve_photometry_streaming, FramePhotometry, GainMode, GainOptions, LensFalloff, LensGroups,
+    solve_photometry_observed, FramePhotometry, GainMode, GainOptions, LensFalloff, LensGroups,
 };
 
+use crate::error::PanoError;
+
+use super::seam_gate::composite_error;
 use super::StitchError;
 
 /// Photometry of the kept frames, and the falloff per lens group with its
@@ -21,8 +24,9 @@ pub(super) fn solve_kept_photometry(
     kept_cams: &[Camera],
     lenses: &LensGroups,
     kept_inputs: &[usize],
+    observe: &mut dyn FnMut(f32) -> Result<(), PanoError>,
 ) -> Result<(Vec<FramePhotometry>, Vec<LensFalloff>), StitchError> {
-    let solved = solve_photometry_streaming(
+    let solved = solve_photometry_observed(
         kept_frames,
         kept_cams,
         &lenses.for_frames(kept_inputs),
@@ -30,8 +34,9 @@ pub(super) fn solve_kept_photometry(
             mode: GainMode::PerChannel,
             ..GainOptions::default()
         },
+        observe,
     )
-    .map_err(|e| StitchError::Composite(e.to_string()))?;
+    .map_err(composite_error)?;
     let falloff = solved
         .falloff
         .into_iter()

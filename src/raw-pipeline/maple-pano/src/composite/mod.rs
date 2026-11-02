@@ -50,7 +50,7 @@ pub(crate) use crop::{CropAxes, LargestRect};
 pub use owner::OwnerRuns;
 pub(crate) use sink::CancellableSink;
 pub(crate) use sink::UncoveredCount;
-pub use sink::{CanvasCollector, CanvasSink};
+pub use sink::{CanvasCollector, CanvasSink, CompositePhase};
 pub use tiled::{composite_tiled, composite_tiled_frames};
 
 use rayon::prelude::*;

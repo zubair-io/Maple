@@ -233,6 +233,26 @@ pub fn solve_exposure_field_streaming(
     local_corrections: &[Option<LocalCorrection>],
     canvas: &CanvasSpec,
 ) -> Result<ExposureField, PanoError> {
+    solve_exposure_field_observed(
+        frames,
+        cameras,
+        photometry,
+        local_corrections,
+        canvas,
+        &mut |_| Ok(()),
+    )
+}
+
+/// [`solve_exposure_field_streaming`] calling `observe` with the fraction
+/// of frames warped before each one; an `Err` from it aborts the solve.
+pub(crate) fn solve_exposure_field_observed(
+    frames: &dyn FrameRows,
+    cameras: &[Camera],
+    photometry: &[FramePhotometry],
+    local_corrections: &[Option<LocalCorrection>],
+    canvas: &CanvasSpec,
+    observe: &mut dyn FnMut(f32) -> Result<(), PanoError>,
+) -> Result<ExposureField, PanoError> {
     check_lengths(
         frames.frame_count(),
         cameras.len(),
@@ -240,8 +260,10 @@ pub fn solve_exposure_field_streaming(
         local_corrections.len(),
     )?;
     let seam_canvas = canvas.downscaled(SEAM_CANVAS_MAX_PX);
-    let layers = (0..frames.frame_count())
+    let count = frames.frame_count();
+    let layers = (0..count)
         .map(|i| {
+            observe(i as f32 / count as f32)?;
             let la = local_corrections.get(i).and_then(|o| o.as_ref());
             let warped =
                 warp_stored_to_canvas(frames, i, &cameras[i], &seam_canvas, photometry[i], la)?;

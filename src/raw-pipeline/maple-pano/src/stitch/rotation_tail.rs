@@ -19,6 +19,7 @@ use crate::local_align::LocalCorrection;
 use crate::robust::RobustOptions;
 
 use super::alignment::SolvedAlignment;
+use super::composite_progress::{CompositeProgress, PHOTOMETRY};
 use super::degenerate::reject_degenerate_canvas;
 use super::photometry::solve_kept_photometry;
 use super::refine_pass::refine_edges;
@@ -137,20 +138,31 @@ pub(super) fn rotation_tail(
     let canvas =
         auto_canvas(&kept_cams, &canvas_opts).map_err(|e| StitchError::Composite(e.to_string()))?;
 
-    let (photometry, falloff) =
-        solve_kept_photometry(&kept_frames, &kept_cams, &alignment.lenses, &kept_inputs)?;
+    let (tiled_report, falloff) = {
+        let stage = CompositeProgress::new(progress, is_cancelled);
+        let (photometry, falloff) = solve_kept_photometry(
+            &kept_frames,
+            &kept_cams,
+            &alignment.lenses,
+            &kept_inputs,
+            &mut stage.observer(PHOTOMETRY),
+        )?;
 
-    let seam_constraints = seam_gate::for_kept_frames(&opts.seam_constraints, &kept_inputs)?;
-    let tiled_report = rotation_composite::composite(
-        &kept_frames,
-        &kept_cams,
-        &photometry,
-        &kept_local,
-        &canvas,
-        opts,
-        &seam_constraints,
-        &mut CancellableSink::new(sink, is_cancelled),
-    )?;
+        let seam_constraints = seam_gate::for_kept_frames(&opts.seam_constraints, &kept_inputs)?;
+        let on_advance = |phase, fraction| stage.report_phase(phase, fraction);
+        let tiled_report = rotation_composite::composite(
+            &kept_frames,
+            &kept_cams,
+            &photometry,
+            &kept_local,
+            &canvas,
+            opts,
+            &seam_constraints,
+            &stage,
+            &mut CancellableSink::with_progress(sink, is_cancelled, &on_advance),
+        )?;
+        (tiled_report, falloff)
+    };
     let comp_report = CompositeReport {
         falloff,
         ..tiled_report

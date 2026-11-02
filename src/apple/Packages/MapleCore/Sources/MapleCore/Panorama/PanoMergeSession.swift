@@ -469,6 +469,7 @@ struct PanoProgressWeights {
                 (.matching,    0.15),
                 (.graph,       0.05),
                 (.solving,     0.20),
+                (.localAlign,  0.00),  // the FFI still reports bundle adjustment as this stage
                 (.compositing, 0.35),
                 (.writing,     0.05),
             ])
