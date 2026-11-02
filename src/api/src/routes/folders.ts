@@ -35,7 +35,7 @@ import { rootsConnected } from '../fs/root-connectivity.ts';
 import { DUPLICATES_DIR_NAME } from '../fs/duplicates.ts';
 import { child as childLogger } from '../log.ts';
 import { computeBodyETag, ifNoneMatchEqual } from '../runtime/http-etag.ts';
-import { requireFileAccessBeforeHandle } from '../auth/middleware.ts';
+import { requireFileAccessBeforeHandle, requireOwnerBeforeHandle } from '../auth/middleware.ts';
 import { handleEvent } from '../workers/discover/index.ts';
 import { invalidateLibraryRoots, loadLibraryRoots } from '../indexer/libraries.cache.ts';
 import { isCataloguedFilename } from '../indexer/media-types.ts';
@@ -436,7 +436,7 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
       };
     },
     {
-      beforeHandle: requireFileAccessBeforeHandle,
+      beforeHandle: requireOwnerBeforeHandle,
       body: t.Object({
         path: t.String({ minLength: 1 }),
         label: t.Optional(t.String()),

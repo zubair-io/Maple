@@ -40,7 +40,7 @@ Auth is passkey-first. There are no passwords anywhere in the codebase.
 **Claims and permissions.** The access token carries `sub`, `email`, `role` (`owner` | `member`) and `file_access`. Four gates are built on it in `auth/middleware.ts`:
 
 - `requireAuth` — a valid bearer. Applied once to the big authed sub-app in `routes/authed-api.ts`.
-- `requireOwner` — role must be `owner`. Gates Cloudflare config, the user roster, service API keys, invites, the enrichment-settings save, and `PUT /api/enrichment/config` (which could otherwise repoint search traffic at an attacker's host).
+- `requireOwner` — role must be `owner`. Gates Cloudflare config, the user roster, registering a library root (`POST /api/folders`, because a registered root widens the path jail), service API keys, invites, the enrichment-settings save, and `PUT /api/enrichment/config` (which could otherwise repoint search traffic at an attacker's host).
 - `requireFileAccess` — the per-user permission that separates filesystem browsing and file move/rename/trash from photo backup, timeline, and search. Owners always have it; members have it unless an operator revokes it via `PATCH /api/users/:id`.
 - `stepUpBeforeHandle` — requires a fresh `X-Step-Up` token, minted by `POST /api/auth/step-up/verify` after a _new_ WebAuthn assertion. Gates adding or removing a credential, creating or rescinding an invite, minting or revoking a service key, and revoking a paired device session — so a leaked 15-minute access token can't be escalated into permanent access.
 
