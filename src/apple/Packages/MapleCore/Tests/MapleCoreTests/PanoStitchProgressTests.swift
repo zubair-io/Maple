@@ -57,7 +57,7 @@ private final class HoldingStitcher: PanoStitching, @unchecked Sendable {
         let session = await runningSession(reporting: 0.4)
         let progress = session.stitchProgress(runsOnServer: false)
         #expect(progress?.title == PanoStage.matching.displayName)
-        #expect(progress?.fraction ?? -1 >= 0)
+        #expect((progress?.fraction ?? 0) > 0)
         session.cancel()
     }
 

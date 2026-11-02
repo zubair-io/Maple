@@ -317,6 +317,9 @@
     class="relative h-1 overflow-hidden rounded-sm bg-border"
     role="progressbar"
     [attr.aria-label]="stitchLabel()"
+    aria-valuemin="0"
+    aria-valuemax="100"
+    [attr.aria-valuenow]="progressPercent()"
   >
     @let stitchFraction = progressFraction();
     @if (stitchFraction !== null) {
