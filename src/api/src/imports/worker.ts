@@ -382,7 +382,7 @@ export class ImportRunner {
           pr.error,
           files[sIdx].dest,
         );
-        return;
+        continue;
       }
       const scDest =
         newStem === origStem
