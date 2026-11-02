@@ -2,12 +2,12 @@
 
 Static code review of X1-X4 against `origin/main`. No test suites were executed for this review.
 
-| ID | Feature | Verdict | Findings |
-| --- | --- | --- | --- |
-| X1 | JPEG/TIFF/PNG/AVIF/WebP/HEIC with correct ICC and P3/sRGB | works with P2 | X-P2-1 |
-| X2 | Resize caps, never upscale, quality | works with P2 | X-P2-2, X-P2-3 |
-| X3 | Saved recipes and durable batch queue | works | none found |
-| X4 | AI-agent MCP export (macOS) | works | none found |
+| ID  | Feature                                                   | Verdict       | Findings       |
+| --- | --------------------------------------------------------- | ------------- | -------------- |
+| X1  | JPEG/TIFF/PNG/AVIF/WebP/HEIC with correct ICC and P3/sRGB | works with P2 | X-P2-1         |
+| X2  | Resize caps, never upscale, quality                       | works with P2 | X-P2-2, X-P2-3 |
+| X3  | Saved recipes and durable batch queue                     | works         | none found     |
+| X4  | AI-agent MCP export (macOS)                               | works         | none found     |
 
 No P0 and no P1 findings. No fix PRs were opened.
 
