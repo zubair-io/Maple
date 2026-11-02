@@ -152,6 +152,10 @@ export class PanoDialogComponent implements OnDestroy {
   readonly assetCount = computed(() => this.assetIds().length);
   /** The full stitch is being queued or is running. */
   readonly stitching = computed(() => this.phase() === 'submitting' || this.phase() === 'polling');
+  readonly progressPercent = computed(() => {
+    const fraction = this.progressFraction();
+    return fraction === null ? null : Math.round(fraction * 100);
+  });
   readonly stitchLabel = computed(() =>
     this.phase() === 'submitting' ? 'Queuing job…' : this.progressLabel(),
   );

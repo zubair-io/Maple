@@ -223,6 +223,19 @@ describe('PanoDialogComponent quick preview (#4580)', () => {
       http.expectOne({ method: 'DELETE', url: '/api/pano/jobs/s1' }).flush({ ok: true });
     });
 
+    it('leaves the stitch screen for the error screen when the stitch fails', () => {
+      stitching();
+      vi.advanceTimersByTime(2_000);
+      http.expectOne('/api/pano/jobs/s1').flush({
+        ...previewJob('s1', { status: 'failed', error: 'boom' }),
+        kind: 'pano_stitch',
+      });
+      fixture.detectChanges();
+      expect(fixture.componentInstance.phase()).toBe('error');
+      expect(q('[data-testid="pano-stitch-progress"]')).toBeNull();
+      expect(q('[inert]')).toBeNull();
+    });
+
     it('keeps the standalone progress screen on a binary without a preview', () => {
       open(false);
       fixture.componentInstance.onSubmit();

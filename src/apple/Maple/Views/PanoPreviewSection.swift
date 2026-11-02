@@ -71,12 +71,12 @@ struct PanoPreviewSection: View {
           .foregroundStyle(.secondary)
           .monospacedDigit()
       }
+      .accessibilityHidden(true)
       ProgressView(value: progress.fraction)
         .progressViewStyle(.linear)
+        .accessibilityLabel("\(progress.title), overall panorama merge progress")
+        .accessibilityValue("\(percent) percent")
     }
-    .accessibilityElement(children: .ignore)
-    .accessibilityLabel(
-      "\(progress.title), overall panorama merge progress: \(percent) percent")
   }
 
   @ViewBuilder
