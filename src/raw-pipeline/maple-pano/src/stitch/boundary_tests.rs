@@ -4,9 +4,10 @@
 use super::*;
 use crate::canvas::{auto_canvas, CanvasOptions};
 use crate::composite::{
-    composite_tiled, composite_tiled_frames, largest_valid_rect, CanvasCollector, CompositeReport,
-    CropAxes, CropRect,
+    composite_tiled, composite_tiled_frames, largest_valid_rect, CancellableSink, CanvasCollector,
+    CompositePhase, CompositeReport, CropAxes, CropRect,
 };
+use crate::error::PanoError;
 use crate::frame_store::InMemory;
 use crate::gain::FramePhotometry;
 use crate::ingest::{PlanarImage, ValidityMask};
@@ -264,5 +265,127 @@ fn auto_crop_spans_the_whole_wrapping_axis_of_a_360_degree_ring() {
             rect.height < s.canvas.height,
             "{seam:?}: the ragged rows go"
         );
+    }
+}
+
+fn tiled_through(
+    s: &Scene,
+    seam: SeamStrategy,
+    sink: &mut dyn crate::composite::CanvasSink,
+) -> Result<CompositeReport, PanoError> {
+    composite_tiled(
+        &InMemory(&s.frames),
+        &s.cameras,
+        &vec![FramePhotometry::IDENTITY; s.cameras.len()],
+        &s.no_lc,
+        None,
+        &s.canvas,
+        16,
+        seam,
+        &[],
+        true,
+        sink,
+    )
+}
+
+#[test]
+fn stage_five_progress_climbs_through_survey_and_strips_and_leaves_pixels_alone() {
+    use crate::stitch::composite_progress::CompositeProgress;
+    use std::cell::RefCell;
+
+    for seam in [SeamStrategy::Voronoi, SeamStrategy::GraphCut] {
+        let s = scene();
+        let reports = RefCell::new(Vec::<(u32, f32)>::new());
+        let mut emit = |stage, fraction| reports.borrow_mut().push((stage, fraction));
+        let never = || false;
+        let stage = CompositeProgress::new(&mut emit, &never);
+        let on_advance = |phase, fraction| stage.report_phase(phase, fraction);
+        let mut observed = CanvasCollector::default();
+        tiled_through(
+            &s,
+            seam,
+            &mut CancellableSink::with_progress(&mut observed, &never, &on_advance),
+        )
+        .expect("observed composite");
+        drop(on_advance);
+        drop(stage);
+
+        let (plain, _) = cropped(&s, &s.canvas, seam);
+        let observed = observed.into_image();
+        assert_eq!(
+            observed.r, plain.r,
+            "{seam:?}: progress must not move pixels"
+        );
+        assert_eq!(observed.g, plain.g, "{seam:?}");
+        assert_eq!(observed.b, plain.b, "{seam:?}");
+
+        let fractions: Vec<f32> = reports.into_inner().iter().map(|&(_, f)| f).collect();
+        assert!(fractions.len() >= 2, "{seam:?}: {fractions:?}");
+        assert!(
+            fractions.windows(2).all(|w| w[1] > w[0]),
+            "{seam:?}: {fractions:?}"
+        );
+        assert!(
+            fractions.iter().all(|&f| (0.0..1.0).contains(&f)),
+            "{seam:?}"
+        );
+        assert!(
+            fractions.iter().any(|&f| f < 0.6),
+            "{seam:?}: survey reports"
+        );
+        assert!(
+            fractions.last().is_some_and(|&f| f >= 0.9),
+            "{seam:?}: {fractions:?}"
+        );
+    }
+}
+
+struct SpySink {
+    began: bool,
+    advances: Vec<(CompositePhase, f32)>,
+}
+
+impl crate::composite::CanvasSink for SpySink {
+    fn begin(&mut self, _: u32, _: u32) -> Result<(), PanoError> {
+        self.began = true;
+        Ok(())
+    }
+
+    fn rows(&mut self, _: &PlanarImage) -> Result<(), PanoError> {
+        Ok(())
+    }
+
+    fn advance(&mut self, phase: CompositePhase, fraction: f32) -> Result<(), PanoError> {
+        self.advances.push((phase, fraction));
+        Ok(())
+    }
+}
+
+#[test]
+fn cancelling_during_the_survey_stops_before_any_strip_is_blended() {
+    use std::cell::Cell;
+
+    for seam in [SeamStrategy::Voronoi, SeamStrategy::GraphCut] {
+        let s = scene();
+        let cancelled = Cell::new(false);
+        let is_cancelled = || cancelled.get();
+        let on_advance = |_, _| cancelled.set(true);
+        let mut spy = SpySink {
+            began: false,
+            advances: Vec::new(),
+        };
+        let result = tiled_through(
+            &s,
+            seam,
+            &mut CancellableSink::with_progress(&mut spy, &is_cancelled, &on_advance),
+        );
+        assert!(matches!(result, Err(PanoError::Cancelled)), "{seam:?}");
+        assert!(!spy.began, "{seam:?}: no strip may start after cancel");
+        assert_eq!(
+            spy.advances.len(),
+            1,
+            "{seam:?}: stops at the next checkpoint"
+        );
+        assert_eq!(spy.advances[0].0, CompositePhase::Survey);
     }
 }

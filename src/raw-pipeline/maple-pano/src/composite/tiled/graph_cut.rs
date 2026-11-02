@@ -126,7 +126,7 @@ fn graph_cut_blend(
         seam.weight(fi, ux, uy)
     };
     let crop_weight = auto_crop.then_some(&weight as &strips::CropWeight);
-    let survey = strips::survey(cameras, local_corrections, canvas, false, crop_weight);
+    let survey = strips::survey(cameras, local_corrections, canvas, false, crop_weight, sink)?;
     let levels = levels_for_overlap_width(survey.min_overlap_px);
     strips::blend_strips(
         (canvas.width, canvas.height),

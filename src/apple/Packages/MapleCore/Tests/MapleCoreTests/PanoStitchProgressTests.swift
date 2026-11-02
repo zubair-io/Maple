@@ -84,3 +84,32 @@ private final class HoldingStitcher: PanoStitching, @unchecked Sendable {
         #expect(PanoPreviewLayout.maxImageHeight(sheetHeight: 0) == PanoPreviewLayout.unmeasuredHeight)
     }
 }
+
+@Suite struct PanoStitchWeightsTests {
+    /// Every progress callback a stitch makes, in the order the FFI makes
+    /// them: stages 0-5, with stage 5 reporting through its sub-phases.
+    private let ffiOrder: [(PanoStage, Double)] = [
+        (.decoding, 0), (.decoding, 1), (.matching, 0), (.matching, 0.5), (.matching, 1),
+        (.graph, 0), (.graph, 1), (.solving, 0), (.solving, 1),
+        (.localAlign, 0), (.localAlign, 1),
+        (.compositing, 0), (.compositing, 0.1), (.compositing, 0.25), (.compositing, 0.6),
+        (.compositing, 0.99), (.compositing, 1),
+    ]
+
+    @Test(arguments: PanoOptions.LocalAlign.allCases)
+    func theBarNeverGoesBackwards(localAlign: PanoOptions.LocalAlign) {
+        let weights = PanoProgressWeights.stitch(localAlign: localAlign)
+        let fractions = ffiOrder.map { weights.overall(stage: $0.0, stageFraction: $0.1) }
+        #expect(fractions == fractions.sorted())
+    }
+
+    @Test(arguments: PanoOptions.LocalAlign.allCases)
+    func solvingNeverShowsTheBarComplete(localAlign: PanoOptions.LocalAlign) {
+        let weights = PanoProgressWeights.stitch(localAlign: localAlign)
+        let afterSolve = weights.overall(stage: .localAlign, stageFraction: 1)
+        let compositingStart = weights.overall(stage: .compositing, stageFraction: 0)
+        #expect(afterSolve < 1)
+        #expect(compositingStart >= afterSolve)
+        #expect(weights.overall(stage: .compositing, stageFraction: 1) > compositingStart)
+    }
+}

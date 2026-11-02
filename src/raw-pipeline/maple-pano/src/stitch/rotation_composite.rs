@@ -6,10 +6,11 @@ use crate::camera::Camera;
 use crate::canvas::CanvasSpec;
 use crate::composite::{composite_tiled, CanvasSink, CompositeReport};
 use crate::frame_store::FrameRows;
-use crate::gain::{solve_exposure_field_streaming, FramePhotometry};
+use crate::gain::{solve_exposure_field_observed, FramePhotometry};
 use crate::local_align::LocalCorrection;
 use crate::seam::SeamConstraint;
 
+use super::composite_progress::{CompositeProgress, EXPOSURE_FIELD};
 use super::{boundary, seam_gate, StitchError, StitchOptions};
 
 /// Strip height when `canvas_tile_rows` is unset, so the tiled path (one
@@ -25,12 +26,18 @@ pub(super) fn composite(
     canvas: &CanvasSpec,
     opts: &StitchOptions,
     seam_constraints: &[SeamConstraint],
+    progress: &CompositeProgress,
     sink: &mut dyn CanvasSink,
 ) -> Result<CompositeReport, StitchError> {
-    let failed = |e: crate::error::PanoError| StitchError::Composite(e.to_string());
-    let exposure_field =
-        solve_exposure_field_streaming(frames, cameras, photometry, local_corrections, canvas)
-            .map_err(failed)?;
+    let exposure_field = solve_exposure_field_observed(
+        frames,
+        cameras,
+        photometry,
+        local_corrections,
+        canvas,
+        &mut progress.observer(EXPOSURE_FIELD),
+    )
+    .map_err(seam_gate::composite_error)?;
     let (output_canvas, boundary_warp) =
         boundary::warped_canvas(canvas, opts.boundary_warp, || {
             boundary::rotation_footprint(cameras, local_corrections, canvas)

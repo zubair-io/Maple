@@ -338,7 +338,7 @@ fn voronoi_blend(
 ) -> Result<CompositeReport, PanoError> {
     let any_owner = |_: usize, _: usize, _: usize| 1.0_f32;
     let crop_weight = auto_crop.then_some(&any_owner as &strips::CropWeight);
-    let mut survey = strips::survey(cameras, local_corrections, canvas, true, crop_weight);
+    let mut survey = strips::survey(cameras, local_corrections, canvas, true, crop_weight, sink)?;
     let owner = survey.owner.as_ref().expect("survey kept the owner map");
     let levels = levels_for_overlap_width(survey.min_overlap_px);
     strips::blend_strips(

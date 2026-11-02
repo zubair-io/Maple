@@ -87,6 +87,7 @@ mod aligned;
 mod alignment;
 mod alignment_codec;
 mod boundary;
+mod composite_progress;
 mod degenerate;
 mod edges;
 mod engine;

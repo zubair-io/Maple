@@ -24,7 +24,7 @@ use rayon::prelude::*;
 use crate::blend::BandAccumulator;
 use crate::camera::Camera;
 use crate::canvas::CanvasSpec;
-use crate::composite::{CanvasSink, CropAxes, CropRect, LargestRect, OwnerRuns};
+use crate::composite::{CanvasSink, CompositePhase, CropAxes, CropRect, LargestRect, OwnerRuns};
 use crate::error::PanoError;
 use crate::ingest::{PlanarImage, ValidityMask};
 use crate::local_align::LocalCorrection;
@@ -78,7 +78,8 @@ pub(super) fn survey(
     canvas: &CanvasSpec,
     keep_owner: bool,
     crop_weight: Option<&CropWeight<'_>>,
-) -> Survey {
+    sink: &mut dyn CanvasSink,
+) -> Result<Survey, PanoError> {
     let k = cameras.len();
     let cw = canvas.width as usize;
     let tile_rows = SURVEY_ROWS.min(canvas.height).max(1);
@@ -90,6 +91,10 @@ pub(super) fn survey(
         crop_weight.map(|_| LargestRect::new(canvas.width, CropAxes::for_canvas(canvas)));
 
     for tile_y0 in (0..canvas.height).step_by(tile_rows as usize) {
+        sink.advance(
+            CompositePhase::Survey,
+            tile_y0 as f32 / canvas.height as f32,
+        )?;
         let tile_y1 = (tile_y0 + tile_rows).min(canvas.height);
         let tile_n = cw * (tile_y1 - tile_y0) as usize;
         let depths = tile_depths(cameras, local_corrections, canvas, tile_y0, tile_y1);
@@ -123,12 +128,13 @@ pub(super) fn survey(
         }
     }
 
-    Survey {
+    sink.advance(CompositePhase::Survey, 1.0)?;
+    Ok(Survey {
         owner,
         crop_rect: crop.and_then(LargestRect::finish),
         footprint_rows,
         min_overlap_px: min_overlap_width(k, &overlap_count, &overlap_rows),
-    }
+    })
 }
 
 /// Per pixel of a survey pass from canvas row `y0`, row-major, whether
@@ -183,6 +189,8 @@ pub(super) fn blend_strips(
         let mut covered = vec![false; (ty1 - ty0) * cw];
 
         for fi in 0..frame_count {
+            let done = ty0 as f32 + (ty1 - ty0) as f32 * fi as f32 / frame_count as f32;
+            sink.advance(CompositePhase::Strips, done / ch as f32)?;
             if !touches(fi, wy0 as u32, wy1 as u32) {
                 continue;
             }
@@ -214,6 +222,7 @@ pub(super) fn blend_strips(
             validity.set((i % cw) as u32, (i / cw) as u32, true);
         }
         sink.rows(&PlanarImage::from_planes(width, rows, r, g, b, validity))?;
+        sink.advance(CompositePhase::Strips, ty1 as f32 / ch as f32)?;
     }
     Ok(())
 }
