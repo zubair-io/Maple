@@ -4,12 +4,12 @@ Area 6. Reviewed against `origin/main` at `cf50ef2eca`, by reading the implement
 
 ## Verdicts
 
-| ID | Feature | Verdict | Findings |
-|---|---|---|---|
-| P1 | Merge options (retention, local alignment, strategy), progress | works | none |
-| P2 | Edges: Boundary Warp + Auto Crop recorded in XMP | works with P1 | R1, R2 (P1, #5628); R3, R4 (P2) |
-| P3 | Server provisioning, single-flight stitch | works | none |
-| P4 | Memory behaviour on iPad (epic #5450) | works (device behaviour not verified) | R5 (P2) |
+| ID  | Feature                                                        | Verdict                               | Findings                        |
+| --- | -------------------------------------------------------------- | ------------------------------------- | ------------------------------- |
+| P1  | Merge options (retention, local alignment, strategy), progress | works                                 | none                            |
+| P2  | Edges: Boundary Warp + Auto Crop recorded in XMP               | works with P1                         | R2 (P1, #5628); R1, R3, R4 (P2) |
+| P3  | Server provisioning, single-flight stitch                      | works                                 | none                            |
+| P4  | Memory behaviour on iPad (epic #5450)                          | works (device behaviour not verified) | R5 (P2)                         |
 
 No P0 findings.
 
@@ -25,11 +25,13 @@ Checks that held: the crop is refused when the rectangle does not fit the writte
 
 ## Findings
 
-### R1 (P1, unverified on device): Apple writes the crop sidecar after the security-scope bracket closes
+### R1 (P2, downgraded after tracing the scope): the crop sidecar is written after the stitch's own scope bracket closes
 
-`src/apple/Packages/MapleCore/Sources/MapleCore/Panorama/RustPanoStitcher.swift:138` calls `recordAutoCrop` after `PanoFFICall.stitch` returns. The input-file scope that made the PNG writable is started and stopped inside `PanoFFICall.withInputs` (`PanoFFICall.swift:215-219`), and the output folder is reserved under a scope bracket on the first input (`RustPanoStitcher.swift:305-312`, whose comment says the folder may be writable only because of that grant). The sidecar create and the PNG mark are plain file writes outside both.
+`RustPanoStitcher.swift:138` calls `recordAutoCrop` after `PanoFFICall.stitch` returns, outside the brackets in `PanoFFICall.withInputs` (`PanoFFICall.swift:215-219`) and `reserveOutputURL` (`RustPanoStitcher.swift:305-312`). The PNG and the sidecar land in the same folder, so the question is whether the folder is still writable then.
 
-Failing scenario: sandboxed macOS or iPad, panorama written to `Panoramas/` beside frames in a folder only the first frame's scope makes writable, Auto Crop on. The PNG is written, the sidecar create then fails, and `recordAutoCrop` logs and appends "Auto Crop could not be saved... the panorama is uncropped" to the summary. The panorama keeps its empty edges despite the toggle. This degrades (no corruption, no crash) and is reported in the summary, so it is not release blocking. It does not occur if something else holds the folder scope open, which the code does not guarantee. It could not be exercised here (no device, no signed sandboxed build). Fix direction: run `recordAutoCrop` inside the same scope bracket as the reservation. Issue: #5628.
+It is. The stitch's frames come from the open folder, and every path that opens a local folder in the browse view takes a bookmark-resolved scope and holds it for the session (`claimScope(for:)` in `AppShell+FolderActions.swift:41, 219, 292` and `AppShell+SourceRestore.swift:60`; "Hold scope for the whole session so detached render tasks work"). That grant covers the whole folder tree, including the `Panoramas/` folder beside the frames, so the sidecar write succeeds under the same conditions as the PNG write. When the frames' folder is not writable, the PNG and sidecar both go to the app container (`fallbackOutputDirectory`) or, for downloaded cloud frames, the download cache; both are always writable. So Auto Crop is not silently lost on sandboxed builds.
+
+Remaining risk is only defensive: a future caller that stitches frames without the browse view holding their folder would write the PNG (inside the bracket) but fail the sidecar, and the failure is reported in the summary. Moving `recordAutoCrop` inside the reservation's bracket would remove that. Not verified on a device.
 
 ### R2 (P1): a refused sidecar upload leaves an uncropped duplicate on the server
 
