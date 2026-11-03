@@ -1,5 +1,6 @@
 // AppShell+Panorama.swift — opening, finishing and dismissing the panorama
-// merge sheet (#1236), and choosing where it runs (#5488).
+// merge view (#1236), choosing where it runs (#5488), and keeping it from
+// being swiped away mid-flow (#5662).
 
 import MapleCloudKit
 import MapleCore
@@ -39,18 +40,47 @@ extension AppShell {
   /// Dismiss the panorama merge view and return to browse. Exits select
   /// mode so the grid resets to normal tap-to-open behaviour.
   ///
-  /// Always cancels the in-flight stitch, regardless of how the sheet is
-  /// dismissed (Cancel/Done button OR system swipe-down / Escape gesture).
-  /// The `.sheet(isPresented:set:)` binding routes ALL dismissal paths here,
-  /// so the stitch can never leak after the sheet is gone — including a server
-  /// stitch left running by a lost connection, which Try Again would rejoin.
+  /// Always cancels the in-flight stitch, so none leaks after the view is
+  /// gone — including a server stitch left running by a lost connection,
+  /// which Try Again would rejoin. The view only reaches here after the user
+  /// confirmed discarding a running or finished stitch (#5662), and iPhone
+  /// and iPad present it as a cover no swipe can close.
   func dismissPanoramaMerge() {
+    releasePanoramaMerge()
+    mode = .browse
+    browseVM.exitSelectMode()
+  }
+
+  /// Also runs when something else (a deep link, reveal) moves `mode` away
+  /// while the view is up, so a stitch is never left running with no UI.
+  func releasePanoramaMerge() {
     panoMergeSession.cancel()
     panoServerStitcher?.abandon()
     panoMergeSession.downloadRoute?.download.cancel()
     panoMergeSession.downloadRoute = nil
-    mode = .browse
-    browseVM.exitSelectMode()
+  }
+
+  var panoMergeIsPresented: Binding<Bool> {
+    Binding(
+      get: { mode == .panoramaMerge },
+      set: { if !$0 { dismissPanoramaMerge() } }
+    )
+  }
+
+  var panoMergeView: some View {
+    PanoMergeView(
+      assets: browseVM.selectedAssets(sessions: sessions),
+      source: browseVM.currentSource,
+      session: panoMergeSession,
+      deviceStitcher: panoDeviceStitcher,
+      serverStitcher: panoServerStitcher,
+      onDismiss: { dismissPanoramaMerge() },
+      onComplete: { result in completePanoramaMerge(result) },
+      onOpenPanoSettings: {
+        dismissPanoramaMerge()
+        showAppSettings(initialTab: .pano)
+      }
+    )
   }
 
   /// Frames on Maple servers can be downloaded into a temporary cache and
@@ -91,5 +121,19 @@ extension AppShell {
     ServerPanoStitcher(
       jobs: PanoServerClient(
         server: server, httpClient: makeAuthenticatedHTTPClient(server: server)))
+  }
+}
+
+extension View {
+  func panoMergePresentation<Content: View>(
+    isPresented: Binding<Bool>, @ViewBuilder content: @escaping () -> Content
+  ) -> some View {
+    #if os(iOS)
+      fullScreenCover(isPresented: isPresented, content: content)
+    #else
+      sheet(isPresented: isPresented) {
+        content().frame(minWidth: 560, minHeight: 480)
+      }
+    #endif
   }
 }

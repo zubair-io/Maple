@@ -1097,35 +1097,11 @@ struct AppShell: View {
     .folderMoveOverlay(vm: folderMove) { prompt, destination in
       confirmFolderMove(prompt, destinationID: destination)
     }
-    // M2: panorama merge view — presented as a sheet on Mac/iPad.
-    // Covers the full content area; Cancel dismisses back to Browse
-    // and exits select mode.
-    .sheet(
-      isPresented: Binding(
-        get: { mode == .panoramaMerge },
-        set: { if !$0 { dismissPanoramaMerge() } }
-      )
-    ) {
-      PanoMergeView(
-        assets: browseVM.selectedAssets(sessions: sessions),
-        source: browseVM.currentSource,
-        session: panoMergeSession,
-        deviceStitcher: panoDeviceStitcher,
-        serverStitcher: panoServerStitcher,
-        onDismiss: { dismissPanoramaMerge() },
-        onComplete: { result in completePanoramaMerge(result) },
-        // #1241 / #5487: the classical-fallback note offers Settings → Pano.
-        // We dismiss the pano sheet first, then open Settings on the Pano
-        // tab so the user can set up the ML matcher without the sheet
-        // stacking on top.
-        onOpenPanoSettings: {
-          dismissPanoramaMerge()
-          showAppSettings(initialTab: .pano)
-        }
-      )
-      #if os(macOS)
-        .frame(minWidth: 560, minHeight: 480)
-      #endif
+    // M2: panorama merge view (#5662): a sheet on Mac, a full-screen cover on
+    // iPad; Cancel dismisses back to Browse and exits select mode.
+    .panoMergePresentation(isPresented: panoMergeIsPresented) { panoMergeView }
+    .onChange(of: mode == .panoramaMerge) { wasOpen, isOpen in
+      if wasOpen && !isOpen { releasePanoramaMerge() }
     }
     // Full-bleed editor (#1586): hide the sources sidebar — and close the
     // right inspector — when an image is open, so the canvas-first chrome
@@ -1459,29 +1435,10 @@ struct AppShell: View {
         onMove: canOfferPhoneMove ? { ids in beginPhoneAssetMove(ids) } : nil,
         clipboard: adjustmentClipboard
       )
-      // M2: panorama merge sheet for iPhone — same sheet as Mac/iPad,
-      // but presented over the tab shell instead of the pane shell.
-      .sheet(
-        isPresented: Binding(
-          get: { mode == .panoramaMerge },
-          set: { if !$0 { dismissPanoramaMerge() } }
-        )
-      ) {
-        PanoMergeView(
-          assets: browseVM.selectedAssets(sessions: sessions),
-          source: browseVM.currentSource,
-          session: panoMergeSession,
-          deviceStitcher: panoDeviceStitcher,
-          serverStitcher: panoServerStitcher,
-          onDismiss: { dismissPanoramaMerge() },
-          onComplete: { result in completePanoramaMerge(result) },
-          // M6 provisioning (#1241): direct not-provisioned errors to
-          // Settings → Pano on iPhone as well.
-          onOpenPanoSettings: {
-            dismissPanoramaMerge()
-            showAppSettings(initialTab: .pano)
-          }
-        )
+      // M2: panorama merge cover for iPhone (#5662), over the tab shell.
+      .panoMergePresentation(isPresented: panoMergeIsPresented) { panoMergeView }
+      .onChange(of: mode == .panoramaMerge) { wasOpen, isOpen in
+        if wasOpen && !isOpen { releasePanoramaMerge() }
       }
       // M4: batch metadata editor sheet for iPhone — same sheet as Mac/iPad,
       // but presented over the tab shell instead of the pane shell.
@@ -1614,7 +1571,7 @@ struct AppShell: View {
 
   // MARK: - Settings navigation
 
-  private func showAppSettings(initialTab: SettingsTab? = nil) {
+  func showAppSettings(initialTab: SettingsTab? = nil) {
     #if os(macOS)
       if let initialTab {
         SettingsNavigation.shared.selectedTab = initialTab
