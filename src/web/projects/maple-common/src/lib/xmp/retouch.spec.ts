@@ -6,6 +6,10 @@
 // (`XmpRetouchTests.cs`), and every writer that models the block must
 // produce it byte for byte from `canonicalSpots()`.
 
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
 import { TestBed } from '@angular/core/testing';
 import { describe, it, expect, beforeEach } from 'vitest';
 
@@ -278,11 +282,23 @@ describe('crs:RetouchAreas (#3409)', () => {
       );
 
     const save = (xml: string): string => {
-      const { model, passthrough } = parser.parseAdjustmentModel(xml);
-      return serializer.serialize(
-        { ...defaultAdjustmentModel(), ...model, exposure: 0.25 },
-        passthrough,
-      );
+      const dir = mkdtempSync(join(tmpdir(), 'maple-xmp-5658-'));
+      try {
+        const path = join(dir, 'IMG_0001.xmp');
+        writeFileSync(path, xml, 'utf8');
+        const { model, passthrough } = parser.parseAdjustmentModel(readFileSync(path, 'utf8'));
+        writeFileSync(
+          path,
+          serializer.serialize(
+            { ...defaultAdjustmentModel(), ...model, exposure: 0.25 },
+            passthrough,
+          ),
+          'utf8',
+        );
+        return readFileSync(path, 'utf8');
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
     };
 
     it('survives a save verbatim and unstamped, for foreign and Maple-authored sidecars', () => {
