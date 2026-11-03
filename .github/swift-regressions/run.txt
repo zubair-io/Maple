@@ -234,6 +234,7 @@ RawCoreBridgeTests
 ResolveAbsolutePathTests
 RetouchGeometryTests
 RetouchXMPTests
+RetouchInfoPreservationTests
 RevealInFileManagerSelectionTests
 RevealTargetTests
 SavedFolderStoreTests
