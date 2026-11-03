@@ -28,7 +28,8 @@
 // leaf is not the circular form (a Lightroom brush stroke), is DROPPED and
 // the rest of the document still loads. The legacy `crs:RetouchInfo` string
 // form older Lightroom versions wrote is read and never written; when a
-// document carries both, the struct form wins.
+// document carries both, the struct form wins. A legacy list that decodes to
+// no spot is not the model's to replace, so it rides the passthrough verbatim.
 
 import Foundation
 
@@ -62,6 +63,18 @@ enum RetouchXMP {
               let y = LocalAdjustmentXMP.finite(a, "crs:Y")
         else { return nil }
         return (RetouchPoint(x: x, y: y), radius, LocalAdjustmentXMP.finite(a, "crs:Feather"))
+    }
+
+    /// True when the legacy container `source` decodes to at least one spot,
+    /// i.e. the model owns it and the struct form replaces it on save.
+    static func isModeledLegacyContainer(_ source: String) -> Bool {
+        let document = """
+            <x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF \
+            xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description \
+            xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/">\(source)</rdf:Description></rdf:RDF></x:xmpmeta>
+            """
+        guard let (model, _) = try? XMPParser.parse(document) else { return false }
+        return !model.retouchSpots.isEmpty
     }
 
     /// One legacy `crs:RetouchInfo` `rdf:li` body — a comma-separated

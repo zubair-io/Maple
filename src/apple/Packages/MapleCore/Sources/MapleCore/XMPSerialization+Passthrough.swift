@@ -38,6 +38,9 @@ extension XMPParser {
       if $0.qName == LocalAdjustmentXMP.brushContainer {
         return !LocalAdjustmentXMP.isModeledBrushContainer($0.source)
       }
+      if $0.qName == RetouchXMP.legacyContainer {
+        return !RetouchXMP.isModeledLegacyContainer($0.source)
+      }
       return !XMPKnownFields.isManagedChild($0.qName)
     }
     let nodes = XMPChildElementScanner.firstDescriptionChildren(in: xml)
