@@ -6,7 +6,8 @@
 // platform reports a memory limit (iPhone, iPad) or the free space is short
 // of what full resolution needs. A Mac with room to spare never shows it and
 // always stitches at full resolution. The session picks "Smaller" by
-// default when full resolution would not fit; the user can override it.
+// default when full resolution would not fit, or on an iPhone when it would
+// take more than the phone share of available memory; the user can override it.
 
 import MapleCore
 import SwiftUI
@@ -62,7 +63,7 @@ struct PanoOutputSizeSection: View {
       return "Full resolution needs about \(gigabytes(bytes)) of memory, which this device has."
     case .fitted(let fullBytes, _):
       return "Full resolution needs about \(gigabytes(fullBytes)) of memory, "
-        + "more than this device has free."
+        + "more than this device can safely spare."
     case .tooLarge(let fullBytes):
       return "These frames need about \(gigabytes(fullBytes)) of memory even at a smaller size, "
         + "more than this device has free."

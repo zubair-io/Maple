@@ -90,7 +90,8 @@ public enum PanoOutputSize: String, Sendable, CaseIterable {
 public enum PanoMemoryFit: Sendable, Equatable {
     /// Full resolution fits.
     case fullFits(estimatedBytes: Int)
-    /// Full resolution does not fit; this canvas, at the same aspect, does.
+    /// Full resolution does not fit, or on a phone exceeds its share of
+    /// memory; this canvas, at the same aspect, does.
     case fitted(estimatedFullBytes: Int, canvas: PanoFittedCanvas)
     /// Not even a preview-sized canvas fits: the frames alone exceed it.
     case tooLarge(estimatedFullBytes: Int)
@@ -127,8 +128,19 @@ public struct PanoMemoryModel: Sendable, Equatable {
     /// Headroom for what the model does not see (allocator fragmentation,
     /// the app itself, thumbnail work running alongside).
     public static let safetyFactor = 1.15
+    /// On an iPhone the sheet defaults to Smaller once the full-size peak
+    /// exceeds this share of available memory (#5654). The 1.15 headroom is
+    /// calibrated on a Mac allocator and iPad runs, not on a phone sharing
+    /// memory with a running backup.
+    public static let phoneSmallerDefaultFraction = 0.6
 
-    public init() {}
+    /// Share of available memory above which a smaller output is offered
+    /// ahead of the hard limit, `nil` where only the hard limit applies.
+    public let smallerDefaultFraction: Double?
+
+    public init(smallerDefaultFraction: Double? = nil) {
+        self.smallerDefaultFraction = smallerDefaultFraction
+    }
 
     public func estimatedPeakBytes(sizes: PanoStitchSizes, canvasWidth: Int) -> Int {
         max(headBytes(sizes), compositeBytes(sizes, canvasWidth: canvasWidth))
@@ -141,13 +153,19 @@ public struct PanoMemoryModel: Sendable, Equatable {
             return nil
         }
         let full = estimatedPeakBytes(sizes: sizes, canvasWidth: sizes.canvasWidth)
-        let budget = Int(Double(availableBytes) / Self.safetyFactor)
-        guard full > budget else { return .fullFits(estimatedBytes: full) }
-        guard headBytes(sizes) <= budget else { return .tooLarge(estimatedFullBytes: full) }
+        let hardBudget = Int(Double(availableBytes) / Self.safetyFactor)
+        let defaultBudget = min(hardBudget, smallerDefaultFraction.map { Int(Double(availableBytes) * $0) } ?? hardBudget)
+        guard full > defaultBudget else { return .fullFits(estimatedBytes: full) }
 
-        let width = (budget - compositeBaseBytes(sizes)) / Self.compositeBytesPerCanvasColumn
-        guard let canvas = sizes.fittedCanvas(width: width) else { return .tooLarge(estimatedFullBytes: full) }
-        return .fitted(estimatedFullBytes: full, canvas: canvas)
+        let head = headBytes(sizes)
+        let budgets = full > hardBudget ? [defaultBudget, hardBudget] : [defaultBudget]
+        for budget in budgets where head <= budget {
+            let width = (budget - compositeBaseBytes(sizes)) / Self.compositeBytesPerCanvasColumn
+            if let canvas = sizes.fittedCanvas(width: width) {
+                return .fitted(estimatedFullBytes: full, canvas: canvas)
+            }
+        }
+        return full > hardBudget ? .tooLarge(estimatedFullBytes: full) : .fullFits(estimatedBytes: full)
     }
 
     func compositeBytes(_ sizes: PanoStitchSizes, canvasWidth: Int) -> Int {
