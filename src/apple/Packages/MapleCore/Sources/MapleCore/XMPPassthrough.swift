@@ -227,7 +227,8 @@ enum XMPKnownFields {
   /// legacy string form the walker also READS: it is managed too, because
   /// a document carrying it is re-saved with the struct container instead
   /// and keeping the old element would leave two descriptions of the same
-  /// spots in one sidecar.
+  /// spots in one sidecar. A legacy list that decodes to no spot is the
+  /// exception: `parsePassthrough` keeps it verbatim.
   static let managedChildElements: Set<String> = Set(
     ToneCurveXMP.elements + LocalAdjustmentXMP.containers + [
       RetouchXMP.areasContainer,
