@@ -106,7 +106,7 @@ concurrency:
 jobs:
   wasm-nlm-simd:
     name: WASM NLM SIMD scalar bit parity
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7.0.1
       - uses: dtolnay/rust-toolchain@stable
@@ -134,7 +134,7 @@ jobs:
   # after assembling the xcframework (see src/apple/scripts/build-xcframework.sh).
   build-raw-ffi:
     name: build-raw-ffi (host compile gate)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7.0.1
       - uses: dtolnay/rust-toolchain@stable
@@ -345,7 +345,7 @@ jobs:
   # evidence and a source review of `present_chain.rs`, not a local repro.
   raw-gpu:
     name: raw-gpu (gpu build + WGSL validate + raw-core↔GPU parity)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     env:
       # Turns the raw-wasm gpu_render `gpu_available()` soft-pass into a hard
       # failure (#1973): on a runner we have deliberately provisioned with an
@@ -538,7 +538,7 @@ jobs:
   #     with the cargo-test step, so the duplication costs seconds.
   rust-tests:
     name: rust-tests (cargo test -p raw-core + grey gates)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7.0.1
       - uses: dtolnay/rust-toolchain@stable
@@ -635,7 +635,7 @@ jobs:
 
   color-pipeline:
     name: color-pipeline (Auto vs embedded JPEG)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7.0.1
 
@@ -712,7 +712,7 @@ jobs:
   #     until Maple Pano M1+ lands the subcommand).
   pano-pipeline:
     name: pano-pipeline (test_pano_pipeline.sh)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7.0.1
 

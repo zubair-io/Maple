@@ -27,7 +27,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.web == 'true'
     name: build-wasm (shared pkg)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7.0.1
 
@@ -75,7 +75,7 @@ jobs:
     name: web-build (ng build maple)
     needs: [changes, build-wasm]
     if: needs.changes.outputs.web == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7.0.1
 
@@ -177,7 +177,7 @@ jobs:
     name: web-test (ng test maple)
     needs: [changes, build-wasm]
     if: needs.changes.outputs.web == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # Single-run on CI (the @angular/build:unit-test builder is non-watch in a
     # non-interactive env). `timeout-minutes` is a backstop against any
     # accidental watch-mode hang burning the full job budget.
@@ -219,7 +219,7 @@ jobs:
     name: web-test (ng test Maple-common)
     needs: [changes, build-wasm]
     if: needs.changes.outputs.web == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # Single-run on CI (the @angular/build:unit-test builder is non-watch in a
     # non-interactive env). `timeout-minutes` is a backstop against any
     # accidental watch-mode hang burning the full job budget.
@@ -309,7 +309,7 @@ jobs:
     name: web-webgpu-smoke (raw-open + slider-tick-render in headless Chrome)
     needs: [changes, build-wasm]
     if: needs.changes.outputs.web == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     continue-on-error: true
     timeout-minutes: 20
     steps:
@@ -391,7 +391,7 @@ jobs:
     name: web-workflow-acceptance (WB, Auto Tone and lens persistence)
     needs: [changes, build-wasm]
     if: needs.changes.outputs.web == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     env:
       # Every fixture/worker must use the library built by this checkout,
@@ -536,7 +536,7 @@ jobs:
         web-workflow-acceptance,
       ]
     if: always()
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7.0.1
       - run: >-

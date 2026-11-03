@@ -27,7 +27,7 @@ permissions:
 
 jobs:
   select:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       android: ${{ steps.changes.outputs.android }}
       api: ${{ steps.changes.outputs.api }}
