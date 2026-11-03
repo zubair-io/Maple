@@ -313,7 +313,7 @@ Generated from `src/raw-pipeline/raw-core/src/capability_registry/` (the registr
 - Accepted backends: `bun`
 - Expected cases: 4
 - Corpus: `src/api/src/routes/xmp.sidecar-contract.test.ts`, `src/api/src/routes/xmp.ts`, `src/api/src/routes/xmp-change.ts`, `src/api/src/routes/xmp-path-auth.ts`, `src/api/src/routes/folders.upload.ts`, `src/api/src/routes/folders.upload-sidecar-admission.ts`, `src/api/src/fs/primary-replacement-admission.ts`, `src/api/src/fs/errno-code.ts`, `src/api/src/fs/root.ts`, `src/api/src/fs/relocate-replace-fence.ts`, `src/api/src/xmp`, `src/api/src/fs/sidecar-io.ts`, `src/api/src/fs/sidecar-write-order.ts`, `src/api/src/fs/xmp-conditional.ts`, `src/api/src/fs/xmp.ts`, `src/api/src/fs/xmp-sidecar-path.ts`
-- Record: satisfied — 4 of 4 executed, 0 failed, 0 skipped, on `bun`, commit `7bf44cdf0c06376f3b4afd59609dcec699bbf029`, recorded 2026-11-02T14:46:11Z
+- Record: satisfied — 4 of 4 executed, 0 failed, 0 skipped, on `bun`, commit `ab3372fca928397936274293bd0c147ec60a5ad5`, recorded 2026-11-03T06:53:44Z
 
 ### `gpu_chain_parity_lavapipe`
 

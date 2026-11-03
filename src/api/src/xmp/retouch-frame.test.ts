@@ -28,6 +28,11 @@ const REPAIRS = `      <crs:RetouchAreas>
           </rdf:li>
         </rdf:Seq>
       </crs:RetouchAreas>`;
+const LEGACY_STRINGS = `      <crs:RetouchInfo>
+        <rdf:Seq>
+          <rdf:li>centerX = 0.250000, centerY = 0.400000, radius = 0.050000, sourceState = sourceSetExplicitly, sourceX = 0.750000, sourceY = 0.500000, spotType = heal</rdf:li>
+        </rdf:Seq>
+      </crs:RetouchInfo>`;
 const WORKFLOW = `      <papp:Workflow xmlns:papp="${PAPP}" papp:Record="{}"/>`;
 
 const sidecar = (
@@ -90,6 +95,19 @@ describe('repair-list frame through partial sidecar writes (#4473)', () => {
     expect(written).toContain(STAMP);
     expect(stamps(written)).toBe(1);
     expect(written).toContain(REPAIRS);
+  });
+
+  test('a legacy Lightroom string list is stamped by a metadata save and a pasted setting', async () => {
+    const strings = sidecar('', LEGACY_STRINGS);
+    const flagged = await mergeOnDisk(strings, [{ flag: 'pick' }]);
+    expect(stamps(flagged)).toBe(1);
+    expect(flagged).toContain(LEGACY_STRINGS);
+    expect(stamps(await patchOnDisk(strings, { 'papp:Profile': 'Neutral' }))).toBe(1);
+    const legacyMaple = sidecar(
+      `\n      xmlns:papp="${PAPP}"\n      papp:Profile="Auto"`,
+      LEGACY_STRINGS,
+    );
+    expect(stamps(await mergeOnDisk(legacyMaple, [{ flag: 'pick' }]))).toBe(0);
   });
 
   test('a legacy Maple list stays unstamped through a metadata save', async () => {

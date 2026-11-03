@@ -42,10 +42,15 @@ const stamped = (elements: readonly XmlSpan[]): boolean =>
     ),
   );
 
+const REPAIR_CONTAINERS = new Set(['crs:RetouchAreas', 'crs:RetouchInfo']);
+
+// A superset of the lists raw-core decodes (structured areas and the legacy
+// string `rdf:Seq`): stamping a list that was read as upright is always
+// correct, while missing one flips it to the sensor frame.
 const hasRepairSpots = (elements: readonly XmlSpan[]): boolean =>
   elements.some(
     (span) =>
-      (canonicalXmpName(span.tag.uri, span.tag.local) === 'crs:RetouchAreas' &&
+      (REPAIR_CONTAINERS.has(canonicalXmpName(span.tag.uri, span.tag.local) ?? '') &&
         visibleElements(span.children).some(
           (child) => canonicalXmpName(child.tag.uri, child.tag.local) === 'rdf:li',
         )) ||
