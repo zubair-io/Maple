@@ -176,6 +176,17 @@ namespace Maple.WinUI.Tests
         }
 
         [Fact]
+        public void AnEmbeddedWorkflowRecordDoesNotMakeALightroomListLegacy()
+        {
+            var foreign = DocWithTwoSpots.Replace("      xmlns:papp=\"http://ns.justmaple.app/photo/1.0/\"\n", "");
+            var close = foreign.LastIndexOf("</rdf:Description>", System.StringComparison.Ordinal);
+            var withWorkflow = foreign.Insert(close,
+                "<papp:Workflow xmlns:papp=\"http://ns.justmaple.app/photo/1.0/\" papp:Record=\"{}\"/>\n");
+            Assert.False(XmpParser.Parse(withWorkflow)!.Adjustments.Retouch.IsLegacyFrame);
+            Assert.Contains("papp:RetouchFrameVersion=\"2\"", XmpWriter.Serialize(XmpParser.Parse(withWorkflow)!));
+        }
+
+        [Fact]
         public void TheUprightStampIsWrittenOnceAndSurvivesARoundTrip()
         {
             var doc = XmpParser.Parse(DocWithTwoSpots)!;

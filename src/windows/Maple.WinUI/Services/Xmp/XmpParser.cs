@@ -485,12 +485,17 @@ namespace Maple.WinUI.Services.Xmp
             return attrs + children;
         }
 
+        // An embedded workflow record is not Maple authorship of the develop
+        // settings; raw-core, Swift and Web skip that subtree too (#4473).
         private static bool DocumentCarriesPappNamespace(XDocument source) =>
-            source.Descendants().Any(e =>
+            source.Descendants().Where(e => !e.AncestorsAndSelf().Any(IsWorkflowRecord)).Any(e =>
                 XmpSchema.IsPappUri(e.Name.NamespaceName) ||
                 e.Attributes().Any(a =>
                     XmpSchema.IsPappUri(a.Name.NamespaceName) ||
                     (a.IsNamespaceDeclaration && XmpSchema.IsPappUri(a.Value))));
+
+        private static bool IsWorkflowRecord(XElement e) =>
+            e.Name.LocalName == "Workflow" && XmpSchema.IsPappUri(e.Name.NamespaceName);
 
     }
 }
