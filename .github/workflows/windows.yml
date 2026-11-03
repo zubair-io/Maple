@@ -18,7 +18,7 @@ jobs:
   windows-wrapper-contract:
     needs: changes
     if: needs.changes.outputs.windows == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7.0.1
       - name: Test Windows build wrapper contracts
@@ -124,7 +124,7 @@ jobs:
     name: Windows result
     needs: [changes, windows-wrapper-contract, windows-build-and-test]
     if: always()
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7.0.1
       - run: python3 tools/ci_result.py windows-wrapper-contract=windows windows-build-and-test=windows

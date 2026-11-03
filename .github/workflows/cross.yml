@@ -59,7 +59,7 @@ jobs:
     name: CI selection regression tests
     needs: changes
     if: needs.changes.outputs.ci == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7.0.1
       - uses: actions/setup-python@v7
@@ -72,7 +72,7 @@ jobs:
     name: NLM exponential table regression tests
     needs: changes
     if: needs.changes.outputs.codegen == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7.0.1
       - uses: actions/setup-python@v7
@@ -84,7 +84,7 @@ jobs:
     name: Release handoff regression tests
     needs: changes
     if: needs.changes.outputs.release == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7.0.1
       - uses: actions/setup-python@v7
@@ -94,7 +94,7 @@ jobs:
 
   format-check:
     name: format-check (prettier)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     steps:
@@ -181,7 +181,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.api == 'true'
     name: oxlint-api (correctness + fs-import guardrail)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     steps:
@@ -201,7 +201,7 @@ jobs:
 
   file-budget:
     name: file-budget (400 soft / 600 hard LOC)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     steps:
@@ -232,7 +232,7 @@ jobs:
     # Compare PRs and groups with their target branch merge base.
     # Pushes to main have no changed-file headroom gate.
     if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     steps:
@@ -277,7 +277,7 @@ jobs:
     name: allowlist-shrinks-only
     # Compare PRs and groups with their target branch merge base.
     if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     steps:
@@ -467,7 +467,7 @@ jobs:
     permissions:
       contents: read
       pull-requests: read
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     steps:
@@ -568,7 +568,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.codegen == 'true'
     name: codegen-drift (regenerated outputs are committed)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     steps:
@@ -629,7 +629,7 @@ jobs:
 
   maple-ui-contracts:
     name: maple-ui-contracts (component-contract docs are complete)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7.0.1
 
@@ -649,7 +649,7 @@ jobs:
   # generated TypeScript tables directly rather than re-parsing them.
   editor-parity-manifest:
     name: editor-parity-manifest (editor surface matches the parity manifest)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7.0.1
 
@@ -667,7 +667,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.web == 'true'
     name: fallow-audit-web (dead code / complexity / dupes, changed files)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     steps:
@@ -706,7 +706,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.api == 'true'
     name: fallow-audit-api (dead code / complexity / dupes, changed files)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     steps:
@@ -764,7 +764,7 @@ jobs:
 
   gitleaks:
     name: gitleaks (PR commits)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     steps:
@@ -875,7 +875,7 @@ jobs:
       - fallow-audit-api
       - gitleaks
     if: always()
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7.0.1
       - run: >-

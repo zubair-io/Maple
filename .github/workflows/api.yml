@@ -19,7 +19,7 @@ jobs:
   api-typecheck:
     needs: changes
     if: needs.changes.outputs.api == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7.0.1
       - uses: oven-sh/setup-bun@v2
@@ -35,7 +35,7 @@ jobs:
   api-tests:
     needs: changes
     if: needs.changes.outputs.api == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7.0.1
       - uses: oven-sh/setup-bun@v2
@@ -81,7 +81,7 @@ jobs:
     name: API result
     needs: [changes, api-typecheck, api-tests]
     if: always()
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7.0.1
       - run: python3 tools/ci_result.py api-typecheck=api api-tests=api
