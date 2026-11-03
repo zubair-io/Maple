@@ -31,7 +31,8 @@
 import type { XmpMetadataInput } from './metadata-input.ts';
 import { adobeLabelColor } from './color-label.ts';
 import { parseXmpMetadata } from './metadata-parser.ts';
-import { canonicalXmpName, descriptions, xmlSpans, type XmlSpan } from './transfer-document.ts';
+import { keepRetouchFrame } from './retouch-frame.ts';
+import { primaryDescription, xmlSpans } from './transfer-document.ts';
 
 // ---------------------------------------------------------------------------
 // Encode helpers (copied from xmp-metadata.ts — pure math, no browser deps)
@@ -330,7 +331,7 @@ export function mergeMetadataIntoXmp(
 ): string {
   const stub = opts.metadataOnly ? METADATA_ONLY_STUB_XMP : STUB_XMP;
   const base = xml.trim().length > 0 ? xml : stub;
-  const merged = applyMerge(base, meta);
+  const merged = keepRetouchFrame(base, applyMerge(base, meta));
   xmlSpans(merged);
   return merged;
 }
@@ -396,17 +397,6 @@ function applyMerge(xml: string, meta: XmpMetadataInput): string {
   return primary.tag.isSelfClosing
     ? `${before}${openingTag.replace(/\/>$/, '>')}\n${blocks}\n</${primary.tag.name}>${base.slice(primary.openEnd)}`
     : `${before}${openingTag}${base.slice(primary.openEnd, primary.closeStart)}${blocks}\n${base.slice(primary.closeStart)}`;
-}
-
-/** The `rdf:about=""` description, else the first — the same choice `applyTransferPatch` makes. */
-function primaryDescription(xml: string): XmlSpan {
-  const all = descriptions(xmlSpans(xml));
-  const about = (span: XmlSpan): string =>
-    Object.values(span.tag.attributes).find((a) => canonicalXmpName(a.uri, a.local) === 'rdf:about')
-      ?.value ?? '';
-  const primary = all.find((span) => about(span) === '') ?? all[0];
-  if (!primary) throw new Error('XMP has no rdf:Description to merge metadata into');
-  return primary;
 }
 
 /**

@@ -180,6 +180,18 @@ describe('crs:RetouchAreas (#3409)', () => {
     expect(parser.parseAdjustmentModel(adopted).model.retouchFrameLegacy).not.toBe(true);
   });
 
+  it('a stamped reread clears a stale legacy flag when merged over the in-memory model (#4473)', () => {
+    const stamped = document(CANONICAL_BLOCK).replace(
+      '<rdf:Description',
+      '<rdf:Description xmlns:papp="http://ns.justmaple.app/photo/1.0/" papp:RetouchFrameVersion="2"',
+    );
+    const stale = { ...defaultAdjustmentModel(), retouchFrameLegacy: true };
+    const { model, passthrough } = parser.parseAdjustmentModel(stamped);
+    const merged = { ...stale, ...model };
+    expect(merged.retouchFrameLegacy).toBe(false);
+    expect(serializer.serialize(merged, passthrough)).toContain('papp:RetouchFrameVersion="2"');
+  });
+
   it('imports a spot whose source is encoded as an offset', () => {
     const block = `      <crs:RetouchAreas>
         <rdf:Seq>

@@ -11,6 +11,7 @@ import {
   xmlSpans,
   type XmlSpan,
 } from './transfer-document.ts';
+import { keepRetouchFrame } from './retouch-frame.ts';
 
 export interface XmpTransferPatch {
   attributes: Record<string, string | null>;
@@ -136,9 +137,12 @@ export function applyTransferPatch(existing: string, patch: XmpTransferPatch): s
     } else
       edits.push({ start: primary.closeStart, end: primary.closeStart, value: `${elements}\n` });
   }
-  const result = edits
-    .sort((a, b) => b.start - a.start)
-    .reduce((text, edit) => text.slice(0, edit.start) + edit.value + text.slice(edit.end), xml);
+  const result = keepRetouchFrame(
+    xml,
+    edits
+      .sort((a, b) => b.start - a.start)
+      .reduce((text, edit) => text.slice(0, edit.start) + edit.value + text.slice(edit.end), xml),
+  );
   xmlSpans(result); // A malformed edit is never written.
   return result;
 }

@@ -194,19 +194,19 @@ function correctionBlock(spot: RetouchSpot, indent: string): string {
  */
 export const RETOUCH_FRAME_VERSION_KEY = 'papp:RetouchFrameVersion';
 
-/** Flags a spot list read from a Maple sidecar without the frame stamp. */
+/**
+ * Flags a spot list read from a Maple sidecar without the frame stamp. A read
+ * list always carries an explicit flag so merging it over an in-memory model
+ * clears a legacy flag that another host's stamped save has since retired.
+ */
 export function markLegacyRetouchFrame(
   model: Partial<AdjustmentModel>,
   description: Element,
   sawMapleNamespace: boolean,
 ): void {
-  if (
-    (model.retouchSpots?.length ?? 0) > 0 &&
-    sawMapleNamespace &&
-    attrOf(description, [RETOUCH_FRAME_VERSION_KEY]) !== '2'
-  ) {
-    model.retouchFrameLegacy = true;
-  }
+  if ((model.retouchSpots?.length ?? 0) === 0) return;
+  model.retouchFrameLegacy =
+    sawMapleNamespace && attrOf(description, [RETOUCH_FRAME_VERSION_KEY]) !== '2';
 }
 
 export function retouchFrameParts(model: Partial<AdjustmentModel>): string[] {
