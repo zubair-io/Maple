@@ -45,9 +45,9 @@ Remaining risk is only defensive: a future caller that stitches frames without t
 
 `thumbs/render.ts` returns early for `heic`/`heif` before `withSidecarCrop`, so a HEIC with a crop sidecar gets an uncropped thumbnail while the same crop on a JPEG or PNG is applied. Panoramas are PNG, so P2 itself is unaffected.
 
-### R5 (P2): the story map's P4 reference is missing
+### R5 (P2): the story map's P4 reference was wrong
 
-`docs/strategy/milestones/pano-disk-backed-stitch.md` does not exist; the measured memory table lives in `docs/pano.md` § Memory and issue #5450 (closed).
+The story map cited a milestone doc that does not exist; it now points to `docs/pano.md` § Memory, which holds the measured memory table (issue #5450, closed).
 
 ## Not verified
 
