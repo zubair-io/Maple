@@ -196,6 +196,7 @@ public final class EngineHost {
       // progress VM to miss those events and undercount on restart.
       await progress.start(queue: queue)
 
+      guard generation == self.generation, !suspensionRequested else { return }
       try await state.rehydrate(into: queue)
 
       await LocalNetworkResolver.shared.resolve(identity: serverBaseURL)
