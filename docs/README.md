@@ -83,6 +83,10 @@ cloud editor, build/package commands and current qualification limits.
 | [strategy/milestones/m5-workflow-expansion.md](strategy/milestones/m5-workflow-expansion.md)           | Milestone 17 · Professional Workflow Expansion (epic #2447/#2442): the decision framework for choosing the next adjacent professional workflow from evidence.                            |
 | [strategy/milestones/m6-native-to-web-editor-ui.md](strategy/milestones/m6-native-to-web-editor-ui.md) | Milestone 18 design spec: the editor surface/interaction parity manifest, the IA port, the command router, and the acceptance gates that bring the web editor to native-editor parity.   |
 
+## Release review
+
+The [v0.1.6 release review](release-review/feature-story-map.md) is a point-in-time review: the feature story map plus per-area findings for browse and search, the editor, export, files, library sources, panorama, and admin and auth.
+
 ## Conventions for editing these docs
 
 - Derive from code, cite paths. Name the file that implements a mechanism; never cite line numbers.
