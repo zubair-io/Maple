@@ -81,10 +81,17 @@ const CANONICAL_NAMESPACE_URIS: Readonly<Record<string, string>> = {
  *  also survive as a passthrough node — that would emit it twice. Both
  *  repair containers (#3409) qualify: `crs:RetouchAreas` is rewritten from
  *  `model.retouchSpots`, and the legacy `crs:RetouchInfo` is read into the
- *  same list and replaced by the struct form on the next save. */
-const isManagedChild = (child: Element): boolean =>
-  (child.namespaceURI === DC_NAMESPACE && child.localName === 'subject') ||
-  retouchContainerKind(child) !== undefined;
+ *  same list and replaced by the struct form on the next save. A legacy list
+ *  that decodes to no spot is not the model's to replace, so it stays a
+ *  passthrough node (#5658). */
+const isManagedChild = (child: Element): boolean => {
+  const retouchKind = retouchContainerKind(child);
+  return (
+    (child.namespaceURI === DC_NAMESPACE && child.localName === 'subject') ||
+    retouchKind === 'areas' ||
+    (retouchKind === 'legacy' && parseRetouchInfoContainer(child).length > 0)
+  );
+};
 
 const visibleNamespaceUris = (description: Element): Map<string, string> => {
   const namespaces = new Map<string, string>();

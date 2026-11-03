@@ -12,7 +12,8 @@
 // Lightroom brush stroke), is DROPPED and the rest of the document still
 // loads. The legacy `crs:RetouchInfo` string form older Lightroom versions
 // wrote is read and never written; when a document carries both, the struct
-// form wins.
+// form wins. A legacy list that decodes to no spot is not the model's to
+// replace, so it rides the passthrough verbatim (#5658).
 
 import type { AdjustmentModel } from '../models/adjustment-model';
 import type { RetouchKind, RetouchPoint, RetouchSpot } from '../models/retouch-spot';
