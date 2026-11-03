@@ -172,7 +172,7 @@ public final class PanoMergeSession {
     // MARK: - Private
 
     public private(set) var stitcher: any PanoStitching
-    private let memoryModel = PanoMemoryModel()
+    private let memoryModel: PanoMemoryModel
     private let diskModel = PanoDiskModel()
     private let availableMemory: @Sendable () -> Int?
     private let freeSpace: @Sendable (any PanoStitching, [AssetRef]) -> PanoFreeSpace?
@@ -199,11 +199,14 @@ public final class PanoMergeSession {
         stitcher: any PanoStitching,
         previewDebounce: Duration = .milliseconds(600),
         availableMemory: @escaping @Sendable () -> Int? = { PanoAvailableMemory.current() },
+        isPhone: Bool = MapleShellKind.currentIdiom == .phone,
         freeSpace: @escaping @Sendable (any PanoStitching, [AssetRef]) -> PanoFreeSpace? = { $0.freeSpace(for: $1) }
     ) {
         self.stitcher = stitcher
         self.previewDebounce = previewDebounce
         self.availableMemory = availableMemory
+        memoryModel = PanoMemoryModel(
+            smallerDefaultFraction: isPhone ? PanoMemoryModel.phoneSmallerDefaultFraction : nil)
         self.freeSpace = freeSpace
     }
 

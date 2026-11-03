@@ -66,6 +66,65 @@ final class PanoMemoryModelTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(model.compositeBytes(pano01, canvasWidth: 26_981), Int(2.8 * gib))
     }
 
+    private let phoneModel = PanoMemoryModel(smallerDefaultFraction: PanoMemoryModel.phoneSmallerDefaultFraction)
+
+    private var pano01Full: Int { model.estimatedPeakBytes(sizes: pano01, canvasWidth: pano01.canvasWidth) }
+
+    func testPhoneKeepsFullBelowSixtyPercentOfAvailableMemory() {
+        let available = Int(Double(pano01Full) / 0.5)
+        XCTAssertEqual(phoneModel.fit(sizes: pano01, availableBytes: available), .fullFits(estimatedBytes: pano01Full))
+    }
+
+    func testPhoneOffersSmallerAboveSixtyPercentEvenWhenFullWouldFit() {
+        let available = Int(Double(pano01Full) / 0.7)
+        XCTAssertEqual(model.fit(sizes: pano01, availableBytes: available), .fullFits(estimatedBytes: pano01Full))
+        guard case .fitted(let fullBytes, let canvas) = phoneModel.fit(sizes: pano01, availableBytes: available) else {
+            return XCTFail("expected a fitted size above 60%")
+        }
+        XCTAssertEqual(fullBytes, pano01Full)
+        XCTAssertLessThan(canvas.width, pano01.canvasWidth)
+        XCTAssertLessThanOrEqual(
+            model.estimatedPeakBytes(sizes: pano01, canvasWidth: canvas.width), Int(Double(available) * 0.6))
+    }
+
+    func testPhoneThresholdBoundaryIsInclusive() {
+        let atBoundary = Int((Double(pano01Full) / 0.6).rounded(.up)) + 1
+        XCTAssertEqual(phoneModel.fit(sizes: pano01, availableBytes: atBoundary), .fullFits(estimatedBytes: pano01Full))
+        let justOver = Int((Double(pano01Full) / 0.6).rounded(.down)) - 1
+        guard case .fitted = phoneModel.fit(sizes: pano01, availableBytes: justOver) else {
+            return XCTFail("expected a fitted size just above 60%")
+        }
+    }
+
+    func testPhoneKeepsFullWhenSmallerBuysNothingBelowTheHardLimit() {
+        let headDominated = PanoStitchSizes(
+            canvasWidth: 2_000, canvasHeight: 1_000, largestFramePixels: 20_813_856, frameCount: 21, scratchBytes: 0)
+        let full = model.estimatedPeakBytes(sizes: headDominated, canvasWidth: 2_000)
+        XCTAssertEqual(full, model.headBytes(headDominated))
+        let available = Int(Double(full) / 0.7)
+        XCTAssertLessThanOrEqual(full, Int(Double(available) / PanoMemoryModel.safetyFactor))
+        XCTAssertEqual(
+            phoneModel.fit(sizes: headDominated, availableBytes: available), .fullFits(estimatedBytes: full))
+    }
+
+    func testPhoneStillFallsBackToTheHardLimitWhenTheHeadExceedsSixtyPercent() {
+        let head = model.headBytes(pano01)
+        let available = Int(Double(head) * 1.2)
+        guard case .fitted(_, let canvas) = phoneModel.fit(sizes: pano01, availableBytes: available) else {
+            return XCTFail("expected a fitted size under the hard limit")
+        }
+        XCTAssertLessThanOrEqual(
+            model.estimatedPeakBytes(sizes: pano01, canvasWidth: canvas.width),
+            Int(Double(available) / PanoMemoryModel.safetyFactor))
+    }
+
+    func testPhoneFramesAloneTooLargeStaysTooLarge() {
+        let floorOnly = model.estimatedPeakBytes(sizes: pano01, canvasWidth: 0)
+        XCTAssertEqual(
+            phoneModel.fit(sizes: pano01, availableBytes: floorOnly),
+            .tooLarge(estimatedFullBytes: pano01Full))
+    }
+
     func testFramesAloneTooLargeForTheDevice() {
         let floorOnly = model.estimatedPeakBytes(sizes: pano01, canvasWidth: 0)
         XCTAssertEqual(
@@ -129,6 +188,48 @@ final class PanoOutputSizeSessionTests: XCTestCase {
             try? await Task.sleep(for: .milliseconds(5))
         }
         return stitcher.stitchCaps.first
+    }
+
+    private func makePhoneSession(isPhone: Bool, available: Int) async -> PanoMergeSession {
+        let stitcher = RecordingStitcher()
+        stitcher.previewSizes = pano01
+        let session = PanoMergeSession(
+            stitcher: stitcher, previewDebounce: .milliseconds(20), availableMemory: { available },
+            isPhone: isPhone, freeSpace: { _, _ in nil })
+        session.preview(assets: (0..<3).map { AssetRef.preview(displayName: "IMG_\($0).dng") })
+        let deadline = ContinuousClock.now + .seconds(5)
+        while session.lastPreview == nil, ContinuousClock.now < deadline {
+            try? await Task.sleep(for: .milliseconds(5))
+        }
+        return session
+    }
+
+    private func fullPeakOverSeventyPercent() -> Int {
+        let full = PanoMemoryModel().estimatedPeakBytes(sizes: pano01, canvasWidth: pano01.canvasWidth)
+        return Int(Double(full) / 0.7)
+    }
+
+    func testPhoneDefaultsToSmallerAboveSixtyPercentThoughFullFits() async {
+        let session = await makePhoneSession(isPhone: true, available: fullPeakOverSeventyPercent())
+        XCTAssertNotNil(session.fittedOutput)
+        XCTAssertEqual(session.outputSize, .fitted)
+        XCTAssertEqual(session.outputCanvasCap, session.fittedOutput?.pixels)
+        session.outputSize = .full
+        XCTAssertEqual(session.outputSize, .full)
+        XCTAssertNil(session.outputCanvasCap)
+    }
+
+    func testPhoneDefaultsToFullBelowSixtyPercent() async {
+        let session = await makePhoneSession(isPhone: true, available: fullPeakOverSeventyPercent() * 2)
+        XCTAssertNil(session.fittedOutput)
+        XCTAssertEqual(session.outputSize, .full)
+    }
+
+    func testPadAndMacKeepFullWhereFullFitsTheHardLimit() async {
+        let session = await makePhoneSession(isPhone: false, available: fullPeakOverSeventyPercent())
+        XCTAssertNil(session.fittedOutput)
+        XCTAssertEqual(session.outputSize, .full)
+        XCTAssertNil(session.outputCanvasCap)
     }
 
     func testNoMemoryLimitStitchesAtTheDefaultCap() async {
