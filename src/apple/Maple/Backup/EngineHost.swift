@@ -77,6 +77,8 @@ public final class EngineHost {
   public let progress = BackupProgressViewModel()
 
   private var generation = UUID()
+  /// The state DB is refusing work so the app can be suspended without a lock held (#5652).
+  private var suspensionRequested = false
   /// Every start and stop runs here, one at a time (#5022): a second Stop, a
   /// BGTask expiry or a new Start never interleaves with a teardown.
   private let lifecycle = SerialOperationQueue()
@@ -140,7 +142,7 @@ public final class EngineHost {
   private func performStart(
     settings: BackupSettings, serverBaseURL: URL, generation: UUID
   ) async {
-    guard generation == self.generation else { return }
+    guard generation == self.generation, !suspensionRequested else { return }
     if progress.phase == .running && activeSettings == settings {
       retryFailedRequested = false
       return
@@ -175,6 +177,7 @@ public final class EngineHost {
       // never start rehydrating alongside it.
       var lockHandedToEngine = false
       defer { if !lockHandedToEngine { engineLock?.release() } }
+      guard generation == self.generation, !suspensionRequested else { return }
       let deviceId = try DeviceIdentity.current(
         storageURL: DeviceIdentity.storageURL(in: storageRoot))
       let sidecars = AppSupportSidecarStore(
@@ -264,10 +267,40 @@ public final class EngineHost {
 
   /// Cancel discovery, active reads/uploads, and retries; pending work stays durable.
   public func stop() async {
+    await stop(then: {})
+  }
+
+  private func stop(then afterTeardown: @escaping @MainActor () -> Void) async {
     generation = UUID()
     retryFailedRequested = false
     engineLockWait?.cancel()
-    await lifecycle.run { await self.tearDown() }
+    await lifecycle.run {
+      await self.tearDown()
+      afterTeardown()
+    }
+  }
+
+  /// Stop the engine, then make the state DB refuse work, so no lock is held
+  /// when iOS suspends the process (#5652). If the teardown outlasts 3 seconds
+  /// the DB is suspended anyway: the in-flight write fails and its row is
+  /// rehydrated on the next start.
+  public func suspendStateStore() async {
+    suspensionRequested = true
+    let backstop = Task { @MainActor in
+      try await Task.sleep(for: .seconds(3))
+      if self.suspensionRequested { BackupStateSuspension.suspend() }
+    }
+    await stop { if self.suspensionRequested { BackupStateSuspension.suspend() } }
+    backstop.cancel()
+  }
+
+  /// Let the state DB take writes again. The caller restarts the engine.
+  public func resumeStateStore() async {
+    suspensionRequested = false
+    await lifecycle.run {
+      // A suspend queued behind this resume must win.
+      if !self.suspensionRequested { BackupStateSuspension.resume() }
+    }
   }
 
   private func tearDown() async {

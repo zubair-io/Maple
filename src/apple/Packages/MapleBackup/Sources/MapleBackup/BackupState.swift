@@ -22,7 +22,9 @@ public actor BackupStateStore {
   private let dbQueue: DatabaseQueue
 
   public init(databaseURL: URL) throws {
-    self.dbQueue = try DatabaseQueue(path: databaseURL.path)
+    var configuration = Configuration()
+    configuration.observesSuspensionNotifications = true
+    self.dbQueue = try DatabaseQueue(path: databaseURL.path, configuration: configuration)
     try dbQueue.write { db in
       try db.create(table: "tasks", ifNotExists: true) { t in
         t.column("device_id", .text).notNull()

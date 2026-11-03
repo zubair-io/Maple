@@ -236,6 +236,9 @@ struct MapleApp: App {
       .onChange(of: scenePhase) { _, newPhase in
         if newPhase == .background {
           BGTaskRegistration.schedule()
+          #if os(iOS)
+            Task { await BackupSuspension.enterBackground() }
+          #endif
         }
         if newPhase == .active {
           // Deterministic widget refresh: WidgetKit's own
@@ -250,6 +253,7 @@ struct MapleApp: App {
         }
         #if os(iOS)
           if newPhase == .active {
+            Task { await BackupSuspension.enterForeground() }
             // Re-foreground: signal every active File Provider
             // domain so the next Files-app refresh sees fresh
             // server state. Best-effort; failures surface in the
