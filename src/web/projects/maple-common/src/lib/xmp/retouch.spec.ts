@@ -254,4 +254,74 @@ describe('crs:RetouchAreas (#3409)', () => {
     const { model } = parser.parseAdjustmentModel(document(`${legacy}\n${CANONICAL_BLOCK}`));
     expect(model.retouchSpots).toEqual(canonicalSpots());
   });
+
+  describe('legacy crs:RetouchInfo that decodes to no spot (#5658)', () => {
+    const WELL_FORMED = `      <crs:RetouchInfo>
+        <rdf:Seq>
+          <rdf:li>centerX = 0.5, centerY = 0.5, radius = 0.02, sourceState = sourceSetExplicitly, sourceX = 0.6, sourceY = 0.5, spotType = heal</rdf:li>
+        </rdf:Seq>
+      </crs:RetouchInfo>`;
+    const UNDECODABLE_SEQ = `        <rdf:Seq>
+          <rdf:li>centerX = 0.5, centerY = 0.5, radius = 0.02, spotType = heal</rdf:li>
+          <rdf:li>not a key value list at all</rdf:li>
+        </rdf:Seq>`;
+    const UNDECODABLE = `      <crs:RetouchInfo>\n${UNDECODABLE_SEQ}\n      </crs:RetouchInfo>`;
+    const retouchInfoCount = (xml: string): number => xml.split('<crs:RetouchInfo').length - 1;
+    const MIXED = WELL_FORMED.replace(
+      '</rdf:Seq>',
+      '  <rdf:li>garbage</rdf:li>\n        </rdf:Seq>',
+    );
+    const asMaple = (xml: string): string =>
+      xml.replace(
+        '<rdf:Description',
+        '<rdf:Description xmlns:papp="http://ns.justmaple.app/photo/1.0/" papp:Profile="Auto"',
+      );
+
+    const save = (xml: string): string => {
+      const { model, passthrough } = parser.parseAdjustmentModel(xml);
+      return serializer.serialize(
+        { ...defaultAdjustmentModel(), ...model, exposure: 0.25 },
+        passthrough,
+      );
+    };
+
+    it('survives a save verbatim and unstamped, for foreign and Maple-authored sidecars', () => {
+      for (const xml of [document(UNDECODABLE), asMaple(document(UNDECODABLE))]) {
+        const written = save(xml);
+        expect(retouchInfoCount(written)).toBe(1);
+        expect(written).toContain(UNDECODABLE_SEQ);
+        expect(written).not.toContain('RetouchFrameVersion');
+        expect(written).not.toContain('<crs:RetouchAreas>');
+      }
+    });
+
+    it('stays a single verbatim copy across repeated saves', () => {
+      const once = save(document(UNDECODABLE));
+      const thrice = save(save(once));
+      expect(retouchInfoCount(thrice)).toBe(1);
+      expect(thrice).toContain(UNDECODABLE_SEQ);
+      expect(thrice).not.toContain('RetouchFrameVersion');
+    });
+
+    it('still converts a decodable list to the stamped struct form', () => {
+      const written = save(document(WELL_FORMED));
+      expect(written).not.toContain('crs:RetouchInfo');
+      expect(written.split('<crs:RetouchAreas>').length - 1).toBe(1);
+      expect(written.split('papp:RetouchFrameVersion="2"').length - 1).toBe(1);
+    });
+
+    it('keeps an undecodable list beside a struct container and reads the struct spots', () => {
+      const written = save(document(`${UNDECODABLE}\n${CANONICAL_BLOCK}`));
+      expect(retouchInfoCount(written)).toBe(1);
+      expect(written.split('<crs:RetouchAreas>').length - 1).toBe(1);
+      expect(parser.parseAdjustmentModel(written).model.retouchSpots).toEqual(canonicalSpots());
+    });
+
+    it('converts a mixed list and drops its undecodable entry', () => {
+      const written = save(document(MIXED));
+      expect(written).not.toContain('crs:RetouchInfo');
+      expect(written).not.toContain('garbage');
+      expect(parser.parseAdjustmentModel(written).model.retouchSpots?.length).toBe(1);
+    });
+  });
 });
