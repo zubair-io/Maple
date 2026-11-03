@@ -5,15 +5,17 @@
 // `RustPanoStitcher` (M4, #1234) via AppShell; the real stitch runs and
 // the output PNG is imported into the library (M5) when the user taps Done.
 //
-// Mac/iPad and iPhone: presented as a modal sheet via `.sheet(isPresented:)`
-// in AppShell. Cancel/Done dismisses the sheet and returns to browse.
+// iPhone and iPad: a full-screen cover, so no swipe closes it by accident;
+// Mac: a sheet whose Escape and click-away are held off while closing would
+// lose work (#5662). Cancel/Done return to browse; closing with a running or
+// finished stitch asks first (PanoMergeSession.closingDiscardsWork).
 //
 // Merge never downloads anything (#4554): the stitcher uses the classical
 // matcher unless Settings → Pano opted into the ML matcher and it is
 // installed. An opted-in ML matcher that is missing or fails to load runs
 // classical instead (#5487); PanoMatcherNote says so under the preview and
 // the result and offers Settings → Pano via `onOpenPanoSettings` (AppShell
-// dismisses this sheet and opens that tab).
+// dismisses this view and opens that tab).
 //
 // Quick preview (#4579): opening the sheet with two or more frames starts a
 // low-resolution preview (PanoPreviewSection), pinned above the scrolling
@@ -35,7 +37,7 @@
 // goes back to the server beside them. Frames from Photos can't do either
 // yet, and the sheet says so rather than failing mid-stitch.
 //
-// Ticket: #1236 / Part of #1234 / #1241 / #4554 / #4579 / #5454 / #5486 / #5488 / #5489
+// Ticket: #1236 / Part of #1234 / #1241 / #4554 / #4579 / #5454 / #5486 / #5488 / #5489 / #5662
 
 import MapleCore
 import MapleUI
@@ -62,7 +64,7 @@ struct PanoMergeView: View {
   /// (M5 of #1234) before dismissing the sheet.
   var onComplete: ((PanoResult) -> Void)? = nil
   /// Called from PanoMatcherNote's "Set Up in Settings → Pano". AppShell
-  /// dismisses this sheet and opens Settings on the Pano tab. (#1241, #5487)
+  /// dismisses this view and opens Settings on the Pano tab. (#1241, #5487)
   var onOpenPanoSettings: (() -> Void)? = nil
 
   @State private var thumbnails = ThumbnailProvider.local()
@@ -75,6 +77,8 @@ struct PanoMergeView: View {
   @State private var serverChecked = false
   /// For cloud-only frames: stitch on the server rather than downloading.
   @State private var prefersServer = true
+  @State private var confirmsDiscard = false
+  @State private var closeAfterDiscard: (() -> Void)?
 
   var body: some View {
     NavigationStack {
@@ -111,7 +115,7 @@ struct PanoMergeView: View {
             stitchProgress: session.stitchProgress(runsOnServer: runsOnServer),
             maxImageHeight: PanoPreviewLayout.maxImageHeight(sheetHeight: sheetHeight),
             onRetry: { session.preview(assets: assets) },
-            onOpenPanoSettings: onOpenPanoSettings
+            onOpenPanoSettings: onOpenPanoSettings.map { open in { close(then: open) } }
           )
         }
       }
@@ -127,17 +131,31 @@ struct PanoMergeView: View {
       .onChange(of: session.downloadRoute?.download.state) { _, state in
         if state == .downloaded { followRoute() }
       }
+      .interactiveDismissDisabled(session.closingDiscardsWork)
+      .confirmationDialog(
+        session.isRunning ? "Stop and discard this panorama?" : "Discard this panorama?",
+        isPresented: $confirmsDiscard,
+        titleVisibility: .visible
+      ) {
+        Button(session.isRunning ? "Stop and Discard" : "Discard", role: .destructive) {
+          closeAfterDiscard?()
+        }
+        Button("Keep Working", role: .cancel) {}
+      } message: {
+        Text(
+          session.isRunning
+            ? "The stitch in progress will be stopped."
+            : "This panorama has not been added to your library yet. Tap Done to keep it.")
+      }
       .navigationTitle("Merge Panorama")
       #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
       #endif
       .toolbar {
         ToolbarItem(placement: .cancellationAction) {
-          Button("Cancel") {
-            session.cancel()
-            onDismiss()
-          }
-          .accessibilityLabel("Cancel panorama merge and return to browse")
+          Button("Cancel") { close(then: onDismiss) }
+            .keyboardShortcut(.cancelAction)
+            .accessibilityLabel("Cancel panorama merge and return to browse")
         }
         ToolbarItem(placement: .confirmationAction) {
           if session.isRunning {
@@ -165,6 +183,17 @@ struct PanoMergeView: View {
           }
         }
       }
+    }
+  }
+
+  // MARK: - Closing (#5662)
+
+  private func close(then action: @escaping () -> Void) {
+    if session.closingDiscardsWork {
+      closeAfterDiscard = action
+      confirmsDiscard = true
+    } else {
+      action()
     }
   }
 

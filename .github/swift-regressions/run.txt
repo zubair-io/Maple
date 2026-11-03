@@ -415,6 +415,10 @@ RestoreSafetyTests
 # SMB restore is copy-only: trashed files are marked, never deleted or renamed (#4139/#4173).
 SMBCopyOnlyRestoreTests
 
+# Panorama close guard (#5662): closing the merge view asks first only when a
+# running or finished stitch would be lost.
+PanoMergeDismissGuardTests
+
 # Panorama merge preview (#4579): PanoMergeSession preview/debounce/cancel
 # and alignment hand-off against an in-memory recording stitcher; no FFI.
 PanoMergePreviewTests
