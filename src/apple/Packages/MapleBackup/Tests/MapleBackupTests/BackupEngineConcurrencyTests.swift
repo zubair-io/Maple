@@ -179,12 +179,9 @@ final class BackupEngineConcurrencyTests: XCTestCase {
     await engine.run()
 
     let peak = await reader.peak
-    XCTAssertLessThanOrEqual(
-      peak, 8,
-      "default cap must be 8 — never more")
-    XCTAssertEqual(
-      peak, 8,
-      "with 12 tasks the default cap of 8 should be reached")
+    let cap = BackupEngine.defaultMaxConcurrency
+    XCTAssertLessThanOrEqual(peak, cap, "default cap must hold — never more")
+    XCTAssertEqual(peak, cap, "with 12 tasks the default cap should be reached")
   }
 }
 

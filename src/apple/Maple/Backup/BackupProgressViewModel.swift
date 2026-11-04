@@ -36,6 +36,8 @@ public final class BackupProgressViewModel {
     case running
     /// Startup is in flight (teardown + durable queue recovery).
     case starting
+    /// Stopped on purpose while a panorama stitch has the memory (#5653).
+    case pausedForPanorama
 
     /// Short label for the status row.
     public var label: String {
@@ -43,6 +45,7 @@ public final class BackupProgressViewModel {
       case .stopped: return "Stopped"
       case .running: return "Running"
       case .starting: return "Starting…"
+      case .pausedForPanorama: return "Paused for panorama"
       }
     }
   }

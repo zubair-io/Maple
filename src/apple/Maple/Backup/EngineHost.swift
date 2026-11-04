@@ -77,8 +77,12 @@ public final class EngineHost {
   public let progress = BackupProgressViewModel()
 
   private var generation = UUID()
-  /// The state DB is refusing work so the app can be suspended without a lock held (#5652).
-  private var suspensionRequested = false
+  /// Whether the engine may run: down while the app is leaving the foreground
+  /// (the state DB refuses work so no lock is held at suspension, #5652) and
+  /// while a panorama stitch holds a pause (#5653).
+  private var runGate = BackupRunGate()
+  private var suspensionRequested: Bool { runGate.isSuspended }
+  public var isPausedForPanorama: Bool { runGate.isPaused }
   /// Every start and stop runs here, one at a time (#5022): a second Stop, a
   /// BGTask expiry or a new Start never interleaves with a teardown.
   private let lifecycle = SerialOperationQueue()
@@ -142,7 +146,13 @@ public final class EngineHost {
   private func performStart(
     settings: BackupSettings, serverBaseURL: URL, generation: UUID
   ) async {
-    guard generation == self.generation, !suspensionRequested else { return }
+    guard generation == self.generation else { return }
+    guard runGate.mayRun else {
+      if runGate.isPaused, !BackupSettings.isStoppedByUser {
+        progress.setPhase(.pausedForPanorama)
+      }
+      return
+    }
     if progress.phase == .running && activeSettings == settings {
       retryFailedRequested = false
       return
@@ -177,7 +187,7 @@ public final class EngineHost {
       // never start rehydrating alongside it.
       var lockHandedToEngine = false
       defer { if !lockHandedToEngine { engineLock?.release() } }
-      guard generation == self.generation, !suspensionRequested else { return }
+      guard generation == self.generation, runGate.mayRun else { return }
       let deviceId = try DeviceIdentity.current(
         storageURL: DeviceIdentity.storageURL(in: storageRoot))
       let sidecars = AppSupportSidecarStore(
@@ -196,7 +206,7 @@ public final class EngineHost {
       // progress VM to miss those events and undercount on restart.
       await progress.start(queue: queue)
 
-      guard generation == self.generation, !suspensionRequested else { return }
+      guard generation == self.generation, runGate.mayRun else { return }
       try await state.rehydrate(into: queue)
 
       await LocalNetworkResolver.shared.resolve(identity: serverBaseURL)
@@ -286,7 +296,7 @@ public final class EngineHost {
   /// the DB is suspended anyway: the in-flight write fails and its row is
   /// rehydrated on the next start.
   public func suspendStateStore() async {
-    suspensionRequested = true
+    runGate.suspend()
     let backstop = Task { @MainActor in
       try await Task.sleep(for: .seconds(3))
       if self.suspensionRequested { BackupStateSuspension.suspend() }
@@ -297,11 +307,43 @@ public final class EngineHost {
 
   /// Let the state DB take writes again. The caller restarts the engine.
   public func resumeStateStore() async {
-    suspensionRequested = false
+    runGate.resume()
     await lifecycle.run {
       // A suspend queued behind this resume must win.
       if !self.suspensionRequested { BackupStateSuspension.resume() }
     }
+  }
+
+  /// Stop the backup and keep it stopped until the returned pause is released,
+  /// so a panorama stitch has the process memory to itself (#5653). Pauses are
+  /// counted: the backup restarts only when the last one is released, and not
+  /// while the app is in the background. `stoppedRunningWork` tells the caller
+  /// whether a running engine was actually taken down.
+  public func pauseForPanorama() async -> (id: UUID, stoppedRunningWork: Bool) {
+    let id = runGate.pause()
+    let stoppedRunningWork = progress.phase == .running || progress.phase == .starting
+    let alreadyPaused = progress.phase == .pausedForPanorama
+    generation = UUID()
+    engineLockWait?.cancel()
+    await lifecycle.run {
+      await self.tearDown()
+      if self.runGate.isPaused, stoppedRunningWork || alreadyPaused {
+        self.progress.setPhase(.pausedForPanorama)
+      }
+    }
+    return (id, stoppedRunningWork)
+  }
+
+  /// Give one pause back. The last release restarts the backup unless the user
+  /// stopped it or the app is in the background (`enterForeground` restarts it).
+  public func releasePause(_ id: UUID) async {
+    guard runGate.release(id) else { return }
+    await lifecycle.run {
+      if !self.runGate.isPaused, self.progress.phase == .pausedForPanorama {
+        self.progress.setPhase(.stopped)
+      }
+    }
+    await MapleApp.startBackupIfAuthorized()
   }
 
   private func tearDown() async {

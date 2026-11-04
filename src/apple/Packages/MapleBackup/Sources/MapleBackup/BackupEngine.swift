@@ -28,8 +28,19 @@ public actor BackupEngine {
   private let reachability: Reachability?
   private let wifiOnly: Bool
 
+  /// iPhone and iPad hold each asset's mapped resources until its upload ends,
+  /// so a smaller cap keeps the backup's footprint out of the way of the editor
+  /// and panorama stitches that share the process memory limit (#5653).
+  public static let defaultMaxConcurrency: Int = {
+    #if os(iOS)
+      3
+    #else
+      8
+    #endif
+  }()
+
   /// How many `process(task:)` runs proceed in parallel inside `run()`.
-  /// Defaults to 8 (raised from the original hardcoded 4 in #700). The real
+  /// Defaults to `defaultMaxConcurrency` (8 off iOS, raised from 4 in #700). The real
   /// wall-clock parallelism comes from network I/O suspending without holding
   /// the engine's actor isolation, so the cap mostly bounds how many assets
   /// we read + buffer at once. Overridable per-host for fast LAN servers.
@@ -107,7 +118,7 @@ public actor BackupEngine {
     reader: any AssetReader,
     reachability: Reachability? = nil,
     wifiOnly: Bool = false,
-    maxConcurrency: Int = 8,
+    maxConcurrency: Int = BackupEngine.defaultMaxConcurrency,
     companionBackoff: @escaping @Sendable (Int) -> TimeInterval = {
       min(3600, pow(2.0, Double($0)))
     }

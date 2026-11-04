@@ -179,7 +179,8 @@ struct AppShell: View {
   /// user hits "Merge to panorama…" and torn down (session reset) on
   /// cancel or navigation away. Uses RustPanoStitcher (M4, #1234) so the
   /// real FFI stitch runs; MockPanoStitcher is retained for unit tests only.
-  @State var panoMergeSession: PanoMergeSession = PanoMergeSession(stitcher: RustPanoStitcher())
+  @State var panoMergeSession: PanoMergeSession = PanoMergeSession(
+    stitcher: RustPanoStitcher(), backgroundPause: EnginePanoPause.forThisPlatform)
   /// The two places a merge can run (#5488): this device, and the Maple
   /// server the selected frames live on (set by `openPanoramaMerge`).
   @State var panoDeviceStitcher = RustPanoStitcher()
