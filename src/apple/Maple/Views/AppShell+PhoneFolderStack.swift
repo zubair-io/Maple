@@ -345,10 +345,7 @@
         let model = browseVM
         Task { await model.retryLastLoad() }
       }
-      let lower =
-        LibraryDestination.folderLevels(in: libraryPath).map { ($0.path, $0.browseVM) }
-        + [phoneFolderRoot].compactMap { $0 }.map { ($0.path, $0.browseVM) }
-      for (path, model) in lower where model !== browseVM {
+      for (path, model) in phoneLevelsBelowTop {
         switch destination {
         case .local(let url, _) where PhoneFolderLocation.samePath(path, url.path):
           Task { await model.loadFolder(url: url) }
@@ -360,6 +357,32 @@
           Task { await model.loadCloudDir(source, absPath: absPath) }
         default:
           continue
+        }
+      }
+    }
+
+    /// Every level under the one on screen, root included.
+    private var phoneLevelsBelowTop: [(path: String, model: BrowseViewModel)] {
+      let levels =
+        LibraryDestination.folderLevels(in: libraryPath).map { ($0.path, $0.browseVM) }
+        + [phoneFolderRoot].compactMap { $0 }.map { ($0.path, $0.browseVM) }
+      return levels.filter { $0.1 !== browseVM }.map { (path: $0.0, model: $0.1) }
+    }
+
+    /// A folder renamed, trashed or created from the side menu can change the
+    /// subfolders of a level the user will swipe back to.
+    func refreshPhoneFolderSubfolders() {
+      guard MapleShellKind.current == .phoneTab,
+        case .located(let location) = resolvePhoneFolderLocation()
+      else { return }
+      for (path, model) in phoneLevelsBelowTop {
+        switch location.source {
+        case .local:
+          Task { await model.reloadSubfolders(of: URL(fileURLWithPath: path)) }
+        case .cloud(let serverID, let folderID):
+          let source = makeCloudLibrarySource(
+            serverID: serverID, folderID: folderID, path: location.rootPath)
+          Task { await model.reloadCloudSubfolders(source, absPath: path) }
         }
       }
     }

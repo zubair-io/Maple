@@ -129,6 +129,27 @@
         PhoneFolderLocation.samePath("/private/var/mobile/Photos", "/var/mobile/Photos/"))
     }
 
+    @MainActor
+    func testReloadSubfoldersPicksUpFolderChangesAndKeepsPhotos() async throws {
+      let root = FileManager.default.temporaryDirectory
+        .appendingPathComponent(UUID().uuidString, isDirectory: true)
+      defer { try? FileManager.default.removeItem(at: root) }
+      for name in ["Keep", "Old", ".maple"] {
+        try FileManager.default.createDirectory(
+          at: root.appendingPathComponent(name), withIntermediateDirectories: true)
+      }
+      let model = BrowseViewModel()
+      await model.loadFolder(url: root)
+      let photos = model.assets
+      try FileManager.default.moveItem(
+        at: root.appendingPathComponent("Old"), to: root.appendingPathComponent("New"))
+
+      await model.reloadSubfolders(of: root)
+
+      XCTAssertEqual(model.subfolders.map(\.lastPathComponent), ["Keep", "New"])
+      XCTAssertEqual(model.assets, photos)
+    }
+
     func testSourceSwitchIsDetectedAcrossKindsAndCloudLibraries() {
       let server = URL(string: "https://maple.example")!
       let local = LibrarySelection.folder(path: "/var/mobile/Photos/2026")
