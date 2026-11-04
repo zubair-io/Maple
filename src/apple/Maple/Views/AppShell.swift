@@ -245,6 +245,8 @@ struct AppShell: View {
     /// render. Default-internal (not `private`) so `openEditor` /
     /// `consumePendingDeepLink` / `consumePendingOpenedDocument` can append.
     @State var libraryPath: [LibraryDestination] = []
+    /// The folder stack's root level while a subfolder is pushed (#5674).
+    @State var phoneFolderRoot: PhoneFolderRoot?
     @State var phoneBatchExportAssets: [AssetRef] = []
     @State var showsPhoneBatchExport = false
     @State var phoneMoveRequest: PhoneAssetMoveRequest?
@@ -1368,7 +1370,7 @@ struct AppShell: View {
         isDrawerOpen: $isDrawerOpen,
         mode: mode,
         selectedSession: selectedSession,
-        libraryTitle: libraryTitle,
+        libraryTitle: phoneRootTitle,
         cloudTimelineVM: cloudTimelineVM,
         cloudTimelineThumbClient: cloudTimelineThumbClient,
         cloudTimelineThumbCache: cloudTimelineThumbCache,
@@ -1384,6 +1386,7 @@ struct AppShell: View {
         mapUnavailableReason: mapUnavailableReason,
         browseDisplayMode: $browseDisplayMode,
         browseVM: browseVM,
+        rootBrowseVM: phoneRootBrowseVM,
         sessions: $sessions,
         // ServerAdmin (#2766) reaches the Settings tab through here.
         sessionFor: sessionFor,
@@ -1437,6 +1440,10 @@ struct AppShell: View {
         onMove: canOfferPhoneMove ? { ids in beginPhoneAssetMove(ids) } : nil,
         clipboard: adjustmentClipboard
       )
+      // Folder stack (#5674): see AppShell+PhoneFolderStack.swift.
+      .onChange(of: phoneFolderLocationKey) { reconcilePhoneFolderStack() }
+      .onChange(of: libraryPath) { old, new in phoneLibraryPathChanged(from: old, to: new) }
+      .onChange(of: browseVM.gridFilter) { _, filter in syncPhoneFolderGridFilter(filter) }
       // M2: panorama merge cover for iPhone (#5662), over the tab shell.
       .panoMergePresentation(isPresented: panoMergeIsPresented) { panoMergeView }
       .onChange(of: mode == .panoramaMerge) { wasOpen, isOpen in

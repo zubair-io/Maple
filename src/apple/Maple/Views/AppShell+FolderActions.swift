@@ -94,13 +94,19 @@ extension AppShell {
   /// scope.
   @MainActor
   func navigateFolder(_ url: URL) {
+    let cloudSource = browseVM.currentSource as? CloudSource
+    #if os(iOS)
+      // iPhone pushes the subfolder as its own stack level (#5674); the
+      // loads below then fill the new level's model, not the parent's.
+      pushPhoneFolderLevel(url)
+    #endif
     // Cloud-library context: drill into the subfolder via /api/fs/dir
     // instead of the filesystem-bookmark path. URL.path carries the
     // server-side absolute path. We don't update LibrarySelection
     // because the drilled-in path is browser state, not a sidebar
     // selection — the user is still on the same library row.
     if case .cloudLibrary(let serverID, let folderID) = librarySelection,
-      let source = browseVM.currentSource as? CloudSource
+      let source = cloudSource
     {
       cloudCurrentPath = url.path
       // Persist the drilled-in path so cold start restores at the
@@ -113,6 +119,8 @@ extension AppShell {
           libraryPath: url.path))
       Task { @MainActor in
         await browseVM.loadCloudDir(source, absPath: url.path)
+        // A back swipe during the load already moved the location on.
+        guard cloudCurrentPath == url.path else { return }
         libraryTitle = url.lastPathComponent
         pruneSessionsForNewAssetList()
       }
@@ -164,10 +172,10 @@ extension AppShell {
       // actually surface the photo — `mode = .preview` alone would leave the
       // grid on screen because `AppShellIPhoneShell` never consumes `mode`
       // to pick the center surface; only the `libraryPath` push does. Reset
-      // the stack first so an in-flight editor push is replaced, not
-      // stacked under, the new open.
+      // the photo first so an in-flight editor push is replaced, not
+      // stacked under, the new open. The folder levels stay.
       if MapleShellKind.current == .phoneTab {
-        libraryPath = [.preview(asset)]
+        libraryPath = LibraryDestination.folderEntries(in: libraryPath) + [.preview(asset)]
         return
       }
     #endif

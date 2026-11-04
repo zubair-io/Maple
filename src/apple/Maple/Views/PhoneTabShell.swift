@@ -95,6 +95,9 @@
     /// iOS 26 `Tab(role: .search)` search bar). Bound into `PhoneSearchTab`.
     @State private var searchQuery: String = ""
 
+    /// Briefly set by a Library tab re-tap to swallow SwiftUI's pop-to-root.
+    @State private var keepsStackOnReselect = false
+
     /// The AppShell-root reveal action (loads the containing folder into
     /// browse). The iPhone shell wraps it to ALSO switch to the Library tab —
     /// AppShell can't do that itself because `activeTab` lives here (#2518).
@@ -125,6 +128,8 @@
     let mapUnavailableReason: MapUnavailableReason?
     @Binding var browseDisplayMode: GridDisplayMode
     let browseVM: BrowseViewModel
+    /// The Library tab's root screen model; differs while a folder is pushed.
+    let rootBrowseVM: BrowseViewModel
     @Binding var sessions: [AssetRef.ID: EditSession]
 
     /// Passed through to the Settings tab so ServerAdmin (#2766) resolves
@@ -227,7 +232,7 @@
     }
 
     private var tabView: some View {
-      TabView(selection: $activeTab) {
+      TabView(selection: tabSelection) {
         Tab("Library", systemImage: "photo.on.rectangle.angled", value: "library") {
           // The stack pushes everything in `libraryPath` EXCEPT
           // `.preview`: Preview is drawn by `PhoneLibraryView`'s hero
@@ -251,7 +256,8 @@
               mapThumbCache: mapThumbCache,
               mapUnavailableReason: mapUnavailableReason,
               browseDisplayMode: $browseDisplayMode,
-              browseVM: browseVM,
+              browseVM: rootBrowseVM,
+              activeBrowseVM: browseVM,
               sessions: $sessions,
               libraryPath: $libraryPath,
               toolbarContent: toolbarContent,
@@ -432,12 +438,31 @@
 
     /// Prefill the Search tab with `text` and switch to it. `SearchView`'s
     /// `.onAppear` re-issues a non-empty query, so the search runs on arrival.
-    /// Clearing `libraryPath` pops any open editor/preview (and its info
-    /// sheet) so the user lands cleanly on the results.
+    /// Dropping the open editor/preview (and its info sheet) lands the user
+    /// cleanly on the results; the folder they were in stays.
     private func searchFor(_ text: String) {
       searchQuery = text
-      libraryPath = []
+      libraryPath = LibraryDestination.folderEntries(in: libraryPath)
       activeTab = "search"
+    }
+
+    /// Re-tapping the selected Library tab opens the side menu and keeps the
+    /// folder stack (#5674). SwiftUI reports the re-tap as a write of the
+    /// current value just before it pops the tab to root, which is dropped.
+    private var tabSelection: Binding<String> {
+      Binding(
+        get: { activeTab },
+        set: { tab in
+          if tab == "library", activeTab == "library" {
+            keepsStackOnReselect = true
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { keepsStackOnReselect = false }
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+              isDrawerOpen = true
+            }
+          }
+          activeTab = tab
+        }
+      )
     }
 
     /// Preview supplies its own non-interactive scale/fade presentation. Turn
@@ -514,19 +539,16 @@
     }
 
     /// `libraryPath` without its `.preview` entry — what the Library tab's
-    /// NavigationStack actually pushes. Writes (a pop) remove from the tail
-    /// of the full path, so a popped editor lands back on Preview.
+    /// NavigationStack actually pushes. A popped editor lands back on
+    /// Preview; a popped folder lands on its parent's grid.
     private var pushedLibraryPath: Binding<[LibraryDestination]> {
       Binding(
         get: {
           LibraryDestination.pushedDestinations(in: libraryPath)
         },
         set: { pushed in
-          let previews = libraryPath.filter {
-            if case .preview = $0 { return true }
-            return false
-          }
-          libraryPath = previews + pushed
+          guard !(keepsStackOnReselect && pushed.isEmpty) else { return }
+          libraryPath = LibraryDestination.applyingPushedDestinations(pushed, to: libraryPath)
         }
       )
     }

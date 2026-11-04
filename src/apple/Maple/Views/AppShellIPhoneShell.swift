@@ -78,6 +78,9 @@
     /// only hamburger + Info items inside the NavigationStack's `.toolbar`.
     let toolbarContent: () -> ToolbarContentT
     var showsBrowseToolbar = true
+    /// False on a pushed folder level, where the system back button takes
+    /// the leading slot and the side menu opens only from the root (#5674).
+    var showsDrawerButton = true
 
     // Center-column callbacks — all forward into AppShell action methods.
     let onSelectCloudAsset: (SearchAsset, URL) -> Void
@@ -182,7 +185,7 @@
       .toolbar {
         if showsBrowseToolbar {
           AppShellIPhoneToolbar(
-            isBrowse: mode == .browse,
+            isBrowse: mode == .browse && showsDrawerButton,
             isDrawerOpen: $isDrawerOpen
           )
           toolbarContent()
