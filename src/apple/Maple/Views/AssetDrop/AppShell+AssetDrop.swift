@@ -91,6 +91,9 @@ extension AppShell {
       else { return nil }
       return SMBDropBinding(source: source, share: share)
     }()
+    // On iPhone the user can open another folder level while the batch
+    // runs; the moved photos leave the folder they were picked in.
+    let sourceModel = browseVM
     assetDropTask = Task { @MainActor in
       var results: [AssetDropItemResult] = []
       var movedOutIDs: Set<AssetRef.ID> = []
@@ -104,7 +107,7 @@ extension AppShell {
         }
       }
       if !movedOutIDs.isEmpty {
-        applyMovedOut(movedOutIDs)
+        applyMovedOut(movedOutIDs, from: sourceModel)
       }
       // A folder row that's already expanded may now have a new
       // child (or one fewer, for a same-tree local move) — bump the
@@ -371,14 +374,14 @@ extension AppShell {
   /// source-tree node), so — unlike rename's in-place patch
   /// (`AppShell+AssetRename.swift`'s `applyRenamed`, same folder, new
   /// name) — reconciliation here is removal: drop it from
-  /// `browseVM.assets`, selection, and any live `EditSession`. A COPY
+  /// the source folder's assets, selection, and any live `EditSession`. A COPY
   /// leaves the original in its current folder untouched; nothing to
   /// reconcile for it.
-  private func applyMovedOut(_ ids: Set<AssetRef.ID>) {
-    browseVM.assets.removeAll { ids.contains($0.id) }
-    browseVM.selectedIDs.subtract(ids)
-    if let selected = browseVM.selectedID, ids.contains(selected) {
-      browseVM.selectedID = nil
+  private func applyMovedOut(_ ids: Set<AssetRef.ID>, from model: BrowseViewModel) {
+    model.assets.removeAll { ids.contains($0.id) }
+    model.selectedIDs.subtract(ids)
+    if let selected = model.selectedID, ids.contains(selected) {
+      model.selectedID = nil
     }
     for id in ids {
       sessions.removeValue(forKey: id)
