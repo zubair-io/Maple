@@ -224,7 +224,11 @@ extension AppShell {
       model.selectedID = newAsset.id
     }
     #if os(iOS)
-      if wasSelected || libraryPath.contains(where: { $0.asset?.id == oldID }) {
+      // Preview pages by selection without rewriting its route, so the
+      // selection counts only when it belongs to the folder on screen.
+      if (wasSelected && model === browseVM)
+        || libraryPath.contains(where: { $0.asset?.id == oldID })
+      {
         libraryPath = LibraryDestination.replacingAsset(in: libraryPath, with: newAsset)
       }
     #endif
