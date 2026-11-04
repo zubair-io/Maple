@@ -319,6 +319,18 @@
     /// A move or copy into a folder that is already on the stack below the
     /// top: reload that level, so the photos are there after a back swipe.
     func reloadPhoneFolderLevels(receiving destination: AssetDropDestination) {
+      let destinationSource: LibrarySelection? =
+        switch destination {
+        case .local(let url, _): .folder(path: url.path)
+        case .cloud(let server, let folderID, _, _):
+          .cloudLibrary(serverID: server, folderID: folderID)
+        case .smb: nil
+        }
+      // The batch may finish after the user switched to a source that
+      // happens to share the destination's paths.
+      guard let destinationSource,
+        PhoneFolderLocation.sameSource(destinationSource, librarySelection)
+      else { return }
       let lower =
         LibraryDestination.folderLevels(in: libraryPath).map { ($0.path, $0.browseVM) }
         + [phoneFolderRoot].compactMap { $0 }.map { ($0.path, $0.browseVM) }
