@@ -811,6 +811,7 @@ struct AppShell: View {
     }
     .task {
       configureAgentBrowseAdapter()
+      PanoContinuedProcessing.shared.attach(to: panoMergeSession)
       guard !hasRestoredInitialSource else { return }
       // UITest harness fast path lives in AppShell+UITestFixture
       // (#if DEBUG). Returns true if a fixture URL was consumed —
