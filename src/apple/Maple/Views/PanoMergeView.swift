@@ -115,7 +115,7 @@ struct PanoMergeView: View {
             stitchProgress: session.stitchProgress(runsOnServer: runsOnServer),
             maxImageHeight: PanoPreviewLayout.maxImageHeight(sheetHeight: sheetHeight),
             onRetry: { session.preview(assets: assets) },
-            onOpenPanoSettings: onOpenPanoSettings.map { open in { close(then: open) } }
+            onOpenPanoSettings: guardedOpenPanoSettings
           )
         }
       }
@@ -187,6 +187,10 @@ struct PanoMergeView: View {
   }
 
   // MARK: - Closing (#5662)
+
+  private var guardedOpenPanoSettings: (() -> Void)? {
+    onOpenPanoSettings.map { open in { close(then: open) } }
+  }
 
   private func close(then action: @escaping () -> Void) {
     if session.closingDiscardsWork {
@@ -448,7 +452,7 @@ struct PanoMergeView: View {
         .font(.caption)
         .foregroundStyle(.secondary)
 
-      PanoMatcherNote(matcher: result.matcher, onOpenPanoSettings: onOpenPanoSettings)
+      PanoMatcherNote(matcher: result.matcher, onOpenPanoSettings: guardedOpenPanoSettings)
 
       if let reason = result.edges?.boundaryWarpReason {
         HStack(alignment: .firstTextBaseline, spacing: MuiTokens.spacingXs) {
