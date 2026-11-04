@@ -112,6 +112,12 @@ SWIFT_WEB_INPUTS = frozenset(
     )
 )
 SWIFT_DOCS = frozenset(("docs/design/maple-ui/apple-icon-inventory.json",))
+SWIFT_REGRESSION_LISTS = frozenset(
+    (
+        ".github/swift-regressions/run.txt",
+        ".github/swift-regressions/excluded.txt",
+    )
+)
 # A sidecar contract record selects only its owning suite (api-tests re-checks
 # the API one with record.sh --check) and codegen, which derives the capability
 # registry from it; registry changes land in generated files that select their
@@ -180,7 +186,7 @@ def dependencies(path):
         return {"android", "web", "codegen", "swift"}
     if path.startswith("docs/design/maple-ui/components/"):
         return {"web"}
-    if path in SWIFT_DOCS:
+    if path in SWIFT_DOCS or path in SWIFT_REGRESSION_LISTS:
         return {"swift"}
     generated = "generated" in path.lower().split("/") or path.endswith(
         (".generated.ts", ".g.cs")
