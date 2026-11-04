@@ -129,4 +129,38 @@ extension BrowseViewModel {
     }
   }
 
+  /// Re-reads only `url`'s subfolders, leaving its photos and scroll position
+  /// alone: for a folder renamed, trashed or created beside a listing the
+  /// user is not looking at.
+  public func reloadSubfolders(of url: URL) async {
+    let gen = loadGeneration
+    let scope = currentScopeRoot ?? url
+    let subs = await Task.detached(priority: .utility) { () -> [URL]? in
+      let accessing = scope.startAccessingSecurityScopedResource()
+      defer { if accessing { scope.stopAccessingSecurityScopedResource() } }
+      guard
+        let contents = try? FileManager.default.contentsOfDirectory(
+          at: url, includingPropertiesForKeys: [.isDirectoryKey], options: [.skipsHiddenFiles])
+      else { return nil }
+      return
+        contents
+        .filter { entry in
+          !entry.lastPathComponent.hasPrefix(".")
+            && (try? entry.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
+        }
+        .sorted { $0.lastPathComponent < $1.lastPathComponent }
+    }.value
+    guard let subs, gen == loadGeneration, subs != subfolders else { return }
+    subfolders = subs
+  }
+
+  /// The cloud counterpart of `reloadSubfolders(of:)`.
+  public func reloadCloudSubfolders(_ source: CloudSource, absPath: String) async {
+    let gen = loadGeneration
+    guard let listing = try? await source.listDir(absPath: absPath), gen == loadGeneration
+    else { return }
+    let subs = listing.dirs.map { URL(fileURLWithPath: $0.path) }
+    guard subs != subfolders else { return }
+    subfolders = subs
+  }
 }

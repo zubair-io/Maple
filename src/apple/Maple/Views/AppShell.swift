@@ -1444,6 +1444,7 @@ struct AppShell: View {
       .onChange(of: phoneFolderLocationKey) { reconcilePhoneFolderStack() }
       .onChange(of: libraryPath) { old, new in phoneLibraryPathChanged(from: old, to: new) }
       .onChange(of: browseVM.gridFilter) { _, filter in syncPhoneFolderGridFilter(filter) }
+      .onChange(of: folderRefreshGeneration) { refreshPhoneFolderSubfolders() }
       .onChange(of: ObjectIdentifier(browseVM)) {
         guard AgentEditService.shared.browseDelegate === agentBrowseAdapter else { return }
         agentBrowseAdapter.browseVM = browseVM
