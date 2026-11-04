@@ -1444,6 +1444,10 @@ struct AppShell: View {
       .onChange(of: phoneFolderLocationKey) { reconcilePhoneFolderStack() }
       .onChange(of: libraryPath) { old, new in phoneLibraryPathChanged(from: old, to: new) }
       .onChange(of: browseVM.gridFilter) { _, filter in syncPhoneFolderGridFilter(filter) }
+      .onChange(of: ObjectIdentifier(browseVM)) {
+        guard AgentEditService.shared.browseDelegate === agentBrowseAdapter else { return }
+        agentBrowseAdapter.browseVM = browseVM
+      }
       // M2: panorama merge cover for iPhone (#5662), over the tab shell.
       .panoMergePresentation(isPresented: panoMergeIsPresented) { panoMergeView }
       .onChange(of: mode == .panoramaMerge) { wasOpen, isOpen in
