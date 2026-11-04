@@ -309,7 +309,8 @@
           // Each ancestor gets its own source: `CloudSource` tracks one
           // current path, which the top level's actions rely on.
           await model.loadCloudDir(
-            makeCloudLibrarySource(serverID: serverID, folderID: folderID, path: path),
+            makeCloudLibrarySource(
+              serverID: serverID, folderID: folderID, path: location.rootPath),
             absPath: path)
         }
       }
@@ -351,10 +352,11 @@
         switch destination {
         case .local(let url, _) where PhoneFolderLocation.samePath(path, url.path):
           Task { await model.loadFolder(url: url) }
-        case .cloud(let server, let folderID, _, let absPath)
+        case .cloud(let server, let folderID, let libraryRoot, let absPath)
         where PhoneFolderLocation.samePath(path, absPath):
           // A source of its own: the shared one tracks the top level's path.
-          let source = makeCloudLibrarySource(serverID: server, folderID: folderID, path: absPath)
+          let source = makeCloudLibrarySource(
+            serverID: server, folderID: folderID, path: libraryRoot)
           Task { await model.loadCloudDir(source, absPath: absPath) }
         default:
           continue
