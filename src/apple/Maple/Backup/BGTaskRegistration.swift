@@ -62,7 +62,7 @@ import MapleCore
 
       let runner = Task { @MainActor in
         await EngineHost.shared.resumeStateStore()
-        guard !BackupSettings.isStoppedByUser else { return }
+        guard !BackupSettings.isStoppedByUser, !EngineHost.shared.isPausedForPanorama else { return }
         await MapleApp.startBackupIfAuthorized()
         // Walk first so any new captures since the app last ran get enqueued,
         // then drain the queue. iOS limits execution time via the expiration

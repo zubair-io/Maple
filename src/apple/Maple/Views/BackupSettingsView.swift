@@ -58,10 +58,11 @@ struct BackupSettingsView: View {
     UserDefaults.standard.set(value, forKey: hasStartedKey)
   }
 
-  /// Running, or parked waiting for the background helper to finish (#4988):
-  /// either way the user can stop it.
+  /// Running, parked waiting for the background helper to finish (#4988), or
+  /// paused for a panorama (#5653): in each case the user can stop it.
   private var isStoppable: Bool {
     EngineHost.shared.progress.phase == .running || EngineHost.shared.isWaitingForBackgroundHelper
+      || EngineHost.shared.progress.phase == .pausedForPanorama
   }
 
   private var selectedServerURL: URL? {

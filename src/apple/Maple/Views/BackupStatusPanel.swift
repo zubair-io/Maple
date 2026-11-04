@@ -205,7 +205,7 @@ struct BackupStatusPanel: View {
   private var statusColor: Color {
     switch progress.phase {
     case .running: return EngineHost.shared.usesLocalAddress ? .green : .orange
-    case .starting: return .orange
+    case .starting, .pausedForPanorama: return .orange
     case .stopped: return .secondary
     }
   }

@@ -428,6 +428,10 @@ PanoEdgesTests
 PanoMemoryModelTests
 PanoOutputSizeSessionTests
 
+# Panorama backup pause (#5653): the stitch holds the host's backup pause and
+# releases it on every way the stitch can end; no FFI.
+PanoBackgroundPauseTests
+
 # Panorama storage fit (#5555): disk-fit model, its share of the Full/Smaller
 # choice, and the launch sweep of a terminated run's temp scratch.
 PanoDiskModelTests

@@ -176,6 +176,7 @@ public final class PanoMergeSession {
     private let diskModel = PanoDiskModel()
     private let availableMemory: @Sendable () -> Int?
     private let freeSpace: @Sendable (any PanoStitching, [AssetRef]) -> PanoFreeSpace?
+    private let backgroundPause: (any PanoBackgroundPausing)?
     private var chosenOutputSize: PanoOutputSize?
     /// Options the latest finished preview, and so `memoryFit`, was solved
     /// for. Every option reaches the solver (retention and local alignment
@@ -200,8 +201,10 @@ public final class PanoMergeSession {
         previewDebounce: Duration = .milliseconds(600),
         availableMemory: @escaping @Sendable () -> Int? = { PanoAvailableMemory.current() },
         isPhone: Bool = MapleShellKind.currentIdiom == .phone,
-        freeSpace: @escaping @Sendable (any PanoStitching, [AssetRef]) -> PanoFreeSpace? = { $0.freeSpace(for: $1) }
+        freeSpace: @escaping @Sendable (any PanoStitching, [AssetRef]) -> PanoFreeSpace? = { $0.freeSpace(for: $1) },
+        backgroundPause: (any PanoBackgroundPausing)? = nil
     ) {
+        self.backgroundPause = backgroundPause
         self.stitcher = stitcher
         self.previewDebounce = previewDebounce
         self.availableMemory = availableMemory
@@ -315,6 +318,22 @@ public final class PanoMergeSession {
         stitcher.runsInDeviceMemory && memoryFitOptions != options.withoutEdges && (availableMemory() != nil || diskFit != nil)
     }
 
+    private func pauseBackgroundWork(for stitcher: any PanoStitching) async -> PanoBackgroundPause? {
+        guard stitcher.runsInDeviceMemory else { return nil }
+        return await backgroundPause?.pause()
+    }
+
+    /// The sheet read the available memory while the backup was still running.
+    /// Once it has stopped, the default output size is re-decided from the
+    /// same preview against what the OS now grants. An explicit choice stands.
+    private func refreshMemoryFit() {
+        guard chosenOutputSize == nil, let options = memoryFitOptions,
+            let sizes = lastPreview?.stitchSizes
+        else { return }
+        memoryFit = memoryModel.fit(sizes: sizes, availableBytes: availableMemory())
+        memoryFitOptions = options
+    }
+
     /// The running preview whose alignment Create Panorama should wait for:
     /// one already matching for the current geometry. A pending (debounced)
     /// re-preview has nothing in flight worth keeping.
@@ -368,7 +387,11 @@ public final class PanoMergeSession {
         runTask = Task {
             for task in unwinding { await task.value }
             guard runGeneration == gen else { return }
+            let pause = await pauseBackgroundWork(for: capturedStitcher)
+            defer { pause?.release() }
+            guard runGeneration == gen else { return }
             do {
+                if pause?.stoppedRunningWork == true { refreshMemoryFit() }
                 if needsFreshFit(for: capturedOptions) {
                     state = .finishingAlignment
                     let preview = try await capturedStitcher.preview(
