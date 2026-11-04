@@ -1,8 +1,10 @@
 // PanoStitchProgressTests.swift — the stitch progress the merge sheet pins
 // inside its preview, and the preview's height cap (#5639).
 
+import CoreGraphics
 import Foundation
 import Testing
+import os
 
 @testable import MapleCore
 
@@ -28,6 +30,82 @@ private final class HoldingStitcher: PanoStitching, @unchecked Sendable {
         progress: @escaping @MainActor (PanoStage, Double) -> Void
     ) async throws -> PanoPreview {
         throw CancellationError()
+    }
+}
+
+/// Re-aligns (the preview solved nothing for these options), reports how far
+/// along it is, and holds there until `finishAlignment` is set.
+private final class RealigningStitcher: PanoStitching, @unchecked Sendable {
+    private let released = OSAllocatedUnfairLock(initialState: false)
+
+    func finishAlignment() { released.withLock { $0 = true } }
+
+    func cancel() {}
+
+    func preview(
+        assets: [AssetRef], options: PanoOptions, alignment: PanoAlignment?,
+        progress: @escaping @MainActor (PanoStage, Double) -> Void
+    ) async throws -> PanoPreview {
+        await MainActor.run { progress(.graph, 1) }
+        while !released.withLock({ $0 }) { try await Task.sleep(for: .milliseconds(2)) }
+        let context = CGContext(
+            data: nil, width: 4, height: 2, bitsPerComponent: 8, bytesPerRow: 0,
+            space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        return PanoPreview(
+            image: context.makeImage()!, alignment: PanoAlignment(json: Data("a".utf8)), alignmentOutcome: .solved)
+    }
+
+    func stitch(
+        assets: [AssetRef], options: PanoOptions, alignment: PanoAlignment?,
+        maxCanvasPixels: Int?, progress: @escaping @MainActor (PanoStage, Double) -> Void
+    ) async throws -> PanoResult {
+        await MainActor.run { progress(.decoding, 0) }
+        try await Task.sleep(for: .seconds(60))
+        throw CancellationError()
+    }
+}
+
+@MainActor
+@Suite struct PanoStitchContinuityTests {
+    private let assets = (0..<2).map { AssetRef.preview(displayName: "IMG_\($0).dng") }
+
+    private func wait(for condition: @MainActor () -> Bool) async {
+        var turns = 0
+        while !condition() && turns < 5_000 {
+            try? await Task.sleep(for: .milliseconds(2))
+            turns += 1
+        }
+    }
+
+    @Test func theBarAdvancesThroughAlignmentAndNeverFallsBackWhenTheCompositeStarts() async {
+        let stitcher = RealigningStitcher()
+        let session = PanoMergeSession(stitcher: stitcher, availableMemory: { 1 << 30 })
+        session.start(assets: assets)
+        await wait {
+            let progress = session.stitchProgress(runsOnServer: false)
+            return progress?.title == "Finishing alignment…" && (progress?.fraction ?? 0) > 0
+        }
+        let duringAlignment = session.stitchProgress(runsOnServer: false)?.fraction ?? -1
+        stitcher.finishAlignment()
+        await wait { session.stitchProgress(runsOnServer: false)?.title == PanoStage.decoding.displayName }
+        let afterAlignment = session.stitchProgress(runsOnServer: false)?.fraction ?? -1
+        session.cancel()
+        #expect(duringAlignment > 0)
+        #expect(duringAlignment <= PanoStitchProgress.alignmentShare)
+        #expect(afterAlignment >= duringAlignment)
+    }
+
+    @Test func anAbortedRunEndsInAnErrorThatSaysWhy() async {
+        let session = PanoMergeSession(stitcher: HoldingStitcher(reporting: 0.2))
+        session.start(assets: assets)
+        #expect(session.abort(because: "iOS ended it"))
+        guard case .error(let error) = session.state else {
+            Issue.record("expected an error state, got \(session.state)")
+            return
+        }
+        #expect(error.message == "iOS ended it")
+        #expect(session.stitchProgress(runsOnServer: false) == nil)
+        #expect(!session.abort(because: "again"))
     }
 }
 

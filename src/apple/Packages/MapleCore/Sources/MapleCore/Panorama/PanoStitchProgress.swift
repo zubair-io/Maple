@@ -7,6 +7,10 @@ import Foundation
 /// The stitch's stage and overall progress, shown inside the pinned preview so
 /// it stays in view while the options scroll.
 public struct PanoStitchProgress: Equatable, Sendable {
+    /// The share of the bar the alignment phase takes when a stitch has one,
+    /// so the bar never falls back when the composite starts.
+    public static let alignmentShare = 0.3
+
     public let title: String
     public let fraction: Double
 
@@ -21,13 +25,23 @@ extension PanoMergeSession {
     public func stitchProgress(runsOnServer: Bool) -> PanoStitchProgress? {
         switch state {
         case .finishingAlignment:
-            let preview: Double
-            if case .running(_, let overall) = previewState { preview = overall } else { preview = 1 }
-            return PanoStitchProgress(title: "Finishing alignment…", fraction: preview)
+            let alignment: Double
+            if let freshAlignmentFraction {
+                alignment = freshAlignmentFraction
+            } else if case .running(_, let overall) = previewState {
+                alignment = overall
+            } else {
+                alignment = 1
+            }
+            return PanoStitchProgress(
+                title: "Finishing alignment…", fraction: alignment * PanoStitchProgress.alignmentShare)
         case .running(let stage, _, let overall):
+            let fraction = stitchIncludesAlignment
+                ? PanoStitchProgress.alignmentShare + overall * (1 - PanoStitchProgress.alignmentShare)
+                : overall
             return PanoStitchProgress(
                 title: runsOnServer && overall == 0 ? "Waiting for the server…" : stage.displayName,
-                fraction: overall)
+                fraction: fraction)
         case .idle, .done, .error:
             return nil
         }
