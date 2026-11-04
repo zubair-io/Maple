@@ -120,3 +120,46 @@ final class PanoSystemProgressTests: XCTestCase {
             .began(.init(units: 100, subtitle: "Compositing · 10%")))
     }
 }
+
+final class PanoSystemProgressArbiterTests: XCTestCase {
+    private let midRun = PanoMergeSession.RunState.running(stage: .compositing, stageFraction: 0, overallFraction: 0.5)
+    private let progress = PanoStitchProgress(title: "Compositing", fraction: 0.5)
+    private let frame = PanoSystemProgressTracker.Frame(units: 500, subtitle: "Compositing · 50%")
+
+    func testSecondSessionIdleDoesNotEndTheOwnersTask() {
+        var arbiter = PanoSystemProgressArbiter<Int>()
+        XCTAssertEqual(arbiter.consume(1, state: midRun, progress: progress), .began(frame))
+        XCTAssertNil(arbiter.consume(2, state: .idle, progress: nil))
+        XCTAssertEqual(arbiter.owner, 1)
+    }
+
+    func testSecondSessionRunDoesNotTakeOverTheTask() {
+        var arbiter = PanoSystemProgressArbiter<Int>()
+        _ = arbiter.consume(1, state: midRun, progress: progress)
+        XCTAssertNil(arbiter.consume(2, state: midRun, progress: progress))
+        XCTAssertNil(arbiter.consume(2, state: .idle, progress: nil))
+        XCTAssertEqual(arbiter.owner, 1)
+    }
+
+    func testOwnerEndFreesTheTaskForTheNextRun() {
+        var arbiter = PanoSystemProgressArbiter<Int>()
+        _ = arbiter.consume(1, state: midRun, progress: progress)
+        XCTAssertEqual(arbiter.consume(1, state: .idle, progress: nil), .ended(.stopped))
+        XCTAssertNil(arbiter.owner)
+        XCTAssertEqual(arbiter.consume(2, state: midRun, progress: progress), .began(frame))
+    }
+
+    func testReleasingTheOwnerEndsItsTask() {
+        var arbiter = PanoSystemProgressArbiter<Int>()
+        _ = arbiter.consume(1, state: midRun, progress: progress)
+        XCTAssertEqual(arbiter.release(1), .ended(.stopped))
+        XCTAssertNil(arbiter.owner)
+    }
+
+    func testReleasingANonOwnerChangesNothing() {
+        var arbiter = PanoSystemProgressArbiter<Int>()
+        _ = arbiter.consume(1, state: midRun, progress: progress)
+        XCTAssertNil(arbiter.release(2))
+        XCTAssertEqual(arbiter.owner, 1)
+    }
+}

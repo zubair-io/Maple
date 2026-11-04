@@ -63,3 +63,40 @@ public struct PanoSystemProgressTracker: Sendable {
         return .ended(outcome)
     }
 }
+
+/// Several merge sessions can exist at once (one per iPad window) but the
+/// system shows one task, so the first run to begin owns it until it ends or
+/// its session is released; other sessions' events are ignored.
+public struct PanoSystemProgressArbiter<ID: Hashable & Sendable>: Sendable {
+    private var trackers: [ID: PanoSystemProgressTracker] = [:]
+    public private(set) var owner: ID?
+
+    public init() {}
+
+    public mutating func consume(
+        _ id: ID, state: PanoMergeSession.RunState, progress: PanoStitchProgress?
+    ) -> PanoSystemProgressTracker.Event? {
+        var tracker = trackers[id] ?? PanoSystemProgressTracker()
+        let event = tracker.consume(state, progress: progress)
+        trackers[id] = tracker
+        switch event {
+        case .began where owner == nil:
+            owner = id
+            return event
+        case .progressed where owner == id:
+            return event
+        case .ended where owner == id:
+            owner = nil
+            return event
+        default:
+            return nil
+        }
+    }
+
+    public mutating func release(_ id: ID) -> PanoSystemProgressTracker.Event? {
+        trackers[id] = nil
+        guard owner == id else { return nil }
+        owner = nil
+        return .ended(.stopped)
+    }
+}

@@ -21,9 +21,8 @@ final class PanoContinuedProcessing {
         let progress: PanoStitchProgress?
     }
 
-    private weak var session: PanoMergeSession?
-    private var observation: Task<Void, Never>?
-    private var tracker = PanoSystemProgressTracker()
+    private weak var ownerSession: PanoMergeSession?
+    private var arbiter = PanoSystemProgressArbiter<ObjectIdentifier>()
     private var handlerRegistered = false
     private var runActive = false
     private var latest: PanoSystemProgressTracker.Frame?
@@ -32,21 +31,19 @@ final class PanoContinuedProcessing {
 
     private init() {}
 
-    func attach(to session: PanoMergeSession) {
-        guard self.session !== session else { return }
-        observation?.cancel()
-        self.session = session
+    func observe(_ session: PanoMergeSession) async {
         registerHandler()
-        observation = Task { [weak self] in
-            let snapshots = Observations {
-                Snapshot(
-                    state: session.state,
-                    progress: session.stitchProgress(runsOnServer: session.stitcher is ServerPanoStitcher))
-            }
-            for await snapshot in snapshots {
-                self?.consume(snapshot)
-            }
+        let id = ObjectIdentifier(session)
+        let snapshots = Observations {
+            Snapshot(
+                state: session.state,
+                progress: session.stitchProgress(runsOnServer: session.stitcher is ServerPanoStitcher))
         }
+        for await snapshot in snapshots {
+            let event = arbiter.consume(id, state: snapshot.state, progress: snapshot.progress)
+            handle(event, from: session)
+        }
+        handle(arbiter.release(id), from: session)
     }
 
     private func registerHandler() {
@@ -56,15 +53,16 @@ final class PanoContinuedProcessing {
         ) { [weak self] task in
             guard let task = task as? BGContinuedProcessingTask else { return }
             task.expirationHandler = {
-                Task { @MainActor in self?.session?.cancel() }
+                Task { @MainActor in self?.ownerSession?.cancel() }
             }
             Task { @MainActor in self?.adopt(task) }
         }
     }
 
-    private func consume(_ snapshot: Snapshot) {
-        switch tracker.consume(snapshot.state, progress: snapshot.progress) {
+    private func handle(_ event: PanoSystemProgressTracker.Event?, from session: PanoMergeSession) {
+        switch event {
         case .began(let frame):
+            ownerSession = session
             runActive = true
             endedBeforeTask = nil
             latest = frame
@@ -74,6 +72,7 @@ final class PanoContinuedProcessing {
             latest = frame
             apply(frame)
         case .ended(let outcome):
+            ownerSession = nil
             runActive = false
             latest = nil
             finish(outcome)
@@ -158,7 +157,7 @@ final class PanoContinuedProcessing {
 final class PanoContinuedProcessing {
     static let shared = PanoContinuedProcessing()
     private init() {}
-    func attach(to session: PanoMergeSession) {}
+    func observe(_ session: PanoMergeSession) async {}
 }
 
 #endif
