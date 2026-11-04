@@ -4,6 +4,9 @@ import Foundation
 
 public struct PanoSystemProgressTracker: Sendable {
     public static let totalUnits = 1000
+    /// Reaching the total tells the system the task is complete, so a running
+    /// stitch stops short of it; only `finished` completes the bar.
+    static let runningCeilingUnits = 990
 
     public struct Frame: Equatable, Sendable {
         public let units: Int
@@ -14,6 +17,11 @@ public struct PanoSystemProgressTracker: Sendable {
         case finished
         case failed(String)
         case stopped
+
+        public var isFailure: Bool {
+            if case .failed = self { return true }
+            return false
+        }
     }
 
     public enum Event: Equatable, Sendable {
@@ -32,7 +40,7 @@ public struct PanoSystemProgressTracker: Sendable {
         switch state {
         case .finishingAlignment, .running:
             guard let progress else { return nil }
-            return advance(to: frame(for: state, progress: progress))
+            return advance(to: frame(for: progress))
         case .idle:
             return end(.stopped)
         case .done:
@@ -42,12 +50,11 @@ public struct PanoSystemProgressTracker: Sendable {
         }
     }
 
-    private func frame(for state: PanoMergeSession.RunState, progress: PanoStitchProgress) -> Frame {
+    private func frame(for progress: PanoStitchProgress) -> Frame {
         let title = progress.title.replacingOccurrences(of: "…", with: "")
-        guard case .running = state else { return Frame(units: 0, subtitle: title) }
         let fraction = progress.fraction.isFinite ? min(max(progress.fraction, 0), 1) : 0
-        let percent = Int(fraction * 100)
-        return Frame(units: percent * 10, subtitle: "\(title) · \(percent)%")
+        let units = max(Int(fraction * Double(Self.runningCeilingUnits)), lastFrame?.units ?? 0)
+        return Frame(units: units, subtitle: "\(title) · \(units / 10)%")
     }
 
     private mutating func advance(to frame: Frame) -> Event? {

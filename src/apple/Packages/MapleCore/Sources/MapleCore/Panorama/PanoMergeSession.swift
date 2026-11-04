@@ -34,6 +34,10 @@ public final class PanoMergeSession {
         public init(underlying: any Error) {
             self.message = underlying.localizedDescription
         }
+
+        init(message: String) {
+            self.message = message
+        }
     }
 
     public enum RunState: Sendable {
@@ -57,6 +61,12 @@ public final class PanoMergeSession {
 
     public private(set) var state: RunState = .idle
     public private(set) var previewState: PreviewState = .idle
+    /// Alignment progress of the stitch's own re-alignment, which runs when
+    /// the finished preview was solved for other options. `nil` otherwise.
+    private(set) var freshAlignmentFraction: Double?
+    /// The running stitch spent time in `.finishingAlignment`, so its
+    /// progress shares one bar between that phase and the composite.
+    private(set) var stitchIncludesAlignment = false
 
     /// The latest finished preview for the current frames. Stays visible
     /// while a re-preview runs, so an option change doesn't blank the view.
@@ -380,6 +390,7 @@ public final class PanoMergeSession {
         let capturedOptions = options
         let weights = PanoProgressWeights.stitch(localAlign: capturedOptions.localAlign)
 
+        stitchIncludesAlignment = awaitedPreview != nil
         state = awaitedPreview == nil
             ? .running(stage: .decoding, stageFraction: 0.0, overallFraction: 0.0)
             : .finishingAlignment
@@ -393,9 +404,17 @@ public final class PanoMergeSession {
             do {
                 if pause?.stoppedRunningWork == true { refreshMemoryFit() }
                 if needsFreshFit(for: capturedOptions) {
+                    stitchIncludesAlignment = true
                     state = .finishingAlignment
+                    freshAlignmentFraction = 0
+                    defer { freshAlignmentFraction = nil }
                     let preview = try await capturedStitcher.preview(
-                        assets: assets, options: capturedOptions, alignment: alignment, progress: { _, _ in })
+                        assets: assets, options: capturedOptions, alignment: alignment,
+                        progress: { stage, stageFraction in
+                            guard self.runGeneration == gen else { return }
+                            self.freshAlignmentFraction = PanoProgressWeights.preview.overall(
+                                stage: stage, stageFraction: stageFraction)
+                        })
                     let space = await readFreeSpace(capturedStitcher, assets)
                     guard runGeneration == gen else { return }
                     adopt(preview, of: assets, solvedFor: capturedOptions, space: space)
@@ -452,6 +471,19 @@ public final class PanoMergeSession {
         memoryFit = nil
         diskFit = nil
         cancelPreview()
+    }
+
+    /// Stop the in-flight work and surface `message` as the run's failure, for
+    /// an end the user did not ask for (the system expiring a background task).
+    @discardableResult
+    public func abort(because message: String) -> Bool {
+        guard isRunning else { return false }
+        runGeneration &+= 1
+        runTask?.cancel()
+        stitcher.cancel()
+        cancelPreview()
+        state = .error(StitchError(message: message))
+        return true
     }
 
     /// Reset to idle after a done/error state so the user can adjust options
