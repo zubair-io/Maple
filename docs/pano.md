@@ -268,7 +268,7 @@ A stitch takes minutes, and iOS suspends a backgrounded app within seconds, so s
 
 The panorama is not in the library until the user taps Done in the merge view, so the notification and the task open the app and nothing deep-links.
 
-The task asks for the default CPU and network resources, not background GPU, which would need the `com.apple.developer.background-tasks.continued-processing.gpu` entitlement. Continued processing does not raise the memory limit; the stitch's memory is governed by the Memory section above. The task is iOS and iPadOS only. macOS and tvOS compile a no-op.
+The task asks for the default CPU and network resources, not background GPU. `BGContinuedProcessingTaskRequest.Resources.gpu` needs the `com.apple.developer.background-tasks.continued-processing.gpu` entitlement (the Background GPU Access capability, a provisioning-profile change in the Developer portal) and is not supported on every device, so the stitch must never need the GPU while backgrounded. The classical matcher and the compositor are CPU only. The ML matcher's CoreML sessions on iOS are created with `CPUAndNeuralEngine` compute units rather than `All`, so ALIKED and LightGlue run on the Neural Engine and CPU and never pick the GPU, whether or not the app is in the foreground; the units are fixed when the session is created, so a stitch that starts in the foreground and is then backgrounded cannot switch mid-run. Continued processing does not raise the memory limit; the stitch's memory is governed by the Memory section above. The task is iOS and iPadOS only. macOS and tvOS compile a no-op.
 
 ### Build note
 
