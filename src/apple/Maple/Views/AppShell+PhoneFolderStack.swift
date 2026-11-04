@@ -238,14 +238,20 @@
 
     private func rebuildPhoneFolderStack(for location: PhoneFolderLocation) {
       let wanted = location.levelPaths
-      let current = LibraryDestination.folderLevels(in: libraryPath)
-      let sameRoot = phoneFolderRoot.map {
-        PhoneFolderLocation.samePath($0.path, location.rootPath)
+      // Two servers can share paths, so a level is only kept for the same
+      // source as the one it was opened in.
+      let sameSource = phoneFolderRoot.map {
+        PhoneFolderLocation.sameSource($0.selection, librarySelection)
       }
+      let stacked = LibraryDestination.folderLevels(in: libraryPath)
+      let current = sameSource == false ? [] : stacked
+      let sameRoot =
+        sameSource == true
+        && phoneFolderRoot.map { PhoneFolderLocation.samePath($0.path, location.rootPath) } == true
       let sameLevels =
-        current.count == wanted.count
-        && zip(current, wanted).allSatisfy { PhoneFolderLocation.samePath($0.path, $1) }
-      guard !(sameLevels && (wanted.isEmpty || sameRoot == true)) else { return }
+        sameSource != false && stacked.count == wanted.count
+        && zip(stacked, wanted).allSatisfy { PhoneFolderLocation.samePath($0.path, $1) }
+      guard !(sameLevels && (wanted.isEmpty || sameRoot)) else { return }
 
       let top = browseVM
       guard let topPath = wanted.last else {
@@ -257,7 +263,7 @@
       func reused(_ path: String) -> BrowseViewModel? {
         reusable.first { PhoneFolderLocation.samePath($0.path, path) }?.browseVM
       }
-      let keptRoot = sameRoot == true && phoneFolderRoot?.browseVM !== top ? phoneFolderRoot : nil
+      let keptRoot = sameRoot && phoneFolderRoot?.browseVM !== top ? phoneFolderRoot : nil
       let root =
         keptRoot
         ?? PhoneFolderRoot(
