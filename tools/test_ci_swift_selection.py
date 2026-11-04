@@ -49,6 +49,40 @@ class SwiftSelectionTests(unittest.TestCase):
             with self.subTest(path=path):
                 self.assertTrue(self.swift(path))
 
+    def test_swift_regression_lists_select_only_swift(self):
+        for path in sorted(ci.SWIFT_REGRESSION_LISTS):
+            with self.subTest(path=path):
+                outputs, _ = ci.classify_paths([path])
+                self.assertEqual(
+                    {key for key, value in outputs.items() if value}, {"swift"}
+                )
+
+    def test_swift_regression_lists_keep_other_selections(self):
+        outputs, _ = ci.classify_paths(
+            [
+                ".github/swift-regressions/run.txt",
+                "src/windows/Maple.WinUI/App.xaml.cs",
+                "src/android/app/build.gradle.kts",
+            ]
+        )
+        self.assertEqual(
+            {key for key, value in outputs.items() if value},
+            {"swift", "windows", "android"},
+        )
+
+    def test_other_github_paths_still_select_everything(self):
+        for path in (
+            ".github/swift-regressions/other.txt",
+            ".github/swift-regressions/run.txt.bak",
+            ".github/swift-regressions/nested/run.txt",
+            ".github/CODEOWNERS",
+            ".github/dependabot.yml",
+            ".github/workflows/apple.yml",
+            ".github/actions/setup/action.yml",
+        ):
+            with self.subTest(path=path):
+                self.assertEqual(set(ci.dependencies(path)), set(ci.ALL))
+
     def test_native_core_diff_runs_swift(self):
         for path in (
             "src/raw-pipeline/raw-ffi/src/lib.rs",
