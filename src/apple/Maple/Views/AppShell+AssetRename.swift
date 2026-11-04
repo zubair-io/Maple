@@ -218,7 +218,7 @@ extension AppShell {
       browseVM.selectedID = newAsset.id
     }
     #if os(iOS)
-      if wasSelected || libraryPath.contains(where: { $0.asset.id == oldID }) {
+      if wasSelected || libraryPath.contains(where: { $0.asset?.id == oldID }) {
         libraryPath = LibraryDestination.replacingAsset(in: libraryPath, with: newAsset)
       }
     #endif

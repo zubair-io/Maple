@@ -129,6 +129,9 @@
                   sessions: $sessions
                 )
                 .id(ref.id)
+              case .folder:
+                // Search results open photos only; folders stack in Library.
+                EmptyView()
               }
             }
             .toolbar(.hidden, for: .tabBar)

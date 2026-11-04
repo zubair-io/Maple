@@ -112,6 +112,9 @@ extension AppShell {
       // so it re-enumerates without a manual collapse/re-expand.
       if !movedOutIDs.isEmpty || results.contains(where: { $0.outcome == .copied }) {
         folderRefreshGeneration += 1
+        #if os(iOS)
+          reloadPhoneFolderLevels(receiving: destination)
+        #endif
       }
       presentDropResultIfNeeded(results)
       assetDropTask = nil
