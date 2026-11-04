@@ -423,6 +423,10 @@ PanoMergePreviewTests
 # mapping, and the merge session's handling of an edge change; no FFI.
 PanoEdgesTests
 
+# Panorama system progress (#5663): run-state to continued-processing
+# begin/progress/end mapping; pure value type, no BackgroundTasks.
+PanoSystemProgressTests
+
 # Panorama output size (#5454): memory-fit model and the merge session's
 # Full/Smaller choice against an in-memory recording stitcher; no FFI.
 PanoMemoryModelTests
