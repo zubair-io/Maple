@@ -89,6 +89,9 @@ extension AppShell {
     // Bind to the share that listed `asset` before any suspension: a share switch
     // during the sidecar flush must not retarget the same path on another share.
     let smbSource = browseVM.currentSource as? SMBSource
+    // On iPhone the user can open another folder level before the rename
+    // lands; the photo is renamed in the folder it was picked in.
+    let sourceModel = browseVM
     Task { @MainActor in
       do {
         if let existingSession = sessions[asset.id] {
@@ -97,7 +100,8 @@ extension AppShell {
         }
         let newAsset = try await performRename(
           asset: asset, to: newFilename, smbSource: smbSource)
-        await applyRenamed(oldID: asset.id, newAsset: newAsset, smbSource: smbSource)
+        await applyRenamed(
+          oldID: asset.id, newAsset: newAsset, in: sourceModel, smbSource: smbSource)
         renamingAssetID = nil
         renameError = nil
       } catch {
@@ -188,21 +192,23 @@ extension AppShell {
 
   // MARK: - Post-commit reconciliation
 
-  /// Patches `browseVM.assets` IN PLACE (same index — no rescan),
+  /// Patches the source folder's assets IN PLACE (same index — no rescan),
   /// repoints selection, and rebuilds any live `EditSession` at the new
   /// id via the existing lazy `ensureSession(for:)` — which resolves the
   /// right remote sidecar store per source kind and calls `loadSidecar()`,
   /// so the session hydrates from the sidecar the relocate engine already
   /// moved rather than needing its in-memory state hand-carried over.
-  private func applyRenamed(oldID: AssetRef.ID, newAsset: AssetRef, smbSource: SMBSource?) async {
-    if let idx = browseVM.assets.firstIndex(where: { $0.id == oldID }) {
-      browseVM.assets[idx] = newAsset
-      browseVM.invalidateGridFilterForAssetIdentityChange()
+  private func applyRenamed(
+    oldID: AssetRef.ID, newAsset: AssetRef, in model: BrowseViewModel, smbSource: SMBSource?
+  ) async {
+    if let idx = model.assets.firstIndex(where: { $0.id == oldID }) {
+      model.assets[idx] = newAsset
+      model.invalidateGridFilterForAssetIdentityChange()
     }
-    let wasSelected = browseVM.selectedID == oldID
-    if browseVM.selectedIDs.contains(oldID) {
-      browseVM.selectedIDs.remove(oldID)
-      browseVM.selectedIDs.insert(newAsset.id)
+    let wasSelected = model.selectedID == oldID
+    if model.selectedIDs.contains(oldID) {
+      model.selectedIDs.remove(oldID)
+      model.selectedIDs.insert(newAsset.id)
     }
     let departing = sessions.removeValue(forKey: oldID)
     // In-flight edits follow the rename to its own share, not whichever is open now (#4987).
@@ -215,7 +221,7 @@ extension AppShell {
       Task { await newSession.loadSidecar() }
     }
     if wasSelected {
-      browseVM.selectedID = newAsset.id
+      model.selectedID = newAsset.id
     }
     #if os(iOS)
       if wasSelected || libraryPath.contains(where: { $0.asset?.id == oldID }) {
