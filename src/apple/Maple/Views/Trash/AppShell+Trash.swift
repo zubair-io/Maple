@@ -45,6 +45,9 @@ extension AppShell {
         // The whole batch stays on the share it started on (#4987): a share switch
         // mid-batch must not send the remaining paths to the newly connected share.
         let smbSource = browseVM.currentSource as? SMBSource
+        // On iPhone the user can open another folder level while the batch
+        // runs; the trashed photos leave the folder they were picked in.
+        let sourceModel = browseVM
 
         assetTrashTask = Task { @MainActor in
             var results: [AssetTrashItemResult] = []
@@ -55,7 +58,7 @@ extension AppShell {
                 if case .trashed = outcome { trashedIDs.insert(asset.id) }
             }
             if !trashedIDs.isEmpty {
-                applyTrashedOut(trashedIDs)
+                applyTrashedOut(trashedIDs, from: sourceModel)
             }
             presentTrashResultIfNeeded(results)
             assetTrashTask = nil
@@ -157,11 +160,11 @@ extension AppShell {
 
     /// A trashed asset no longer lives in the folder the grid is showing —
     /// same removal shape as `AppShell+AssetDrop.swift`'s `applyMovedOut`.
-    private func applyTrashedOut(_ ids: Set<AssetRef.ID>) {
-        browseVM.assets.removeAll { ids.contains($0.id) }
-        browseVM.selectedIDs.subtract(ids)
-        if let selected = browseVM.selectedID, ids.contains(selected) {
-            browseVM.selectedID = nil
+    private func applyTrashedOut(_ ids: Set<AssetRef.ID>, from model: BrowseViewModel) {
+        model.assets.removeAll { ids.contains($0.id) }
+        model.selectedIDs.subtract(ids)
+        if let selected = model.selectedID, ids.contains(selected) {
+            model.selectedID = nil
         }
         for id in ids {
             sessions.removeValue(forKey: id)
