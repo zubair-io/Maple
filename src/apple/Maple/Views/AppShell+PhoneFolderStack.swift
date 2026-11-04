@@ -316,8 +316,9 @@
       return model
     }
 
-    /// A move or copy into a folder that is already on the stack below the
-    /// top: reload that level, so the photos are there after a back swipe.
+    /// A move or copy into a folder that is on the stack: reload that level,
+    /// so the photos are there after a back swipe, or on screen if the user
+    /// already swiped back to it while the batch ran.
     func reloadPhoneFolderLevels(receiving destination: AssetDropDestination) {
       let destinationSource: LibrarySelection? =
         switch destination {
@@ -328,9 +329,21 @@
         }
       // The batch may finish after the user switched to a source that
       // happens to share the destination's paths.
-      guard let destinationSource,
+      guard MapleShellKind.current == .phoneTab, let destinationSource,
         PhoneFolderLocation.sameSource(destinationSource, librarySelection)
       else { return }
+      let destinationPath: String? =
+        switch destination {
+        case .local(let url, _): url.path
+        case .cloud(_, _, _, let absPath): absPath
+        case .smb: nil
+        }
+      if let destinationPath, let top = phoneCurrentFolderPath,
+        PhoneFolderLocation.samePath(top, destinationPath)
+      {
+        let model = browseVM
+        Task { await model.retryLastLoad() }
+      }
       let lower =
         LibraryDestination.folderLevels(in: libraryPath).map { ($0.path, $0.browseVM) }
         + [phoneFolderRoot].compactMap { $0 }.map { ($0.path, $0.browseVM) }
