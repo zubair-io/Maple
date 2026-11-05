@@ -10,6 +10,10 @@
   final class WatchPhonePairing: NSObject {
     static let shared = WatchPhonePairing()
 
+    /// Build-time gate for Watch pairing (Settings entry and the phone-side
+    /// session), off until #5676 ships.
+    static let isEntryEnabled = false
+
     private(set) var message = "Choose a server, then allow your Watch to connect."
     private(set) var busy = false
     private(set) var completed = false
@@ -24,7 +28,7 @@
     }
 
     func start() {
-      guard WCSession.isSupported() else { return }
+      guard Self.isEntryEnabled, WCSession.isSupported() else { return }
       WCSession.default.delegate = self
       WCSession.default.activate()
     }
