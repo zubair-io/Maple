@@ -151,6 +151,7 @@ struct AppShellIPhoneDrawer<MainContent: View, SidebarContent: View>: View {
         // via tap-on-dim or drag-back; the status-bar inset is applied in
         // the drawer layer's `GeometryReader` via `proxy.safeAreaInsets.top`.
         sidebarContent()
+            .environment(\.isSidebarPresented, isDrawerOpen)
             .padding(.top, 8)
     }
 

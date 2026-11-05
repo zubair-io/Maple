@@ -95,9 +95,6 @@
     /// iOS 26 `Tab(role: .search)` search bar). Bound into `PhoneSearchTab`.
     @State private var searchQuery: String = ""
 
-    /// Briefly set by a Library tab re-tap to swallow SwiftUI's pop-to-root.
-    @State private var keepsStackOnReselect = false
-
     /// The AppShell-root reveal action (loads the containing folder into
     /// browse). The iPhone shell wraps it to ALSO switch to the Library tab —
     /// AppShell can't do that itself because `activeTab` lives here (#2518).
@@ -232,7 +229,7 @@
     }
 
     private var tabView: some View {
-      TabView(selection: tabSelection) {
+      TabView(selection: $activeTab) {
         Tab("Library", systemImage: "photo.on.rectangle.angled", value: "library") {
           // The stack pushes everything in `libraryPath` EXCEPT
           // `.preview`: Preview is drawn by `PhoneLibraryView`'s hero
@@ -322,6 +319,7 @@
             )
           }
           .toolbar(presentsPreviewHero ? .hidden : .visible, for: .navigationBar)
+          .background(PhoneTabReselectInterceptor(onReselect: openDrawerOnLibraryReselect))
           // PreviewHero is drawn above the live grid. Keep the grid mounted
           // for its close transition, but never expose its controls behind
           // the preview to VoiceOver or UI automation.
@@ -447,22 +445,11 @@
     }
 
     /// Re-tapping the selected Library tab opens the side menu and keeps the
-    /// folder stack (#5674). SwiftUI reports the re-tap as a write of the
-    /// current value just before it pops the tab to root, which is dropped.
-    private var tabSelection: Binding<String> {
-      Binding(
-        get: { activeTab },
-        set: { tab in
-          if tab == "library", activeTab == "library" {
-            keepsStackOnReselect = true
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { keepsStackOnReselect = false }
-            withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
-              isDrawerOpen = true
-            }
-          }
-          activeTab = tab
-        }
-      )
+    /// folder stack (#5674); other tabs keep UIKit's pop to root.
+    private func openDrawerOnLibraryReselect() -> Bool {
+      guard activeTab == "library" else { return false }
+      withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) { isDrawerOpen = true }
+      return true
     }
 
     /// Preview supplies its own non-interactive scale/fade presentation. Turn
@@ -547,7 +534,6 @@
           LibraryDestination.pushedDestinations(in: libraryPath)
         },
         set: { pushed in
-          guard !(keepsStackOnReselect && pushed.isEmpty) else { return }
           libraryPath = LibraryDestination.applyingPushedDestinations(pushed, to: libraryPath)
         }
       )
