@@ -204,7 +204,7 @@ struct SelfHostedSettingsTab: View {
       HStack {
         Spacer()
         #if os(iOS)
-          if WCSession.isSupported() {
+          if WatchPhonePairing.isEntryEnabled, WCSession.isSupported() {
             Button("Connect Apple Watch…") { showsWatchPairing = true }
               .accessibilityLabel("Connect Apple Watch")
           }
