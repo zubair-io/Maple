@@ -2,7 +2,7 @@
 # Re-export the exact production archive using existing signing assets (#5681).
 set -euo pipefail
 umask 077
-: "${RELEASE_TAG:?}" "${CLOUD_BUILD_ID:?}" "${RUNNER_TEMP:?}"
+: "${RELEASE_TAG:?}" "${RUNNER_TEMP:?}"
 : "${MACOS_CERT_P12_BASE64:?}" "${MACOS_CERT_PASSWORD:?}"
 : "${MACOS_PROVISIONING_PROFILES_BASE64:?}" "${APPLE_TEAM_ID:?}"
 : "${AC_PRIVATE_KEY:?}" "${AC_KEY_ID:?}" "${AC_ISSUER_ID:?}"

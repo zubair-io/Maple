@@ -55,6 +55,11 @@ class ArchivePlatformTests(unittest.TestCase):
             check=False,
         )
 
+    def test_cloud_delegates_signing_without_requiring_export_or_credentials(self):
+        result = self.run_script(CI_XCODE_CLOUD="TRUE")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("GitHub release signs", result.stdout)
+
     def test_mac_archive_reaches_distribution_credential_gate(self):
         self.fixture("MacOSX", mac=True)
         result = self.run_script()

@@ -3,16 +3,18 @@ require 'openssl'
 require 'json'
 require 'base64'
 require 'net/http'
-require 'fileutils'
 
 class CloudArchive
   API = 'https://api.appstoreconnect.apple.com/v1/'
+  RELEASE_WORKFLOW = 'd0c1c449-cedd-437f-a105-acb637b109cf'
 
   def initialize(key_path, key_id, issuer)
+    @credentials = [key_path, key_id, issuer]
+    @expires_at = Time.now.to_i + 1200
     encode = ->(value) { Base64.urlsafe_encode64(value, padding: false) }
     header = encode.call({ alg: 'ES256', kid: key_id, typ: 'JWT' }.to_json)
     payload = encode.call({ iss: issuer, iat: Time.now.to_i,
-                            exp: Time.now.to_i + 1200, aud: 'appstoreconnect-v1' }.to_json)
+                            exp: @expires_at, aud: 'appstoreconnect-v1' }.to_json)
     input = "#{header}.#{payload}"
     key = OpenSSL::PKey.read(File.read(key_path))
     signature = OpenSSL::ASN1.decode(key.sign('SHA256', input)).value.map do |part|
@@ -22,12 +24,37 @@ class CloudArchive
   end
 
   def read(path)
+    initialize(*@credentials) if Time.now.to_i >= @expires_at - 60
     uri = URI(API + path)
     request = Net::HTTP::Get.new(uri)
     request['Authorization'] = "Bearer #{@token}"
     response = Net::HTTP.start(uri.host, uri.port, use_ssl: true) { |http| http.request(request) }
     abort "App Store Connect request failed (HTTP #{response.code})" unless response.is_a?(Net::HTTPSuccess)
     JSON.parse(response.body).fetch('data')
+  end
+
+  def self.release_build(builds, expected_commit)
+    builds.select do |build|
+      attributes = build.fetch('attributes')
+      !attributes['isPullRequestBuild'] && attributes.dig('sourceCommit', 'commitSha') == expected_commit
+    end.max_by { |build| build.fetch('attributes').fetch('createdDate') }
+  end
+
+  def wait_for_archive(expected_commit)
+    deadline = Process.clock_gettime(Process::CLOCK_MONOTONIC) + 3600
+    loop do
+      builds = read("ciWorkflows/#{RELEASE_WORKFLOW}/buildRuns?limit=200")
+      build = self.class.release_build(builds, expected_commit)
+      if build && build.fetch('attributes')['executionProgress'] == 'COMPLETE'
+        puts "Using Xcode Cloud build #{build.fetch('attributes').fetch('number')} for the release commit."
+        return archive(build.fetch('id'), expected_commit)
+      end
+      raise 'Timed out waiting for the release archive in Xcode Cloud' if
+        Process.clock_gettime(Process::CLOCK_MONOTONIC) >= deadline
+      puts 'Waiting for Xcode Cloud to finish the production archive...'
+      $stdout.flush
+      sleep 30
+    end
   end
 
   def self.validate_build(build, expected_commit)
@@ -70,7 +97,12 @@ end
 
 if $PROGRAM_NAME == __FILE__
   client = CloudArchive.new(ENV.fetch('AC_KEY_PATH'), ENV.fetch('AC_KEY_ID'), ENV.fetch('AC_ISSUER_ID'))
-  artifact = client.archive(ENV.fetch('CLOUD_BUILD_ID'), ENV.fetch('EXPECTED_COMMIT'))
+  build_id = ENV.fetch('CLOUD_BUILD_ID', '')
+  artifact = if build_id.empty?
+               client.wait_for_archive(ENV.fetch('EXPECTED_COMMIT'))
+             else
+               client.archive(build_id, ENV.fetch('EXPECTED_COMMIT'))
+             end
   output = ARGV.fetch(0)
   CloudArchive.download(artifact.fetch('downloadUrl'), output)
   raise 'Downloaded archive size differs from Apple metadata' unless File.size(output) == artifact.fetch('fileSize')

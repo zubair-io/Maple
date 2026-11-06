@@ -5,6 +5,11 @@
 
 set -euo pipefail
 
+if [ "${CI_XCODE_CLOUD:-}" = "TRUE" ]; then
+	echo "==> GitHub release signs and notarizes the original Xcode Cloud archive"
+	exit 0
+fi
+
 if [ "${CI_XCODEBUILD_ACTION:-}" != "archive" ] || [ -z "${CI_TAG:-}" ]; then
 	echo "==> Not a tag-triggered archive; skipping direct Mac distribution"
 	exit 0

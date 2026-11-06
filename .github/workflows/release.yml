@@ -3,12 +3,12 @@
 # Signed Windows artifacts and coordinated publication of stable releases.
 #
 # Stable release tags are created by version-sync.yml. Xcode Cloud consumes
-# the same tag and uploads the notarized Mac DMG from its production
-# archive; this workflow builds Windows, maintains the shared draft release,
+# the same tag and produces the production archive. This workflow signs that
+# archive into a notarized Mac DMG, builds Windows, maintains the draft release,
 # and publishes only after Apple, Windows and Android assets are present.
 #
-# workflow_dispatch remains a Windows dry run: its artifacts stay on the
-# workflow run and no GitHub Release is created.
+# workflow_dispatch defaults to a Windows dry run. A release_tag selects a Mac
+# signing dry run; cloud_build_id optionally selects a specific cloud build.
 name: release
 
 on:
@@ -21,7 +21,7 @@ on:
         type: string
         default: ''
       release_tag:
-        description: 'Existing release tag matching the recovered archive'
+        description: 'Existing release tag for a Mac signing dry run (skips Windows)'
         type: string
         default: ''
 
@@ -34,7 +34,7 @@ concurrency:
 
 jobs:
   windows-build:
-    if: inputs.cloud_build_id == ''
+    if: inputs.cloud_build_id == '' && inputs.release_tag == ''
     name: Windows ${{ matrix.arch }} (native build)
     runs-on: ${{ matrix.runner }}
     strategy:
@@ -215,11 +215,11 @@ jobs:
           if-no-files-found: error
 
   mac-recovery:
-    name: Recover Mac archive (sign and notarize)
-    if: github.event_name == 'workflow_dispatch' && inputs.cloud_build_id != ''
+    name: Mac archive (sign and notarize)
+    if: github.event_name == 'push' || inputs.cloud_build_id != '' || inputs.release_tag != ''
     environment: apple-signing
     runs-on: macos-26
-    timeout-minutes: 60
+    timeout-minutes: 120
     permissions:
       contents: read
     steps:
@@ -227,10 +227,12 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
+      - name: Test archive provenance checks
+        run: ruby tools/apple/test-cloud-archive.rb
       - name: Recover the verified production archive
         env:
           CLOUD_BUILD_ID: ${{ inputs.cloud_build_id }}
-          RELEASE_TAG: ${{ inputs.release_tag }}
+          RELEASE_TAG: ${{ github.event_name == 'push' && github.ref_name || inputs.release_tag }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           MACOS_CERT_P12_BASE64: ${{ secrets.MACOS_CERT_P12_BASE64 }}
           MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
@@ -247,8 +249,8 @@ jobs:
 
   publish-release:
     name: Publish GitHub Release
-    if: github.ref_type == 'tag' && inputs.cloud_build_id == ''
-    needs: [windows-app]
+    if: github.event_name == 'push' && github.ref_type == 'tag'
+    needs: [windows-app, mac-recovery]
     runs-on: ubuntu-latest
     timeout-minutes: 210
     permissions:
@@ -266,6 +268,11 @@ jobs:
           pattern: windows-app-*
           merge-multiple: true
 
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: recovered-mac-release
+          path: dist
+
       - name: Create or reuse draft release
         run: |
           set -euo pipefail
@@ -282,7 +289,7 @@ jobs:
               || gh release view "$GITHUB_REF_NAME" --repo "$REPOSITORY" >/dev/null
           fi
 
-      - name: Upload Windows assets
+      - name: Upload signed Windows and Mac assets
         run: gh release upload "$GITHUB_REF_NAME" dist/* --repo "$REPOSITORY" --clobber
 
       - name: Wait for Xcode Cloud and Android signed assets
