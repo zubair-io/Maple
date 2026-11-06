@@ -5,6 +5,7 @@ require 'base64'
 require 'net/http'
 
 class CloudArchive
+  class TransientDownloadError < StandardError; end
   API = 'https://api.appstoreconnect.apple.com/v1/'
   RELEASE_WORKFLOW = 'd0c1c449-cedd-437f-a105-acb637b109cf'
 
@@ -79,15 +80,30 @@ class CloudArchive
     archives.first.fetch('attributes')
   end
 
-  def self.download(url, output, redirects = 5)
+  def self.download(url, output)
+    attempt = 0
+    begin
+      attempt += 1
+      download_once(url, output, 5)
+    rescue TransientDownloadError, Net::ReadTimeout, Net::OpenTimeout, EOFError, Errno::ECONNRESET
+      raise if attempt >= 6
+      puts "Apple artifact download is temporarily unavailable; retrying (#{attempt}/5)."
+      sleep [5 * (2**(attempt - 1)), 60].min
+      retry
+    end
+  end
+
+  def self.download_once(url, output, redirects)
     uri = URI(url)
     raise 'Artifact download must use HTTPS' unless uri.scheme == 'https'
     # Signed artifact URLs carry their own authorization. Never forward the API JWT.
     Net::HTTP.start(uri.host, uri.port, use_ssl: true, read_timeout: 120) do |http|
       http.request_get(uri.request_uri) do |response|
         if response.is_a?(Net::HTTPRedirection) && redirects.positive?
-          return download(URI.join(url, response.fetch('location')).to_s, output, redirects - 1)
+          return download_once(URI.join(url, response.fetch('location')).to_s, output, redirects - 1)
         end
+        raise TransientDownloadError, "Artifact service returned HTTP #{response.code}" if
+          response.code == '429' || response.code.to_i >= 500
         raise "Artifact download failed (HTTP #{response.code})" unless response.is_a?(Net::HTTPSuccess)
         File.open(output, 'wb') { |file| response.read_body { |chunk| file.write(chunk) } }
       end
