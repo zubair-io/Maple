@@ -62,4 +62,19 @@ class CloudArchiveTest < Minitest::Test
     assert_equal '1', CloudArchive.release_build(builds, SHA)['id']
     assert_nil CloudArchive.release_build(builds, 'c' * 40)
   end
+
+  def test_transient_artifact_failures_retry_but_auth_failures_do_not
+    attempts = 0
+    fetch = lambda do |*_args|
+      attempts += 1
+      raise CloudArchive::TransientDownloadError if attempts < 3
+    end
+    CloudArchive.stub(:sleep, nil) do
+      CloudArchive.stub(:download_once, fetch) { CloudArchive.download('https://example.com', '/unused') }
+    end
+    assert_equal 3, attempts
+    CloudArchive.stub(:download_once, ->(*) { raise 'HTTP 403' }) do
+      assert_raises(RuntimeError) { CloudArchive.download('https://example.com', '/unused') }
+    end
+  end
 end
