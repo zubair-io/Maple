@@ -35,7 +35,6 @@
 		CD96B6E04439562F54AD13B8 /* MapleQuickLook.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 443236A672080511BD1FC170 /* MapleQuickLook.appex */; platformFilters = (macos, ); settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		CF1A2B3D4E5F6A7B8C9D0E1F /* RawPipeline.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = A1F0000400000000000000A1 /* RawPipeline.xcframework */; };
 		D681B5B31AAF3A2CEA529EAE /* MapleFileProviderIOS.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 521B6F9B85049DBA00FD7C56 /* MapleFileProviderIOS.appex */; platformFilter = ios; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
-		E304FFF230574D2B00BC83EA /* Maple Watch Watch App.app in Embed Watch Content */ = {isa = PBXBuildFile; fileRef = E304FFD230574D2A00BC83EA /* Maple Watch Watch App.app */; platformFilter = ios; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		E31E79CB300C6BD900617367 /* MapleCloudKit in Frameworks */ = {isa = PBXBuildFile; productRef = E31E79CA300C6BD900617367 /* MapleCloudKit */; };
 		E3DD948B2FB50EB9009392B4 /* MapleCore in Frameworks */ = {isa = PBXBuildFile; productRef = E3DD948A2FB50EB9009392B4 /* MapleCore */; };
 		E3DD948E2FB51A67009392B4 /* MapleBackup in Frameworks */ = {isa = PBXBuildFile; productRef = E3DD948D2FB51A67009392B4 /* MapleBackup */; };
@@ -98,13 +97,6 @@
 			remoteGlobalIDString = E304FFD130574D2A00BC83EA;
 			remoteInfo = "Maple Watch Watch App";
 		};
-		E304FFF030574D2B00BC83EA /* PBXContainerItemProxy */ = {
-			isa = PBXContainerItemProxy;
-			containerPortal = A1F0001A00000000000000A1 /* Project object */;
-			proxyType = 1;
-			remoteGlobalIDString = E304FFD130574D2A00BC83EA;
-			remoteInfo = "Maple Watch Watch App";
-		};
 		E378533E2F9AC54F00BDF307 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = A1F0001A00000000000000A1 /* Project object */;
@@ -141,17 +133,6 @@
 				D681B5B31AAF3A2CEA529EAE /* MapleFileProviderIOS.appex in Embed Foundation Extensions */,
 			);
 			name = "Embed Foundation Extensions";
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		E304FFF330574D2B00BC83EA /* Embed Watch Content */ = {
-			isa = PBXCopyFilesBuildPhase;
-			buildActionMask = 2147483647;
-			dstPath = "$(CONTENTS_FOLDER_PATH)/Watch";
-			dstSubfolderSpec = 16;
-			files = (
-				E304FFF230574D2B00BC83EA /* Maple Watch Watch App.app in Embed Watch Content */,
-			);
-			name = "Embed Watch Content";
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		E3DD94812FB50E55009392B4 /* CopyFiles */ = {
@@ -605,7 +586,6 @@
 				A1F0000A00000000000000A1 /* Frameworks */,
 				A1F0001300000000000000A1 /* Resources */,
 				BAD237F2A91BD12FDAF04E36 /* Embed Foundation Extensions */,
-				E304FFF330574D2B00BC83EA /* Embed Watch Content */,
 				A4718000000000000000A1E1 /* Embed backup agent (macOS) / declare background tasks (iOS) */,
 				A1F0005200000000000000A1 /* Stamp build provenance */,
 			);
@@ -617,7 +597,6 @@
 				F036300CB260BA8DAC101057 /* PBXTargetDependency */,
 				B1D0006100000000000000B1 /* PBXTargetDependency */,
 				A4718000000000000000A1D1 /* PBXTargetDependency */,
-				E304FFF130574D2B00BC83EA /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				A1F0000900000000000000A1 /* Maple */,
@@ -1264,12 +1243,6 @@
 			isa = PBXTargetDependency;
 			target = E304FFD130574D2A00BC83EA /* Maple Watch Watch App */;
 			targetProxy = E304FFE930574D2B00BC83EA /* PBXContainerItemProxy */;
-		};
-		E304FFF130574D2B00BC83EA /* PBXTargetDependency */ = {
-			isa = PBXTargetDependency;
-			platformFilter = ios;
-			target = E304FFD130574D2A00BC83EA /* Maple Watch Watch App */;
-			targetProxy = E304FFF030574D2B00BC83EA /* PBXContainerItemProxy */;
 		};
 		E3EC0CEB3047DFFD006325AD /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
