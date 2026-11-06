@@ -51,4 +51,15 @@ class CloudArchiveTest < Minitest::Test
   def test_download_refuses_plaintext_transport
     assert_raises(RuntimeError) { CloudArchive.download('http://example.com/archive', '/unused') }
   end
+
+  def test_release_discovery_excludes_other_commits_and_pull_requests
+    builds = [build, build, build('b' * 40), build]
+    builds.each_with_index do |record, index|
+      record['id'] = index.to_s
+      record['attributes']['createdDate'] = "2026-11-0#{index + 1}T00:00:00Z"
+    end
+    builds.last['attributes']['isPullRequestBuild'] = true
+    assert_equal '1', CloudArchive.release_build(builds, SHA)['id']
+    assert_nil CloudArchive.release_build(builds, 'c' * 40)
+  end
 end

@@ -97,48 +97,40 @@ Xcode Cloud runs `src/apple/ci_scripts/ci_post_clone.sh`, which installs rustup 
 
 ### Xcode Cloud distribution
 
-Stable tags use one macOS archive for both distribution channels. The archive
-action prepares the App Store/TestFlight export and a Developer ID export from
-the same compiled `.xcarchive`; it must not configure a second macOS archive
-action. The TestFlight/App Store post-action handles the store copy.
-`ci_post_xcodebuild.sh` consumes `CI_DEVELOPER_ID_SIGNED_APP_PATH`, notarizes and
-staples that app, creates a notarized/stapled universal DMG containing the
-signed app, and attaches it to the tag's draft GitHub Release. The script
-validates the signed app from the mounted final DMG because Xcode Cloud does
-not expose the Developer ID private key needed to sign the DMG container. The
-GitHub release workflow publishes the draft only after its independently built
-Windows assets and this DMG are both present.
+Stable tags use one macOS archive for both distribution channels. Xcode Cloud
+compiles the production `.xcarchive` and prepares the TestFlight/App Store
+export. The GitHub `release` workflow waits for the cloud build of the same
+commit, downloads its original archive, and manually exports it with the
+existing Developer ID certificate and provisioning profiles. It never
+recompiles Swift or Rust. This avoids the cloud-managed Developer ID lookup
+failure (error 7460, #5681).
 
-Configure the tag-triggered Xcode Cloud workflow as follows:
+Configure the tag-triggered Xcode Cloud Release workflow with one macOS archive
+action for the `Maple` scheme, TestFlight/App Store deployment preparation, and
+clean builds. Disable Direct Distribution preparation and remove its Notarize
+post-action: GitHub now handles that distribution channel. Keep iOS and App
+Store/TestFlight actions. `ci_post_xcodebuild.sh` returns immediately inside
+Xcode Cloud; its packaging implementation is reused by GitHub after manual
+export.
 
-- one macOS archive action for the `Maple` scheme, with TestFlight and App Store
-  deployment preparation;
-- Direct Distribution/notarization enabled for that archive so Xcode Cloud
-  provides `CI_DEVELOPER_ID_SIGNED_APP_PATH` from the same archive;
-- the existing TestFlight/App Store distribution post-action;
-- clean builds, as required by Xcode Cloud for external distribution;
-- the following secret environment variables: `GITHUB_TOKEN` (fine-grained
-  token scoped to this repository with Contents read/write), `AC_KEY_ID`,
-  `AC_ISSUER_ID`, and `AC_PRIVATE_KEY` (the downloaded `.p8` contents).
+The GitHub Mac signing job uses the `apple-signing` environment and existing
+`APPLE_TEAM_ID`, `MACOS_CERT_P12_BASE64`, `MACOS_CERT_PASSWORD`,
+`MACOS_PROVISIONING_PROFILES_BASE64`, `APPSTORE_KEY_ID`, `APPSTORE_ISSUER_ID`, and
+`APPSTORE_PRIVATE_KEY` secrets. The temporary signing keychain is removed on
+exit. The job checks the tag commit and app version, both CPU architectures,
+code signatures, app and DMG notarization/stapling, and Gatekeeper acceptance
+of the app mounted from the final DMG. It uploads an artifact with read-only
+repository permissions. The separate publication job waits for successful
+Windows and Mac signing, adds their artifacts to the draft release, and retains
+the Android asset gate before publication.
 
-Xcode Cloud signs the app with its cloud-managed Developer ID identity, whose
-private key is deliberately not available to custom scripts. The script
-notarizes the app and its DMG container with the App Store Connect API key;
-the final Gatekeeper check assesses the signed app inside the mounted DMG. No
-source compilation happens in the post-build script.
-
-If cloud-managed Developer ID export fails after the archive succeeds, run the
-`release` workflow manually with `cloud_build_id` set to that completed build's
-UUID and `release_tag` set to its existing tag. This recovery action (#5681)
-downloads the original archive through App Store Connect, verifies its source
-commit against the tag, and exports using the existing `MACOS_CERT_P12_BASE64`,
-`MACOS_CERT_PASSWORD`, and `MACOS_PROVISIONING_PROFILES_BASE64` secrets. It uses
-`APPLE_TEAM_ID` and the existing `APPSTORE_*` API credentials in the
-`apple-signing` environment. It performs no compilation and does not publish a
-release: the notarized, stapled, Gatekeeper-verified DMG is saved as the
-`recovered-mac-release` workflow artifact. Empty recovery inputs retain the
-Windows dry run. This bypasses a broken cloud certificate service for the
-download artifact; it does not repair Apple's managed-certificate state.
+For a Mac signing dry run, manually dispatch `release` with `release_tag` set
+to an existing release tag. Set `cloud_build_id` to select a specific completed
+cloud build, or leave it empty to discover the latest Release-workflow build
+of that commit. The verified DMG is saved as `recovered-mac-release`; a manual
+run never publishes. Empty inputs retain the Windows dry run. Recovery can
+reuse an archive from a failed distribution build, but rejects missing
+archives, unfinished builds, mismatched commits, and ambiguous artifacts.
 
 ## The render path
 
