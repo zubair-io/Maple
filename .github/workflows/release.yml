@@ -15,6 +15,15 @@ on:
   push:
     tags: ['v*']
   workflow_dispatch:
+    inputs:
+      cloud_build_id:
+        description: 'Optional Xcode Cloud build UUID to recover (skips Windows)'
+        type: string
+        default: ''
+      release_tag:
+        description: 'Existing release tag matching the recovered archive'
+        type: string
+        default: ''
 
 permissions:
   contents: write
@@ -25,6 +34,7 @@ concurrency:
 
 jobs:
   windows-build:
+    if: inputs.cloud_build_id == ''
     name: Windows ${{ matrix.arch }} (native build)
     runs-on: ${{ matrix.runner }}
     strategy:
@@ -204,9 +214,40 @@ jobs:
           path: out/*
           if-no-files-found: error
 
+  mac-recovery:
+    name: Recover Mac archive (sign and notarize)
+    if: github.event_name == 'workflow_dispatch' && inputs.cloud_build_id != ''
+    environment: apple-signing
+    runs-on: macos-26
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Recover the verified production archive
+        env:
+          CLOUD_BUILD_ID: ${{ inputs.cloud_build_id }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          MACOS_CERT_P12_BASE64: ${{ secrets.MACOS_CERT_P12_BASE64 }}
+          MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+          MACOS_PROVISIONING_PROFILES_BASE64: ${{ secrets.MACOS_PROVISIONING_PROFILES_BASE64 }}
+          AC_PRIVATE_KEY: ${{ secrets.APPSTORE_PRIVATE_KEY }}
+          AC_KEY_ID: ${{ secrets.APPSTORE_KEY_ID }}
+          AC_ISSUER_ID: ${{ secrets.APPSTORE_ISSUER_ID }}
+        run: bash tools/apple/recover-cloud-release.sh
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: recovered-mac-release
+          path: ${{ runner.temp }}/mac-release-output/*.dmg
+          if-no-files-found: error
+
   publish-release:
     name: Publish GitHub Release
-    if: github.ref_type == 'tag'
+    if: github.ref_type == 'tag' && inputs.cloud_build_id == ''
     needs: [windows-app]
     runs-on: ubuntu-latest
     timeout-minutes: 210

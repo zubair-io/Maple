@@ -127,6 +127,19 @@ notarizes the app and its DMG container with the App Store Connect API key;
 the final Gatekeeper check assesses the signed app inside the mounted DMG. No
 source compilation happens in the post-build script.
 
+If cloud-managed Developer ID export fails after the archive succeeds, run the
+`release` workflow manually with `cloud_build_id` set to that completed build's
+UUID and `release_tag` set to its existing tag. This recovery action (#5681)
+downloads the original archive through App Store Connect, verifies its source
+commit against the tag, and exports using the existing `MACOS_CERT_P12_BASE64`,
+`MACOS_CERT_PASSWORD`, and `MACOS_PROVISIONING_PROFILES_BASE64` secrets. It uses
+`APPLE_TEAM_ID` and the existing `APPSTORE_*` API credentials in the
+`apple-signing` environment. It performs no compilation and does not publish a
+release: the notarized, stapled, Gatekeeper-verified DMG is saved as the
+`recovered-mac-release` workflow artifact. Empty recovery inputs retain the
+Windows dry run. This bypasses a broken cloud certificate service for the
+download artifact; it does not repair Apple's managed-certificate state.
+
 ## The render path
 
 An open image is an `EditSession` (`@MainActor`, `@Observable`) holding the `AdjustmentModel`, undo/redo ring, culling state and canvas math. Its behaviour is split across ~20 `EditSession+*.swift` extensions; the scheduler itself lives on `RenderActor`, which owns the decoded-image cache, the FFI decode coalescers, the fast/refine task handles, the debounce timers and a generation counter. A slider write on `session.model` schedules a render; the actor cancels the in-flight pass before spawning the new one. The **fast phase** runs immediately with no debounce (cancel-previous absorbs a drag); the **refine phase** debounces 150 ms, so a continuous drag only ever renders the tail.
