@@ -263,7 +263,9 @@ class WorkflowTests(unittest.TestCase):
             for step in job["steps"]:
                 if step.get("uses", "").startswith("azure/trusted-signing-action@"):
                     self.assertEqual(job_id, "windows-app")
-        self.assertEqual(jobs["publish-release"]["needs"], ["windows-app"])
+        self.assertEqual(
+            jobs["publish-release"]["needs"], ["windows-app", "mac-recovery"]
+        )
 
     def test_selection_outputs_reach_callers(self):
         config = workflow("ci-changes")
