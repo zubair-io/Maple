@@ -321,12 +321,7 @@ xcodebuild test -project src/apple/Maple.xcodeproj -scheme "Maple" \
 
 The runner finds `test-fixtures/raws/` on its own (`Helpers/UITestFixtureRoot.swift`: the scheme's `TEST_RUNNER_MAPLE_UITEST_FIXTURE_ROOT`, else the repo root baked in at compile time — the path the iOS Simulator runner relies on). A trailing `MAPLE_UITEST_FIXTURE_ROOT=…` argument is a build setting and reaches nothing (#2366); to use fixtures elsewhere, prefix the variable with `TEST_RUNNER_` in `xcodebuild`'s environment — and then a missing fixture fails instead of skipping.
 
-**Slider matrix** (`SliderMatrixUITests`) walks every committed slider XMP under `test-fixtures/references/test_NNNN/xmp/`, stages a temp directory with the RAW plus the XMP renamed to the canonical sidecar name, relaunches the app against it, screenshots, resizes both candidate and reference to a 1024 px long edge, and diffs. Budgets are loose on purpose — mean ≤ 25, p95 ≤ 50, max ≤ 100, bias ≤ 0.10 — because Maple's AgX view transform differs from the reference renderer's even when the color math is right. Failed cases attach both PNGs for triage.
-
-```bash
-xcodebuild test -project src/apple/Maple.xcodeproj -scheme "Maple" \
-  -destination 'platform=macOS' -only-testing:MapleUITests/SliderMatrixUITests
-```
+**Slider matrix** (`SliderMatrixUITests`) is retired: it compared canvas screenshots against ACR renders, and ACR comparisons left CI and the colour gates in #5000. The archived source is `test-fixtures/qualification/experiments/retired-acr/SliderMatrixUITests.swift.txt`.
 
 **Synthetic grey** (`SyntheticGreyUITests`) renders a hand-rolled neutral DNG (`MapleUITests/Fixtures/synthetic/grey-l018-rggb.dng`) through the full Apple path and asserts two things per case: every pixel is neutral (R == G == B within 2 LSB), and the canvas mean matches the Rust-rendered mean within 3 LSB. Expected means are integers in the test file, regenerated from the Rust `grey_adjustments` test.
 
@@ -338,7 +333,7 @@ xcodebuild test -project src/apple/Maple.xcodeproj -scheme "Maple" \
 
 The app target compiles for macOS, iOS and iPadOS from the same sources, so both builds must stay green. The codebase carries roughly 100 `#if os(iOS)` and 100 `#if os(macOS)` blocks plus ~30 `canImport(UIKit)` guards. A macOS build never type-checks the contents of an `#if os(iOS)` block, so a change inside one can merge green and break the iOS build silently — build both destinations before claiming an Apple change works.
 
-The pattern shows up in test code too: `MapleUITests.swift`, `SliderMatrixUITests.swift` and `SyntheticGreyUITests.swift` all wrap themselves in `#if os(macOS)` because they drive AppKit, which lets the bundle still compile for the iOS Simulator where `PanoOrtSelftestUITests` runs. Extensions are the other axis: `MapleFileProvider` is macOS-only and `MapleFileProviderIOS` iOS-only (`SUPPORTED_PLATFORMS` in `project.pbxproj`), which is why the same core class has two thin subclasses instead of one shared target.
+The pattern shows up in test code too: `MapleUITests.swift` and `SyntheticGreyUITests.swift` both wrap themselves in `#if os(macOS)` because they drive AppKit, which lets the bundle still compile for the iOS Simulator where `PanoOrtSelftestUITests` runs. Extensions are the other axis: `MapleFileProvider` is macOS-only and `MapleFileProviderIOS` iOS-only (`SUPPORTED_PLATFORMS` in `project.pbxproj`), which is why the same core class has two thin subclasses instead of one shared target.
 
 ### Local MCP server (macOS)
 

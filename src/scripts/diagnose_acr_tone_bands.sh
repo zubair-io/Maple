@@ -6,7 +6,7 @@
 # NOT a downscaled render; expect ~1-2 min per case) and compares each
 # slider's per-band ΔL* effect with ACR's. Cases are split round-robin across
 # PARALLEL maple-cli batch shards run concurrently.
-#   FILTER=whites src/scripts/test_tone_bands.sh     # subset by case/fixture substring
+#   FILTER=whites src/scripts/diagnose_acr_tone_bands.sh     # subset by case/fixture substring
 #   WRITE_ACR=path.json ...                            # also dump ACR band effects
 #   PARALLEL=4 ...                                      # shard count for maple-cli batch (default 4)
 set -euo pipefail
@@ -17,7 +17,7 @@ BUDGETS="$REPO_ROOT/test-fixtures/tone_band_budgets.json"
 CASES_RE='/(baseline|exposure_max|exposure_min|highlights_max|highlights_min|whites_max|whites_min|shadows_max|shadows_min|blacks_max|blacks_min)$'
 PARALLEL="${PARALLEL:-4}"
 if [ ! -d "$REPO_ROOT/test-fixtures/raws" ] || [ ! -f "$MANIFEST" ]; then
-	echo "test_tone_bands: no fixtures, skipping"
+	echo "diagnose_acr_tone_bands: no fixtures, skipping"
 	exit 0
 fi
 (cd "$REPO_ROOT/src/raw-pipeline" && cargo build --release --bin maple-cli >/dev/null)
@@ -46,7 +46,7 @@ for c in selected:
     c["outputs"] = [o for o in c["outputs"] if o["resolution"] == "down"]
     keep.append(c)
 json.dump({"cases": keep}, open(dst, "w"))
-print(f"test_tone_bands: {len(keep)} cases")
+print(f"diagnose_acr_tone_bands: {len(keep)} cases")
 PY
 python3 - "$WORK/mini.json" "$WORK" "$PARALLEL" <<'PY'
 import json, sys
@@ -57,7 +57,7 @@ for i, c in enumerate(cases):
     shards[i % n].append(c)
 for i, shard in enumerate(shards):
     json.dump({"cases": shard}, open(f"{work}/shard{i}.json", "w"))
-    print(f"test_tone_bands: shard{i} {len(shard)} cases")
+    print(f"diagnose_acr_tone_bands: shard{i} {len(shard)} cases")
 PY
 for i in $(seq 0 $((PARALLEL - 1))); do
 	"$CLI" batch --manifest "$WORK/shard$i.json" --out-dir "$WORK/out" --profile neutral --demosaic full \
@@ -69,13 +69,13 @@ for i in $(seq 0 $((PARALLEL - 1))); do
 	want="$(python3 -c "import json;print(len(json.load(open('$WORK/shard$i.json'))['cases']))")"
 	got="$(grep -c '^ok' "$WORK/shard$i.log" || true)"
 	if [ "$got" != "$want" ]; then
-		echo "test_tone_bands: shard$i incomplete ($got/$want ok) — log:"
+		echo "diagnose_acr_tone_bands: shard$i incomplete ($got/$want ok) — log:"
 		cat "$WORK/shard$i.log"
 		fail=1
 	fi
 done
 if [ "$fail" != "0" ]; then
-	echo "test_tone_bands: one or more shards failed to render"
+	echo "diagnose_acr_tone_bands: one or more shards failed to render"
 	exit 1
 fi
 # No --filter here: $WORK/mini.json is already filtered above, so the gate
