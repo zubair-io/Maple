@@ -236,14 +236,19 @@ public struct CanvasZoomModel: Equatable, Sendable {
         location: CGPoint,
         context: CanvasZoomContext
     ) {
-        let start: CGFloat
-        if let captured = pinchStartScale {
-            start = captured
-        } else {
-            start = context.effectiveScale(for: pixelScale)
+        let isCaptureFrame = pinchStartScale == nil
+        let start = pinchStartScale ?? context.effectiveScale(for: pixelScale)
+        if isCaptureFrame {
             pinchStartScale = start
             pinchStartPan = panOffset
             pinchStartCentroid = location
+        }
+        // The iOS compositor freezes the frame at this capture and scales it
+        // by `gestureTransform`'s ratio to `start`; snapping a start that sits
+        // inside a detent band here would count the detent twice (#5710).
+        guard !(isCaptureFrame && magnification == 1) else {
+            pinchLastCentroid = location
+            return
         }
         let next = Self.pinchScale(
             start: start, magnification: magnification,
