@@ -89,7 +89,7 @@ async function refreshMediaKind(db: SqliteDb, assetId: string): Promise<void> {
   ]);
 }
 
-export interface AppendBackupLocationInput {
+interface AppendBackupLocationInput {
   /** Library-relative path the bytes landed at. */
   relPath: string;
   libraryId: ObjectId;
