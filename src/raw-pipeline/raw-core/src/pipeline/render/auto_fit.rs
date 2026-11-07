@@ -430,8 +430,7 @@ pub fn cached_auto_profile_fit(
     let cached_lut = if lut_disabled {
         None
     } else {
-        // A curve without its paired LUT is a MISS — the develop must run to
-        // fit the residual (see the doc above).
+        // A curve without its paired LUT is a MISS: the develop must fit the residual.
         Some(auto_profile::cache::get_lut(key)?)
     };
     let k = auto_profile::lut::lut_strength_from_env();
@@ -441,6 +440,7 @@ pub fn cached_auto_profile_fit(
         cached_lut.map(|l| l.with_strength(k))
     };
     Some((render_curve(Some(cached_curve)), residual))
+        .filter(|(curve, residual)| curve.is_some() || residual.is_some())
 }
 
 /// The CPU render path's Auto Profile stage (#1085): obtain the (pinned-fit)

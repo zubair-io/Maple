@@ -7,12 +7,14 @@
 // weights, DNG profile modulation, shifted-patch validity and max-weight center.
 // CPU uses local separable sums; only float summation order differs (<1e-4).
 
-// ── fast_neg_exp: bit-faithful to raw_core::stages::nlm::fast_neg_exp ──────────
+// ── fast_neg_exp: mirrors raw_core::stages::nlm::fast_neg_exp ──────────────────
 //
 // FAST_EXP_RANGE = 8.0, FAST_EXP_TABLE_SIZE = 512. The table index is
 // `t = x · (TABLE_SIZE / RANGE) = x · 64`, `i = floor(t)`, `frac = t - i`. The
 // table stores exp(-(i / 64)), rounded once into canonical f32 bits shared by all hosts and the GPU.
 // Keep the common-range lookup; positive tails remain meaningful after normalization.
+// The table lookup is bit-identical to the CPU; the `exp(-x)` tail uses the GPU's own exp and is
+// tolerance-gated, not bit-identical.
 const FAST_EXP_RANGE: f32 = 8.0;
 const FAST_EXP_INV_STEP: f32 = 512.0 / 8.0; // TABLE_SIZE / RANGE
 

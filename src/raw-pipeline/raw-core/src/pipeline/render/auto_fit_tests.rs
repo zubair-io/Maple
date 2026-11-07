@@ -38,6 +38,23 @@ fn auto2_cached_artifacts_omit_the_curve_used_only_as_a_cache_marker() {
     assert_eq!(residual.unwrap().sample([1.; 3]), [1.; 3]);
 }
 
+#[test]
+fn cached_fit_with_nothing_to_apply_is_a_miss() {
+    let _guard = auto_profile::cache::test_lock();
+    let key = CacheKey::from_bytes(b"5045-env-disabled-lut-probe", RenderQuality::Full);
+    let model = AdjustmentModel {
+        profile: Profile::Auto,
+        ..AdjustmentModel::default()
+    };
+    auto_profile::cache::insert(key.clone(), ProfileCurve::identity());
+    auto_profile::cache::insert_lut(key.clone(), ColorLut::identity(5));
+    assert!(cached_auto_profile_fit(&model, Some(&key)).is_some());
+    std::env::set_var("MAPLE_DISABLE_AUTO_LUT", "1");
+    let probe = cached_auto_profile_fit(&model, Some(&key));
+    std::env::remove_var("MAPLE_DISABLE_AUTO_LUT");
+    assert!(probe.is_none());
+}
+
 /// A caller model with every fit-relevant field deliberately non-default,
 /// so anything leaking through `fit_develop_model` is unmissable.
 fn heavily_edited_model() -> AdjustmentModel {
