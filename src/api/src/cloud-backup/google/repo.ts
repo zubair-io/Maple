@@ -1,6 +1,6 @@
 import { GoogleConnectionError } from './config.ts';
 import { sqliteDb } from '../../db/repos/db-handle.ts';
-import { DEFAULT_GOOGLE_CONFIG, type GoogleConfig } from './config.ts';
+import { DEFAULT_GOOGLE_CONFIG, validDisconnect, type GoogleConfig } from './config.ts';
 import { seal, unseal } from './secrets.ts';
 
 export const GOOGLE_BACKUP_DDL = `
@@ -57,6 +57,7 @@ function normalizeConfig(config: GoogleConfig): GoogleConfig {
     clientSecret: clientMode === 'maple' ? '' : config.clientSecret,
     callbackMode: clientMode === 'maple' ? 'relay' : config.callbackMode,
     relayGrant: clientMode === 'maple' ? (config.relayGrant ?? null) : null,
+    disconnect: validDisconnect(config.disconnect),
   };
 }
 

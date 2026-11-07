@@ -11,7 +11,6 @@ export interface BackupDestinationStatus {
   prepared?: number;
 }
 
-/** Why the server discarded its Google renewal credentials, and when. */
 export interface GoogleBackupDisconnect {
   reason: 'invalid_grant' | 'invalid_proof' | 'missing_grant';
   at: string;

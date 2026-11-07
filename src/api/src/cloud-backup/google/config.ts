@@ -48,10 +48,10 @@ export function reconnectMessage(disconnect: GoogleDisconnect | null): string {
   const at = new Date(disconnect.at).toISOString().replace(/\.\d{3}Z$/, 'Z');
   return `${DISCONNECT_CAUSES[disconnect.reason]} (${disconnect.reason}) at ${at}. Reconnect Google Drive to resume backup.`;
 }
-/** Drops renewal credentials; only a definitive Google or relay rejection records a cause. */
+/** A recorded cause survives every later credential drop; only a successful reconnect clears it. */
 export function withoutCredentials(
   config: GoogleConfig,
-  disconnect: GoogleDisconnect | null = null,
+  disconnect: GoogleDisconnect | null = config.disconnect,
 ): GoogleConfig {
   return { ...config, refreshToken: null, relayGrant: null, disconnect };
 }
@@ -100,6 +100,16 @@ function publicDisconnect(disconnect: GoogleDisconnect | null) {
 /** The non-secret connection state the destination list shows without opening the panel. */
 export function connectionState(config: GoogleConfig) {
   return { connected: !!config.refreshToken, disconnect: publicDisconnect(config.disconnect) };
+}
+export function validDisconnect(value: unknown): GoogleDisconnect | null {
+  if (!value || typeof value !== 'object') return null;
+  const { reason, at } = value as Partial<GoogleDisconnect>;
+  return typeof reason === 'string' &&
+    Object.hasOwn(DISCONNECT_CAUSES, reason) &&
+    typeof at === 'number' &&
+    Number.isFinite(new Date(at).getTime())
+    ? { reason, at }
+    : null;
 }
 
 export function publicConfig(config: GoogleConfig, callback: string | null) {
