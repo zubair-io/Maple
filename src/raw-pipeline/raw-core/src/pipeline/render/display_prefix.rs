@@ -28,6 +28,18 @@ pub(super) fn apply_retained(
     apply_inner(scene, model, film_lut, target, window, true);
 }
 
+/// Every display stage up to, but not including, the target-primaries encode:
+/// the buffer stays `DisplayLinearRec2020` for the gamut-preserving P3 Auto
+/// encode (#4741).
+pub(super) fn apply_linear(
+    scene: &mut Image,
+    model: &AdjustmentModel,
+    film_lut: Option<&film::FilmLut>,
+    window: ((u32, u32), (u32, u32)),
+) {
+    view_stages(scene, model, film_lut, window);
+}
+
 fn apply_inner(
     scene: &mut Image,
     model: &AdjustmentModel,
@@ -35,6 +47,16 @@ fn apply_inner(
     target: encode::TargetPrimaries,
     window: ((u32, u32), (u32, u32)),
     retained: bool,
+) {
+    view_stages(scene, model, film_lut, window);
+    encode_to_target(scene, target, retained);
+}
+
+fn view_stages(
+    scene: &mut Image,
+    model: &AdjustmentModel,
+    film_lut: Option<&film::FilmLut>,
+    window: ((u32, u32), (u32, u32)),
 ) {
     // View transform (#550 post-fix): AgX + gamut compress + sRGB gamma
     // encode run UNCONDITIONALLY for both Auto and Neutral. Pre-#550 the
@@ -99,6 +121,9 @@ fn apply_inner(
         )
     });
     dump_after("16b_grain", scene);
+}
+
+fn encode_to_target(scene: &mut Image, target: encode::TargetPrimaries, retained: bool) {
     // #4352: the WASM retained viewport joins adjacent point operations in
     // one traversal. Native timing and stage-dump intermediate images retain
     // the original two-stage path, including 17_srgb_linear.
