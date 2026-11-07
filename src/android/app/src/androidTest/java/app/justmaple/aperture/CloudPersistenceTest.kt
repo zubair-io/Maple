@@ -138,6 +138,35 @@ class CloudPersistenceTest {
         }
 
     @Test
+    fun proxyWeakenedSidecarEtagsSaveWithTheStrongIfMatch() =
+        runBlocking<Unit> {
+            withCloud { server, photo ->
+                server.sidecar.writeText(XmpDocument.EMPTY)
+                val strong =
+                    "\"" +
+                        java.security.MessageDigest.getInstance("SHA-1")
+                            .digest(server.sidecar.readBytes())
+                            .joinToString("") { "%02x".format(it) } +
+                        "\""
+                server.weakSidecarEtag = true
+                val original = server.original.readBytes()
+                val library = PhotoLibrary(context)
+                val loaded = library.loadSidecar(photo)
+                val saved =
+                    library.save(
+                        photo,
+                        loaded.document.withAttribute("xmp:Rating", "2"),
+                        loaded.baseline,
+                    )
+                assertEquals(1, server.saveCount)
+                assertEquals(strong, server.lastSidecarIfMatch)
+                assertEquals(2, XmpDocument(server.sidecar.readText()).rating)
+                assertEquals(saved.baseline, library.loadSidecar(photo).baseline)
+                assertArrayEquals(original, server.original.readBytes())
+            }
+        }
+
+    @Test
     fun oversizedDeclaredSidecarsFailBeforeAllocatingTheirBody() =
         runBlocking<Unit> {
             withCloud { server, photo ->

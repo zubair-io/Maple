@@ -64,6 +64,33 @@ class CloudContractTest {
     }
 
     @Test
+    fun sidecarIfMatchSendsTheStrongFormOfProxyWeakenedTags() {
+        val hash = "0123456789abcdef0123456789abcdef01234567"
+        assertEquals("\"$hash\"", CloudLibrary.sidecarIfMatch("\"$hash\""))
+        assertEquals("\"$hash\"", CloudLibrary.sidecarIfMatch("W/\"$hash\""))
+        assertEquals("\"$hash\"", CloudLibrary.sidecarIfMatch("  W/\"$hash\" \t"))
+        for (invalid in
+            listOf(
+                "",
+                "   ",
+                "W/",
+                "\"\"",
+                "W/\"\"",
+                hash,
+                "W/$hash",
+                "\"$hash\", \"$hash\"",
+                "W/\"$hash\", W/\"$hash\"",
+                "\"$hash\"\"$hash\"",
+                "w/\"$hash\"",
+                "W/W/\"$hash\"",
+            )) {
+            assertThrows("Unexpected accepted ETag: $invalid", IllegalStateException::class.java) {
+                CloudLibrary.sidecarIfMatch(invalid)
+            }
+        }
+    }
+
+    @Test
     fun cloudMediaAddressesEncodeEachSegmentAndRejectTraversal() {
         val uri =
             Uri.parse("maple-cloud://server")
