@@ -186,10 +186,10 @@ test-fixtures/         Gitignored RAWs + ACR references + per-case budgets
 ## Testing
 
 - **No mocks for the sidecar layer.** Round-trip against real `.xmp` files in a temp directory. XMP is the contract; mocks let bugs through.
-- **One shared `test-fixtures/`.** Apple, Rust, and Web all read the same RAWs and ACR references. Fixtures are gitignored; harnesses skip-pass when absent so CI doesn't fail spuriously on a clone without `test-fixtures/raws/`.
-- **Color correctness is not eyeballed.** `src/scripts/test_color_pipeline.sh` is the canonical perceptual gate (CIEDE2000 vs ACR). Per-case budgets in `test-fixtures/budgets.json` are a one-way ratchet — they only go down, in the same commit that delivers the improvement.
+- **One shared `test-fixtures/`.** Apple, Rust, and Web all read the same RAWs. Fixtures are gitignored; harnesses skip-pass when absent so CI doesn't fail spuriously on a clone without `test-fixtures/raws/`.
+- **Color correctness is not eyeballed.** `src/scripts/test_color_pipeline.sh` is the canonical colour gate (Auto vs each RAW's embedded camera JPEG; ACR comparisons are retired, #5000). Per-case budgets in `test-fixtures/budgets.json` are a one-way ratchet — they only go down, in the same commit that delivers the improvement.
 - **16ms slider budget.** No feature ships that breaks the slider-tick budget on the reference scene set. If a feature adds allocation inside the render loop or a per-tick WASM round-trip, it does not ship.
-- **Apple visual harness** lives in `src/apple/MapleUITests/`; **slider matrix harness** is `SliderMatrixUITests` (see `CLAUDE.md` § "UITest visual harness").
+- **Apple visual harness** lives in `src/apple/MapleUITests/`.
 - **`bun run test` in `src/web` needs the WASM `pkg/` built first, in every fresh clone or worktree.** It's gitignored, and `test` has no `pretest` hook to rebuild it the way `start`/`build` do — see `src/web/README.md` § "Angular dev server" for the two-command build-then-sync fix and the exact failure signature (`Could not resolve "./pkg/raw_wasm"`).
 
 ## Storybook (web)

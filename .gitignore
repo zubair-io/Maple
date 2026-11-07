@@ -25,7 +25,7 @@ test-fixtures/*
 # ratchet for src/scripts/test_banding.sh — #1627/#1733).
 !test-fixtures/banding_budgets.json
 # Exception: the per-luma-band tone-slider budget table IS committed (CI
-# ratchet for src/scripts/test_tone_bands.sh).
+# ratchet for src/scripts/diagnose_acr_tone_bands.sh).
 !test-fixtures/tone_band_budgets.json
 # Compact genuine ACR +/-1 EV regression corpus (#3631).
 !test-fixtures/tone-exposure/
