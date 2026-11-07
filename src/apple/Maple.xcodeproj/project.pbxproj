@@ -2061,7 +2061,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 0.1.6;
-				PRODUCT_BUNDLE_IDENTIFIER = app.justmaple.aperture.tv;
+				PRODUCT_BUNDLE_IDENTIFIER = app.justmaple.aperture;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = appletvos;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
@@ -2098,7 +2098,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 0.1.6;
-				PRODUCT_BUNDLE_IDENTIFIER = app.justmaple.aperture.tv;
+				PRODUCT_BUNDLE_IDENTIFIER = app.justmaple.aperture;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = appletvos;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
@@ -2165,7 +2165,7 @@
 					"@executable_path/../../Frameworks",
 				);
 				MARKETING_VERSION = 0.1.6;
-				PRODUCT_BUNDLE_IDENTIFIER = app.justmaple.aperture.tv.MapleTopShelf;
+				PRODUCT_BUNDLE_IDENTIFIER = app.justmaple.aperture.MapleTopShelf;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = appletvos;
 				SKIP_INSTALL = YES;
@@ -2196,7 +2196,7 @@
 					"@executable_path/../../Frameworks",
 				);
 				MARKETING_VERSION = 0.1.6;
-				PRODUCT_BUNDLE_IDENTIFIER = app.justmaple.aperture.tv.MapleTopShelf;
+				PRODUCT_BUNDLE_IDENTIFIER = app.justmaple.aperture.MapleTopShelf;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = appletvos;
 				SKIP_INSTALL = YES;
