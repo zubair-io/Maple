@@ -231,6 +231,7 @@ mod live_session;
 mod local_adjustments;
 mod local_spatial;
 mod noise_reduction;
+mod p3_auto;
 // Passthrough display proof (P1b / #988): wgpu → CAMetalLayer present. Apple-
 // only — `SurfaceTargetUnsafe::CoreAnimationLayer` is wgpu-gated on
 // `#[cfg(metal)]`, which is active on the four Apple slices. Absent on wasm /

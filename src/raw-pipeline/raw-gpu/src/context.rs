@@ -101,6 +101,9 @@ pub struct GpuContext {
     /// matrices like vibrance. Built on first use via
     /// [`GpuContext::display_encode_pipeline`].
     pub(crate) display_encode_pipeline: OnceCell<wgpu::ComputePipeline>,
+    /// P3 Auto split / restore entry points of `display_encode.wgsl` (#4741).
+    pub(crate) p3_auto_split_pipeline: OnceCell<wgpu::ComputePipeline>,
+    pub(crate) p3_auto_restore_pipeline: OnceCell<wgpu::ComputePipeline>,
     /// Lazily-compiled sRGB gamma-encode compute pipeline (`srgb_gamma.wgsl`). A
     /// P4a view-tail stage (#992-pre): the per-channel IEC 61966-2-1 OETF
     /// (`raw_core::view::encode::srgb_gamma_encode`). Pure per-channel transfer,
@@ -460,6 +463,8 @@ impl GpuContext {
             color_curves_pipeline: OnceCell::new(),
             scene_tone_sh_pipeline: OnceCell::new(),
             display_encode_pipeline: OnceCell::new(),
+            p3_auto_split_pipeline: OnceCell::new(),
+            p3_auto_restore_pipeline: OnceCell::new(),
             srgb_gamma_pipeline: OnceCell::new(),
             saturation_pipeline: OnceCell::new(),
             defringe_pipeline: OnceCell::new(),

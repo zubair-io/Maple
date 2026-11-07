@@ -1,5 +1,6 @@
 use super::*;
 use crate::chain::Pass;
+use crate::p3_auto::p3_auto_passes;
 
 pub(crate) trait LivePassSink<'a> {
     fn push<T: Pass + 'a>(&mut self, pass: T);
@@ -356,9 +357,13 @@ pub(crate) fn visit_live_chain<'a>(
     }
     // target_primaries from FullChainInputs (#1337): 0 = sRGB (default/legacy),
     // 1 = Display P3.
-    sink.push(DisplayEncodePass {
-        target_primaries: inputs.target_primaries,
-    });
+    let p3_auto = p3_auto_is_active(inputs).then(p3_auto_passes);
+    match &p3_auto {
+        Some((split, _)) => sink.push(split.clone()),
+        None => sink.push(DisplayEncodePass {
+            target_primaries: inputs.target_primaries,
+        }),
+    }
     sink.push(SrgbGammaPass);
     // Auto-Profile curve + residual LUT are the per-image AUTO-profile LOOK
     // artifacts (fit in gamma space from a camera JPEG). NON-RAW input has no
@@ -381,5 +386,8 @@ pub(crate) fn visit_live_chain<'a>(
             size: inputs.residual_lut_size,
             data: inputs.residual_lut_data.as_ref().into(),
         });
+    }
+    if let Some((_, restore)) = p3_auto {
+        sink.push(restore);
     }
 }
