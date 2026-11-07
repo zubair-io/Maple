@@ -32,6 +32,22 @@ pub(crate) fn compile_with_matrices(
     compile_source(device, label, &source)
 }
 
+/// As [`compile_with_matrices`], but selects a named `@compute` entry point for
+/// kernels that pack several (display-encode's P3 Auto split / restore, #4741).
+pub(crate) fn compile_with_matrices_entry(
+    device: &wgpu::Device,
+    label: &str,
+    kernel: &str,
+    entry: &str,
+) -> wgpu::ComputePipeline {
+    let source = format!(
+        "{}\n{}",
+        include_str!("generated/color_matrices.wgsl"),
+        kernel
+    );
+    compile_source_entry(device, label, &source, entry)
+}
+
 /// Compile one of `noise_reduction.wgsl`'s entry points (epic #925 P3 / #991).
 /// The module rounds pixels through Oklab, so it concats the generated color
 /// matrices (like `compile_with_matrices`); `entry` selects which `@compute` fn

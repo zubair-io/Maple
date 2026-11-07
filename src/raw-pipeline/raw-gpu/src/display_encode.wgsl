@@ -243,3 +243,98 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) 
     }
     output_buf[i] = vec4<f32>(out_rgb, px.a);
 }
+
+// ── Gamut-preserving Auto for Display P3 (#4741) ─────────────────────────────
+// Mirrors raw_core::view::encode::p3_auto_pixel, split around the Auto tail
+// (`srgb_gamma` → curve → residual LUT, all unchanged and sRGB-domain):
+//   main_p3_split   Rec.2020 → the sRGB render's compressed LINEAR pixel `S`
+//                   (the gamma and tail passes follow), plus the headroom ratio
+//                   r = C(P)/C(S) in a side plane — alpha is reserved for the
+//                   scope-target weight, so r cannot ride in it.
+//   main_p3_restore tail output `T` (sRGB-encoded) → Oklab, a/b scaled by r,
+//                   to linear P3, chroma clipped to the P3 hull, P3 gamma encode.
+// r is exactly 1.0 when the sRGB compression left the pixel alone; that case is
+// the plain 3x3 colour-management of T (sRGB cube ⊂ P3 cube).
+// The identity-tail bit-exactness shortcut of the CPU has no GPU counterpart
+// (the tail output is not compared with its input); the identity case matches
+// Neutral P3 within the Oklab round trip instead.
+
+@group(0) @binding(3) var<storage, read_write> headroom: array<f32>;
+
+fn srgb_gamma_encode1(x: f32) -> f32 {
+    let c = clamp(x, 0.0, 1.0);
+    if (c <= 0.0031308) {
+        return c * 12.92;
+    }
+    return 1.055 * pow(c, 1.0 / 2.4) - 0.055;
+}
+
+fn srgb_gamma_decode1(y: f32) -> f32 {
+    let c = clamp(y, 0.0, 1.0);
+    if (c <= 0.040449936) {
+        return c / 12.92;
+    }
+    return pow((c + 0.055) / 1.055, 2.4);
+}
+
+fn headroom_ratio(srgb_chroma: f32, p3_chroma: f32) -> f32 {
+    let ratio = p3_chroma / srgb_chroma;
+    if (srgb_chroma > 1e-5 && ratio == ratio && ratio < 3.4e38) {
+        return max(ratio, 1.0);
+    }
+    return 1.0;
+}
+
+// Mirrors raw_core::color::oklab_gamut_clip::clip_chroma_to_unit_cube_oklab
+// (P3 hull): untouched inside the box, otherwise chroma scaled to the hull.
+fn clip_chroma_to_p3_hull(rgb: vec3<f32>) -> vec3<f32> {
+    if (in_unit_box(rgb)) {
+        return clamp_unit_scrub_non_finite_vec3(rgb);
+    }
+    let lab = display_to_oklab(rgb, true);
+    let s_hull = max(hull_scale_display(lab.x, lab.y, lab.z, true), 0.0);
+    return clamp_unit_scrub_non_finite_vec3(
+        oklab_to_display(vec3<f32>(lab.x, lab.y * s_hull, lab.z * s_hull), true));
+}
+
+@compute @workgroup_size(64)
+fn main_p3_split(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) ng: vec3<u32>) {
+    let i = gid.y * ng.x * 64u + gid.x;
+    if (i >= params.count) {
+        return;
+    }
+    let px = input_buf[i];
+    let srgb_uncompressed = mul_rec2020_to_srgb(px.rgb);
+    let srgb = compress_to_unit_cube_display(srgb_uncompressed, false);
+    var ratio = 1.0;
+    if (any(srgb != srgb_uncompressed)) {
+        let p3 = compress_to_unit_cube_display(mul_rec2020_to_p3(px.rgb), true);
+        ratio = headroom_ratio(
+            length(display_to_oklab(srgb, false).yz),
+            length(display_to_oklab(p3, true).yz));
+    }
+    output_buf[i] = vec4<f32>(srgb, px.a);
+    headroom[i] = ratio;
+}
+
+@compute @workgroup_size(64)
+fn main_p3_restore(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) ng: vec3<u32>) {
+    let i = gid.y * ng.x * 64u + gid.x;
+    if (i >= params.count) {
+        return;
+    }
+    let px = input_buf[i];
+    let tail_linear = vec3<f32>(
+        srgb_gamma_decode1(px.x), srgb_gamma_decode1(px.y), srgb_gamma_decode1(px.z));
+    let ratio = headroom[i];
+    var p3: vec3<f32>;
+    if (ratio == 1.0) {
+        p3 = mul_srgb_to_p3(tail_linear);
+    } else {
+        let lab = srgb_linear_to_oklab(tail_linear);
+        p3 = clip_chroma_to_p3_hull(
+            oklab_to_display(vec3<f32>(lab.x, lab.y * ratio, lab.z * ratio), true));
+    }
+    output_buf[i] = vec4<f32>(
+        srgb_gamma_encode1(p3.x), srgb_gamma_encode1(p3.y), srgb_gamma_encode1(p3.z), px.a);
+}
