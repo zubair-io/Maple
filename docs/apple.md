@@ -168,6 +168,8 @@ The wgpu live path is always compiled and on by default; `GpuLiveFlag` turns it 
 
 `Profile::Auto` is a per-image, post-AgX display-space tail: a per-channel tone curve composed with a residual 3D LUT, both fit in f32 sRGB-encoded display space by one FFI call (`maple_compute_auto_profile_lut`) and applied on the CPU path as a `CIColorCubeWithColorSpace` tagged sRGB — the last op before the canvas raster, so CoreImage's own color management performs the encode. `AutoProfileLUT` caches the baked cube keyed on URL + mtime + quality. The fit is a cold operation (JPEG extract plus a full develop), so the CPU path only computes it after the GPU present has declined the frame; the GPU path does its own fit inside the session.
 
+That sRGB cube applies only when the render encodes to sRGB. When the target is Display P3 (a P3 canvas, the native-detail patch on a P3 canvas, or a JPEG P3 / HEIC P3 export), `ImageEditPipeline.DisplayEncodePlan` reads the cube's lattice back and the encode runs the tail itself (`maple_encode_display_p3_auto_f32`, or the fused `maple_apply_chain_and_encode_display_p3_auto_f32`), so Auto keeps the wide gamut the way the GPU-live P3 path does (#4741). An export encodes to its format's primaries (`ExportFileFormat.encodePrimaries`), not the canvas setting. An active film look still pins the encode to sRGB, since its lattice is baked in sRGB.
+
 ### Runtime flags
 
 Cloud browsing, Timeline, Map, Search, backup, Files/Finder integration,

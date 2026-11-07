@@ -17,6 +17,8 @@ on:
       - 'src/scripts/test_color_pipeline.sh'
       - 'src/scripts/test_auto_profile_match.sh'
       - 'src/scripts/auto_profile_*.py'
+      - 'src/scripts/test_p3_auto_gamut.sh'
+      - 'src/scripts/p3_auto_gamut_check.py'
       - 'test-fixtures/auto-jpeg-quality/**'
       - 'src/scripts/test_lensfun_vs_lcp.sh'
       - 'src/scripts/lens_warp_diff.py'
@@ -62,6 +64,8 @@ on:
       - 'src/scripts/test_color_pipeline.sh'
       - 'src/scripts/test_auto_profile_match.sh'
       - 'src/scripts/auto_profile_*.py'
+      - 'src/scripts/test_p3_auto_gamut.sh'
+      - 'src/scripts/p3_auto_gamut_check.py'
       - 'test-fixtures/auto-jpeg-quality/**'
       - 'src/scripts/test_lensfun_vs_lcp.sh'
       - 'src/scripts/lens_warp_diff.py'
@@ -684,6 +688,22 @@ jobs:
         with:
           name: auto-embedded-jpeg-evidence
           path: ${{ runner.temp }}/auto-embedded-jpeg
+          if-no-files-found: error
+
+      # Display-P3 Auto (#4741): Auto on P3 agrees with its sRGB render where
+      # sRGB compressed nothing and keeps Neutral's wide-gamut share.
+      - name: P3 Auto gamut gate (test_p3_auto_gamut.sh)
+        if: ${{ !cancelled() && steps.probe.outputs.have_raws == 'true' }}
+        env:
+          OUTPUT_DIR: ${{ runner.temp }}/p3-auto-gamut
+        run: bash src/scripts/test_p3_auto_gamut.sh
+
+      - name: Preserve P3 Auto gamut metrics
+        if: always() && steps.probe.outputs.have_raws == 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: p3-auto-gamut-evidence
+          path: ${{ runner.temp }}/p3-auto-gamut
           if-no-files-found: error
 
       # Bundled Lensfun calibration vs Adobe's LCP for the same lens (#3564).
