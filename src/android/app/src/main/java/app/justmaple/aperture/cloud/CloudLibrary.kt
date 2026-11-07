@@ -165,10 +165,7 @@ class CloudLibrary(context: Context) {
             else {
                 val etag =
                     current.etag ?: error("Cloud sidecar response is missing its content ETag")
-                check(etag.startsWith('"') && etag.endsWith('"') && !etag.contains(',')) {
-                    "Cloud sidecar ETag is invalid"
-                }
-                mapOf("If-Match" to etag)
+                mapOf("If-Match" to sidecarIfMatch(etag))
             }
         val serialized = XmpEncoding.forCloud(document.serialize())
         http
@@ -195,6 +192,21 @@ class CloudLibrary(context: Context) {
                 .appendQueryParameter("address", address)
                 .appendQueryParameter("path", path)
                 .build()
+
+        internal fun sidecarIfMatch(etag: String): String {
+            // Gzip proxies weaken the strong tag to W/"…"; the server matches only the strong form.
+            val tag = etag.trim().removePrefix("W/")
+            check(
+                tag.length > 2 &&
+                    tag.startsWith('"') &&
+                    tag.endsWith('"') &&
+                    tag.count { it == '"' } == 2 &&
+                    !tag.contains(',')
+            ) {
+                "Cloud sidecar ETag is invalid"
+            }
+            return tag
+        }
 
         private fun xmpPath(uri: Uri) =
             "/api/xmp?path=${Uri.encode(uri.getQueryParameter("path") ?: error("Missing cloud photo path"))}"
