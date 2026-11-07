@@ -150,14 +150,13 @@ extension EditSession {
         decodeRect: decodeRect
       )
       // #3190 review follow-up: `FilmLookCube` assumes an sRGB-encoded
-      // input (same as the Auto Profile cube below) — when the film
-      // look is active, pin the chain's encode to sRGB
-      // regardless of the canvas setting so the cube isn't fed
-      // P3-gamma bytes it would misinterpret as sRGB-gamma. Mirrors
-      // `profileLUT != nil ? .srgb : ...` immediately below.
+      // input — when the film look is active, pin the chain's encode to
+      // sRGB regardless of the canvas setting so the cube isn't fed
+      // P3-gamma bytes it would misinterpret as sRGB-gamma. Auto follows
+      // the same plan as the full-frame render (#4741).
       let filmActive = filmLattice != nil && m.filmStrength > 0
-      let targetPrimaries: CanvasColorSpace =
-        (profileLUT != nil || filmActive) ? .srgb : CanvasColorSpace.current
+      let encodePlan = ImageEditPipeline.DisplayEncodePlan.resolve(
+        requested: filmActive ? .srgb : CanvasColorSpace.current, profileLUT: profileLUT)
       let fullSize = nativeImageSize
       let materialised = try await Task.detached(priority: .userInitiated) {
         () throws -> CIImage? in
@@ -170,15 +169,14 @@ extension EditSession {
           origin: decodeRect.origin,
           fullSize: fullSize,
           asShot: asShot,
-          profileLUT: profileLUT,
           noiseProfile: snapshot.noiseProfile,
           iso: snapshot.iso,
           wbFrame: snapshot.wbFrame,
           whitesAnchorEv: snapshot.whitesAnchorEv,
-          targetPrimaries: targetPrimaries
+          encodePlan: encodePlan
         )
         // Film look (#2683): the windowed chain's output is
-        // already the final gamma-encoded image in `targetPrimaries`
+        // already the final gamma-encoded image in `encodePlan.target`
         // (pinned to sRGB above whenever film is active) — the same
         // domain the `.mlut` lattice is baked in — bake the cube
         // here rather than in the FFI chain (#2713). Closes the
@@ -191,19 +189,14 @@ extension EditSession {
           strengthPct: m.filmStrength
         )
         let cropped = filmed.cropped(to: localDetailRect)
-        // Tag must match what the windowed chain actually encoded
-        // (`targetPrimaries` above) — see `materializeRegion`'s doc
-        // comment (jules review on #3239: this used to be hardcoded
-        // to sRGB regardless of the real tag).
-        let colorSpace =
-          targetPrimaries == .displayP3
-          ? ImageEditPipeline.displayEncodedColorSpaceP3
-          : ImageEditPipeline.displayEncodedColorSpace
+        // Tag must match what the windowed chain actually encoded —
+        // see `materializeRegion`'s doc comment (jules review on #3239:
+        // this used to be hardcoded to sRGB regardless of the real tag).
         guard
           let cg = pipeline.materializeRegion(
             cropped,
             rect: localDetailRect,
-            colorSpace: colorSpace
+            colorSpace: encodePlan.colorSpace
           )
         else { return nil }
         return CIImage(cgImage: cg)

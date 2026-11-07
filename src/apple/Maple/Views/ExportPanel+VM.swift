@@ -37,10 +37,11 @@ struct StagedExportFile: Identifiable {
 @MainActor
 @Observable
 final class ExportPanelVM {
-  /// Bakes `session` into a CIImage graph (full-resolution or fast-fit). `@MainActor`
+  /// Bakes `session` into a CIImage graph (full-resolution or fast-fit, encoded
+  /// to the format's primaries). `@MainActor`
   /// because `EditSession` is; the work here is cheap — the graph is lazy,
   /// and `RenderActor` already owns the decode and the develop.
-  typealias Renderer = @MainActor (EditSession, ExportSizeOption) async throws -> CIImage
+  typealias Renderer = @MainActor (EditSession, ExportOptions) async throws -> CIImage
   /// Evaluates that graph and encodes it — the expensive half. Synchronous
   /// and unisolated on purpose: `encodeOffPool` below is what moves it off
   /// the main actor, so *where* it runs is decided by this file (and
@@ -75,7 +76,9 @@ final class ExportPanelVM {
   private var exportTask: Task<Void, Never>?
 
   init(
-    render: @escaping Renderer = { try await $0.renderForExport(sizeOption: $1) },
+    render: @escaping Renderer = {
+      try await $0.renderForExport(sizeOption: $1.sizeOption, primaries: $1.format.encodePrimaries)
+    },
     encode: @escaping Encoder = { try MapleExporter.encode($0, options: $1) },
     write: @escaping Writer = { try $0.write(to: $1, options: .atomic) }
   ) {
@@ -84,7 +87,7 @@ final class ExportPanelVM {
     self.writeFile = write
   }
 
-  /// Convenience initializer for tests or callers that do not inspect `ExportSizeOption`.
+  /// Convenience initializer for tests or callers that do not inspect `ExportOptions`.
   convenience init(
     render: @escaping @MainActor (EditSession) async throws -> CIImage,
     encode: @escaping Encoder = { try MapleExporter.encode($0, options: $1) },
@@ -318,13 +321,14 @@ final class ExportPanelVM {
   }
 
   private func runStaging(session: EditSession, directory: URL, gen: Int) async {
+    let options = self.options
     do {
-      let image = try await render(session, sizeOption)
+      let image = try await render(session, options)
       try guardLive(gen)
-      let data = try await encodeOffPool(image)
+      let data = try await encodeOffPool(image, options: options)
       try guardLive(gen)
       let stem = sanitizedStem(for: session.asset)
-      let ext = format.fileExtension
+      let ext = options.format.fileExtension
       try await publish(data, stem: stem, ext: ext, in: directory, gen: gen)
       finish(gen, with: nil)
     } catch {
@@ -343,9 +347,10 @@ final class ExportPanelVM {
   /// would park a cooperative thread for the whole bake, and a few
   /// start/cancel cycles would exhaust a pool sized to the core count
   /// (PR #3455 review).
-  private func encodeOffPool(_ image: CIImage) async throws -> Data {
+  /// `options` is the snapshot the render used, so a format change mid-export
+  /// cannot encode a P3 render into an sRGB file.
+  private func encodeOffPool(_ image: CIImage, options: ExportOptions) async throws -> Data {
     let encode = self.encode
-    let options = self.options
     return try await BlockingWork.run { try encode(image, options) }
   }
 
