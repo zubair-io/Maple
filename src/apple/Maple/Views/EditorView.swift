@@ -194,7 +194,8 @@ struct EditorSurface: View {
             },
             showsScope: $showsScope,
             showsScopesPanel: $showsScopesPanel,
-            scopesPanelAvailable: isRegular
+            scopesPanelAvailable: isRegular,
+            showsGroupSwitcher: headerCarriesGroups
           )
           Spacer(minLength: 0)
         }
@@ -276,11 +277,11 @@ struct EditorSurface: View {
       // (EditorView leaves the view hierarchy and its modifier disappears).
       .toolbar(.hidden, for: .windowToolbar)
     #elseif os(iOS)
-      .toolbar(usesDuoToolRail ? .visible : .hidden, for: .navigationBar)
+      .toolbar(systemRailCarriesGroups ? .visible : .hidden, for: .navigationBar)
       .toolbarBackground(.hidden, for: .navigationBar)
-      .navigationBarBackButtonHidden(usesDuoToolRail)
+      .navigationBarBackButtonHidden(systemRailCarriesGroups)
       .toolbar {
-        if usesDuoToolRail {
+        if systemRailCarriesGroups {
           EditorDuoToolRail(state: state)
         }
       }
@@ -291,6 +292,12 @@ struct EditorSurface: View {
     .modifier(EditorCommandScope(state: state, navigate: navigateFilmstrip))
     .id(ObjectIdentifier(state.session))
   }
+
+  /// The closed Duo's compact controls hand group selection to the system
+  /// side rail. The open Duo carries it in the header row instead, so its
+  /// navigation bar never pushes the header down a level (#5710).
+  private var systemRailCarriesGroups: Bool { usesDuoToolRail && usesPhoneControls }
+  private var headerCarriesGroups: Bool { usesDuoToolRail && !usesPhoneControls }
 
   private func navigateFilmstrip(_ direction: Int) {
     guard let index = filmstripAssets.firstIndex(where: { $0.id == state.session.asset.id }),

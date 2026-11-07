@@ -34,8 +34,11 @@ struct EditorControls: View {
         )
         .reportsWheelExclusion(in: "editorCanvas", active: true)
         .padding(.top, 64)
-        .padding(12)
+        .padding([.top, .bottom, .leading], 12)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
+        // Docked flush to the screen's trailing edge (#5710); its tabs and
+        // ruler sit below the status items a trailing system rail carries.
+        .ignoresSafeArea(.container, edges: .trailing)
       } else {
         stackedControls(
           isBottom: isBottom, arrangement: arrangement, shortCrop: shortCrop,

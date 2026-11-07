@@ -204,6 +204,13 @@ enum PreviewViewVM {
       height: size.height)
   }
 
+  /// Zoom factor, relative to fit, at which a photo fitted to `fitted`
+  /// covers the whole `page` (#5710). 1 when either size is degenerate.
+  static func fillZoomScale(fitted: CGSize, page: CGSize) -> CGFloat {
+    guard fitted.width > 0, fitted.height > 0, page.width > 0, page.height > 0 else { return 1 }
+    return max(page.width / fitted.width, page.height / fitted.height)
+  }
+
   /// Tile corner radius fading to square as the hero opens.
   static func heroCornerRadius(progress: CGFloat, tileRadius: CGFloat) -> CGFloat {
     tileRadius * (1 - min(1, max(0, progress)))

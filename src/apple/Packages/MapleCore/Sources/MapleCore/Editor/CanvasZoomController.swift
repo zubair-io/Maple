@@ -96,7 +96,8 @@ public final class CanvasZoomController {
     // from an inconsistent start state. No capture → identity transform.
     guard let start = model.pinchStartScale, start > 0 else { return (1, .zero) }
     let next = CanvasZoomModel.pinchScale(
-      start: start, magnification: magnification, fit: context.fitScale
+      start: start, magnification: magnification,
+      fit: context.fitScale, fill: context.fillScale
     )
     let committed = context.clampedPan(
       CanvasZoomModel.livePinchPan(
@@ -124,11 +125,11 @@ public final class CanvasZoomController {
   public var isZoomedIn: Bool { model.isZoomedIn }
 
   /// Drag arbitration for the host (spec §5.0 table).
-  public var dragIntent: CanvasZoomModel.DragIntent { model.dragIntent }
+  public var dragIntent: CanvasZoomModel.DragIntent { model.dragIntent(context: context) }
 
   /// Wheel arbitration for the host (spec §5.0 table).
   public func wheelIntent(commandHeld: Bool) -> CanvasZoomModel.WheelIntent {
-    model.wheelIntent(commandHeld: commandHeld)
+    model.wheelIntent(commandHeld: commandHeld, context: context)
   }
 
   // MARK: - View plumbing
@@ -245,6 +246,24 @@ public final class CanvasZoomController {
   public func resetToFit() {
     model.resetToFit()
     commitToSession()
+  }
+
+  /// Fill — the image covers the whole viewport.
+  public func zoomToFill() {
+    model.zoomToFill(context: context)
+    commitToSession()
+  }
+
+  /// Zoom badge: cycle `fit → fill → 100%` (a free scale returns to fit).
+  public func advanceZoomStop() {
+    model.advanceStop(context: context)
+    commitToSession()
+  }
+
+  /// The badge's next stop, for its accessibility hint.
+  public var nextZoomStop: CanvasZoomModel.ZoomStop {
+    CanvasZoomModel.nextStop(
+      after: model.currentStop, in: CanvasZoomModel.badgeStops(context: context))
   }
 
   /// 100% (⌘1) — or any explicit scale.

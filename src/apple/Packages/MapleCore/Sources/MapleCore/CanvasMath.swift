@@ -107,6 +107,18 @@ public struct CanvasMath: Sendable, Equatable {
         )
     }
 
+    /// Real-screen-pixels-per-image-pixel at which the image covers the
+    /// whole viewport (the larger axis ratio). Returns 1 when degenerate.
+    public var fillPixelScale: CGFloat {
+        guard let imageExtent,
+              viewportPx.width > 0, viewportPx.height > 0
+        else { return 1 }
+        return max(
+            viewportPx.width / imageExtent.width,
+            viewportPx.height / imageExtent.height
+        )
+    }
+
     /// Resolves `pixelScale == 0` (fit) into a concrete value. All
     /// scale-driven math (display frame, refine target, visible rect)
     /// runs through this.
@@ -143,7 +155,10 @@ public struct CanvasMath: Sendable, Equatable {
     /// the fast pass. Upscaling past native adds no real detail; cap at
     /// 1.0 and let the viewport upscale the native-sized buffer.
     /// Fit mode (pixelScale == 0) resolves to `fast == refine` so the
-    /// refine scheduler short-circuits.
+    /// refine scheduler short-circuits, and so does any scale below fit:
+    /// `native × scale` is then smaller than the viewport, so the floor
+    /// holds it at the fit-cost viewport target. At fill the product is
+    /// the on-screen frame — one rendered pixel per screen pixel.
     ///
     /// Falls back to an 8× fast-phase estimate when `nativeImageSize`
     /// hasn't been seeded yet (first decode in flight). Once native is

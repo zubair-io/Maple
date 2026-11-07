@@ -9,6 +9,12 @@ struct EditorCanvasView: View {
   var wheelExclusionFrame: CGRect?
   var hasFilmstrip = false
   @Environment(\.mapleLayout) private var layout
+  #if os(iOS)
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
+    private var hasCompactHeight: Bool { verticalSizeClass == .compact }
+  #else
+    private let hasCompactHeight = false
+  #endif
   private var isRegular: Bool { layout != .phone }
 
   // MARK: - Canvas layer
@@ -24,7 +30,8 @@ struct EditorCanvasView: View {
               state.wheelNudge(steps: steps, unit: unit)
             },
             canvasReady: canvasIsReady,
-            wheelExcludedFrame: wheelExclusionFrame
+            wheelExcludedFrame: wheelExclusionFrame,
+            badgeInsets: badgeInsets(in: geometry)
           ) {
             canvasLeaf
           } fallback: {
@@ -65,6 +72,7 @@ struct EditorCanvasView: View {
           }
         }
         .padding(canvasInsets(size: geometry.size))
+        .ignoresSafeArea(edges: isFullBleed ? .all : [])
         // Before/after "BEFORE" badge — surfaced while the session is
         // showing the original (the canvas itself falls back to the
         // placeholder).
@@ -89,6 +97,35 @@ struct EditorCanvasView: View {
       // bottom-trailing GPU/CPU overlay is no longer rendered here.
     }
   }
+
+  /// iPad, the open Duo and the Mac draw the photo edge to edge, beneath
+  /// the status bar, header and controls, so fit is the whole screen
+  /// (#5710). The crop tool keeps its inset canvas so its handles stay
+  /// clear of the controls.
+  private var isFullBleed: Bool {
+    isRegular && state.armedTool != .crop
+      && FullBleedCanvas.isAllowed(
+        idiom: MapleShellKind.currentIdiom, hasCompactHeight: hasCompactHeight)
+  }
+
+  /// The full-bleed canvas reaches the screen corner, so the badge steps
+  /// in by the safe area and, when the controls cover the bottom-leading
+  /// corner (the portrait inspector and dock), sits just above them.
+  private func badgeInsets(in geometry: GeometryProxy) -> EdgeInsets {
+    guard isFullBleed else { return EdgeInsets() }
+    let safe = geometry.safeAreaInsets
+    let coversBadgeCorner = { (frame: CGRect) in
+      frame.minX < Self.badgeClearance && frame.maxY > geometry.size.height - Self.badgeClearance
+    }
+    let controlsLift =
+      wheelExclusionFrame
+      .flatMap { coversBadgeCorner($0) ? max(0, geometry.size.height - $0.minY) : nil } ?? 0
+    return EdgeInsets(
+      top: 0, leading: safe.leading, bottom: safe.bottom + controlsLift, trailing: 0)
+  }
+
+  /// The badge's footprint: 44 pt plus its padding, with margin.
+  private static let badgeClearance: CGFloat = 80
 
   private func canvasInsets(size: CGSize) -> EdgeInsets {
     if state.armedTool == .crop {

@@ -163,7 +163,7 @@ struct PreviewPager: UIViewControllerRepresentable {
 
         /// Zoomed in, a vertical pan is the image pan — never a pull.
         var visibleIsAtFitZoom: Bool {
-            visiblePage?.isAtFitZoom ?? false
+            visiblePage?.isAtOrBelowFitZoom ?? false
         }
 
         private var visiblePage: PreviewZoomController? {

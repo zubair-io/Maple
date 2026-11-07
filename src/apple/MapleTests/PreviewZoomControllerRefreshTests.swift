@@ -42,7 +42,11 @@
       DevelopedImageRevision.shared.didPersist(for: url)
       await waitForPixels(width: 64, in: image)
       attachScreenshot(of: controller.view, name: "Preview after save")
-      XCTAssertTrue(controller.isAtFitZoom)
+      XCTAssertTrue(controller.isAtOrBelowFitZoom)
+      XCTAssertEqual(image.bounds.size, CGSize(width: 320, height: 320))
+      XCTAssertEqual(scroll.minimumZoomScale, CanvasZoomModel.minFitFraction)
+      XCTAssertEqual(scroll.maximumZoomScale, 6)
+      XCTAssertEqual(controller.fillZoomScale, 1.5, accuracy: 1e-9)
     }
 
     private func waitForPixels(width: Int, in image: UIImageView) async {

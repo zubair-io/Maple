@@ -1,6 +1,6 @@
 // EditorVerticalControlBar.swift — landscape iPad and open-Duo controls.
 //
-// The compact bottom bar turned on end and floated on the trailing edge.
+// The compact bottom bar turned on end and docked flush to the trailing edge.
 // Left to right: group tabs, the armed group's tools, then the vertical
 // ruler. Sub-parameter chips, group accessories and tools without a
 // primary field open in a panel beside the bar.
@@ -69,7 +69,7 @@ struct EditorVerticalControlBar: View {
         .frame(width: Self.rulerColumnWidth)
     }
     .padding(.horizontal, 4)
-    .modifier(FloatingSurface())
+    .modifier(FloatingSurface(isDocked: true))
     .accessibilityElement(children: .contain)
     .accessibilityIdentifier("editor-vertical-controls")
   }
@@ -124,8 +124,14 @@ struct EditorVerticalControlBar: View {
 }
 
 private struct FloatingSurface: ViewModifier {
+  var isDocked = false
+
   func body(content: Content) -> some View {
+    let trailingRadius: CGFloat = isDocked ? 0 : 18
     content.background(
-      ProTokens.bg.opacity(ProGlass.opacity), in: RoundedRectangle(cornerRadius: 18))
+      ProTokens.bg.opacity(ProGlass.opacity),
+      in: UnevenRoundedRectangle(
+        topLeadingRadius: 18, bottomLeadingRadius: 18,
+        bottomTrailingRadius: trailingRadius, topTrailingRadius: trailingRadius))
   }
 }
