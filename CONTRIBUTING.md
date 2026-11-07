@@ -180,7 +180,7 @@ src/
   scripts/             Bash + Python harness scripts (color-pipeline, codegen, dev)
 docs/                  Specs, architecture, best practices (read these before editing)
 tools/                 Repo-wide tooling — file-budget, calibration, sanity checks
-test-fixtures/         Gitignored RAWs + ACR references + per-case budgets
+test-fixtures/         Gitignored RAWs + archived ACR references + per-case budgets
 ```
 
 ## Testing
