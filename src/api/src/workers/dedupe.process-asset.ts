@@ -20,6 +20,7 @@
  * themselves, so these phases take an asset id and nothing else.
  */
 
+import { createHash } from 'node:crypto';
 import * as path from 'node:path';
 import type { ObjectId } from '../db/object-id.ts';
 import * as fs from '../fs/mirrored.ts';
@@ -33,7 +34,13 @@ import {
 import { stageRearmStatements, RELOCATE_CACHE_STAGES } from '../db/repos/assets.stage-rearm.ts';
 import { child as childLogger } from '../log.ts';
 import { statKind, libraryRootAvailable } from './missing-reaper.helpers.ts';
-import { moveToDuplicates, directoryHasKeepFile } from '../fs/duplicates.ts';
+import {
+  moveToDuplicates,
+  directoryHasKeepFile,
+  type StrandedOldNameEdit,
+} from '../fs/duplicates.ts';
+import { recordSidecarDivergence } from '../db/repos/sidecar-divergences.repo.ts';
+import { relativeUnderRoot } from '../fs/root-match.ts';
 import { refusesMoveUnderMarker } from '../fs/mapleignore-guard.ts';
 import { cleanPreviewsCacheForLocation } from '../fs/preview-cache-cleanup.ts';
 import { folderKey, sameEntry, selectKeeper, type DeDuplicateSummary } from './dedupe.helpers.ts';
@@ -268,6 +275,36 @@ async function cleanThumbCache(folderAbs: string, mapleId: string): Promise<void
   await fs.unlink(path.join(folderAbs, '.maple', 'thumbs', `${mapleId}.jpg`)).catch(() => {});
 }
 
+const DIVERGENCE_SOURCE = 'dedupe';
+
+/** A quarantined photo's old-name edit that no conflict copy could follow stays at the old
+ * path beside whatever took it; the divergence keeps its bytes for the photo's asset. */
+async function recordStrandedEdit(
+  doc: DedupeAssetRef,
+  entry: FileInfo,
+  root: string,
+  stranded: StrandedOldNameEdit,
+): Promise<void> {
+  const xmp = stranded.bytes.toString('utf8');
+  const digest = createHash('sha256').update(xmp, 'utf8').digest('hex');
+  const relative = relativeUnderRoot(root, stranded.path) ?? stranded.path;
+  await recordSidecarDivergence({
+    assetId: doc._id,
+    libraryId: entry.library_id,
+    sidecarRelPath: relative.split(path.sep).join('/'),
+    deviceId: DIVERGENCE_SOURCE,
+    baseSha256: null,
+    displacedSha256: digest,
+    displacedXmp: xmp,
+    incomingSha256: digest,
+  }).catch((err: unknown) => {
+    log.error(
+      { _id: String(doc._id), err: String(err) },
+      'deduplicate: retained edit not recorded',
+    );
+  });
+}
+
 /**
  * Relocates every entry in `removeEntries` into `_duplicates/` (or logs the
  * intended move under `dryRun`), cleaning each moved copy's preview cache
@@ -306,6 +343,8 @@ export async function moveEntriesToDuplicates(
       continue;
     }
     summary.movedFiles++;
+    if (res.strandedOldNameEdit)
+      await recordStrandedEdit(doc, entry, root, res.strandedOldNameEdit);
     log.info(
       { _id: String(doc._id), from: abs, to: res.newAbsPath },
       'deduplicate: moved duplicate to _duplicates/',

@@ -317,3 +317,34 @@ test('an undone duplicates move keeps the quarantined photo while its carried ed
   );
   expect(await fs.readFile(raw, 'utf8')).toBe('photo');
 });
+
+test('the duplicates mover reports the old-name edit it could not carry as a conflict copy (#5089)', async () => {
+  const dir = path.join(tmpRoot, 'old-name-duplicate-stranded');
+  await fs.mkdir(dir, { recursive: true });
+  const raw = path.join(dir, 'IMG_17.HEIC');
+  const legacy = `${raw}.xmp`;
+  await fs.writeFile(raw, 'photo');
+  await fs.writeFile(legacy, maple('backup edit'));
+  const realSettle = ownership.settleCarriedSidecar;
+  const settle = spyOn(ownership, 'settleCarriedSidecar').mockImplementationOnce(
+    async (source, dest, snapshot, keepSource) => {
+      await fs.writeFile(source, maple('saved at the old path'));
+      await fs.writeFile(dest, maple('saved at the new path'));
+      await realSettle(source, dest, snapshot, keepSource);
+      await fs.writeFile(raw, 'a new arrival');
+    },
+  );
+  const conflicts = spyOn(ownership, 'publishConflictBytes').mockResolvedValueOnce(false);
+  try {
+    const moved = await moveToDuplicates(raw, tmpRoot);
+
+    expect(moved.kind).toBe('ok');
+    if (moved.kind !== 'ok') return;
+    expect(moved.strandedOldNameEdit?.path).toBe(legacy);
+    expect(moved.strandedOldNameEdit?.bytes.toString('utf8')).toBe(maple('saved at the old path'));
+  } finally {
+    settle.mockRestore();
+    conflicts.mockRestore();
+  }
+  expect(await fs.readFile(legacy, 'utf8')).toBe(maple('saved at the old path'));
+});
