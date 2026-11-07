@@ -333,7 +333,7 @@ The runner finds `test-fixtures/raws/` on its own (`Helpers/UITestFixtureRoot.sw
 
 The app target compiles for macOS, iOS and iPadOS from the same sources, so both builds must stay green. The codebase carries roughly 100 `#if os(iOS)` and 100 `#if os(macOS)` blocks plus ~30 `canImport(UIKit)` guards. A macOS build never type-checks the contents of an `#if os(iOS)` block, so a change inside one can merge green and break the iOS build silently — build both destinations before claiming an Apple change works.
 
-The pattern shows up in test code too: `MapleUITests.swift` and `SyntheticGreyUITests.swift` all wrap themselves in `#if os(macOS)` because they drive AppKit, which lets the bundle still compile for the iOS Simulator where `PanoOrtSelftestUITests` runs. Extensions are the other axis: `MapleFileProvider` is macOS-only and `MapleFileProviderIOS` iOS-only (`SUPPORTED_PLATFORMS` in `project.pbxproj`), which is why the same core class has two thin subclasses instead of one shared target.
+The pattern shows up in test code too: `MapleUITests.swift` and `SyntheticGreyUITests.swift` both wrap themselves in `#if os(macOS)` because they drive AppKit, which lets the bundle still compile for the iOS Simulator where `PanoOrtSelftestUITests` runs. Extensions are the other axis: `MapleFileProvider` is macOS-only and `MapleFileProviderIOS` iOS-only (`SUPPORTED_PLATFORMS` in `project.pbxproj`), which is why the same core class has two thin subclasses instead of one shared target.
 
 ### Local MCP server (macOS)
 
