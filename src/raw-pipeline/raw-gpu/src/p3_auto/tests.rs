@@ -63,7 +63,7 @@ fn cpu_reference(input: &[f32], lut: &ColorLut) -> Vec<f32> {
 fn gpu_chain(input: &[f32], lut: &ColorLut) -> Vec<f32> {
     let ctx = GpuContext::new_blocking().expect("gpu context");
     let img = GpuImage::upload(&ctx, input, (input.len() / 4) as u32, 1);
-    let (split, restore) = p3_auto_passes();
+    let (split, restore) = p3_auto_passes(HeadroomPlane::default());
     let lut_pass = ResidualLutPass {
         size: lut.size,
         data: lut.data.as_slice().into(),
@@ -183,7 +183,7 @@ fn p3_auto_tail_cost_against_the_srgb_tail() {
         samples.sort_by(f64::total_cmp);
         samples[samples.len() / 2]
     };
-    let (split, restore) = p3_auto_passes();
+    let (split, restore) = p3_auto_passes(HeadroomPlane::default());
     let srgb = median_ms(&[
         &DisplayEncodePass {
             target_primaries: 0,

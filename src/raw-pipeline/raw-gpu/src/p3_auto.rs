@@ -38,12 +38,30 @@ struct Params {
     _pad2: u32,
 }
 
+/// The split pass's headroom plane, handed to the restore pass, which takes it
+/// so the holder never outlives the tick's plane. A live session keeps one
+/// holder for its lifetime so a slider tick clones an `Arc` instead of
+/// allocating a fresh holder; the boxed fallback builds one per chain.
 #[derive(Clone, Default)]
-struct HeadroomPlane(Arc<Mutex<Option<Plane>>>);
+pub(crate) struct HeadroomPlane(Arc<Mutex<Option<Plane>>>);
 
-/// The two passes of one P3 Auto chain, sharing the headroom plane.
-pub(crate) fn p3_auto_passes() -> (P3AutoSplitPass, P3AutoRestorePass) {
-    let headroom = HeadroomPlane::default();
+impl HeadroomPlane {
+    #[cfg(test)]
+    pub(crate) fn same_holder(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn is_empty(&self) -> bool {
+        self.0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .is_none()
+    }
+}
+
+/// The two passes of one P3 Auto chain, sharing `headroom`.
+pub(crate) fn p3_auto_passes(headroom: HeadroomPlane) -> (P3AutoSplitPass, P3AutoRestorePass) {
     (
         P3AutoSplitPass {
             headroom: headroom.clone(),
@@ -136,7 +154,7 @@ impl Pass for P3AutoRestorePass {
             .0
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .clone();
+            .take();
         let Some(plane) = plane else {
             debug_assert!(false, "P3AutoRestorePass encoded before P3AutoSplitPass");
             return;

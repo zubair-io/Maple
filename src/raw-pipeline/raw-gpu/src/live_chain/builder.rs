@@ -1,12 +1,17 @@
 use super::*;
 use crate::chain::Pass;
-use crate::p3_auto::p3_auto_passes;
+use crate::p3_auto::{p3_auto_passes, HeadroomPlane};
 
 pub(crate) trait LivePassSink<'a> {
     fn push<T: Pass + 'a>(&mut self, pass: T);
     /// The boxed fallback separates prefix/suffix; a single-submit encoder
     /// deliberately continues its existing ping-pong sequence across this point.
     fn start_suffix(&mut self) {}
+    /// The P3 Auto headroom holder for this chain (#4741). A session-backed sink
+    /// returns its resident holder so a tick does not allocate one.
+    fn p3_auto_headroom(&self) -> HeadroomPlane {
+        HeadroomPlane::default()
+    }
 }
 struct BoxedSink<'a> {
     prefix: BoxedPasses<'a>,
@@ -357,7 +362,7 @@ pub(crate) fn visit_live_chain<'a>(
     }
     // target_primaries from FullChainInputs (#1337): 0 = sRGB (default/legacy),
     // 1 = Display P3.
-    let p3_auto = p3_auto_is_active(inputs).then(p3_auto_passes);
+    let p3_auto = p3_auto_is_active(inputs).then(|| p3_auto_passes(sink.p3_auto_headroom()));
     match &p3_auto {
         Some((split, _)) => sink.push(split.clone()),
         None => sink.push(DisplayEncodePass {

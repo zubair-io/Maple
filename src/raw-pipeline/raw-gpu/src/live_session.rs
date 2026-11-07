@@ -103,6 +103,8 @@ pub struct LiveSession {
     /// The dehaze map kept across renders (#3287), so a dehaze-slider tick
     /// runs only the recovery. Cleared when the source image changes.
     haze: std::sync::Arc<crate::dehaze::HazeResidency>,
+    /// The P3 Auto headroom holder (#4741), reused by every tick's split/restore.
+    pub(crate) p3_auto_headroom: crate::p3_auto::HeadroomPlane,
     /// The vectorscope scope-pass histogram, the RGB8 snapshot (#3251) and
     /// their double-buffered `MAP_READ` staging (#3272) — see
     /// `live_session/scope.rs`. Session-owned
@@ -207,6 +209,7 @@ impl LiveSession {
             session_id,
             pool_owner: std::sync::Arc::new(()),
             haze: Default::default(),
+            p3_auto_headroom: Default::default(),
             scope: scope::ScopeBuffers::new(ctx, (width, height)),
         })
     }
@@ -495,6 +498,9 @@ mod tests_preparation;
 #[cfg(all(test, not(target_arch = "wasm32")))]
 #[path = "live_session/tests_haze.rs"]
 mod tests_haze;
+#[cfg(all(test, not(target_arch = "wasm32")))]
+#[path = "live_session/tests_p3_timing.rs"]
+mod tests_p3_timing;
 #[cfg(all(test, not(target_arch = "wasm32")))]
 #[path = "live_session/tests_scope.rs"]
 mod tests_scope;
