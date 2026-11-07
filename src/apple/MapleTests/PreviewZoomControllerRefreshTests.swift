@@ -86,6 +86,31 @@
       XCTAssertEqual(after.y, before.y, accuracy: 1e-3)
     }
 
+    /// #5710: a pinch released inside fill's detent on a panorama snaps to
+    /// fill without dragging the inspected end back to the middle.
+    func testPinchSnapToFillKeepsThePanoramaEndInView() async throws {
+      let page = try makePage(size: CGSize(width: 1366, height: 1024))
+      page.image.image = solidImage(width: 4000, height: 1000)
+      page.layout()
+      let fill = page.controller.fillZoomScale
+      let released = fill * 0.98
+      page.scroll.setZoomScale(released, animated: false)
+      page.scroll.contentOffset = CGPoint(x: 200, y: page.scroll.contentOffset.y)
+      let before = visibleCentre(of: page.scroll)
+
+      page.controller.scrollViewDidEndZooming(
+        page.scroll, with: page.image, atScale: released)
+      let deadline = ContinuousClock.now.advanced(by: .seconds(2))
+      while abs(page.scroll.zoomScale - fill) > 1e-6, ContinuousClock.now < deadline {
+        try await Task.sleep(for: .milliseconds(20))
+      }
+
+      XCTAssertEqual(page.scroll.zoomScale, fill, accuracy: 1e-6)
+      let after = visibleCentre(of: page.scroll)
+      XCTAssertEqual(after.x, before.x, accuracy: 1e-3)
+      XCTAssertEqual(after.y, 0.5, accuracy: 1e-3)
+    }
+
     private struct Page {
       let window: UIWindow
       let controller: PreviewZoomController
