@@ -133,7 +133,7 @@ If ΔE numbers don't move after a `raw-core` edit, the xcframework is stale. Reb
 
 ### UITest visual harness
 
-Companion to the Rust color-pipeline harness at `src/scripts/test_color_pipeline.sh`. Same metric (CIEDE2000), different scope: live SwiftUI canvas screenshot vs committed golden, instead of `maple-cli` PNG vs ACR reference. Lives in the `MapleUITests` Xcode target at `src/apple/MapleUITests/`.
+Companion to the Rust color-pipeline harness at `src/scripts/test_color_pipeline.sh`. Same metric (CIEDE2000), different scope: live SwiftUI canvas screenshot vs committed golden, instead of `maple-cli` PNG vs the embedded camera JPEG. Lives in the `MapleUITests` Xcode target at `src/apple/MapleUITests/`.
 
 Run locally:
 
@@ -149,7 +149,7 @@ No trailing `NAME=value` override needed (or wanted — see the #2366 note below
 
 The harness launches Maple with `MAPLE_UITEST_FIXTURE=test_0017.dng` (resolved against `MAPLE_UITEST_FIXTURE_ROOT`), waits for the refine pass to publish a preview (`canvas-render-ready` accessibility identifier flips on), screenshots the canvas, and diffs against the committed PNG at `src/apple/MapleUITests/Goldens/test_0017-default.png`. Goldens are tiny (canvas-only crop — no chrome) and commit to the repo.
 
-**#2366 — env vars need the `TEST_RUNNER_` prefix, not a plain `NAME=value` xcodebuild arg.** `UITestFixtureRoot.current()` (used by `MapleAppDriver`)/`GoldenStore.goldensRoot()` run inside the XCUITest _runner_ process (`MapleUITests-Runner.app`, distinct from the app under test), which only ever sees scheme-declared environment variables carrying the `TEST_RUNNER_` prefix (Xcode strips it before injecting them) — a plain `MAPLE_UITEST_FIXTURE_ROOT=...` trailing arg to `xcodebuild test` sets a _build setting_, not a process environment variable, so it never reaches either process. The scheme's `TestAction` (`shouldUseLaunchSchemeArgsEnv = "NO"`, its own `<EnvironmentVariables>` block) is the place Xcode actually consults for a test run, and the `TEST_RUNNER_` prefix is what carries a value across into the runner process at all — moving these back into `LaunchAction`, or dropping the prefix, silently reproduces the original bug. On the iOS Simulator the scheme's `$(PROJECT_DIR)` arrives in the runner unexpanded, so `MapleUITests/Helpers/UITestFixtureRoot.swift` treats it as unset and falls back to the repo root baked in at compile time (`#filePath`) — which is why the iPhone gates execute under plain `xcodebuild test`; a fixture missing there skip-passes, while one missing at an explicitly named `TEST_RUNNER_MAPLE_UITEST_FIXTURE_ROOT` fails. Located fixtures are then copied into a fresh tmp directory before the app launches — `Maple.entitlements`' sandbox has no grant for arbitrary repo paths, so pointing the app straight at `test-fixtures/raws/` loads an asset title with a permanently blank canvas (the read is silently denied); staging under `NSTemporaryDirectory()` is the same mechanism `SliderMatrixUITests`/`StagedFixture` already rely on.
+**#2366 — env vars need the `TEST_RUNNER_` prefix, not a plain `NAME=value` xcodebuild arg.** `UITestFixtureRoot.current()` (used by `MapleAppDriver`)/`GoldenStore.goldensRoot()` run inside the XCUITest _runner_ process (`MapleUITests-Runner.app`, distinct from the app under test), which only ever sees scheme-declared environment variables carrying the `TEST_RUNNER_` prefix (Xcode strips it before injecting them) — a plain `MAPLE_UITEST_FIXTURE_ROOT=...` trailing arg to `xcodebuild test` sets a _build setting_, not a process environment variable, so it never reaches either process. The scheme's `TestAction` (`shouldUseLaunchSchemeArgsEnv = "NO"`, its own `<EnvironmentVariables>` block) is the place Xcode actually consults for a test run, and the `TEST_RUNNER_` prefix is what carries a value across into the runner process at all — moving these back into `LaunchAction`, or dropping the prefix, silently reproduces the original bug. On the iOS Simulator the scheme's `$(PROJECT_DIR)` arrives in the runner unexpanded, so `MapleUITests/Helpers/UITestFixtureRoot.swift` treats it as unset and falls back to the repo root baked in at compile time (`#filePath`) — which is why the iPhone gates execute under plain `xcodebuild test`; a fixture missing there skip-passes, while one missing at an explicitly named `TEST_RUNNER_MAPLE_UITEST_FIXTURE_ROOT` fails. Located fixtures are then copied into a fresh tmp directory before the app launches — `Maple.entitlements`' sandbox has no grant for arbitrary repo paths, so pointing the app straight at `test-fixtures/raws/` loads an asset title with a permanently blank canvas (the read is silently denied); staging under `NSTemporaryDirectory()` is the same mechanism `StagedFixture` already relies on.
 
 Re-record by deleting the PNG and re-running — the harness will write a new baseline and fail with a "baseline written" message. Open the file, eyeball it, then commit + re-run.
 
@@ -168,21 +168,9 @@ python3 src/scripts/compare_images.py \
   > src/apple/MapleUITests/Goldens/.calibration/expected.json
 ```
 
-### Slider-matrix harness
+### Slider-matrix harness (retired)
 
-Companion test class `SliderMatrixUITests` (Ticket 10-C) at `src/apple/MapleUITests/SliderMatrixUITests.swift`. Iterates every committed slider XMP under `test-fixtures/references/test_NNNN/xmp/` against the matching ACR-rendered reference at `test-fixtures/references/test_NNNN/down/<case>.png`. Per case: stages a tmp dir with the RAW + XMP renamed to `<stem>.xmp`, relaunches Maple pointed at the tmp, screenshots the canvas, resizes both to 1024px long edge, CIEDE2000-diffs.
-
-Run:
-
-```bash
-xcodebuild test \
-  -project src/apple/Maple.xcodeproj \
-  -scheme "Maple" \
-  -destination 'platform=macOS' \
-  -only-testing:MapleUITests/SliderMatrixUITests
-```
-
-Budgets are loose (mean ≤ 25, p95 ≤ 50, max ≤ 100, bias ≤ 0.10) to absorb the Maple-AgX-vs-ACR view-transform delta — ratchet downward as the pipeline tightens. Skip-passes when fixtures or references are absent. JSON-per-case report goes to stderr; failed cases attach candidate + reference PNGs as `XCTAttachment`s for triage.
+`SliderMatrixUITests` compared per-slider canvas screenshots against ACR-rendered references. ACR comparisons were retired from CI and colour gates by owner direction (#5000); the test source is archived at `test-fixtures/qualification/experiments/retired-acr/SliderMatrixUITests.swift.txt` and is no longer part of the `MapleUITests` target. Do not reinstate it or ACR targets. Colour accuracy is gated by `src/scripts/test_color_pipeline.sh` (Auto vs the embedded camera JPEG).
 
 ## Build & test — Web
 
