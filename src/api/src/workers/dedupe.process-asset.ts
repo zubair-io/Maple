@@ -39,7 +39,10 @@ import {
   directoryHasKeepFile,
   type StrandedOldNameEdit,
 } from '../fs/duplicates.ts';
-import { recordSidecarDivergence } from '../db/repos/sidecar-divergences.repo.ts';
+import {
+  hasSidecarDivergence,
+  recordSidecarDivergence,
+} from '../db/repos/sidecar-divergences.repo.ts';
 import { relativeUnderRoot } from '../fs/root-match.ts';
 import { refusesMoveUnderMarker } from '../fs/mapleignore-guard.ts';
 import { cleanPreviewsCacheForLocation } from '../fs/preview-cache-cleanup.ts';
@@ -288,21 +291,27 @@ async function recordStrandedEdit(
   const xmp = stranded.bytes.toString('utf8');
   const digest = createHash('sha256').update(xmp, 'utf8').digest('hex');
   const relative = relativeUnderRoot(root, stranded.path) ?? stranded.path;
-  await recordSidecarDivergence({
+  const divergence = {
     assetId: doc._id,
     libraryId: entry.library_id,
     sidecarRelPath: relative.split(path.sep).join('/'),
-    deviceId: DIVERGENCE_SOURCE,
-    baseSha256: null,
     displacedSha256: digest,
-    displacedXmp: xmp,
     incomingSha256: digest,
-  }).catch((err: unknown) => {
+  };
+  try {
+    if (await hasSidecarDivergence(divergence)) return;
+    await recordSidecarDivergence({
+      ...divergence,
+      deviceId: DIVERGENCE_SOURCE,
+      baseSha256: null,
+      displacedXmp: xmp,
+    });
+  } catch (err) {
     log.error(
       { _id: String(doc._id), err: String(err) },
       'deduplicate: retained edit not recorded',
     );
-  });
+  }
 }
 
 /**
