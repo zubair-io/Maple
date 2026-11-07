@@ -13,19 +13,18 @@ import Foundation
 import RawPipeline
 
 extension ImageEditPipeline {
-  nonisolated public func processSceneLinearWindow(
+  nonisolated func processSceneLinearWindow(
     decoded: CIImage,
     fullFrame: CIImage?,
     model: AdjustmentModel,
     origin: CGPoint,
     fullSize: CGSize,
     asShot: AsShotWB?,
-    profileLUT: CIFilter?,
     noiseProfile: [Float]?,
     iso: UInt32,
     wbFrame: WbSliderFrame?,
     whitesAnchorEv: Float,
-    targetPrimaries: CanvasColorSpace
+    encodePlan: DisplayEncodePlan
   ) throws -> CIImage {
     let extent = decoded.extent
     let w = Int(extent.width.rounded())
@@ -57,29 +56,33 @@ extension ImageEditPipeline {
           colorSpace: CGColorSpace(name: CGColorSpace.extendedLinearITUR_2020)!
         )
       }
+      let window = PipelineRenderer.chainWindow(origin: origin, fullSize: fullSize)
       return try mapleStage("native detail windowed chain+encode") {
-        try PipelineRenderer.applyChainAndEncodeDisplayTargetWindow(
+        if let lattice = encodePlan.p3Auto {
+          return try PipelineRenderer.applyChainAndEncodeDisplayP3Auto(
+            inputBytes: input, width: w, height: h, params: params, curves: curves,
+            noiseProfile: noiseProfile, localAdjustments: model.localAdjustments,
+            lattice: lattice, window: window, haze: haze)
+        }
+        return try PipelineRenderer.applyChainAndEncodeDisplayTargetWindow(
           inputBytes: input, width: w, height: h, params: params,
-          targetPrimaries: targetPrimaries.wireValue,
+          targetPrimaries: encodePlan.target.wireValue,
           curves: curves,
           noiseProfile: noiseProfile,
           localAdjustments: model.localAdjustments,
-          window: PipelineRenderer.chainWindow(origin: origin, fullSize: fullSize),
+          window: window,
           haze: haze
         )
       }
     }
-    let tag =
-      targetPrimaries == .displayP3
-      ? Self.displayEncodedColorSpaceP3 : Self.displayEncodedColorSpace
     let image = CIImage(
       bitmapData: encoded,
       bytesPerRow: rowBytes,
       size: CGSize(width: w, height: h),
       format: .RGBAf,
-      colorSpace: tag
+      colorSpace: encodePlan.colorSpace
     )
-    return AutoProfileLUT.apply(profileLUT, to: image)
+    return AutoProfileLUT.apply(encodePlan.cube, to: image)
   }
 
   /// The whole frame's dehaze maps for the patch (#3287): `frame`, the decoded

@@ -34,15 +34,13 @@ extension RenderActor {
     asShot: ImageEditPipeline.AsShotWB?,
     targetSize: CGSize? = nil,
     qualityOverride: PipelineRenderer.Quality? = nil,
-    // #3190 review follow-up: `EditSession.renderForExport()` composites
-    // an sRGB-baked `FilmLookCube` on this function's NON-RAW result
-    // when the asset has a resolvable look — the caller passes `.srgb`
-    // in that case so the encode doesn't hand the cube P3-gamma bytes.
-    // The RAW branch below never needs this: a RAW export with a
-    // resolved look takes the bit-exact `maple_render_file_with_film`
-    // path instead and never reaches here (see
-    // `EditSession.renderForExport()`'s doc comment), so film is
-    // guaranteed inactive whenever the RAW branch runs.
+    // The export format's encode primaries (#4741), so an sRGB file from
+    // a P3 canvas is gamut-compressed rather than clipped at the format
+    // conversion. `EditSession.renderForExport()` forces `.srgb` when it
+    // composites an sRGB-baked `FilmLookCube` on the result (#3190): a
+    // non-RAW or fast RAW export with a look reaches here with `.srgb`, and
+    // a full-size RAW export with a look takes `maple_render_file_with_film`.
+    // `nil` follows the canvas setting.
     targetPrimariesOverride: CanvasColorSpace? = nil
   ) async throws -> CIImage {
     let pipeline = self.pipeline
@@ -166,7 +164,8 @@ extension RenderActor {
           noiseProfile: exportNoiseProfile,
           iso: exportISO,
           wbFrame: exportWbFrame, whitesAnchorEv: exportDecodeResult.whitesAnchorEv,
-          nrSamplingScale: exportDecodeResult.nrSamplingScale
+          nrSamplingScale: exportDecodeResult.nrSamplingScale,
+          targetPrimariesOverride: targetPrimariesOverride
         )
       }
     }.value

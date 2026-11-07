@@ -371,8 +371,8 @@ final class ExportPanelVMTests: XCTestCase {
     let image = stubImage
     var renderedSizeOption: ExportSizeOption?
     let vm = ExportPanelVM(
-      render: { _, sizeOpt in
-        renderedSizeOption = sizeOpt
+      render: { _, options in
+        renderedSizeOption = options.sizeOption
         return image
       },
       encode: { _, _ in Data([0x01]) }
