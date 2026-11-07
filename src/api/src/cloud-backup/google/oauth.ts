@@ -4,6 +4,7 @@ import {
   DRIVE_SCOPE,
   FLOW_TTL,
   GoogleConnectionError,
+  GoogleFlowUnavailable,
   RELAY_CALLBACK,
   RELAY_ORIGIN,
   callbackUrl,
@@ -246,15 +247,29 @@ export async function finishGoogleFlow(
   denied: boolean,
   currentOrigin: string | (() => Promise<string>),
   transport: GoogleFetch = fetch,
+  attach: AttachGoogleConnection = async () => {},
 ): Promise<{ destinationId: string; rootId: string | null }> {
-  if (
-    !state ||
-    state.length > 8192 ||
-    !/^[A-Za-z0-9_-]{43}$/.test(cookie) ||
-    (code !== null && (code.length < 1 || code.length > 4096))
-  )
+  if (!validCallbackState(state) || (code !== null && (code.length < 1 || code.length > 4096)))
     throw new GoogleConnectionError('Invalid Google callback.');
+  if (!/^[A-Za-z0-9_-]{43}$/.test(cookie)) throw new GoogleFlowUnavailable();
   const flow = await consumePending(state, hashCookie(cookie));
+  const rootId = flow.rootId ?? null;
+  const connect = exchangeFlow(flow, code, denied, currentOrigin, transport).then(async (epoch) => {
+    await attach(flow.destinationId, rootId);
+    return epoch;
+  });
+  trackConnect(state, flow.destinationId, connect);
+  await connect;
+  return { destinationId: flow.destinationId, rootId };
+}
+
+async function exchangeFlow(
+  flow: PendingFlow,
+  code: string | null,
+  denied: boolean,
+  currentOrigin: string | (() => Promise<string>),
+  transport: GoogleFetch,
+): Promise<number> {
   await ownerStillAuthorized(flow.ownerId);
   const connection = await loadConnection(flow.destinationId);
   const origin = () =>
@@ -311,7 +326,61 @@ export async function finishGoogleFlow(
     token: tokens.accessToken,
     expires: Date.now() + tokens.expiresIn * 1000 - 60_000,
   });
-  return { destinationId: flow.destinationId, rootId: flow.rootId ?? null };
+  return epoch;
+}
+
+const validCallbackState = (state: string) => state.length > 0 && state.length <= 8192;
+const hashState = (state: string) => createHash('sha256').update(`state:${state}`).digest('hex');
+const REPEAT_WAIT_MS = 30_000;
+const connects = new Map<
+  string,
+  { expires: number; outcome: Promise<{ destinationId: string; epoch: number } | null> }
+>();
+
+/** Runs after the new credentials are saved; a connect only counts as complete once it resolves. */
+export type AttachGoogleConnection = (
+  destinationId: string,
+  rootId: string | null,
+) => Promise<void>;
+
+/** Keeps each consumed flow's outcome so a repeated visit to its callback can report it (#5706). */
+function trackConnect(state: string, destinationId: string, connect: Promise<number>): void {
+  const now = Date.now();
+  for (const [key, entry] of connects) if (entry.expires <= now) connects.delete(key);
+  connects.set(hashState(state), {
+    expires: now + FLOW_TTL,
+    outcome: connect.then(
+      (epoch) => ({ destinationId, epoch }),
+      () => null,
+    ),
+  });
+}
+
+async function within<T>(work: Promise<T>, ms: number): Promise<T | null> {
+  const elapsed = Promise.withResolvers<null>();
+  const timer = setTimeout(() => elapsed.resolve(null), ms);
+  try {
+    return await Promise.race([work, elapsed.promise]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** The destination a spent callback state connected, while that very connection still stands.
+ * A repeat that races the first visit waits for it, since the browser shows only the last response. */
+export async function completedGoogleFlowDestination(
+  state: string,
+  waitMs = REPEAT_WAIT_MS,
+): Promise<string | null> {
+  if (!validCallbackState(state)) return null;
+  const entry = connects.get(hashState(state));
+  if (!entry || entry.expires <= Date.now()) return null;
+  const outcome = await within(entry.outcome, waitMs);
+  if (!outcome) return null;
+  const connection = await loadConnection(outcome.destinationId);
+  return connection.epoch === outcome.epoch && connection.config.refreshToken
+    ? outcome.destinationId
+    : null;
 }
 
 /** Drops the cached token, unless a fresher one has already replaced the rejected one (#5038). */

@@ -1,15 +1,28 @@
-import { expect, test } from 'bun:test';
+import { expect, setSystemTime, test } from 'bun:test';
 import { createLiveTestDatabase } from '../../db/sqlite/test-sqlite.test-helpers.ts';
 import { ObjectId } from '../../db/object-id.ts';
 import { insertFolder } from '../../db/sqlite/test-sqlite.test-helpers.ts';
 import { insertUser, updateUser } from '../../db/repos/auth.users.repo.ts';
-import { GOOGLE_BACKUP_DDL, loadConnection, saveConfig } from './repo.ts';
-import { startGoogleFlow, finishGoogleFlow, googleAccessToken, type GoogleFetch } from './oauth.ts';
+import {
+  GOOGLE_BACKUP_DDL,
+  claimRefresh,
+  commitTokens,
+  loadConnection,
+  saveConfig,
+} from './repo.ts';
+import {
+  completedGoogleFlowDestination,
+  startGoogleFlow,
+  finishGoogleFlow,
+  googleAccessToken,
+  type GoogleFetch,
+} from './oauth.ts';
 import {
   callbackUrl,
   DEFAULT_GOOGLE_CONFIG,
   DRIVE_SCOPE,
   GoogleConnectionError,
+  GoogleFlowUnavailable,
   RELAY_CALLBACK,
 } from './config.ts';
 
@@ -147,16 +160,10 @@ test('cookie mismatch cannot consume a flow; successful callback rejects replay'
     mock.transport,
   );
   const state = new URL(flow.authorizationUrl).searchParams.get('state')!;
-  await expect(
-    finishGoogleFlow(
-      state,
-      'A'.repeat(43),
-      'code',
-      false,
-      'https://photos.example.com',
-      mock.transport,
-    ),
-  ).rejects.toThrow('browser session');
+  for (const cookie of ['A'.repeat(43), ''])
+    await expect(
+      finishGoogleFlow(state, cookie, 'code', false, 'https://photos.example.com', mock.transport),
+    ).rejects.toThrow(GoogleFlowUnavailable);
   await finishGoogleFlow(
     state,
     flow.cookie,
@@ -174,7 +181,7 @@ test('cookie mismatch cannot consume a flow; successful callback rejects replay'
       'https://photos.example.com',
       mock.transport,
     ),
-  ).rejects.toThrow();
+  ).rejects.toThrow(GoogleFlowUnavailable);
 });
 test('current owner authority and credential epoch fence callback attachment', async () => {
   const { db, owner } = await setup();
@@ -411,4 +418,82 @@ test('a direct refresh that cannot reach Google is a connection failure, not a r
   await expect(googleAccessToken(destination, unreachable)).rejects.toBeInstanceOf(
     GoogleConnectionError,
   );
+});
+
+async function connectedFlow(attach?: () => Promise<void>) {
+  const { db, owner } = await setup();
+  const mock = googleMock();
+  const flow = await startGoogleFlow(
+    destination,
+    owner,
+    'https://photos.example.com',
+    mock.transport,
+  );
+  const state = new URL(flow.authorizationUrl).searchParams.get('state')!;
+  const finished = finishGoogleFlow(
+    state,
+    flow.cookie,
+    'code',
+    false,
+    'https://photos.example.com',
+    mock.transport,
+    attach,
+  );
+  return { db, state, finished };
+}
+
+test('a spent state reports its destination only while the connection it made stands (#5706)', async () => {
+  const { db, state, finished } = await connectedFlow();
+  using _handle = db;
+  await finished;
+  expect(await completedGoogleFlowDestination(state)).toBe(destination);
+  expect(await completedGoogleFlowDestination('unknown-state')).toBeNull();
+  expect(await completedGoogleFlowDestination('')).toBeNull();
+  const connection = await loadConnection(destination);
+  expect(await claimRefresh(destination, connection.epoch, 'renewal-lease')).toBe(true);
+  await commitTokens(
+    destination,
+    { ...connection.config, refreshToken: null },
+    connection.epoch,
+    'renewal-lease',
+  );
+  expect((await loadConnection(destination)).epoch).toBe(connection.epoch);
+  expect(await completedGoogleFlowDestination(state)).toBeNull();
+});
+
+test('a spent state is forgotten once its flow lifetime has passed', async () => {
+  const { db, state, finished } = await connectedFlow();
+  using _handle = db;
+  await finished;
+  try {
+    setSystemTime(new Date(Date.now() + 10 * 60_000 + 1));
+    expect(await completedGoogleFlowDestination(state)).toBeNull();
+  } finally {
+    setSystemTime();
+  }
+});
+
+test('a repeat waits for a connect still in progress', async () => {
+  const reached = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+  const { db, state, finished } = await connectedFlow(async () => {
+    reached.resolve();
+    await release.promise;
+  });
+  using _handle = db;
+  await reached.promise;
+  const repeated = completedGoogleFlowDestination(state);
+  expect(await completedGoogleFlowDestination(state, 5)).toBeNull();
+  release.resolve();
+  await finished;
+  expect(await repeated).toBe(destination);
+});
+
+test('a connect whose follow-up work fails is never reported as complete', async () => {
+  const { db, state, finished } = await connectedFlow(async () => {
+    throw new GoogleConnectionError('Drive folder creation failed.');
+  });
+  using _handle = db;
+  await expect(finished).rejects.toThrow('Drive folder creation failed.');
+  expect(await completedGoogleFlowDestination(state)).toBeNull();
 });
