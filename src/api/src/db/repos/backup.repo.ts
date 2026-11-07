@@ -46,26 +46,16 @@ import { ALL_STAGE_NAMES } from '../../workers/stages/stage-names.ts';
 import { seedStageRowStatements } from './stage-state.repo.ts';
 import { transactionUnlessPurged } from './backup-purge-guard.ts';
 import { progressStatement, type ProgressArgs } from './backup-sessions.repo.ts';
-import { linkStatement, splitRelPath } from './backup-location.repo.ts';
-
-export { appendBackupLocation, type AppendBackupLocationInput } from './backup-location.repo.ts';
+import { linkStatement, splitRelPath, type PhassetLink } from './backup-location.repo.ts';
 import { nowIso, placeholders, toHex } from './values.ts';
 
-export type { SqliteDb } from './db-handle.ts';
+export {
+  appendBackupLocation,
+  type AppendBackupLocationInput,
+  type PhassetLink,
+} from './backup-location.repo.ts';
 
-/**
- * One device's link to an Apple Photos asset, as the backup routes build it.
- *
- * `first_seen` is a `Date` because that is what the routes construct and what
- * the Mongo document declared; the column is ISO text, like every other
- * timestamp in this schema.
- */
-export interface PhassetLink {
-  device_id: string;
-  phasset_local_id: string;
-  phasset_cloud_id?: string;
-  first_seen: Date;
-}
+export type { SqliteDb } from './db-handle.ts';
 
 /** `<path>/<filename>`, or just the filename at the library root. */
 const REL_PATH_EXPRESSION = `CASE WHEN l.path = '' THEN l.filename ELSE l.path || '/' || l.filename END`;

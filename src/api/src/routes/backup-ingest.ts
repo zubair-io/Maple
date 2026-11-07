@@ -49,6 +49,7 @@ import {
 import { resolveBackupLocation } from '../backup/ingest-geocode.ts';
 import { isScreenshotFilename } from '../indexer/screenshot.ts';
 import type { ProgressArgs } from '../db/repos/backup-sessions.repo.ts';
+import { backupSessionsRepo } from '../db/backup-sessions.repo.ts';
 import { child as childLogger } from '../log.ts';
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -388,9 +389,9 @@ export const backupIngestRoutes = new Elysia().post(
         // Content already on disk in THIS library — true dedup. Drop the tmp
         // bytes; the canonical copy already lives at this library's location.
         // Linking this device to the existing row is idempotent on retry.
-        if (!existing.alreadyLinked) {
-          if (!(await linkPhasset(existing.id, link, undefined, progress))) return refusePurged();
-        }
+        if (existing.alreadyLinked) await backupSessionsRepo.upsertProgress(progress);
+        else if (!(await linkPhasset(existing.id, link, undefined, progress)))
+          return refusePurged();
         try {
           await fs.unlink(tmpFile);
         } catch {
