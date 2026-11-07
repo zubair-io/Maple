@@ -74,6 +74,9 @@ impl<'a, 'inputs> crate::live_chain::LivePassSink<'inputs> for EncoderSink<'a> {
             );
         }
     }
+    fn p3_auto_headroom(&self) -> crate::p3_auto::HeadroomPlane {
+        self.session.p3_auto_headroom.clone()
+    }
 }
 impl LiveSession {
     pub(super) fn encode_live_chain(

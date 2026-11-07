@@ -493,3 +493,35 @@ fn curve_presence_changes_raw_signature_without_hashing_curve_values() {
         );
     }
 }
+
+/// #4741: a P3 Auto slider tick reuses the session's headroom holder and the
+/// pooled plane, so the split/restore pair adds no allocation once warm, and
+/// the restore pass leaves no plane behind in the holder.
+#[test]
+fn p3_auto_ticks_reuse_the_session_headroom_and_are_zero_alloc() {
+    let ctx = GpuContext::new_blocking().expect("gpu context");
+    let (w, h) = (8u32, 8u32);
+    let input = scene_linear_rgba(w as usize, h as usize);
+    let cancel = CancelToken::new();
+    let session = LiveSession::new(&ctx, &input, w, h).expect("session");
+    let holder = session.p3_auto_headroom.clone();
+    let render = |exposure: f32| {
+        let mut case = neutral_case();
+        case.model.exposure = exposure;
+        let mut inputs = case.gpu_inputs_for(&input);
+        inputs.target_primaries = 1;
+        assert!(crate::p3_auto::p3_auto_is_active(&inputs));
+        session
+            .render_to_buffer(&ctx, &inputs, &cancel)
+            .expect("render ok")
+            .expect("not cancelled")
+    };
+
+    render(0.1);
+    let warm = session.pool_alloc_count(&ctx);
+    let outputs: Vec<_> = [0.2, 0.3, 0.4].iter().map(|&e| render(e)).collect();
+    assert_eq!(session.pool_alloc_count(&ctx), warm);
+    assert!(holder.same_holder(&session.p3_auto_headroom));
+    assert!(holder.is_empty(), "the restore pass must take the plane");
+    assert_ne!(outputs[0], outputs[2], "an exposure tick must move pixels");
+}
