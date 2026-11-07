@@ -346,3 +346,18 @@ export async function publishConflictBytes(
   }
   return false;
 }
+
+/** Moves `source` to a conflict copy beside `photo`, read, copied and removed under one
+ * barrier so a save in between is never left behind. The bytes left at `source` when no copy
+ * could be published; `null` when nothing is stranded. */
+export async function carryAsConflictCopy(source: string, photo: string): Promise<Buffer | null> {
+  return serializeSidecarWrite(source, async () => {
+    const bytes = await readSidecarBytes(source).catch(() => null);
+    if (bytes === null) return null;
+    if (!(await publishConflictBytes(photo, bytes))) return bytes;
+    // Another process can still save without this barrier; such a save stays.
+    const now = await readSidecarBytes(source).catch(() => null);
+    if (now?.equals(bytes)) await fs.unlink(source).catch(() => {});
+    return null;
+  });
+}
