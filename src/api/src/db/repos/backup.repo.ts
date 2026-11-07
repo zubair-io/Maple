@@ -47,6 +47,7 @@ import { ALL_STAGE_NAMES } from '../../workers/stages/stage-names.ts';
 import { seedStageRowStatements } from './stage-state.repo.ts';
 import { relocateCacheRearmStatements } from './assets.stage-rearm.ts';
 import { transactionUnlessPurged } from './backup-purge-guard.ts';
+import { progressStatement, type ProgressArgs } from './backup-sessions.repo.ts';
 import { nowIso, placeholders, toHex } from './values.ts';
 
 export type { SqliteDb } from './db-handle.ts';
@@ -319,9 +320,13 @@ export async function linkPhasset(
   assetId: ObjectId,
   link: PhassetLink,
   dbOverride?: SqliteDb,
+  progress?: ProgressArgs,
 ): Promise<boolean> {
   const hex = toHex(assetId);
-  return transactionUnlessPurged(sqliteDb(dbOverride), hex, [linkStatement(hex, link)]);
+  return transactionUnlessPurged(sqliteDb(dbOverride), hex, [
+    linkStatement(hex, link),
+    ...(progress === undefined ? [] : [progressStatement(progress)]),
+  ]);
 }
 
 /**
@@ -359,6 +364,8 @@ export interface AppendBackupLocationInput {
   ownerId?: ObjectId | string | null;
   /** Replace this repaired location in place, retaining its ordinal. */
   replacedRelPath?: string | null;
+  /** Counted in the same transaction as the location. */
+  progress?: ProgressArgs;
 }
 
 /**
@@ -445,6 +452,7 @@ export async function appendBackupLocation(
       params: [hex],
     },
     ...(input.link === null ? [] : [linkStatement(hex, input.link)]),
+    ...(input.progress === undefined ? [] : [progressStatement(input.progress)]),
     ...(input.ownerId
       ? [
           {
@@ -467,6 +475,8 @@ export interface InsertBackupAssetInput {
   isScreenshot: boolean;
   link: PhassetLink;
   ownerId?: ObjectId | string | null;
+  /** Counted in the same transaction as the asset. */
+  progress?: ProgressArgs;
 }
 
 /**
@@ -507,6 +517,7 @@ export async function insertBackupAsset(
       params: [id, toHex(input.libraryId), dir, filename],
     },
     linkStatement(id, input.link),
+    ...(input.progress === undefined ? [] : [progressStatement(input.progress)]),
     ...seedStageRowStatements(id, ALL_STAGE_NAMES),
   ]);
   return new ObjectId(id);

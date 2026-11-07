@@ -34,6 +34,7 @@ import type { ObjectId } from '../object-id.ts';
 import type { BackupSessionDoc } from '../schema.ts';
 import { newObjectIdHex } from '../object-id.ts';
 import { sqliteDb, type SqliteDb } from './db-handle.ts';
+import type { SqlStatement } from '../sqlite/protocol.ts';
 import { nowIso, toDate, toObjectId } from './values.ts';
 
 interface SessionRow {
@@ -89,6 +90,36 @@ function upsertSql(setsTotal: boolean): string {
     }`;
 }
 
+export interface ProgressArgs {
+  libraryId: ObjectId;
+  deviceId: string;
+  uploadedDelta: number;
+  failedDelta: number;
+  totalCount?: number;
+}
+
+/** The progress upsert as a statement, so a caller can commit it in the same
+ * transaction as the write it counts. */
+export function progressStatement(args: ProgressArgs): SqlStatement {
+  if (args.uploadedDelta < 0 || args.failedDelta < 0) {
+    throw new Error('backupSessionsRepo.upsertProgress: deltas must be >= 0');
+  }
+  const now = nowIso();
+  return {
+    sql: upsertSql(args.totalCount !== undefined),
+    params: [
+      newObjectIdHex(),
+      args.libraryId.toHexString(),
+      args.deviceId,
+      now,
+      now,
+      args.totalCount ?? 0,
+      args.uploadedDelta,
+      args.failedDelta,
+    ],
+  };
+}
+
 export const backupSessionsRepo = {
   /**
    * Fold one upload batch's outcome into the (library, device) row, creating
@@ -99,30 +130,9 @@ export const backupSessionsRepo = {
    * column is `NOT NULL DEFAULT 0` and every reader already treats a missing
    * total as "unknown, show the counters".
    */
-  async upsertProgress(
-    args: {
-      libraryId: ObjectId;
-      deviceId: string;
-      uploadedDelta: number;
-      failedDelta: number;
-      totalCount?: number;
-    },
-    dbOverride?: SqliteDb,
-  ): Promise<void> {
-    if (args.uploadedDelta < 0 || args.failedDelta < 0) {
-      throw new Error('backupSessionsRepo.upsertProgress: deltas must be >= 0');
-    }
-    const now = nowIso();
-    await sqliteDb(dbOverride).write(upsertSql(args.totalCount !== undefined), [
-      newObjectIdHex(),
-      args.libraryId.toHexString(),
-      args.deviceId,
-      now,
-      now,
-      args.totalCount ?? 0,
-      args.uploadedDelta,
-      args.failedDelta,
-    ]);
+  async upsertProgress(args: ProgressArgs, dbOverride?: SqliteDb): Promise<void> {
+    const { sql, params } = progressStatement(args);
+    await sqliteDb(dbOverride).write(sql, params);
   },
 
   /** The session row for one (library, device), or `null`. */
