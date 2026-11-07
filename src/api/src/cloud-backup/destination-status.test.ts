@@ -12,6 +12,7 @@ import {
 import { runMigrations } from '../db/sqlite/migrate.ts';
 import { ALL_MIGRATIONS } from '../db/sqlite/migrations/index.ts';
 import { destinationStatus, type DestinationStatus } from './destination-status.ts';
+import { recountedCovered, recountedStatus } from './destination-status-legacy.test-helpers.ts';
 import { removedDestinationStatements } from './destination-removal.ts';
 import { BackupRepository } from './repository.ts';
 
@@ -22,91 +23,14 @@ interface Destination {
   libraryId: string;
 }
 
-/** The aggregates `GET /api/cloud-backup/destinations` recomputed per request before #5707. */
-function recounted(db: Database, destination: Destination): DestinationStatus {
-  const status = db
-    .query(
-      `SELECT COALESCE(SUM(CASE WHEN state!='purged' AND verified_sequence<sequence THEN 1 ELSE 0 END),0) AS pending,
-      COALESCE(SUM(CASE WHEN state!='purged' AND verified_sequence=sequence THEN 1 ELSE 0 END),0) AS verified,
-      COALESCE(SUM(CASE WHEN state='trash' THEN 1 ELSE 0 END),0) AS trash,
-      COALESCE(SUM(CASE WHEN last_error IS NOT NULL THEN 1 ELSE 0 END),0) AS blocked,
-      COALESCE(SUM((SELECT SUM(json_extract(value,'$.object.size')) FROM json_each(manifest,'$.files'))),0) AS bytes
-      FROM backup_entries WHERE destination_id=?`,
-    )
-    .get(destination.id) as {
-    pending: number;
-    verified: number;
-    trash: number;
-    blocked: number;
-    bytes: number;
-  };
-  const coverage = db
-    .query(
-      `SELECT MAX(0,COALESCE((SELECT live_locations FROM backup_coverage_counts WHERE library_id=?2),0)
-      - (SELECT COUNT(*) FROM backup_entries e
-        JOIN asset_locations l ON l.asset_id=e.asset_id AND l.ordinal=e.ordinal
-        JOIN assets a ON a.id=e.asset_id
-        WHERE e.destination_id=?1 AND l.library_id=?2 AND l.deleted_at IS NULL
-          AND l.missing_since IS NULL AND a.deleted_reason IS NULL
-          AND (e.state='purged' OR e.verified_sequence>=e.sequence))) AS pending,
-      (SELECT COUNT(*) FROM asset_locations WHERE library_id=?2 AND missing_since IS NOT NULL)
-      + (SELECT COUNT(*) FROM assets AS a INDEXED BY assets_reaped
-        JOIN asset_locations l ON l.asset_id=a.id
-        WHERE a.deleted_reason='reaped' AND l.library_id=?2 AND l.missing_since IS NULL) AS missing,
-      (SELECT COUNT(*) FROM backup_lifecycle WHERE library_id=?2 AND phase='prepared') AS prepared`,
-    )
-    .get(destination.id, destination.libraryId) as {
-    pending: number;
-    missing: number;
-    prepared: number;
-  };
-  const dominant = db
-    .query(
-      `SELECT last_error AS message,COUNT(*) AS count FROM backup_entries
-      WHERE destination_id=? AND last_error IS NOT NULL
-      GROUP BY last_error ORDER BY count DESC,MAX(retry_at) DESC LIMIT 1`,
-    )
-    .get(destination.id) as { message: string; count: number } | null;
-  const purges = db
-    .query(`SELECT completed FROM backup_purges WHERE destination_id=?`)
-    .all(destination.id) as Array<{ completed: number }>;
-  const interrupted = coverage.prepared > 0;
-  return {
-    pending: destination.kind === 'google-drive' ? coverage.pending : status.pending,
-    missing: coverage.missing,
-    prepared: coverage.prepared,
-    verified: status.verified,
-    trash: status.trash,
-    blocked: status.blocked + coverage.prepared,
-    bytes: status.bytes,
-    lastError: interrupted
-      ? 'Interrupted local move requires recovery or retry'
-      : (dominant?.message ?? null),
-    lastErrorCount: interrupted ? coverage.prepared : (dominant?.count ?? 0),
-    purgePending: purges.filter((p) => !p.completed).length,
-  };
-}
-
-/** The covered count before Drive's pending clamps it at zero, which would hide an overcount. */
-function coveredCounts(db: Database, destination: Destination) {
-  return db
-    .query(
-      `SELECT (SELECT COUNT(*) FROM backup_entries e
-        JOIN asset_locations l ON l.asset_id=e.asset_id AND l.ordinal=e.ordinal
-        JOIN assets a ON a.id=e.asset_id
-        WHERE e.destination_id=?1 AND l.library_id=?2 AND l.deleted_at IS NULL
-          AND l.missing_since IS NULL AND a.deleted_reason IS NULL
-          AND (e.state='purged' OR e.verified_sequence>=e.sequence)) AS recounted,
-        COALESCE((SELECT covered FROM backup_entry_counts WHERE destination_id=?1),0) AS maintained`,
-    )
-    .get(destination.id, destination.libraryId) as { recounted: number; maintained: number };
-}
-
 async function expectInSync(db: Database, destination: Destination): Promise<DestinationStatus> {
   const status = await destinationStatus(testSqliteDb(db), destination);
-  expect(status).toEqual(recounted(db, destination));
-  const covered = coveredCounts(db, destination);
-  expect(covered.maintained).toBe(covered.recounted);
+  expect(status).toEqual(recountedStatus(db, destination));
+  expect(
+    db
+      .query(`SELECT covered FROM backup_entry_counts WHERE destination_id=?`)
+      .get(destination.id) ?? { covered: 0 },
+  ).toEqual({ covered: recountedCovered(db, destination) });
   return status;
 }
 
@@ -449,7 +373,7 @@ test('0040 backfills counters from existing entries', async () => {
   run(db, `UPDATE backup_entries SET state='purged' WHERE id=?`, entries[3]!);
   run(db, `UPDATE asset_locations SET missing_since='2026-11-01' WHERE asset_id=?`, assets[0]!);
   run(db, `UPDATE assets SET deleted_reason='reaped' WHERE id=?`, assets[4]!);
-  const before = [recounted(db, drive), recounted(db, folder)];
+  const before = [recountedStatus(db, drive), recountedStatus(db, folder)];
 
   const result = await runMigrations(handle.migrationDb, ALL_MIGRATIONS);
   expect(result.applied).toContain('0040-backup-destination-counts');

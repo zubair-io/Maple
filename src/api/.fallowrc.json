@@ -47,6 +47,8 @@
     // #4514 — the For You load reproduction and the caption library it runs on.
     "scripts/sqlite-bench/caption-library.ts",
     "scripts/sqlite-bench/generated-search-load.ts",
+    // #5707 — what one Backup settings page load costs, old aggregates vs counters.
+    "scripts/sqlite-bench/backup-destination-status.ts",
     // #4510 — the worker-tier stand-in `remote-search.test.ts` spawns as a real child.
     "src/search/__fixtures__/remote-search-child.ts"
   ],
