@@ -70,7 +70,7 @@ export async function moveSidecarsAlongside(oldAbsPath: string, newAbsPath: stri
         ? await joinCarriedSidecar(sidecar, destPath)
         : await publishSidecarSnapshot(sidecar, destPath);
       const shared = claimedBySibling && !isLegacyBackupSidecarOf(oldAbsPath, sidecar);
-      await settleCarriedSidecar(sidecar, destPath, snapshot, shared);
+      await settleCarriedSidecar(sidecar, destPath, snapshot, shared, newAbsPath);
     } catch (err) {
       log.warn(
         { sidecar, destPath, err: err instanceof Error ? err.message : err },

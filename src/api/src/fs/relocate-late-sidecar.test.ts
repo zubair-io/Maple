@@ -288,4 +288,35 @@ describe('a save from another process during the late-save settle (#5076)', () =
     expect(await read('b/IMG.xmp')).toBe('api save');
     expect(await read('a/IMG.xmp')).toBe('late edit');
   });
+
+  test('a displaced save is named after the photo, so a conflict sidecar keeps its pairing', async () => {
+    await write('a/IMG.HEIC', 'pixels');
+    await write('a/IMG (conflict from Mac).xmp', 'snapshot');
+    const destSidecar = abs('b/IMG (conflict from Mac).xmp');
+    const realRename = fs.rename;
+    const rename = spyOn(fs, 'rename').mockImplementation(async (from, to) => {
+      const racing =
+        String(from) === destSidecar &&
+        (await read('b/IMG (conflict from Mac).xmp')) === 'snapshot';
+      if (racing) await fs.writeFile(destSidecar, 'api save');
+      await realRename(from, to);
+      if (racing) await fs.writeFile(destSidecar, 'another api save');
+    });
+    try {
+      const outcome = await relocateFile({
+        sourceAbsPath: abs('a/IMG.HEIC'),
+        destAbsPath: abs('b/IMG.HEIC'),
+        mode: 'move',
+        collision: 'auto-suffix',
+        onVerified: () => write('a/IMG (conflict from Mac).xmp', 'late edit'),
+      });
+
+      expect(outcome.kind).toBe('relocated');
+    } finally {
+      rename.mockRestore();
+    }
+    expect(await read('b/IMG (conflict from Mac).xmp')).toBe('another api save');
+    expect(await read('b/IMG (conflict from move).xmp')).toBe('api save');
+    expect(await read('a/IMG (conflict from Mac).xmp')).toBe('late edit');
+  });
 });

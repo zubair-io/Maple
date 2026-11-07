@@ -137,9 +137,11 @@ export async function moveToDuplicates(absPath: string, folderRoot: string): Pro
   if (ahead instanceof Error) return { kind: 'error', error: ahead.message };
   // Settled against its snapshot, so a save since the copy ahead is carried too.
   if (ahead) {
-    await settleCarriedSidecar(ahead.source, ahead.dest, ahead.snapshot, false).catch((err) => {
-      log.warn({ source: ahead.source, err: String(err) }, 'old-name sidecar settle failed');
-    });
+    await settleCarriedSidecar(ahead.source, ahead.dest, ahead.snapshot, false, freeTarget).catch(
+      (err) => {
+        log.warn({ source: ahead.source, err: String(err) }, 'old-name sidecar settle failed');
+      },
+    );
   }
   const kept = await keepPhotoWithOldNameEdit(absPath, freeTarget, ahead);
   if (kept !== 'moved' && kept !== 'blocked') return kept;
