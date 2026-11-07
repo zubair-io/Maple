@@ -8,7 +8,7 @@
 
 import * as path from 'node:path';
 import { lstat, realpath, unlinkPrimaryForPurge } from '../fs/mirrored.ts';
-import { isLegacyBackupSidecarOf } from '../fs/legacy-backup-sidecar.ts';
+import { isLegacyBackupSidecarOf, otherOldNameSpellings } from '../fs/legacy-backup-sidecar.ts';
 import { sidecarStemOwnedByAnotherFile } from '../fs/sidecar-ownership.ts';
 import { errnoCode } from '../fs/relocate-publish.ts';
 import { refusesFileUnderMarker } from '../fs/mapleignore-guard.ts';
@@ -254,7 +254,8 @@ export async function unlinkTrashedCopy(
   beforeUnlink: BeforePurgeUnlink,
 ): Promise<number> {
   const sidecars = await ownSidecarsOf(copy.absPath);
-  const targets = [copy.absPath, ...sidecars];
+  const otherSpellings = await otherOldNameSpellings(copy.absPath, sidecars).catch(() => []);
+  const targets = [copy.absPath, ...sidecars, ...otherSpellings];
   const outcomes: boolean[] = [];
   for (const target of targets)
     outcomes.push(await unlinkInsideTrash(target, copy.libraryRoot, onFailure, beforeUnlink));

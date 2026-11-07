@@ -5,6 +5,7 @@ import { filesIdentical, moveNoClobber } from '../backup/fs-util.ts';
 import { listPairedSidecarsStrict } from './xmp-conflict.ts';
 import {
   isLegacyBackupSidecarOf,
+  otherOldNameSpellings,
   removePhotoUnlessOldNameEditStays,
 } from './legacy-backup-sidecar.ts';
 
@@ -18,7 +19,9 @@ import { isVideoFilename } from '../indexer/media-types';
 import { sidecarRenameTarget } from './sidecar-rename.ts';
 import { child as childLogger } from '../log.ts';
 import { serializeSidecarWrite } from './sidecar-write-order.ts';
+import { readSidecarBytes } from './sidecar-bytes.ts';
 import {
+  publishConflictBytes,
   requireSidecarBytes,
   settleCarriedSidecar,
   sidecarStemClaimedBySibling,
@@ -143,7 +146,39 @@ async function removeSources(
       );
     });
   }
+  await carryOtherSpellings(primary!, sidecars, beforeSourceDelete);
   await removeTrashedPrimary(primary!.source, beforeSourceDelete);
+}
+
+/** The photo's other old-name spellings come back as conflict copies beside it,
+ * which the migration never adopts. One that can't is left in the trash, which
+ * keeps the trashed photo with it. */
+async function carryOtherSpellings(
+  primary: StagedFile,
+  carried: StagedFile[],
+  beforeSourceDelete?: () => Promise<void>,
+): Promise<void> {
+  const others = await otherOldNameSpellings(
+    primary.source,
+    carried.map((entry) => entry.source),
+  ).catch(() => []);
+  for (const source of others) {
+    const allowed = await (beforeSourceDelete?.() ?? Promise.resolve()).then(
+      () => true,
+      () => false,
+    );
+    if (!allowed) return;
+    await serializeSidecarWrite(source, async () => {
+      const bytes = await readSidecarBytes(source).catch(() => null);
+      if (bytes === null) return;
+      if (!(await publishConflictBytes(primary.destination, bytes))) {
+        log.error({ source }, 'restore: an old-name edit could not come back — kept in the trash');
+        return;
+      }
+      const now = await readSidecarBytes(source).catch(() => null);
+      if (now?.equals(bytes)) await fs.unlink(source).catch(() => {});
+    });
+  }
 }
 
 /** Last, and kept while an old-name edit of it is still beside it in the

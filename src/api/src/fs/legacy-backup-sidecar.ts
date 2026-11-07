@@ -226,6 +226,32 @@ export async function pairedLegacyBackupSidecar(
   return null;
 }
 
+/** Every Maple old-name edit of `primary` among its folder's entries that
+ * `listed` (the sidecars a mover already carries) lacks: a volume that keeps
+ * case or normalization apart can hold several spellings of one photo's file. */
+export async function otherOldNameSpellings(
+  primary: string,
+  listed: readonly string[],
+): Promise<string[]> {
+  const legacy = legacyBackupSidecar(primary);
+  if (legacy === null) return [];
+  const entries = await fs.readdir(path.dirname(primary)).catch((err: unknown) => {
+    if (errnoCode(err) === 'ENOENT') return null;
+    throw err;
+  });
+  if (entries === null) return [];
+  const carried = new Set(listed);
+  const stored = legacyEntries(legacy, entries)
+    .map((entry) => path.join(path.dirname(primary), entry))
+    .filter((candidate) => !carried.has(candidate));
+  const edits = await Promise.all(
+    stored.map(async (candidate) =>
+      (await readLegacyAt(primary, candidate, entries)) ? candidate : null,
+    ),
+  );
+  return edits.filter((candidate) => candidate !== null);
+}
+
 /** A mover's last step: remove the original photo, unless an old-name edit of
  * it is still beside it, the only place the migration looks for that edit
  * (#5063). Keeping it leaves a duplicate rather than a disconnected edit. */
