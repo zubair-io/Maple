@@ -145,8 +145,7 @@ pub fn prepared_tail<'a>(
 ) -> impl Fn([f32; 3]) -> [f32; 3] + Sync + 'a {
     let apply = curve.map(prepared_curve);
     let residual = residual.filter(|_| strength != 0.0);
-    move |rgb| {
-        let mut rgb = rgb;
+    move |mut rgb| {
         if let Some(apply) = &apply {
             apply(&mut rgb);
         }

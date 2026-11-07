@@ -114,7 +114,11 @@ impl Pass for P3AutoSplitPass {
             dims.0 * dims.1,
             "p3-auto-split",
         );
-        *self.headroom.0.lock().expect("headroom plane lock") = Some(plane);
+        *self
+            .headroom
+            .0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(plane);
     }
 }
 
@@ -131,9 +135,12 @@ impl Pass for P3AutoRestorePass {
             .headroom
             .0
             .lock()
-            .expect("headroom plane lock")
-            .clone()
-            .expect("P3AutoRestorePass encoded before P3AutoSplitPass");
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone();
+        let Some(plane) = plane else {
+            debug_assert!(false, "P3AutoRestorePass encoded before P3AutoSplitPass");
+            return;
+        };
         encode_simple(
             ctx,
             encoder,
