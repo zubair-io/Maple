@@ -180,7 +180,8 @@
       scrollView.zoomScale = min(
         max(target, scrollView.minimumZoomScale), scrollView.maximumZoomScale)
       centerImage()
-      scrollView.contentOffset = contentOffset(showing: visibleCentre)
+      scrollView.contentOffset = Self.offset(
+        showing: visibleCentre, content: scrollView.contentSize, page: page)
     }
 
     private var laidOutPage: CGSize = .zero
@@ -201,20 +202,20 @@
         y: (scrollView.contentOffset.y + page.height / 2) / content.height)
     }
 
-    private func contentOffset(showing normalizedCentre: CGPoint) -> CGPoint {
-      let content = scrollView.contentSize
-      let page = scrollView.bounds.size
-      let inset = scrollView.contentInset
-      let clamp = { (value: CGFloat, low: CGFloat, high: CGFloat) in
-        min(max(value, low), max(low, high))
+    /// The content offset that puts `normalizedCentre` at the page centre,
+    /// clamped to the scrollable range under the centring insets.
+    private static func offset(
+      showing normalizedCentre: CGPoint, content: CGSize, page: CGSize
+    ) -> CGPoint {
+      let axis = { (centre: CGFloat, content: CGFloat, page: CGFloat) -> CGFloat in
+        let inset = max(0, (page - content) / 2)
+        let low = -inset
+        let high = max(low, content - page + inset)
+        return min(max(centre * content - page / 2, low), high)
       }
       return CGPoint(
-        x: clamp(
-          normalizedCentre.x * content.width - page.width / 2, -inset.left,
-          content.width - page.width + inset.right),
-        y: clamp(
-          normalizedCentre.y * content.height - page.height / 2, -inset.top,
-          content.height - page.height + inset.bottom))
+        x: axis(normalizedCentre.x, content.width, page.width),
+        y: axis(normalizedCentre.y, content.height, page.height))
     }
 
     override func viewDidAppear(_ animated: Bool) {
@@ -249,8 +250,10 @@
       if let stop = CanvasZoomModel.detent(for: scale, fit: 1, fill: fillZoomScale),
         abs(zoomScale(for: stop) - scale) > 0.001
       {
-        // The snap ends in another didEndZooming, which refines once.
-        zoomCentred(to: zoomScale(for: stop))
+        // The snap ends in another didEndZooming, which refines once. It
+        // keeps the detail under the fingers: fill still pans along the
+        // overflowing axis, and at fit the clamp centres the photo anyway.
+        zoom(to: zoomScale(for: stop), keeping: normalizedVisibleCentre)
         return
       }
       guard refinementActive else { return }
@@ -262,17 +265,25 @@
       let stops = CanvasZoomModel.distinctStops(fit: 1, fill: fillZoomScale, actualSize: nil)
       let current = CanvasZoomModel.detent(
         for: scrollView.zoomScale, fit: 1, fill: fillZoomScale)
-      zoomCentred(to: zoomScale(for: CanvasZoomModel.nextStop(after: current, in: stops)))
+      zoom(
+        to: zoomScale(for: CanvasZoomModel.nextStop(after: current, in: stops)),
+        keeping: Self.pageCentre)
     }
 
     private func zoomScale(for stop: CanvasZoomModel.ZoomStop) -> CGFloat {
       stop == .fill ? fillZoomScale : 1
     }
 
-    private func zoomCentred(to scale: CGFloat) {
-      let visible = CGSize(
-        width: scrollView.bounds.width / scale, height: scrollView.bounds.height / scale)
-      let centre = CGPoint(x: imageView.bounds.midX, y: imageView.bounds.midY)
+    /// Animates to `scale` with `normalizedCentre` of the photo as near the
+    /// page centre as the scrollable range allows.
+    private func zoom(to scale: CGFloat, keeping normalizedCentre: CGPoint) {
+      let page = scrollView.bounds.size
+      let fitted = imageView.bounds.size
+      let content = CGSize(width: fitted.width * scale, height: fitted.height * scale)
+      let offset = Self.offset(showing: normalizedCentre, content: content, page: page)
+      let visible = CGSize(width: page.width / scale, height: page.height / scale)
+      let centre = CGPoint(
+        x: (offset.x + page.width / 2) / scale, y: (offset.y + page.height / 2) / scale)
       scrollView.zoom(
         to: CGRect(
           x: centre.x - visible.width / 2, y: centre.y - visible.height / 2,
