@@ -49,11 +49,7 @@ import { progressStatement, type ProgressArgs } from './backup-sessions.repo.ts'
 import { linkStatement, splitRelPath, type PhassetLink } from './backup-location.repo.ts';
 import { nowIso, placeholders, toHex } from './values.ts';
 
-export {
-  appendBackupLocation,
-  type AppendBackupLocationInput,
-  type PhassetLink,
-} from './backup-location.repo.ts';
+export { appendBackupLocation, type PhassetLink } from './backup-location.repo.ts';
 
 export type { SqliteDb } from './db-handle.ts';
 
