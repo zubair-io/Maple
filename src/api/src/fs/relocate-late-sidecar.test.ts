@@ -258,3 +258,34 @@ describe('a sidecar created mid-move (#5062)', () => {
     expect(await read('b/IMG (conflict from move).xmp')).toBe(maple('backup edit'));
   });
 });
+
+describe('a save from another process during the late-save settle (#5076)', () => {
+  test('is never overwritten and its source is kept', async () => {
+    await write('a/IMG.HEIC', 'pixels');
+    await write('a/IMG.xmp', 'snapshot');
+    const realRename = fs.rename;
+    const rename = spyOn(fs, 'rename').mockImplementation(async (from, to) => {
+      if (
+        [from, to].map(String).includes(abs('b/IMG.xmp')) &&
+        (await read('b/IMG.xmp')) === 'snapshot'
+      )
+        await write('b/IMG.xmp', 'api save');
+      return realRename(from, to);
+    });
+    try {
+      const outcome = await relocateFile({
+        sourceAbsPath: abs('a/IMG.HEIC'),
+        destAbsPath: abs('b/IMG.HEIC'),
+        mode: 'move',
+        collision: 'auto-suffix',
+        onVerified: () => write('a/IMG.xmp', 'late edit'),
+      });
+
+      expect(outcome.kind).toBe('relocated');
+    } finally {
+      rename.mockRestore();
+    }
+    expect(await read('b/IMG.xmp')).toBe('api save');
+    expect(await read('a/IMG.xmp')).toBe('late edit');
+  });
+});

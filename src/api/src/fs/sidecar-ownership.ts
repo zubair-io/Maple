@@ -302,11 +302,57 @@ async function carryLateSave(current: Buffer, dest: string, snapshot: Buffer): P
   const atDest = await readSidecarBytes(dest);
   if (atDest === null || !atDest.equals(snapshot)) return false;
   const tmp = await writeVerifiedTemp(dest, current);
-  await fs.rename(tmp, dest).catch(async (err: unknown) => {
+  try {
+    return await replaceIfHolds(dest, snapshot, tmp, async (aside, moved) => {
+      if (moved === null || !(await publishConflictBytes(dest, moved)))
+        throw new Error(`kept at ${aside}`);
+      await fs.unlink(aside);
+    });
+  } finally {
     await fs.unlink(tmp).catch(() => {});
-    throw err;
-  });
-  return true;
+  }
+}
+
+/** Replaces `dest` with the staged `tmp` only if `dest` still holds `snapshot`. The save barrier
+ * is process-local, so another process can save to `dest` after a check: `dest` is moved aside
+ * first and the moved file is what is compared. Anything else is put back (`putBack` takes the
+ * aside file and its bytes when a writer took `dest` meanwhile) and false is returned. A failure
+ * leaves the aside file in place rather than lose it. */
+export async function replaceIfHolds(
+  dest: string,
+  snapshot: Buffer,
+  tmp: string,
+  putBack: (aside: string, moved: Buffer | null) => Promise<void>,
+): Promise<boolean> {
+  const aside = privateSiblingOf(dest);
+  await fs.rename(dest, aside);
+  const moved = await readSidecarBytes(aside).catch(() => null);
+  const restore = async (bytes: Buffer | null): Promise<void> => {
+    await publishExclusive(aside, dest)
+      .catch((err: unknown) => {
+        if (!(err instanceof PublishCollisionError)) throw err;
+        return putBack(aside, bytes);
+      })
+      .catch((err: unknown) => {
+        log.error({ aside, dest, err: String(err) }, 'a sidecar moved aside could not be put back');
+        throw err;
+      });
+    await fs.unlink(aside).catch(() => {});
+  };
+  if (!moved?.equals(snapshot)) {
+    await restore(moved);
+    return false;
+  }
+  const published = await publishExclusive(tmp, dest).then(
+    () => true,
+    async (err: unknown) => {
+      if (err instanceof PublishCollisionError) return false;
+      await restore(moved);
+      throw err;
+    },
+  );
+  await fs.unlink(aside).catch(() => {});
+  return published;
 }
 
 /** Publish `bytes` at `dest` exclusively, through a verified temp. */
