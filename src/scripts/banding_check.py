@@ -224,17 +224,23 @@ def shadow_histogram_gaps(rgb: np.ndarray) -> dict:
 
 
 def ramp_axis_values(rgb: np.ndarray, stage: str, axis: str) -> np.ndarray:
-    """Return the (H, W) scalar field the second-difference metric runs
-    over: Oklab chroma for `axis == "chroma"`, Rec.2020 luma for
-    `axis == "luma"`."""
+    """Return the field the second-difference metric runs over: the Oklab
+    (a, b) vector as (H, W, 2) for `axis == "chroma"`, Rec.2020 luma as
+    (H, W) for `axis == "luma"`. Chroma stays a vector because its magnitude
+    has a V-shaped kink at neutral that reads as a spike on any ramp
+    crossing neutral."""
     working_space = _STAGE_WORKING_SPACE.get(stage, "srgb_linear")
     if axis == "luma":
         lin = _srgb_gamma_decode(rgb) if working_space == "srgb_gamma" else rgb
         return (lin * REC2020_LUM).sum(axis=-1).astype(np.float64)
     if axis == "chroma":
         lab = _to_oklab(rgb, working_space)
-        return np.sqrt(lab[..., 1] ** 2 + lab[..., 2] ** 2)
+        return lab[..., 1:3]
     raise ValueError(f"unknown ramp axis {axis!r}")
+
+
+def _step_size(delta: np.ndarray) -> np.ndarray:
+    return np.linalg.norm(delta, axis=-1) if delta.ndim == 3 else np.abs(delta)
 
 
 def second_difference_spike(values: np.ndarray) -> dict:
@@ -253,12 +259,12 @@ def second_difference_spike(values: np.ndarray) -> dict:
     """
     d1 = np.diff(values, axis=1)
     d2 = np.diff(d1, axis=1)
-    abs_d2 = np.abs(d2)
+    abs_d2 = _step_size(d2)
     per_row_max = abs_d2.max(axis=1)
     # Row-normalize by the row's own peak |d1| (the ramp's typical step) so
     # the spike ratio is comparable across stages/rows with different overall
     # chroma spans. A floor avoids divide-by-zero on a degenerate flat row.
-    per_row_step = np.abs(d1).max(axis=1)
+    per_row_step = _step_size(d1).max(axis=1)
     per_row_step_floor = np.maximum(per_row_step, 1e-6)
     per_row_ratio = per_row_max / per_row_step_floor
     return {
@@ -282,7 +288,7 @@ def flat_run(values: np.ndarray, eps: float = 1e-6) -> dict:
     healthy compressive tail keeps a strictly positive (if small) slope, so
     its longest |d1|<=eps run is ~0.
     """
-    d1 = np.abs(np.diff(values, axis=1))
+    d1 = _step_size(np.diff(values, axis=1))
     flat = d1 <= eps
     max_frac = 0.0
     for row in flat:
