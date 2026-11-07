@@ -164,9 +164,9 @@ test('the duplicates mover carries a save that lands after it copied the old-nam
   await fs.writeFile(legacy, maple('backup edit'));
   const realSettle = ownership.settleCarriedSidecar;
   const settle = spyOn(ownership, 'settleCarriedSidecar').mockImplementationOnce(
-    async (source, dest, snapshot, keepSource) => {
+    async (source, dest, snapshot, keepSource, primary) => {
       await fs.writeFile(legacy, maple('late save'));
-      return realSettle(source, dest, snapshot, keepSource);
+      return realSettle(source, dest, snapshot, keepSource, primary);
     },
   );
   try {
@@ -217,10 +217,10 @@ test('the duplicates mover keeps the photo while its old-name edit stays behind'
   await fs.writeFile(path.join(dir, 'IMG_14.xmp'), maple('current edit'));
   const realSettle = ownership.settleCarriedSidecar;
   const settle = spyOn(ownership, 'settleCarriedSidecar').mockImplementationOnce(
-    async (source, dest, snapshot, keepSource) => {
+    async (source, dest, snapshot, keepSource, primary) => {
       await fs.writeFile(source, maple('saved at the old path'));
       await fs.writeFile(dest, maple('saved at the new path'));
-      return realSettle(source, dest, snapshot, keepSource);
+      return realSettle(source, dest, snapshot, keepSource, primary);
     },
   );
   try {
@@ -253,10 +253,10 @@ test('the duplicates mover completes the move when a new file took the old path 
   await fs.writeFile(legacy, maple('backup edit'));
   const realSettle = ownership.settleCarriedSidecar;
   const settle = spyOn(ownership, 'settleCarriedSidecar').mockImplementationOnce(
-    async (source, dest, snapshot, keepSource) => {
+    async (source, dest, snapshot, keepSource, primary) => {
       await fs.writeFile(source, maple('saved at the old path'));
       await fs.writeFile(dest, maple('saved at the new path'));
-      await realSettle(source, dest, snapshot, keepSource);
+      await realSettle(source, dest, snapshot, keepSource, primary);
       await fs.writeFile(raw, 'a new arrival');
       await fs.writeFile(path.join(dir, 'IMG_15.xmp'), maple("the arrival's edit"));
     },
@@ -292,10 +292,10 @@ test('an undone duplicates move keeps the quarantined photo while its carried ed
   await fs.writeFile(`${raw}.xmp`, maple('backup edit'));
   const realSettle = ownership.settleCarriedSidecar;
   const settle = spyOn(ownership, 'settleCarriedSidecar').mockImplementationOnce(
-    async (source, dest, snapshot, keepSource) => {
+    async (source, dest, snapshot, keepSource, primary) => {
       await fs.writeFile(source, maple('saved at the old path'));
       await fs.writeFile(dest, maple('saved at the new path'));
-      return realSettle(source, dest, snapshot, keepSource);
+      return realSettle(source, dest, snapshot, keepSource, primary);
     },
   );
   const realTemp = ownership.writeVerifiedTemp;

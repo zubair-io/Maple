@@ -278,17 +278,19 @@ export async function publishSidecarSnapshot(
 /** Settle a carried sidecar's source under both save barriers. A save that
  * landed after the snapshot is carried to `dest` when `dest` still holds the
  * snapshot. The source is then removed unless a sibling still claims it
- * (`keepSource`); when both ends changed it is kept so neither save is lost. */
+ * (`keepSource`); when both ends changed it is kept so neither save is lost. `primary` is the
+ * photo the sidecar now belongs to, which names any conflict copy. */
 export async function settleCarriedSidecar(
   source: string,
   dest: string,
   snapshot: Buffer,
   keepSource: boolean,
+  primary: string,
 ): Promise<void> {
   await serializeSidecarWrites([source, dest], async () => {
     const current = await readSidecarBytes(source);
     if (current === null) return;
-    if (!current.equals(snapshot) && !(await carryLateSave(current, dest, snapshot))) {
+    if (!current.equals(snapshot) && !(await carryLateSave(current, dest, snapshot, primary))) {
       log.warn(
         { source, dest },
         'relocate: sidecar changed at both ends during the move — source kept so neither save is lost',
@@ -299,13 +301,18 @@ export async function settleCarriedSidecar(
   });
 }
 
-async function carryLateSave(current: Buffer, dest: string, snapshot: Buffer): Promise<boolean> {
+async function carryLateSave(
+  current: Buffer,
+  dest: string,
+  snapshot: Buffer,
+  primary: string,
+): Promise<boolean> {
   const atDest = await readSidecarBytes(dest);
   if (atDest === null || !atDest.equals(snapshot)) return false;
   const tmp = await writeVerifiedTemp(dest, current);
   try {
     return await replaceIfHolds(dest, snapshot, tmp, async (aside, moved) => {
-      if (moved === null || !(await publishConflictBytes(dest, moved)))
+      if (moved === null || !(await publishConflictBytes(primary, moved)))
         throw new Error(
           `conflict copy could not be published; moved-aside sidecar kept at ${aside}`,
         );

@@ -23,9 +23,9 @@ test('a late save whose replace fails leaves no temp file and keeps the source',
   await fs.writeFile(source, 'edit 2');
   const rename = spyOn(fs, 'rename').mockRejectedValueOnce(new Error('EBUSY'));
   try {
-    await expect(settleCarriedSidecar(source, dest, Buffer.from('edit 1'), false)).rejects.toThrow(
-      'EBUSY',
-    );
+    await expect(
+      settleCarriedSidecar(source, dest, Buffer.from('edit 1'), false, dest),
+    ).rejects.toThrow('EBUSY');
   } finally {
     rename.mockRestore();
   }
