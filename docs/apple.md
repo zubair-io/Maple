@@ -1,6 +1,6 @@
 # Apple platform
 
-Everything Apple lives under `src/apple/`: one Xcode project (`Maple.xcodeproj`) that ships a single universal app — product name **Maple**, bundle id `app.justmaple.aperture`, running on macOS, iPhone and iPad from one target — plus a separate tvOS app with its Top Shelf extension, a watchOS companion app, four extensions, a macOS LaunchAgent, and four test bundles. Almost none of the interesting code is in the Xcode targets: the domain lives in three local Swift packages under `src/apple/Packages/` (`MapleCore`, `MapleUI`, `MapleBackup`), and all the image math lives in Rust, linked as a static library through `Frameworks/RawPipeline.xcframework`. Those `.a` slices and the generated `RawPipeline.h` headers are gitignored (the static libs are 200–500 MB each), so a fresh clone must build them once with `scripts/build-xcframework.sh` before Xcode can link or SwiftPM can compile. The editor renders through the Rust FFI — either the wgpu GPU path presenting straight into a `CAMetalLayer`, or a CoreImage CPU fallback — never through hand-written Apple render kernels, which were all deleted once the Rust chain subsumed them.
+Everything Apple lives under `src/apple/`: one Xcode project (`Maple.xcodeproj`) that ships a single universal app — product name **Maple**, bundle id `app.justmaple.aperture`, running on macOS, iPhone and iPad from one target — plus a separate tvOS app with its Top Shelf extension (same bundle id, so one App Store record and one purchase cover every platform), a watchOS companion app, four extensions, a macOS LaunchAgent, and four test bundles. Almost none of the interesting code is in the Xcode targets: the domain lives in three local Swift packages under `src/apple/Packages/` (`MapleCore`, `MapleUI`, `MapleBackup`), and all the image math lives in Rust, linked as a static library through `Frameworks/RawPipeline.xcframework`. Those `.a` slices and the generated `RawPipeline.h` headers are gitignored (the static libs are 200–500 MB each), so a fresh clone must build them once with `scripts/build-xcframework.sh` before Xcode can link or SwiftPM can compile. The editor renders through the Rust FFI — either the wgpu GPU path presenting straight into a `CAMetalLayer`, or a CoreImage CPU fallback — never through hand-written Apple render kernels, which were all deleted once the Rust chain subsumed them.
 
 ## The Xcode project
 
@@ -9,9 +9,9 @@ Thirteen native targets, three committed schemes.
 | Target                       | Product           | Bundle id                      | Platforms          | Deployment            |
 | ---------------------------- | ----------------- | ------------------------------ | ------------------ | --------------------- |
 | Maple                        | app               | `app.justmaple.aperture`       | macOS, iOS, iPadOS | macOS 14.0 / iOS 26.0 |
-| Maple TV                     | app               | `app.justmaple.aperture.tv`    | tvOS               | tvOS 17.0             |
+| Maple TV                     | app               | `app.justmaple.aperture`       | tvOS               | tvOS 17.0             |
 | Maple Watch Watch App        | companion app     | `app.justmaple.aperture.watch` | watchOS            | watchOS 10.0          |
-| MapleTopShelf                | app extension     | `…aperture.tv.MapleTopShelf`   | tvOS               | tvOS 17.0             |
+| MapleTopShelf                | app extension     | `…aperture.MapleTopShelf`      | tvOS               | tvOS 17.0             |
 | MapleFileProvider            | app extension     | `…aperture.FileProvider`       | macOS              | macOS 14.0            |
 | MapleFileProviderIOS         | app extension     | `…aperture.FileProviderIOS`    | iOS                | iOS 26.0              |
 | MapleQuickLook               | app extension     | `…aperture.QuickLook`          | macOS              | macOS 14.0            |
