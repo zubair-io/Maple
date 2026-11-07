@@ -430,7 +430,9 @@ pub use patches::{
 
 /// Canonical display encode (#877, #3190), re-exported to preserve public paths.
 mod encode_display;
+mod encode_display_p3_auto;
 pub use encode_display::{encode_display_f32, encode_display_srgb_f32, encode_display_u10_f32};
+pub use encode_display_p3_auto::encode_display_p3_auto_f32;
 
 /// Unit tests split into a submodule to stay under the 600-LOC file
 /// budget (#1181).
