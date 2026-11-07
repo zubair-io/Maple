@@ -292,8 +292,7 @@ export async function carryPlannedSidecars(
       continue;
     }
     if (entry.takesOver) {
-      // A displaced edit that can't be retired stays, and the incoming one with it.
-      if (!(await retireDisplaced(entry.takesOver, createdPaths))) continue;
+      await retireDisplaced(entry.takesOver, createdPaths);
     } else if (entry.replacesOccupant) {
       await setAsideUntilCommit(entry.dest, createdPaths).catch(() => {});
     }
@@ -308,27 +307,27 @@ export async function carryPlannedSidecars(
 /** Retire a displaced photo's old-name edit (#5063) under its barrier. Bytes
  * saved since the plan read it are the old photo's newer edit: they land as a
  * `(conflict from move)` copy, which the migration never adopts, so they are
- * neither lost nor read as the incoming photo's. False when it had to stay. */
+ * neither lost nor read as the incoming photo's. Throws when it had to stay,
+ * which reverts the whole Replace rather than leave it beside the incoming photo. */
 async function retireDisplaced(
   displaced: DisplacedEdit,
   createdPaths: RelocatePublication[],
-): Promise<boolean> {
+): Promise<void> {
   const { legacy, bytes } = displaced;
   return serializeSidecarWrite(legacy, async () => {
     const now = await readSidecarBytes(legacy);
-    if (now === null) return true;
+    if (now === null) return;
     const photo = legacy.slice(0, -'.xmp'.length);
     if (!now.equals(bytes) && !(await publishConflictBytes(photo, now))) {
       throw new Error(`relocate: no free conflict name beside ${photo}`);
     }
     await setAsideUntilCommit(legacy, createdPaths);
-    return true;
   }).catch((err: unknown) => {
     log.error(
       { legacy, err: err instanceof Error ? err.message : err },
-      "relocate: the displaced photo's old-name edit couldn't be retired — kept",
+      "relocate: the displaced photo's old-name edit couldn't be retired — move reverted",
     );
-    return false;
+    throw err;
   });
 }
 

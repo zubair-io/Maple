@@ -2,7 +2,7 @@
  * Relocate carries a photo's pre-#5021 `IMG.HEIC.xmp` (#5063) without ever
  * replacing another tool's file at the name it lands on. Real files in a temp dir.
  */
-import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, spyOn, test } from 'bun:test';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import * as fs from './mirrored.ts';
@@ -497,6 +497,35 @@ describe('relocate — unreadable and displaced old-name edits (#5063)', () => {
     expect(outcome.kind).toBe('relocated');
     expect(await read('dst/IMG.HEIC.xmp')).toBe(maple('backup edit'));
     expect(await read('dst/IMG (conflict from move).xmp')).toBe(maple('saved meanwhile'));
+  });
+
+  test("Replace fails and rolls back when the displaced photo's changed old-name edit can't be kept (#5088)", async () => {
+    await write('src/IMG.HEIC', 'new');
+    await write('src/IMG.xmp', maple('incoming edit'));
+    await write('dst/IMG.HEIC', 'old');
+    await write('dst/IMG.HEIC.xmp', maple('previous edit'));
+    const realLink = fs.link;
+    const link = spyOn(fs, 'link').mockImplementation(async (existing, target) => {
+      if (String(target).includes('(conflict from move)')) throw new Error('EACCES');
+      return realLink(existing, target);
+    });
+    try {
+      const outcome = await relocateFile({
+        sourceAbsPath: abs('src/IMG.HEIC'),
+        destAbsPath: abs('dst/IMG.HEIC'),
+        mode: 'move',
+        collision: 'replace',
+        onDestinationPrepared: () => write('dst/IMG.HEIC.xmp', maple('saved meanwhile')),
+      });
+
+      expect(outcome.kind).toBe('error');
+    } finally {
+      link.mockRestore();
+    }
+    expect(await read('dst/IMG.HEIC')).toBe('old');
+    expect(await read('dst/IMG.HEIC.xmp')).toBe(maple('saved meanwhile'));
+    expect(await read('src/IMG.HEIC')).toBe('new');
+    expect(await read('src/IMG.xmp')).toBe(maple('incoming edit'));
   });
 
   test.skipIf(!caseSensitive)(
