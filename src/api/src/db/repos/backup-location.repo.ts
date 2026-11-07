@@ -12,8 +12,21 @@ import type { ObjectId } from '../object-id.ts';
 import { relocateCacheRearmStatements } from './assets.stage-rearm.ts';
 import { transactionUnlessPurged } from './backup-purge-guard.ts';
 import { progressStatement, type ProgressArgs } from './backup-sessions.repo.ts';
-import type { PhassetLink } from './backup.repo.ts';
 import { toHex } from './values.ts';
+
+/**
+ * One device's link to an Apple Photos asset, as the backup routes build it.
+ *
+ * `first_seen` is a `Date` because that is what the routes construct and what
+ * the Mongo document declared; the column is ISO text, like every other
+ * timestamp in this schema.
+ */
+export interface PhassetLink {
+  device_id: string;
+  phasset_local_id: string;
+  phasset_cloud_id?: string;
+  first_seen: Date;
+}
 
 /**
  * A library-relative path split the way `asset_locations` stores it: the
