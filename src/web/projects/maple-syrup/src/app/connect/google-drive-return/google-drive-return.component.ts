@@ -1,5 +1,5 @@
 import { AsyncPipe } from '@angular/common';
-import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
+import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
 import { MuiButtonComponent } from '@maple-common';
 import { catchError, map, of } from 'rxjs';
 import { takeConnectionFragment } from '../connection-fragment';
@@ -40,7 +40,13 @@ export class GoogleDriveReturnComponent {
         denied: false,
         error: 'No connection to return. Start Connect Google Drive from your Maple server.',
       });
+  readonly returning = signal(false);
   returnToMaple(url: string): void {
+    if (this.returning()) return;
+    this.returning.set(true);
+    this.replaceLocation(url);
+  }
+  replaceLocation(url: string): void {
     window.location.replace(url);
   }
 }
