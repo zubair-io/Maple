@@ -222,6 +222,47 @@ final class CanvasZoomStopsTests: XCTestCase {
         XCTAssertEqual(model.pixelScale, 0)
     }
 
+    /// Codex on #5711: 8000×5000 in 1000×800pt @2× (fit 0.25, fill 0.32). A
+    /// zoom step lands on 0.3125, inside fill's band; the iOS capture frame
+    /// must not snap the frozen frame to 0.32, or a 2× pinch shows 0.64 and
+    /// commits 0.625.
+    func testPinchCaptureInsideADetentBandShowsWhatItCommits() {
+        let wide = CanvasZoomContext(
+            viewportPoints: CGSize(width: 1000, height: 800),
+            nativeImageSize: CGSize(width: 8000, height: 5000),
+            displayScale: 2
+        )
+        XCTAssertEqual(wide.fitScale, 0.25, accuracy: 1e-12)
+        XCTAssertEqual(wide.fillScale, 0.32, accuracy: 1e-12)
+        var model = CanvasZoomModel()
+        model.zoomToScale(0.3125)
+        let centroid = CGPoint(x: 400, y: 300)
+
+        model.pinchChanged(magnification: 1, location: centroid, context: wide)
+        XCTAssertEqual(model.pixelScale, 0.3125, accuracy: 1e-12, "capture leaves the frame alone")
+        let start = try! XCTUnwrap(model.pinchStartScale)
+        let frozen = wide.effectiveScale(for: model.pixelScale)
+        let ratio =
+            CanvasZoomModel.pinchScale(
+                start: start, magnification: 2, fit: wide.fitScale, fill: wide.fillScale) / start
+        let shown = frozen * ratio
+
+        model.pinchChanged(magnification: 2, location: centroid, context: wide)
+        model.pinchEnded(magnification: 2, context: wide)
+        XCTAssertEqual(shown, 0.625, accuracy: 1e-12)
+        XCTAssertEqual(model.pixelScale, shown, accuracy: 1e-12)
+    }
+
+    func testPinchCaptureInsideADetentBandStillSnapsOnRelease() {
+        var model = CanvasZoomModel()
+        model.zoomToScale(fill * 0.98)
+        model.pinchChanged(magnification: 1, location: CGPoint(x: 500, y: 400), context: square)
+        XCTAssertEqual(model.pixelScale, fill * 0.98, accuracy: 1e-12)
+        model.pinchEnded(magnification: 1, context: square)
+        XCTAssertEqual(model.pixelScale, fill, accuracy: 1e-12)
+        XCTAssertEqual(model.currentStop, .fill)
+    }
+
     // MARK: - Fill
 
     func testZoomToFillCentresAndPansOnlyTheOverflowingAxis() {
