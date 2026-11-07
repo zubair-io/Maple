@@ -27,6 +27,7 @@ import { isLegacyBackupSidecarOf, oldNameSlotTaken } from './legacy-backup-sidec
 import { child as childLogger } from '../log.ts';
 import {
   PublishCollisionError,
+  errnoCode,
   privateSiblingOf,
   publishExclusive,
   type RelocatePublication,
@@ -305,7 +306,9 @@ async function carryLateSave(current: Buffer, dest: string, snapshot: Buffer): P
   try {
     return await replaceIfHolds(dest, snapshot, tmp, async (aside, moved) => {
       if (moved === null || !(await publishConflictBytes(dest, moved)))
-        throw new Error(`kept at ${aside}`);
+        throw new Error(
+          `conflict copy could not be published; moved-aside sidecar kept at ${aside}`,
+        );
       await fs.unlink(aside);
     });
   } finally {
@@ -325,7 +328,14 @@ export async function replaceIfHolds(
   putBack: (aside: string, moved: Buffer | null) => Promise<void>,
 ): Promise<boolean> {
   const aside = privateSiblingOf(dest);
-  await fs.rename(dest, aside);
+  const movedAside = await fs.rename(dest, aside).then(
+    () => true,
+    (err: unknown) => {
+      if (errnoCode(err) === 'ENOENT') return false;
+      throw err;
+    },
+  );
+  if (!movedAside) return false;
   const moved = await readSidecarBytes(aside).catch(() => null);
   const restore = async (bytes: Buffer | null): Promise<void> => {
     await publishExclusive(aside, dest)
