@@ -142,6 +142,13 @@ class AutoJpegGateTests(unittest.TestCase):
             (self.root / f"test_{extension}.{extension}").touch()
         self.assertEqual(len(gate.fixtures(self.root, None, "")), 5)
 
+    def test_x3f_reported_skipped_not_selected(self):
+        (self.root / "test_0016.X3F").touch()
+        self.assertEqual(len(gate.fixtures(self.root, None, "")), 1)
+        skipped = gate.unsupported_fixtures(self.root, "")
+        self.assertEqual([row["fixture"] for row in skipped], ["test_0016"])
+        self.assertEqual(gate.unsupported_fixtures(self.root, "test_0000"), [])
+
     def test_manifest_selects_only_baseline_raws(self):
         manifest = self.root / "manifest.json"
         manifest.write_text(

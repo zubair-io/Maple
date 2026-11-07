@@ -38,6 +38,8 @@ EXTENSIONS = {
     ".srw",
 }
 
+UNSUPPORTED_EXTENSIONS = {".x3f"}
+
 
 def sha(path):
     with Path(path).open("rb") as source:
@@ -72,6 +74,22 @@ def fixtures(raw_dir, manifest, name_filter):
     if len({name for name, _ in selected}) != len(selected):
         raise ValueError("duplicate fixture names")
     return selected
+
+
+def unsupported_fixtures(raw_dir, name_filter):
+    if not raw_dir:
+        return []
+    return [
+        {
+            "fixture": p.stem,
+            "raw": str(p.resolve()),
+            "reason": "decode unsupported (Foveon X3F); excluded from the gate",
+        }
+        for p in sorted(Path(raw_dir).glob("test_*"))
+        if p.suffix.lower() in UNSUPPORTED_EXTENSIONS
+        and p.is_file()
+        and (not name_filter or name_filter in p.name)
+    ]
 
 
 def compare(candidate, reference, budget):
@@ -155,7 +173,7 @@ def validate_previewless(cli, raw, folder, env):
     }
 
 
-def qualify(cli, selected, out, budget):
+def qualify(cli, selected, out, budget, skipped=()):
     identity = {
         "target": "camera-embedded-jpeg",
         "profile": "auto",
@@ -173,6 +191,7 @@ def qualify(cli, selected, out, budget):
         "runner_sha256": sha(__file__),
         "comparator_sha256": sha(diff.__file__),
         "selected": len(selected),
+        "skipped_unsupported": list(skipped),
         "cases": [],
         "complete": False,
     }
@@ -253,10 +272,13 @@ def qualify(cli, selected, out, budget):
         else "failed"
     )
     save()
+    for entry in skipped:
+        print(f"{entry['fixture']}: SKIPPED ({entry['reason']})", flush=True)
     print(
         json.dumps(
             {
                 "status": identity["status"],
+                "skipped_unsupported": len(skipped),
                 "compared": compared,
                 **counts,
                 "evidence": str(out),
@@ -290,7 +312,8 @@ def main():
         )
         if args.output:
             out.mkdir(parents=True, exist_ok=False)
-        return qualify(args.cli.resolve(), selected, out, args.budget)
+        skipped = unsupported_fixtures(args.raw_dir, args.filter)
+        return qualify(args.cli.resolve(), selected, out, args.budget, skipped)
     except (OSError, ValueError) as error:
         ap.error(str(error))
 
