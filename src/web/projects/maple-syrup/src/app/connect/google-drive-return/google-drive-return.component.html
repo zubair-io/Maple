@@ -13,7 +13,11 @@
       </p>
       <p>Confirm the Maple server you started from:</p>
       <p class="break-all font-medium">{{ vm.returnUrl }}</p>
-      <mui-button variant="primary" size="lg" (pressed)="returnToMaple(vm.destination)"
+      <mui-button
+        variant="primary"
+        size="lg"
+        [disabled]="returning()"
+        (pressed)="returnToMaple(vm.destination)"
         >Return to my Maple server</mui-button
       >
       <p class="text-text-muted">
