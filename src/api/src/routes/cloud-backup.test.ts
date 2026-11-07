@@ -10,6 +10,8 @@ import {
 } from '../db/sqlite/test-sqlite.test-helpers.ts';
 import { createJob, failJob, getJob } from '../db/repos/jobs.repo.ts';
 import { BackupRepository } from '../cloud-backup/repository.ts';
+import { saveConfig } from '../cloud-backup/google/repo.ts';
+import { DEFAULT_GOOGLE_CONFIG } from '../cloud-backup/google/config.ts';
 
 test('mounted owner backup routes retain folder scope and protect recovery detail/cancel/resume', async () => {
   using live = await createLiveTestDatabase();
@@ -316,6 +318,52 @@ test('Google Drive status reports the error most blocked entries share, not the 
       blocked: 4,
       lastError: expired,
       lastErrorCount: 3,
+    });
+  } finally {
+    process.env.MAPLE_JWT_SECRET = previous;
+  }
+});
+
+test('Google Drive destinations report a recorded disconnect without opening the connection panel', async () => {
+  using live = await createLiveTestDatabase();
+  const previous = process.env.MAPLE_JWT_SECRET;
+  const secret = 'backup-destination-connection-test-secret';
+  process.env.MAPLE_JWT_SECRET = secret;
+  try {
+    const app = buildApp({ stageNames: [] });
+    const owner = await signAccessToken(
+      { sub: '111111111111111111111111', email: null, role: 'owner', file_access: true },
+      secret,
+    );
+    const repo = new BackupRepository(live.handle);
+    const destination = await repo.createDestination({
+      libraryId: insertFolder(live.db),
+      kind: 'google-drive',
+      name: 'Drive',
+      path: null,
+    });
+    const at = Date.parse('2026-11-02T12:16:00Z');
+    await saveConfig(
+      destination.id,
+      { ...DEFAULT_GOOGLE_CONFIG, disconnect: { reason: 'invalid_grant', at } },
+      0,
+    );
+    const response = await app.handle(
+      new Request('http://localhost/api/cloud-backup/destinations', {
+        headers: { Authorization: `Bearer ${owner}` },
+      }),
+    );
+    const body = (await response.json()) as {
+      destinations: Array<{ id: string; connection?: unknown }>;
+    };
+    expect(body.destinations.find((item) => item.id === destination.id)?.connection).toEqual({
+      connected: false,
+      disconnect: {
+        reason: 'invalid_grant',
+        at: '2026-11-02T12:16:00.000Z',
+        message:
+          "Google expired or revoked Maple's Drive authorization (invalid_grant) at 2026-11-02T12:16:00Z. Reconnect Google Drive to resume backup.",
+      },
     });
   } finally {
     process.env.MAPLE_JWT_SECRET = previous;

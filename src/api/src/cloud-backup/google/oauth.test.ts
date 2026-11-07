@@ -316,8 +316,11 @@ test('revoked offline grants become disconnected and require fresh consent', asy
     googleAccessToken(destination, async () =>
       Response.json({ error: 'invalid_grant' }, { status: 400 }),
     ),
-  ).rejects.toThrow('reconnect');
-  expect((await loadConnection(destination)).config.refreshToken).toBeNull();
+  ).rejects.toThrow('(invalid_grant) at ');
+  expect((await loadConnection(destination)).config).toMatchObject({
+    refreshToken: null,
+    disconnect: { reason: 'invalid_grant' },
+  });
 });
 
 for (const lateResult of ['rotated-token', 'invalid_grant'] as const) {
