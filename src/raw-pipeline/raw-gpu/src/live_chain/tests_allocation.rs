@@ -167,3 +167,40 @@ fn immediate_pass_construction_does_not_allocate_pass_boxes_or_lists() {
         "probe must observe the old boxed path"
     );
 }
+
+/// #4741: with the session's resident holder, the P3 Auto pair adds no host
+/// allocation once the first tick has warmed the process-wide tables.
+#[test]
+fn p3_auto_pair_with_a_resident_holder_adds_no_host_allocation() {
+    struct ResidentSink(crate::p3_auto::HeadroomPlane);
+    impl<'a> crate::live_chain::LivePassSink<'a> for ResidentSink {
+        fn push<T: crate::Pass + 'a>(&mut self, pass: T) {
+            std::hint::black_box(&pass);
+        }
+        fn p3_auto_headroom(&self) -> crate::p3_auto::HeadroomPlane {
+            self.0.clone()
+        }
+    }
+    let case = neutral_case();
+    let mut sink = ResidentSink(Default::default());
+    let tick = |target_primaries: u32, sink: &mut ResidentSink| {
+        let inputs = FullChainInputs {
+            target_primaries,
+            ..case.gpu_inputs()
+        };
+        assert_eq!(
+            crate::p3_auto::p3_auto_is_active(&inputs),
+            target_primaries == 1
+        );
+        all_allocations(|| {
+            crate::live_chain::visit_live_chain(&inputs, AirlightSource::OnGpu, sink);
+        })
+    };
+    tick(0, &mut sink);
+    assert_eq!(tick(0, &mut sink), 0, "warm sRGB tick must not allocate");
+    assert_eq!(
+        tick(1, &mut sink),
+        0,
+        "the P3 Auto pair allocated host memory"
+    );
+}

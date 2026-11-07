@@ -126,7 +126,7 @@ where
 /// scale, well below 8-bit quantisation). `scaled(s)` maps a chroma scale to a
 /// candidate triple at constant L and hue.
 #[inline]
-fn hull_scale<S: Fn(f32) -> [f32; 3]>(scaled: &S) -> f32 {
+pub(super) fn hull_scale<S: Fn(f32) -> [f32; 3]>(scaled: &S) -> f32 {
     let in_at = |s: f32| in_unit_box(scaled(s));
     let (mut lo, mut hi) = if in_at(1.0) {
         // In gamut at the input chroma — grow the scale until we exit the box.
@@ -174,7 +174,7 @@ pub(crate) fn clamp_unit_scrub_non_finite(v: f32) -> f32 {
 /// `1.0 + 1e-7` (fp error on the matrix multiply) don't trigger the
 /// expensive compression path.
 #[inline]
-fn in_unit_box(rgb: [f32; 3]) -> bool {
+pub(super) fn in_unit_box(rgb: [f32; 3]) -> bool {
     const EPS_HI: f32 = 1.0 + 1e-5;
     const EPS_LO: f32 = -1e-5;
     rgb[0] >= EPS_LO

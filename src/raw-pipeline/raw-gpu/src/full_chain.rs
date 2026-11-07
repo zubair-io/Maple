@@ -80,6 +80,7 @@ use crate::film_lut::FilmLutPass;
 use crate::grain::GrainPass;
 use crate::hsl::HslPass;
 use crate::local_adjustments::{local_adjustments_are_active, GpuMaskRaster, LocalAdjustmentsPass};
+use crate::p3_auto::{p3_auto_is_active, p3_auto_passes, HeadroomPlane};
 
 /// The 8-band Oklab pass for these inputs. Built in one place so the live
 /// chain's assembly gate and its stage-mask bit can never disagree about
@@ -517,9 +518,13 @@ pub fn build_split<'a>(
     // target_primaries from FullChainInputs (#1337). The full-chain headless
     // path defaults to 0 (sRGB) via FullChainInputs::default; the live path
     // reads it from inputs.
-    suffix.push(Box::new(DisplayEncodePass {
-        target_primaries: inputs.target_primaries,
-    }));
+    let p3_auto = p3_auto_is_active(inputs).then(|| p3_auto_passes(HeadroomPlane::default()));
+    match &p3_auto {
+        Some((split, _)) => suffix.push(Box::new(split.clone())),
+        None => suffix.push(Box::new(DisplayEncodePass {
+            target_primaries: inputs.target_primaries,
+        })),
+    }
     // srgb_gamma_encode: per-channel IEC OETF before Auto Profile tail.
     // AutoProfileCurvePass is omitted when absent (#4216).
     suffix.push(Box::new(SrgbGammaPass));
@@ -535,6 +540,9 @@ pub fn build_split<'a>(
             size: inputs.residual_lut_size,
             data: inputs.residual_lut_data.as_ref().into(),
         }));
+    }
+    if let Some((_, restore)) = p3_auto {
+        suffix.push(Box::new(restore));
     }
 
     (prefix, suffix)

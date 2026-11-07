@@ -45,6 +45,7 @@ pub use cpu_preview::CpuPreview;
 mod detail;
 mod display_prefix;
 mod finish;
+mod wide_gamut_auto;
 pub use detail::{
     render_detail_base, render_detail_base_cancellable, render_detail_base_retained,
     render_detail_base_retained_cancellable, render_detail_tile, render_detail_tile_cancellable,
@@ -413,7 +414,15 @@ fn render_display_scene_with_context_cancellable(
     }
     let whites_anchor_ev = scene.whites_anchor_ev;
     let full = (scene.width, scene.height);
-    display_prefix::apply(&mut scene, model, film_lut, target, ((0, 0), full));
+    let wide_gamut_auto = wide_gamut_auto::engaged(
+        target,
+        model.profile == Profile::Auto && raw_source.is_some(),
+    );
+    if wide_gamut_auto {
+        display_prefix::apply_linear(&mut scene, model, film_lut, ((0, 0), full));
+    } else {
+        display_prefix::apply(&mut scene, model, film_lut, target, ((0, 0), full));
+    }
     // Auto Profile (#537/#913) — the per-image color tail toward the embedded
     // JPEG, in f32 sRGB-encoded display space: the #550 per-channel curve, then a
     // residual 3D LUT fit on the curved buffer. The fit samples the PINNED
@@ -429,33 +438,43 @@ fn render_display_scene_with_context_cancellable(
     let mut artifacts = (None, None);
     if model.profile == Profile::Auto && raw_source.is_some() {
         artifacts = stage("auto_profile", || {
-            auto_fit::run_auto_profile_stage(
-                &mut scene,
-                raw,
-                model,
-                active_model,
-                quality,
-                max_long_edge,
-                film_lut,
-                target,
-                preview,
-                auto_cache_key.as_ref(),
-                cached_curve,
-                cached_lut,
-            )
+            if wide_gamut_auto {
+                auto_fit::fit_artifacts_from_pinned_develop(
+                    raw,
+                    model,
+                    quality,
+                    max_long_edge,
+                    preview,
+                    auto_cache_key.as_ref(),
+                    cached_curve,
+                    cached_lut,
+                )
+            } else {
+                auto_fit::run_auto_profile_stage(
+                    &mut scene,
+                    raw,
+                    model,
+                    active_model,
+                    quality,
+                    max_long_edge,
+                    film_lut,
+                    target,
+                    preview,
+                    auto_cache_key.as_ref(),
+                    cached_curve,
+                    cached_lut,
+                )
+            }
         });
         if cancel.is_cancelled() {
             return Err(crate::error::Error::Cancelled);
         }
-        // Hue-preserving gamut guard AFTER the Auto Profile curve+LUT (#1942):
-        // that stack runs in display-encoded space and can push a channel back
-        // out of [0, 1] or rotate a saturated color out of gamut, which the
-        // final `dither_and_quantize` would otherwise hard-clip per-channel
-        // (posterising pushed color — the #438/#1621 defect class). Inert on
-        // in-gamut pixels; only reshapes genuinely out-of-gamut post-LUT ones.
-        stage("auto_profile_gamut_guard", || {
-            encode::gamut_guard_display_encoded_srgb(&mut scene)
-        });
+        wide_gamut_auto::finish_auto_tail(
+            &mut scene,
+            wide_gamut_auto,
+            artifacts.0.as_ref(),
+            artifacts.1.as_ref(),
+        );
     }
     // The DisplayLookCurve (#371) used to shape pixels here; #443 retired
     // the static Look LUT and the Auto Profile stage (`view::auto_profile`,

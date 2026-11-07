@@ -1018,7 +1018,8 @@ public actor ImageEditPipeline {
   /// that gate essentially never held. Those kernels are gone and the Rust
   /// chain runs both stages internally, so the fused path is now reachable
   /// at any slider state. The Auto Profile `CIColorCube` was never in the
-  /// gap — it applies AFTER the encode, via `applyAutoCubeIfEncoded`.
+  /// gap — on an sRGB encode it applies AFTER the encode, via
+  /// `applyAutoCubeIfEncoded`; on a P3 encode the tail runs inside it (#4741).
   ///
   /// Also reuses `ffiInputBufferCache` (#1959/#2083) exactly like
   /// `applySceneLinearChainViaFFI` — same key, same weak identity anchor,
@@ -1057,7 +1058,8 @@ public actor ImageEditPipeline {
     noiseProfile: [Float]? = nil,
     iso: UInt32 = 0,
     readbackCacheAnchor: CIImage? = nil,
-    targetPrimaries: CanvasColorSpace = .srgb
+    targetPrimaries: CanvasColorSpace = .srgb,
+    p3Auto: AutoProfileLUT.Lattice? = nil
   ) -> CIImage? {
     let extent = scaled.extent
     let w = Int(extent.width.rounded())
@@ -1120,7 +1122,14 @@ public actor ImageEditPipeline {
       let outputBytes: Data
       do {
         outputBytes = try mapleStage("fused chain+encode") {
-          try PipelineRenderer.applyChainAndEncodeDisplayTarget(
+          if let p3Auto {
+            return try PipelineRenderer.applyChainAndEncodeDisplayP3Auto(
+              inputBytes: inputBytes, width: w, height: h, params: params,
+              curves: PipelineRenderer.ChainToneCurves(model: model),
+              noiseProfile: noiseProfile, localAdjustments: model.localAdjustments,
+              lattice: p3Auto)
+          }
+          return try PipelineRenderer.applyChainAndEncodeDisplayTarget(
             inputBytes: inputBytes, width: w, height: h, params: params,
             targetPrimaries: targetPrimaries.wireValue,
             // #4738: point / display / parametric curves ride alongside the
@@ -1226,7 +1235,8 @@ public actor ImageEditPipeline {
   /// setting.
   nonisolated private func encodeDisplayViaFFI(
     _ input: CIImage,
-    targetPrimaries: CanvasColorSpace = .srgb
+    targetPrimaries: CanvasColorSpace = .srgb,
+    p3Auto: AutoProfileLUT.Lattice? = nil
   ) -> CIImage? {
     let extent = input.extent
     let w = Int(extent.width.rounded())
@@ -1274,7 +1284,11 @@ public actor ImageEditPipeline {
       let outputBytes: Data
       do {
         outputBytes = try mapleStage("encode display (Oklab gamut)") {
-          try PipelineRenderer.encodeDisplay(
+          if let p3Auto {
+            return try PipelineRenderer.encodeDisplayP3Auto(
+              inputBytes: inputBytes, width: w, height: h, lattice: p3Auto)
+          }
+          return try PipelineRenderer.encodeDisplay(
             inputBytes: inputBytes, width: w, height: h,
             targetPrimaries: targetPrimaries.wireValue
           )
@@ -1311,8 +1325,10 @@ public actor ImageEditPipeline {
   /// together** invariant (#877 error-path fix).
   ///
   /// `encoded` is the result of `encodeDisplayViaFFI`: a non-nil
-  /// sRGB-gamma-encoded sRGB-primary CIImage on success, or `nil` when the
-  /// gamut-correct encode failed. `fallback` is the un-encoded, still
+  /// display-encoded CIImage on success, or `nil` when the gamut-correct
+  /// encode failed. `profileLUT` is non-nil only when `DisplayEncodePlan`
+  /// kept the sRGB encode, so a P3 Auto encode (#4741) arrives here with no
+  /// cube and passes through unchanged. `fallback` is the un-encoded, still
   /// **Rec.2020-tagged** display-linear image (the encode's input).
   ///
   /// On success the sRGB-tagged Auto cube applies on its matching
@@ -1499,14 +1515,12 @@ public actor ImageEditPipeline {
     nrSamplingScale: Float = 1,
     // #3190 review follow-up: `FilmLookCube.apply` (baked/fit in sRGB,
     // same as the Auto Profile cube) runs on THIS function's output at
-    // every call site that has a film look active. When nil (every
-    // pre-existing call site), the encode's target is derived as usual
-    // (`profileLUT != nil ? .srgb : CanvasColorSpace.current`). A
-    // caller that is about to composite a film-look cube on the result
-    // MUST pass `.srgb` here whenever its lattice is active — same
-    // "sRGB-baked lattice pins the encode to sRGB regardless of canvas"
-    // rule already applied to the Auto Profile cube below, extended to
-    // the second sRGB-baked lattice in this pipeline.
+    // every call site that has a film look active. Export passes its
+    // format's primaries; when nil, the encode follows the canvas
+    // (`DisplayEncodePlan.resolve`). A caller that is about to composite
+    // a film-look cube on the result MUST pass `.srgb` here whenever its
+    // lattice is active, which also keeps an Auto render on the sRGB
+    // encode + cube route.
     targetPrimariesOverride: CanvasColorSpace? = nil
   ) -> CIImage {
     let scaled = Self.prescaleForDisplay(decoded, targetSize: targetSize)
@@ -1527,6 +1541,10 @@ public actor ImageEditPipeline {
     // and the chain cache key.
     let _ = decodedAtModel
     let frame = wbFrame
+    // #4741: on a P3 target the Auto tail runs inside the encode, so the
+    // wide gamut survives; an sRGB target keeps the encode + cube route.
+    let encodePlan = DisplayEncodePlan.resolve(
+      requested: targetPrimariesOverride ?? CanvasColorSpace.current, profileLUT: profileLUT)
     let decodedTemp = asShot?.temperature ?? 6500.0
     let decodedTint = asShot?.tint ?? 0.0
     if let asShot {
@@ -1572,20 +1590,14 @@ public actor ImageEditPipeline {
             noiseProfile: noiseProfile,
             iso: iso,
             readbackCacheAnchor: targetSize != nil ? decoded : nil,
-            // #3190: an Auto Profile cube is fit/baked in sRGB —
-            // applying it to a P3-encoded buffer would be a
-            // color-space mismatch (the cube's LUT domain no
-            // longer matches the pixel values it's applied to).
-            // Pin the encode to sRGB whenever a cube is present OR
-            // the caller is about to composite an sRGB-baked film
-            // look cube (`targetPrimariesOverride`, review
-            // follow-up); only a Neutral-profile, no-film render
-            // honors the user's canvas setting.
-            targetPrimaries: targetPrimariesOverride
-              ?? (profileLUT != nil ? .srgb : CanvasColorSpace.current)
+            // #3190: the Auto cube is fit in sRGB, so it only ever
+            // follows an sRGB encode; on P3 the tail runs inside the
+            // encode instead (#4741).
+            targetPrimaries: encodePlan.target,
+            p3Auto: encodePlan.p3Auto
           )
         {
-          return AutoProfileLUT.apply(profileLUT, to: fusedEncoded)
+          return AutoProfileLUT.apply(encodePlan.cube, to: fusedEncoded)
         }
       }
     }
@@ -1635,22 +1647,17 @@ public actor ImageEditPipeline {
     // to match, so:
     //   * Neutral is gamut-correct (no green clip), matching the CLI, and
     //     honors `CanvasColorSpace.current` (P3 target when selected).
-    //   * the Auto cube below applies on its matching sRGB-encoded domain
-    //     (no clamp inside the cube's color management) — the cube is
-    //     fit in sRGB, so `targetPrimaries` is pinned to `.srgb`
-    //     whenever `profileLUT` is present, same reasoning as the fused
-    //     path above. A caller compositing a film-look cube afterward
-    //     (also sRGB-baked) pins the same way via
-    //     `targetPrimariesOverride`.
+    //   * Auto on an sRGB target: the cube below applies on its matching
+    //     sRGB-encoded domain (it is fit in sRGB). Auto on a P3 target:
+    //     the tail runs inside the encode and no cube follows (#4741). A
+    //     caller compositing a film-look cube afterward (also sRGB-baked)
+    //     pins the sRGB route via `targetPrimariesOverride`.
     //   * the canvas raster (`createCGImage(displayP3)`) converts
     //     the tagged buffer → P3 with all values in-gamut — nothing
     //     clips, whether the buffer was already P3 (a no-op convert) or
     //     still sRGB.
     let encoded = encodeDisplayViaFFI(
-      chained,
-      targetPrimaries: targetPrimariesOverride
-        ?? (profileLUT != nil ? .srgb : CanvasColorSpace.current)
-    )
+      chained, targetPrimaries: encodePlan.target, p3Auto: encodePlan.p3Auto)
     // Auto Profile (#812) — the LAST display-space op, matching the CPU
     // path's `auto_profile` → quantize order. `profileLUT` is a
     // CIColorCubeWithColorSpace tagged sRGB; on a successful encode its
@@ -1667,7 +1674,7 @@ public actor ImageEditPipeline {
     // `applyAutoCubeIfEncoded` drops to the cube-less Rec.2020 fallback
     // (Neutral) instead.
     return Self.applyAutoCubeIfEncoded(
-      encoded: encoded, fallback: chained, profileLUT: profileLUT
+      encoded: encoded, fallback: chained, profileLUT: encodePlan.cube
     )
   }
 
@@ -1711,13 +1718,10 @@ public actor ImageEditPipeline {
   /// primaries `image`'s bytes are actually gamma-encoded in, or this is a
   /// silent mistag, not a real conversion. `processSceneLinear`'s output
   /// is `encodeDisplayViaFFI`'s result (#877, P3-aware since #3190):
-  /// sRGB-gamma-encoded sRGB-primary whenever an Auto Profile cube is in
-  /// play (the cube is fit/baked in sRGB) or the canvas is set to sRGB,
-  /// and Display-P3-gamma-encoded P3-primary when `Profile::Neutral` and
-  /// the canvas is set to Display P3 — see `processSceneLinear`'s
-  /// `targetPrimaries: profileLUT != nil ? .srgb : CanvasColorSpace.current`
-  /// for the exact rule callers must mirror when choosing `colorSpace`
-  /// here (jules review on #3239: this used to be hardcoded to
+  /// encoded in `DisplayEncodePlan.resolve`'s target — Display P3 when the
+  /// canvas is P3 (Auto included since #4741) and no film cube follows,
+  /// sRGB otherwise. Callers pass that plan's `colorSpace` here (jules
+  /// review on #3239: this used to be hardcoded to
   /// `displayEncodedColorSpace`/sRGB regardless of what `image` actually
   /// carried, causing an unintended P3→sRGB conversion at materialization
   /// whenever the canvas was P3). Defaults to `displayEncodedColorSpace`

@@ -13,6 +13,7 @@ use crate::color_grade::color_grade_is_identity;
 use crate::display_tone_curve::display_tone_curve_is_identity;
 use crate::full_chain::{hsl_pass_for, FullChainInputs, InputShape};
 use crate::local_adjustments::local_adjustments_are_active;
+use crate::p3_auto::p3_auto_is_active;
 use crate::residual_lut::residual_lut_is_active;
 
 // Compile-time guard: `active_mask` packs `input_shape` into the top 2 bits
@@ -61,8 +62,9 @@ pub(super) mod bit {
     pub(in crate::live_chain) const CREATIVE_DCP: u32 = 1 << 23;
     pub(in crate::live_chain) const POST_DCP_HIGHLIGHT: u32 = 1 << 24;
     pub(in crate::live_chain) const CREATIVE_GAIN: u32 = 1 << 25;
+    pub(super) const P3_AUTO: u32 = 1 << 26;
 
-    pub(super) const ALL: [u32; 26] = [
+    pub(super) const ALL: [u32; 27] = [
         CAPTURE_SHARPENING,
         WHITE_BALANCE,
         SCENE_TONE,
@@ -89,6 +91,7 @@ pub(super) mod bit {
         CREATIVE_DCP,
         POST_DCP_HIGHLIGHT,
         CREATIVE_GAIN,
+        P3_AUTO,
     ];
 }
 
@@ -224,6 +227,9 @@ pub(crate) fn active_mask(inputs: &FullChainInputs) -> u32 {
     }
     if !color_curves_is_identity(&inputs.color_curves) {
         m |= bit::COLOR_CURVES;
+    }
+    if p3_auto_is_active(inputs) {
+        m |= bit::P3_AUTO;
     }
     m
 }

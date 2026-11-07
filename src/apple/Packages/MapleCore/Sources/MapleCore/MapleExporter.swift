@@ -71,6 +71,15 @@ public enum ExportFileFormat: String, Sendable, CaseIterable {
     }
   }
 
+  /// The display encode an export of this format renders through: the P3
+  /// formats keep the wide gamut, every other format is delivered in sRGB.
+  public var encodePrimaries: CanvasColorSpace {
+    switch self {
+    case .jpegP3, .heicP3: return .displayP3
+    case .jpegSRGB, .tiff16, .png: return .srgb
+    }
+  }
+
   public var uti: CFString {
     switch self {
     case .jpegSRGB, .jpegP3: return "public.jpeg" as CFString
@@ -132,7 +141,8 @@ public struct MapleExporter: Sendable {
   /// keeps each format's color space and bit depth correct.
   public static func exportData(session: EditSession, options: ExportOptions) async throws -> Data {
     // Full-quality or fast-fit bake based on options.sizeOption.
-    let ci = try await session.renderForExport(sizeOption: options.sizeOption)
+    let ci = try await session.renderForExport(
+      sizeOption: options.sizeOption, primaries: options.format.encodePrimaries)
     return try await encodeOffMainActor(ci, options: options)
   }
 

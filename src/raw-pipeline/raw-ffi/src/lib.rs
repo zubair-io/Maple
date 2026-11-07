@@ -166,6 +166,8 @@ mod scene_linear_chain_curves;
 // warp for hosts that run the chain over the scene-linear FFI buffer.
 mod perspective_entry;
 mod scene_linear_chain_curves_target;
+// #4741: P3 encodes that run the Auto tail inside the encode.
+mod scene_linear_chain_p3_auto;
 // #3287: the whole frame's dehaze maps a native-detail window recovers with.
 mod scene_linear_chain_haze;
 pub use scene_linear_chain_haze::MapleHazeMap;

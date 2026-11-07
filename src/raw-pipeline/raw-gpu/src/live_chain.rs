@@ -80,6 +80,7 @@ use crate::local_adjustments::{
 };
 use crate::local_spatial::{layer_needs_spatial, LocalSpatialPass};
 use crate::noise_reduction::{NlmColorPass, NlmLumaPass};
+use crate::p3_auto::p3_auto_is_active;
 use crate::residual_lut::{residual_lut_is_active, ResidualLutPass};
 use crate::saturation::SaturationPass;
 use crate::scene_tone_controls::SceneToneControlsPass;
@@ -170,6 +171,7 @@ pub fn view_tail_pass_count(inputs: &FullChainInputs) -> usize {
             inputs.residual_lut_size,
             &inputs.residual_lut_data,
         ))
+        + usize::from(p3_auto_is_active(inputs))
 }
 
 // Parity tests live in a sibling file to keep this module under the 600-LOC
