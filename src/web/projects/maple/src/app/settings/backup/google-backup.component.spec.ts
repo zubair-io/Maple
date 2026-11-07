@@ -17,6 +17,7 @@ const saved: GoogleBackupConfig = {
   callbackUrl: 'https://photos.example.com/api/cloud-backup/google/callback',
   googleRedirectUri: 'https://mapleeditor.com/api/connect/google-drive/callback',
   mapleClientAvailable: false,
+  disconnect: null,
 };
 
 describe('GoogleBackupComponent', () => {
@@ -266,5 +267,17 @@ describe('GoogleBackupComponent', () => {
       clientSecret: null,
       callbackMode: 'relay',
     });
+  });
+  it('names why the server lost its Google authorization', async () => {
+    const message =
+      "The Maple token service rejected this server's renewal grant (invalid_proof) at 2026-11-02T12:16:00Z. Reconnect Google Drive to resume backup.";
+    api.googleConfig.mockReturnValue(
+      of({
+        ...saved,
+        disconnect: { reason: 'invalid_proof', at: '2026-11-02T12:16:00.000Z', message },
+      }),
+    );
+    await settle();
+    expect(el().querySelector('[role="alert"]')?.textContent?.trim()).toBe(message);
   });
 });

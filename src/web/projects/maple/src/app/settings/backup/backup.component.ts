@@ -19,6 +19,7 @@ import {
   BunApiBackendService,
   CloudBackupService,
   errorMessage,
+  MuiBannerComponent,
   MuiButtonComponent,
   MuiCheckboxComponent,
   MuiInputComponent,
@@ -43,6 +44,7 @@ type BackupView =
     SettingsShellComponent,
     GoogleBackupComponent,
     BackupRecoveryComponent,
+    MuiBannerComponent,
     MuiButtonComponent,
     MuiCheckboxComponent,
     MuiInputComponent,
@@ -139,6 +141,15 @@ export class BackupComponent {
     return view.kind === 'ready'
       ? (view.folders.find((folder) => folder.id === id)?.label ?? id)
       : id;
+  }
+  /** A destination that once backed up, or lost its credentials on its own, is paused, not new. */
+  protected disconnectedMessage(destination: BackupDestination): string | null {
+    const connection = destination.connection;
+    if (!connection || connection.connected) return null;
+    if (connection.disconnect) return `Backup paused. ${connection.disconnect.message}`;
+    return destination.rootId
+      ? 'Backup paused. Google Drive is disconnected; reconnect Google Drive to resume backup.'
+      : null;
   }
   protected async add(): Promise<void> {
     if (!this.canAdd()) return;
