@@ -134,6 +134,46 @@ export async function appendBackupLocation(
       ? []
       : [
           {
+            // The sibling's cloud-backup history follows the surviving ordinal. Where that
+            // ordinal already has its own entry for the destination the sibling's is left as is.
+            sql: `UPDATE backup_entries SET
+                ordinal = (SELECT ordinal FROM asset_locations WHERE asset_id = ? AND library_id = ?
+                  AND path = ? AND filename = ?),
+                sequence = sequence + 1, snapshot_hash = NULL, retry_at = 0,
+                lease_owner = NULL, lease_until = 0
+              WHERE asset_id = ? AND ordinal = (SELECT ordinal FROM asset_locations
+                  WHERE asset_id = ? AND library_id = ? AND path = ? AND filename = ?
+                    AND NOT (path = ? AND filename = ?))
+                AND EXISTS (SELECT 1 FROM asset_locations WHERE asset_id = ? AND library_id = ?
+                  AND path = ? AND filename = ?)
+                AND NOT EXISTS (SELECT 1 FROM backup_entries kept
+                  WHERE kept.destination_id = backup_entries.destination_id
+                    AND kept.asset_id = backup_entries.asset_id
+                    AND kept.ordinal = (SELECT ordinal FROM asset_locations WHERE asset_id = ?
+                      AND library_id = ? AND path = ? AND filename = ?))`,
+            params: [
+              hex,
+              libHex,
+              replaced.dir,
+              replaced.filename,
+              hex,
+              hex,
+              libHex,
+              dir,
+              filename,
+              replaced.dir,
+              replaced.filename,
+              hex,
+              libHex,
+              replaced.dir,
+              replaced.filename,
+              hex,
+              libHex,
+              replaced.dir,
+              replaced.filename,
+            ],
+          },
+          {
             // Coalesce an already-cataloged sibling before preserving the old ordinal.
             sql: `DELETE FROM asset_locations WHERE asset_id = ? AND library_id = ?
               AND path = ? AND filename = ? AND NOT (path = ? AND filename = ?)
