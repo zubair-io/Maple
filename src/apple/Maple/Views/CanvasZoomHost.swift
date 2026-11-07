@@ -19,6 +19,7 @@
 //                            nudge) or passes through when nil (legacy).
 //   • Cmd+wheel (macOS)    → zoom anchored at the cursor.
 //   • Double-tap / click   → per `doubleTapBehavior` (legacy: reset to fit; editor: toggle fit ↔ 100%).
+//   • Zoom badge           → cycles fit → fill → 100% (#5710).
 //
 // Scene-level CanvasZoomCommands route ⌘0/⌘1 to the ready canvas's controller.
 
@@ -52,6 +53,9 @@ struct CanvasZoomHost<CanvasLeaf: View, Fallback: View>: View {
   /// excluding the reported control bounds lets those scroll views work.
   /// `nil` when no control surface covers the canvas.
   var wheelExcludedFrame: CGRect? = nil
+  /// Keeps the zoom badge clear of the system bars and the editor's
+  /// controls when the canvas runs full-bleed beneath them (#5710).
+  var badgeInsets = EdgeInsets()
   /// The canvas leaf (CIImage raster / GPU layer). The host frames it to the resolved display frame.
   @ViewBuilder let canvasLeaf: () -> CanvasLeaf
   /// Shown while no frame can resolve (no preview yet / no native size). Gets the viewport's full size.
@@ -377,9 +381,13 @@ struct CanvasZoomHost<CanvasLeaf: View, Fallback: View>: View {
     return CanvasZoomBadge(
       scale: scale,
       canvasReady: canvasReady,
-      onFit: {
-        controller.resetToFit()
+      nextStop: controller.nextZoomStop,
+      onAdvance: {
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+          controller.advanceZoomStop()
+        }
       }
     )
+    .padding(badgeInsets)
   }
 }

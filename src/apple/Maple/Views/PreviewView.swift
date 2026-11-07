@@ -24,7 +24,7 @@
 //   │  ‹  filename                Edit       Info    │  ← one floating header,
 //   │                                              │    over the photo (#5435)
 //   │  ┌──────┐                                     │
-//   │  │ film │            FIT IMAGE                │  ← body + Preview rail
+//   │  │ film │      FIT IMAGE (full-bleed)         │  ← body + Preview rail
 //   │  │ rail │                                     │    (larger widths; list toggle)
 //   │  └──────┘                                     │
 //   └──────────────────────────────────────────────┘
@@ -79,6 +79,9 @@ struct PreviewView: View {
   /// parent updates its selection + navigation state and re-renders Preview
   /// with the new `asset`.
   let onSelectAsset: (AssetRef) -> Void
+  #if os(iOS)
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
+  #endif
 
   /// Info presentation on every iPhone/Duo width and on compact iPad.
   /// A new Preview starts closed so the photo is never covered on entry.
@@ -108,6 +111,15 @@ struct PreviewView: View {
   private func usesWideLayout(_ width: CGFloat) -> Bool {
     #if os(iOS)
       width >= 600
+    #else
+      true
+    #endif
+  }
+
+  private var isFullBleedAllowed: Bool {
+    #if os(iOS)
+      FullBleedCanvas.isAllowed(
+        idiom: MapleShellKind.currentIdiom, hasCompactHeight: verticalSizeClass == .compact)
     #else
       true
     #endif
@@ -183,7 +195,10 @@ struct PreviewView: View {
             }
           }
           .background(photoAreaReporter)
-          .padding(.horizontal, isWide ? 16 : 8)
+          .padding(.horizontal, isWide ? 0 : 8)
+          // Wider layouts draw the photo edge to edge, beneath the status
+          // bar, header and rail, so fit is the whole screen (#5710).
+          .ignoresSafeArea(edges: isWide && isFullBleedAllowed ? .all : [])
           .scaleEffect(PreviewViewVM.plainPullScale(translationY: plainPullTranslation.height))
           .offset(plainPullTranslation)
 

@@ -48,9 +48,15 @@
     /// The display tier has replaced the grid thumbnail; nothing smaller
     /// may paint over it again.
     private var hasLandedRefinement: Bool { loadedMaxDimension > Self.thumbnailDimension }
-    var isAtFitZoom: Bool {
-      abs(scrollView.zoomScale - scrollView.minimumZoomScale) < 0.01
+    /// Fit or zoomed out below it: the photo is entirely on screen, so a
+    /// swipe pages and a pull dismisses rather than panning the photo.
+    var isAtOrBelowFitZoom: Bool {
+      scrollView.zoomScale < 1.01
     }
+    /// Zoom scale (relative to fit, which is 1) at which the photo covers
+    /// the whole page (#5710).
+    private(set) var fillZoomScale: CGFloat = 1
+    private static let maximumZoomScale: CGFloat = 6
 
     /// Where the photo's pixels are on screen right now, in window space —
     /// the rect the Preview hero shrinks from on a pull-down commit. The
@@ -89,6 +95,10 @@
       scrollView.panGestureRecognizer.isEnabled = false
       scrollView.translatesAutoresizingMaskIntoConstraints = false
       view.addSubview(scrollView)
+
+      let doubleTap = UITapGestureRecognizer(target: self, action: #selector(doubleTapped))
+      doubleTap.numberOfTapsRequired = 2
+      scrollView.addGestureRecognizer(doubleTap)
 
       imageView.contentMode = .scaleAspectFit
       imageView.clipsToBounds = true
@@ -134,22 +144,46 @@
 
     override func viewDidLayoutSubviews() {
       super.viewDidLayoutSubviews()
-      guard imageView.image != nil else { return }
+      guard let image = imageView.image else { return }
+      // The image view is exactly the photo's fit rect, so zooming to fill
+      // covers the page without exposing a letterbox the user could pan
+      // into, and below fit the photo stays centred (#5710).
+      let page = scrollView.bounds.size
+      let fitted = PreviewViewVM.fitRect(
+        imageSize: image.size, in: CGRect(origin: .zero, size: page)
+      )
+      .size
       // Zoom changes the transformed frame, but not bounds. Comparing the
       // frame here treated every pinch as a layout-size change and could
-      // reset zoom state on the next layout pass.
-      if imageView.bounds.size != scrollView.bounds.size {
-        // Bounds + centre, not `frame`: the scroll view's zoom transform
-        // may be on the view, and `frame` is undefined under a
-        // non-identity transform.
-        imageView.bounds = CGRect(origin: .zero, size: scrollView.bounds.size)
-        imageView.center = CGPoint(x: scrollView.bounds.width / 2, y: scrollView.bounds.height / 2)
-        scrollView.contentSize = scrollView.bounds.size
-        scrollView.minimumZoomScale = 1
-        scrollView.maximumZoomScale = 6
-        scrollView.zoomScale = max(1, scrollView.zoomScale)
-        centerImage()
-      }
+      // reset zoom state on the next layout pass. The sub-point tolerance
+      // keeps a refined image whose aspect rounds differently from its
+      // thumbnail from disturbing a zoom.
+      guard
+        abs(imageView.bounds.width - fitted.width) > 0.5
+          || abs(imageView.bounds.height - fitted.height) > 0.5
+      else { return }
+      let zoom = scrollView.zoomScale
+      let wasFilling = abs(zoom - fillZoomScale) < 0.001 && fillZoomScale > 1
+      scrollView.zoomScale = 1
+      // Bounds + centre, not `frame`: the scroll view's zoom transform
+      // may be on the view, and `frame` is undefined under a
+      // non-identity transform.
+      imageView.bounds = CGRect(origin: .zero, size: fitted)
+      imageView.center = CGPoint(x: fitted.width / 2, y: fitted.height / 2)
+      scrollView.contentSize = fitted
+      fillZoomScale = PreviewViewVM.fillZoomScale(fitted: fitted, page: page)
+      scrollView.minimumZoomScale = CanvasZoomModel.minFitFraction
+      scrollView.maximumZoomScale = max(Self.maximumZoomScale, fillZoomScale)
+      let target = wasFilling ? fillZoomScale : zoom
+      scrollView.zoomScale = min(
+        max(target, scrollView.minimumZoomScale), scrollView.maximumZoomScale)
+      centerImage()
+      let overflow = CGSize(
+        width: max(0, scrollView.contentSize.width - page.width),
+        height: max(0, scrollView.contentSize.height - page.height))
+      scrollView.contentOffset = CGPoint(
+        x: overflow.width / 2 - scrollView.contentInset.left,
+        y: overflow.height / 2 - scrollView.contentInset.top)
     }
 
     override func viewDidAppear(_ animated: Bool) {
@@ -172,7 +206,7 @@
     func viewForZooming(in scrollView: UIScrollView) -> UIView? { imageView }
 
     func scrollViewDidZoom(_ scrollView: UIScrollView) {
-      scrollView.panGestureRecognizer.isEnabled = !isAtFitZoom
+      scrollView.panGestureRecognizer.isEnabled = !isAtOrBelowFitZoom
       centerImage()
     }
 
@@ -181,8 +215,38 @@
       with view: UIView?,
       atScale scale: CGFloat
     ) {
+      if let stop = CanvasZoomModel.detent(for: scale, fit: 1, fill: fillZoomScale),
+        abs(zoomScale(for: stop) - scale) > 0.001
+      {
+        // The snap ends in another didEndZooming, which refines once.
+        zoomCentred(to: zoomScale(for: stop))
+        return
+      }
       guard refinementActive else { return }
       requestRefinement(maxDimension: min(8_192, screenPreviewDimension * scale))
+    }
+
+    /// Double-tap cycles fit → fill → fit; any other zoom returns to fit.
+    @objc private func doubleTapped() {
+      let stops = CanvasZoomModel.distinctStops(fit: 1, fill: fillZoomScale, actualSize: nil)
+      let current = CanvasZoomModel.detent(
+        for: scrollView.zoomScale, fit: 1, fill: fillZoomScale)
+      zoomCentred(to: zoomScale(for: CanvasZoomModel.nextStop(after: current, in: stops)))
+    }
+
+    private func zoomScale(for stop: CanvasZoomModel.ZoomStop) -> CGFloat {
+      stop == .fill ? fillZoomScale : 1
+    }
+
+    private func zoomCentred(to scale: CGFloat) {
+      let visible = CGSize(
+        width: scrollView.bounds.width / scale, height: scrollView.bounds.height / scale)
+      let centre = CGPoint(x: imageView.bounds.midX, y: imageView.bounds.midY)
+      scrollView.zoom(
+        to: CGRect(
+          x: centre.x - visible.width / 2, y: centre.y - visible.height / 2,
+          width: visible.width, height: visible.height),
+        animated: true)
     }
 
     private func centerImage() {

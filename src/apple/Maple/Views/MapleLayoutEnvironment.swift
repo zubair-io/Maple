@@ -25,3 +25,13 @@ public extension EnvironmentValues {
         set { self[MapleLayoutKey.self] = newValue }
     }
 }
+
+/// #5710: the editor and Preview draw the photo under the bars on iPad, the
+/// open Duo and the Mac. A landscape iPhone keeps its inset canvas: its
+/// sensor housing and home indicator sit on the long edges, where the
+/// photo would otherwise run beneath them.
+enum FullBleedCanvas {
+    static func isAllowed(idiom: MapleDeviceIdiom, hasCompactHeight: Bool) -> Bool {
+        idiom != .phone || !hasCompactHeight
+    }
+}

@@ -9,19 +9,22 @@
 // Model (docs/zoom.md):
 //   • `pixelScale` is REAL screen pixels per image pixel.
 //       – 0    = fit-to-viewport (resolved at read time)
+//       – fit × 0.5 = floor (zoomed out, background around the image)
+//       – fill = image covers the whole viewport (tracked across resizes)
 //       – 1.0  = pixel-perfect 100% (1 image px = 1 real screen px)
 //       – 8.0  = maximum zoom (cap)
 //   • Pinch anchors against a start-captured scale (`MagnifyGesture`'s
 //     `magnification` is cumulative — multiplying it into the live scale
 //     every frame compounds exponentially).
-//   • Snap-to-fit below `fit × 1.02` on gesture end / step-out.
+//   • Pinch detents: within `detentTolerance` of fit or fill a pinch
+//     settles exactly there (live and on release).
 //   • Pan is clamped so the image never detaches from the viewport:
 //     edges may meet the viewport edge but a gap can't open, and an
 //     image smaller than the viewport stays centered.
 //
 // Gesture arbitration (spec §5.0 table) is exposed as intents
-// (`dragIntent`, `wheelIntent(commandHeld:)`) so hosts route inputs
-// without re-deriving the fit-vs-zoomed rule.
+// (`dragIntent(context:)`, `wheelIntent(commandHeld:context:)`) so hosts
+// route inputs without re-deriving the pannable-vs-editing rule.
 
 import Foundation
 import CoreGraphics
@@ -69,6 +72,17 @@ public struct CanvasZoomContext: Equatable, Sendable {
         canvasMath(pixelScale: 0).fitPixelScale
     }
 
+    /// Real-pixels-per-image-pixel at which the image covers the whole
+    /// viewport, capped at `CanvasZoomModel.maxPixelScale`.
+    public var fillScale: CGFloat {
+        min(canvasMath(pixelScale: 0).fillPixelScale, CanvasZoomModel.maxPixelScale)
+    }
+
+    /// Smallest legal scale: `fit × minFitFraction`.
+    public var minScale: CGFloat {
+        fitScale * CanvasZoomModel.minFitFraction
+    }
+
     /// Resolves the `0 == fit` sentinel into a concrete scale.
     public func effectiveScale(for pixelScale: CGFloat) -> CGFloat {
         canvasMath(pixelScale: pixelScale).effectivePixelScale
@@ -107,30 +121,34 @@ public struct CanvasZoomModel: Equatable, Sendable {
     // MARK: State
 
     /// User-intent pixel scale: 0 = fit, 1 = 100%, ≤ `maxPixelScale`.
-    public private(set) var pixelScale: CGFloat = 0
+    public internal(set) var pixelScale: CGFloat = 0
     /// Pan offset in points. Positive = image dragged right/down.
-    public private(set) var panOffset: CGSize = .zero
+    public internal(set) var panOffset: CGSize = .zero
     /// Pan committed at the end of the last drag — live drags accumulate
     /// `translation` on top of this.
-    public private(set) var basePan: CGSize = .zero
+    public internal(set) var basePan: CGSize = .zero
     /// The simultaneous SwiftUI `DragGesture` reports `translation` cumulative
     /// from the touch-sequence start and never resets when a pinch ends. While
     /// a pinch suppresses the drag we record the latest translation here so a
     /// post-pinch drag (a finger lifted, one still down) measures deltas from
     /// this baseline instead of jumping by the whole pinch-time travel.
-    public private(set) var dragTranslationBase: CGSize?
+    public internal(set) var dragTranslationBase: CGSize?
     /// Scale captured at pinch start (compounding guard + snap basis).
-    public private(set) var pinchStartScale: CGFloat?
+    public internal(set) var pinchStartScale: CGFloat?
     /// Pan captured at pinch start. Each frame re-derives the pan from these
     /// start values (not the previous, possibly-clamped frame) so per-frame
     /// pan clamping can't accumulate and drift the zoom anchor.
-    public private(set) var pinchStartPan: CGSize = .zero
+    public internal(set) var pinchStartPan: CGSize = .zero
     /// Centroid (viewport points) captured at pinch start — the scale change
     /// anchors here, then translates by how far the live centroid has moved.
-    public private(set) var pinchStartCentroid: CGPoint = .zero
+    public internal(set) var pinchStartCentroid: CGPoint = .zero
     /// Most recent live centroid — lets `pinchEnded` finalise at the same
     /// focal point the last `pinchChanged` used.
-    public private(set) var pinchLastCentroid: CGPoint = .zero
+    public internal(set) var pinchLastCentroid: CGPoint = .zero
+    /// True while the zoom is the fill stop. Fill is resolution-dependent,
+    /// so `reclampPan` re-resolves it when the viewport or image changes
+    /// (a rotation keeps the image covering the screen).
+    public internal(set) var fillsViewport = false
 
     public init() {}
 
@@ -143,43 +161,57 @@ public struct CanvasZoomModel: Equatable, Sendable {
     public static let minExplicitZoom: CGFloat = 0.05
     /// ⌘= / ⌘- step — 1.25 gives the classic five-steps-to-double feel.
     public static let zoomStep: CGFloat = 1.25
-    /// Snap-to-fit threshold: ending a gesture (or stepping down) within
-    /// 2% of fit resets to true fit mode (`pixelScale = 0`).
-    public static let snapToFitTolerance: CGFloat = 1.02
+    /// Detent band, as a fraction of the stop's scale: a pinch within 4%
+    /// of fit or fill settles there; a step out that lands within it of
+    /// fit resets to true fit mode (`pixelScale = 0`).
+    public static let detentTolerance: CGFloat = 0.04
+    /// Zoom-out floor as a fraction of fit — the image at half its fit
+    /// size, centred, with background around it.
+    public static let minFitFraction: CGFloat = 0.5
     /// Cmd+scroll zoom sensitivity: scale multiplies by
     /// `exp2(normalizedDeltaY × this)` per wheel event.
     public static let wheelZoomSensitivity: CGFloat = 0.015
 
     // MARK: Arbitration intents (spec §5.0 table)
 
-    /// True when the user has explicitly zoomed (`pixelScale != 0`).
-    /// Fit mode keeps `0` so the gesture routing below stays exact.
+    /// True when the user has explicitly zoomed (`pixelScale != 0`) — in
+    /// or out of fit. Fit mode keeps `0`.
     public var isZoomedIn: Bool { pixelScale > 0 }
+
+    /// True when the image overflows the viewport on some axis, so a drag
+    /// or plain wheel has something to pan. False at fit and below it,
+    /// where those inputs belong to the editing surface.
+    public func canPan(context: CanvasZoomContext) -> Bool {
+        isZoomedIn && context.maxPanOffset(at: pixelScale) != .zero
+    }
 
     /// Where a one-finger / mouse drag on the canvas routes.
     public enum DragIntent: Equatable, Sendable {
-        /// At fit — the drag belongs to the editing surface (armed-tool
-        /// scrub, system edge-swipe). The zoom host must not consume it.
+        /// Nothing to pan (fit or below) — the drag belongs to the editing
+        /// surface (armed-tool scrub, system edge-swipe). The zoom host
+        /// must not consume it.
         case editing
-        /// Zoomed in — the drag pans the image.
+        /// The image overflows the viewport — the drag pans it.
         case pan
     }
 
-    public var dragIntent: DragIntent { isZoomedIn ? .pan : .editing }
+    public func dragIntent(context: CanvasZoomContext) -> DragIntent {
+        canPan(context: context) ? .pan : .editing
+    }
 
     /// Where a scroll-wheel event over the canvas routes.
     public enum WheelIntent: Equatable, Sendable {
         /// Cmd held — zoom anchored at the cursor (any zoom state).
         case zoom
-        /// Zoomed in, no modifier — pan.
+        /// Image overflows the viewport, no modifier — pan.
         case pan
-        /// At fit, no modifier — armed-tool nudge (host-defined).
+        /// Nothing to pan, no modifier — armed-tool nudge (host-defined).
         case editing
     }
 
-    public func wheelIntent(commandHeld: Bool) -> WheelIntent {
+    public func wheelIntent(commandHeld: Bool, context: CanvasZoomContext) -> WheelIntent {
         if commandHeld { return .zoom }
-        return isZoomedIn ? .pan : .editing
+        return canPan(context: context) ? .pan : .editing
     }
 
     /// Double-tap / double-click behavior, configured per surface.
@@ -213,9 +245,11 @@ public struct CanvasZoomModel: Equatable, Sendable {
             pinchStartPan = panOffset
             pinchStartCentroid = location
         }
-        let fit = context.fitScale
-        let next = Self.pinchScale(start: start, magnification: magnification, fit: fit)
+        let next = Self.pinchScale(
+            start: start, magnification: magnification,
+            fit: context.fitScale, fill: context.fillScale)
         pixelScale = next
+        fillsViewport = false
         panOffset = context.clampedPan(
             Self.livePinchPan(
                 liveCentroid: location,
@@ -230,15 +264,18 @@ public struct CanvasZoomModel: Equatable, Sendable {
         pinchLastCentroid = location
     }
 
-    /// Pinch release: commit the final scale, snap to fit when the
-    /// gesture ended within tolerance, clear the start capture.
+    /// Pinch release: commit the final scale, settle on the fit or fill
+    /// detent when the gesture ended within its band, clear the start
+    /// capture.
     public mutating func pinchEnded(magnification: CGFloat, context: CanvasZoomContext) {
         let fit = context.fitScale
+        let fill = context.fillScale
         // Commit the final scale anchored at the same focal point the last
         // frame used (derived from the START values). When `pinchStartScale`
         // is nil the gesture ended without a change frame — leave it untouched.
         if let start = pinchStartScale {
-            let final = Self.pinchScale(start: start, magnification: magnification, fit: fit)
+            let final = Self.pinchScale(
+                start: start, magnification: magnification, fit: fit, fill: fill)
             pixelScale = final
             panOffset = context.clampedPan(
                 Self.livePinchPan(
@@ -257,10 +294,15 @@ public struct CanvasZoomModel: Equatable, Sendable {
         pinchStartCentroid = .zero
         pinchLastCentroid = .zero
 
-        let finalScale = context.effectiveScale(for: pixelScale)
-        if Self.shouldSnapToFit(finalScale, fit: fit) {
+        switch Self.detent(for: context.effectiveScale(for: pixelScale), fit: fit, fill: fill) {
+        case .fit:
             resetToFit()
-        } else {
+        case .fill:
+            pixelScale = fill
+            fillsViewport = true
+            panOffset = context.clampedPan(panOffset, at: fill)
+            basePan = panOffset
+        case .actualSize, nil:
             basePan = panOffset
         }
     }
@@ -282,7 +324,7 @@ public struct CanvasZoomModel: Equatable, Sendable {
             dragTranslationBase = translation
             return false
         }
-        guard dragIntent == .pan else { return false }
+        guard canPan(context: context) else { return false }
         let base = dragTranslationBase ?? .zero
         let raw = CGSize(
             width: basePan.width + translation.width - base.width,
@@ -304,7 +346,7 @@ public struct CanvasZoomModel: Equatable, Sendable {
         // drag never performed and fires a mid-pinch session commit (the host's
         // `dragEnded` calls `commitToSession`), defeating "pinch owns pan".
         guard pinchStartScale == nil else { return false }
-        guard dragIntent == .pan else { return false }
+        guard isZoomedIn else { return false }
         basePan = panOffset
         return true
     }
@@ -341,11 +383,12 @@ public struct CanvasZoomModel: Equatable, Sendable {
         let fit = context.fitScale
         let current = context.effectiveScale(for: pixelScale)
         let factor = exp2(normalizedDeltaY * Self.wheelZoomSensitivity)
-        let next = max(fit, min(current * factor, Self.maxPixelScale))
-        if Self.shouldSnapToFit(next, fit: fit), factor < 1 {
+        let next = max(context.minScale, min(current * factor, Self.maxPixelScale))
+        if Self.crossesFit(from: current, to: next, fit: fit) {
             resetToFit()
             return
         }
+        fillsViewport = false
         panOffset = context.clampedPan(
             Self.anchoredPan(
                 anchor: location,
@@ -379,6 +422,7 @@ public struct CanvasZoomModel: Equatable, Sendable {
             } else {
                 let start = context.effectiveScale(for: pixelScale)
                 let target: CGFloat = 1.0
+                fillsViewport = false
                 panOffset = context.clampedPan(
                     Self.anchoredPan(
                         anchor: location,
@@ -398,6 +442,7 @@ public struct CanvasZoomModel: Equatable, Sendable {
     /// Back to fit mode: `pixelScale = 0`, pans cleared.
     public mutating func resetToFit() {
         pixelScale = 0
+        fillsViewport = false
         panOffset = .zero
         basePan = .zero
         dragTranslationBase = nil
@@ -411,6 +456,7 @@ public struct CanvasZoomModel: Equatable, Sendable {
     /// so the view re-centers — matching the legacy toolbar semantics.
     public mutating func zoomToScale(_ scale: CGFloat) {
         pixelScale = Self.clampedExplicitZoom(scale)
+        fillsViewport = false
         panOffset = .zero
         basePan = .zero
     }
@@ -421,8 +467,13 @@ public struct CanvasZoomModel: Equatable, Sendable {
     public mutating func stepZoomIn(context: CanvasZoomContext) {
         let current = context.effectiveScale(for: pixelScale)
         let next = Self.zoomInTarget(current: current)
+        guard !Self.crossesFit(from: current, to: next, fit: context.fitScale) else {
+            resetToFit()
+            return
+        }
         rescalePan(from: current, to: next, context: context)
         pixelScale = next
+        fillsViewport = false
     }
 
     /// ⌘- step. Snaps to fit within tolerance, otherwise steps down and
@@ -436,14 +487,23 @@ public struct CanvasZoomModel: Equatable, Sendable {
         case .scale(let next):
             rescalePan(from: current, to: next, context: context)
             pixelScale = next
+            fillsViewport = false
         }
     }
 
     /// Re-clamp the pan against fresh geometry (viewport resize, native
     /// size seed). Keeps the image attached to the viewport when the
-    /// window shrinks around a panned, zoomed-in canvas.
+    /// window shrinks around a panned, zoomed-in canvas, and keeps the
+    /// fill stop covering the new viewport.
     public mutating func reclampPan(context: CanvasZoomContext) {
         guard isZoomedIn else { return }
+        if fillsViewport {
+            guard Self.badgeStops(context: context).contains(.fill) else {
+                resetToFit()
+                return
+            }
+            pixelScale = context.fillScale
+        }
         let clamped = context.clampedPan(panOffset, at: pixelScale)
         guard clamped != panOffset else { return }
         panOffset = clamped
