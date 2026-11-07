@@ -13,6 +13,9 @@
           · {{ vm.config.accountEmail }}
         }
       </p>
+      @if (!vm.config.connected && vm.config.disconnect; as disconnect) {
+        <p role="alert" class="text-error-text text-[12px]">{{ disconnect.message }}</p>
+      }
       @if (!vm.config.connected) {
         <mui-checkbox
           label="Bring your own client ID"

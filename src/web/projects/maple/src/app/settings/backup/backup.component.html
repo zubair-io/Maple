@@ -110,6 +110,15 @@
                     (checkedChange)="enabled(destination, $event)"
                   />
                 </div>
+                @if (disconnectedMessage(destination); as disconnected) {
+                  <mui-banner
+                    class="mt-2"
+                    variant="error"
+                    [message]="disconnected"
+                    actionLabel="Reconnect Google Drive"
+                    (actionPressed)="expanded.set(destination.id)"
+                  />
+                }
                 @if (destination.path) {
                   <p class="font-mono text-[12px] break-all">{{ destination.path }}</p>
                 }
