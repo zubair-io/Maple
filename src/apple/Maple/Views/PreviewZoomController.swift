@@ -153,17 +153,19 @@
         imageSize: image.size, in: CGRect(origin: .zero, size: page)
       )
       .size
-      // Zoom changes the transformed frame, but not bounds. Comparing the
-      // frame here treated every pinch as a layout-size change and could
-      // reset zoom state on the next layout pass. The sub-point tolerance
-      // keeps a refined image whose aspect rounds differently from its
-      // thumbnail from disturbing a zoom.
-      guard
-        abs(imageView.bounds.width - fitted.width) > 0.5
-          || abs(imageView.bounds.height - fitted.height) > 0.5
-      else { return }
+      // Zoom changes the transformed frame, but not bounds, so neither
+      // comparison below fires on a pinch. A page resize along the
+      // letterboxed axis leaves the fit rect unchanged but still moves
+      // fill and the centring, so the page is tracked on its own.
+      let pageChanged = !Self.matches(page, laidOutPage)
+      guard pageChanged || !Self.matches(imageView.bounds.size, fitted) else { return }
       let zoom = scrollView.zoomScale
       let wasFilling = abs(zoom - fillZoomScale) < 0.001 && fillZoomScale > 1
+      // A sharper tier of the same photo can round to a slightly different
+      // fit rect; that keeps the detail being inspected rather than
+      // recentring as a resize does.
+      let visibleCentre = pageChanged ? Self.pageCentre : normalizedVisibleCentre
+      laidOutPage = page
       scrollView.zoomScale = 1
       // Bounds + centre, not `frame`: the scroll view's zoom transform
       // may be on the view, and `frame` is undefined under a
@@ -178,12 +180,41 @@
       scrollView.zoomScale = min(
         max(target, scrollView.minimumZoomScale), scrollView.maximumZoomScale)
       centerImage()
-      let overflow = CGSize(
-        width: max(0, scrollView.contentSize.width - page.width),
-        height: max(0, scrollView.contentSize.height - page.height))
-      scrollView.contentOffset = CGPoint(
-        x: overflow.width / 2 - scrollView.contentInset.left,
-        y: overflow.height / 2 - scrollView.contentInset.top)
+      scrollView.contentOffset = contentOffset(showing: visibleCentre)
+    }
+
+    private var laidOutPage: CGSize = .zero
+    private static let pageCentre = CGPoint(x: 0.5, y: 0.5)
+
+    private static func matches(_ lhs: CGSize, _ rhs: CGSize) -> Bool {
+      abs(lhs.width - rhs.width) <= 0.5 && abs(lhs.height - rhs.height) <= 0.5
+    }
+
+    /// The point of the photo at the centre of the page, as a fraction of
+    /// the photo's size.
+    private var normalizedVisibleCentre: CGPoint {
+      let content = scrollView.contentSize
+      guard content.width > 0, content.height > 0 else { return Self.pageCentre }
+      let page = scrollView.bounds.size
+      return CGPoint(
+        x: (scrollView.contentOffset.x + page.width / 2) / content.width,
+        y: (scrollView.contentOffset.y + page.height / 2) / content.height)
+    }
+
+    private func contentOffset(showing normalizedCentre: CGPoint) -> CGPoint {
+      let content = scrollView.contentSize
+      let page = scrollView.bounds.size
+      let inset = scrollView.contentInset
+      let clamp = { (value: CGFloat, low: CGFloat, high: CGFloat) in
+        min(max(value, low), max(low, high))
+      }
+      return CGPoint(
+        x: clamp(
+          normalizedCentre.x * content.width - page.width / 2, -inset.left,
+          content.width - page.width + inset.right),
+        y: clamp(
+          normalizedCentre.y * content.height - page.height / 2, -inset.top,
+          content.height - page.height + inset.bottom))
     }
 
     override func viewDidAppear(_ animated: Bool) {
