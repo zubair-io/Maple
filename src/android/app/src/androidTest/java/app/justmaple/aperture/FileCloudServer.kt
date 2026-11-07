@@ -34,6 +34,8 @@ internal class FileCloudServer(private val directory: File) : Closeable {
     @Volatile var loadEntered: java.util.concurrent.CountDownLatch? = null
     @Volatile var releaseLoad: java.util.concurrent.CountDownLatch? = null
     @Volatile var sidecarLengthHeader = true
+    @Volatile var weakSidecarEtag = false
+    @Volatile var lastSidecarIfMatch: String? = null
     @Volatile var derivativesAvailable = true
     @Volatile var previewPendingResponses = 0
     @Volatile var previewCount = 0
@@ -279,7 +281,12 @@ internal class FileCloudServer(private val directory: File) : Closeable {
                             } else null
                         val extra =
                             mapOf("X-Maple-Xmp-Preconditions" to "content-etag-v1") +
-                                if (etag == null) emptyMap() else mapOf("ETag" to etag)
+                                when {
+                                    etag == null -> emptyMap()
+                                    weakSidecarEtag -> mapOf("ETag" to "W/$etag")
+                                    else -> mapOf("ETag" to etag)
+                                }
+                        if (request[0] != "GET") lastSidecarIfMatch = headers["if-match"]
                         if (request[0] == "GET") {
                             loadEntered?.countDown()
                             check(
