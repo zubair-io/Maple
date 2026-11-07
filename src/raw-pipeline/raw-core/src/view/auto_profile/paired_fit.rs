@@ -464,7 +464,7 @@ pub(super) fn fit(
         (Some(_), None) => true,
         _ => false,
     };
-    let (result, coarse) = if use_registered {
+    let _selected_solution = if use_registered {
         aligned_solution.as_ref()?
     } else {
         &original_solution
@@ -492,6 +492,7 @@ pub(super) fn fit(
     }
     #[cfg(feature = "stage-dump")]
     if let Some(dir) = crate::stage_dump::dump_dir() {
+        let (result, coarse) = _selected_solution;
         let _ = select_step(result, current, selected_native, selected_display);
         #[derive(serde::Serialize)]
         struct Snapshot<'a> {
