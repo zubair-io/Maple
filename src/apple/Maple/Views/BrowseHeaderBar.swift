@@ -3,10 +3,14 @@ import MapleUI
 import SwiftUI
 
 /// What the iPad Browse header shows and does (#5435). Built by `AppShell`,
-/// which owns the sidebar visibility, search and Settings state.
+/// which owns the sidebar visibility, search and Settings state. The folder
+/// grid, the timelines and the map all share it.
 struct BrowseHeaderModel {
   let title: String
-  let displayMode: Binding<GridDisplayMode>
+  /// Nil on the map, which has no grid to fill or fit.
+  let displayMode: Binding<GridDisplayMode>?
+  /// Opens the parent folder; nil at a source's root and off the folder grid.
+  let onBack: (() -> Void)?
   let searchAvailable: Bool
   let isSidebarVisible: Bool
   let onOpenSearch: () -> Void
@@ -14,12 +18,14 @@ struct BrowseHeaderModel {
   let onToggleSidebar: () -> Void
 }
 
-/// The iPad Browse header: the sidebar toggle, the folder name with the grid
-/// filters, and the browse controls float on one row over the grid in the
-/// photo header's glass, replacing the navigation bar and its title band.
+/// The iPad Browse header: the sidebar toggle, the back button, the page
+/// name with the grid filters, and the browse controls float on one row over
+/// the content in the photo header's glass, replacing the navigation bar and
+/// its title band.
 struct BrowseHeaderBar<Filters: View>: View {
   let model: BrowseHeaderModel
-  let vm: BrowseViewModel
+  /// The folder grid's model, for its selection toggle; nil elsewhere.
+  let vm: BrowseViewModel?
   @ViewBuilder let filters: () -> Filters
 
   var body: some View {
@@ -50,6 +56,13 @@ struct BrowseHeaderBar<Filters: View>: View {
       .modifier(PhotoHeaderGlass())
       .fixedSize()
 
+      if let onBack = model.onBack {
+        iconButton(icon: "chevron_left", label: "Back", id: "browse-back", action: onBack)
+          .frame(width: 44, height: 44)
+          .modifier(PhotoHeaderGlass())
+          .fixedSize()
+      }
+
       HStack(spacing: 12) {
         Text(model.title)
           .font(.system(size: 16, weight: .medium))
@@ -76,18 +89,21 @@ struct BrowseHeaderBar<Filters: View>: View {
   }
 
   @ViewBuilder private var trailingControls: some View {
-    let mode = model.displayMode
-    iconButton(
-      icon: mode.wrappedValue.toggleIconName,
-      label: mode.wrappedValue.toggleAccessibilityLabel,
-      id: "browse-grid-display-mode-toggle"
-    ) { mode.wrappedValue = mode.wrappedValue.toggled }
-    iconButton(
-      icon: vm.isSelecting ? "check" : "check_box",
-      label: vm.isSelecting
-        ? "Exit selection mode" : "Enter multi-select mode to choose images for panorama merge",
-      id: "multi-select-toggle"
-    ) { vm.isSelecting ? vm.exitSelectMode() : vm.enterSelectMode() }
+    if let mode = model.displayMode {
+      iconButton(
+        icon: mode.wrappedValue.toggleIconName,
+        label: mode.wrappedValue.toggleAccessibilityLabel,
+        id: "browse-grid-display-mode-toggle"
+      ) { mode.wrappedValue = mode.wrappedValue.toggled }
+    }
+    if let vm {
+      iconButton(
+        icon: vm.isSelecting ? "check" : "check_box",
+        label: vm.isSelecting
+          ? "Exit selection mode" : "Enter multi-select mode to choose images for panorama merge",
+        id: "multi-select-toggle"
+      ) { vm.isSelecting ? vm.exitSelectMode() : vm.enterSelectMode() }
+    }
     if model.searchAvailable {
       iconButton(icon: "search", label: "Search", id: "search-toggle", action: model.onOpenSearch)
     }
@@ -106,5 +122,38 @@ struct BrowseHeaderBar<Filters: View>: View {
     .buttonStyle(.plain)
     .accessibilityLabel(label)
     .accessibilityIdentifier(id)
+  }
+}
+
+/// Floats the iPad Browse header over a timeline or the map, which have no
+/// filters or selection of their own, in place of the navigation bar.
+struct FloatingBrowseHeader: ViewModifier {
+  let model: BrowseHeaderModel?
+  #if os(iOS)
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+  #endif
+  @Environment(\.mapleLayout) private var layout
+
+  /// Matches `AppShellMacLayout.showsBrowseHeader`, which drops the system
+  /// sidebar toggle only under the same conditions.
+  private var activeModel: BrowseHeaderModel? {
+    #if os(iOS)
+      horizontalSizeClass == .regular && layout != .phone ? model : nil
+    #else
+      nil
+    #endif
+  }
+
+  func body(content: Content) -> some View {
+    let header = activeModel
+    content
+      .safeAreaInset(edge: .top, spacing: 0) {
+        if let header {
+          BrowseHeaderBar(model: header, vm: nil) { EmptyView() }
+        }
+      }
+      #if os(iOS)
+        .toolbar(header != nil ? .hidden : .automatic, for: .navigationBar)
+      #endif
   }
 }
