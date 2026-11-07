@@ -123,3 +123,83 @@ fn identity_lattice_stays_on_neutral_p3() {
         "identity lattice drifted from Neutral P3 by {diff}"
     );
 }
+
+/// Slider-tick cost of the P3 Auto pair (#4741): the GPU time of the whole view
+/// tail on a 12 MP frame, P3 Auto against the sRGB tail it replaces. Ignored by
+/// default (timing); run with `--ignored --nocapture`.
+#[test]
+#[ignore = "timing probe; run on demand"]
+fn p3_auto_tail_cost_against_the_srgb_tail() {
+    use crate::display_encode::DisplayEncodePass;
+    let ctx = GpuContext::new_blocking().expect("gpu context");
+    let (w, h) = (4000u32, 3000u32);
+    let pixels: Vec<f32> = (0..(w * h) as usize)
+        .flat_map(|i| {
+            let t = (i % 4000) as f32 / 4000.0;
+            [
+                t * 0.9,
+                (1.0 - t) * 0.6,
+                0.1 + 0.4 * ((i / 4000) % 7) as f32 / 7.0,
+                1.0,
+            ]
+        })
+        .collect();
+    let img = GpuImage::upload(&ctx, &pixels, w, h);
+    let make = |label: &str| {
+        ctx.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some(label),
+            size: img.byte_len(),
+            usage: wgpu::BufferUsages::STORAGE
+                | wgpu::BufferUsages::COPY_SRC
+                | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        })
+    };
+    let (ping, pong) = (make("ping"), make("pong"));
+    let lut = tinted_lut();
+    let lut_pass = ResidualLutPass {
+        size: lut.size,
+        data: lut.data.as_slice().into(),
+    };
+    let median_ms = |passes: &[&dyn Pass]| {
+        let mut samples: Vec<f64> = (0..15)
+            .map(|_| {
+                let mut encoder = ctx.device.create_command_encoder(&Default::default());
+                encoder.copy_buffer_to_buffer(&img.buffer, 0, &ping, 0, img.byte_len());
+                for (i, pass) in passes.iter().enumerate() {
+                    let (src, dst) = if i % 2 == 0 {
+                        (&ping, &pong)
+                    } else {
+                        (&pong, &ping)
+                    };
+                    pass.encode(&ctx, &mut encoder, src, dst, (w, h));
+                }
+                let start = std::time::Instant::now();
+                ctx.queue.submit([encoder.finish()]);
+                ctx.device.poll(wgpu::Maintain::Wait);
+                start.elapsed().as_secs_f64() * 1e3
+            })
+            .collect();
+        samples.sort_by(f64::total_cmp);
+        samples[samples.len() / 2]
+    };
+    let (split, restore) = p3_auto_passes();
+    let srgb = median_ms(&[
+        &DisplayEncodePass {
+            target_primaries: 0,
+        },
+        &SrgbGammaPass,
+        &lut_pass,
+    ]);
+    let p3_plain = median_ms(&[
+        &DisplayEncodePass {
+            target_primaries: 1,
+        },
+        &SrgbGammaPass,
+        &lut_pass,
+    ]);
+    let p3_auto = median_ms(&[&split, &SrgbGammaPass, &lut_pass, &restore]);
+    eprintln!(
+        "12MP view tail GPU ms: sRGB {srgb:.2}  P3 plain {p3_plain:.2}  P3 Auto {p3_auto:.2}"
+    );
+}
