@@ -14,7 +14,7 @@ export interface DestinationStatus {
   purgePending: number;
 }
 
-interface Counts {
+export interface StatusCounts {
   pending: number;
   verified: number;
   trash: number;
@@ -28,11 +28,11 @@ interface Counts {
 
 // One statement, so the library's live locations and the destination's covered
 // entries come from the same snapshot; their difference is the Drive backlog.
-async function counts(
+async function statusCounts(
   db: Pick<SqliteDb, 'read'>,
   destination: Pick<BackupDestination, 'id' | 'libraryId'>,
 ) {
-  const [row] = await db.read<Counts>(
+  const [row] = await db.read<StatusCounts>(
     `SELECT COALESCE(c.pending,0) AS pending,COALESCE(c.verified,0) AS verified,
     COALESCE(c.trash,0) AS trash,COALESCE(c.blocked,0) AS blocked,
     COALESCE(c.covered,0) AS covered,COALESCE(c.bytes,0) AS bytes,
@@ -73,32 +73,40 @@ async function pendingPurges(db: Pick<SqliteDb, 'read'>, destinationId: string) 
   return row?.n ?? 0;
 }
 
+/** Turns the raw counts into what the page shows; an interrupted local move outranks any entry error. */
+export function assembleStatus(
+  kind: BackupDestination['kind'],
+  counts: StatusCounts,
+  error: { message: string; count: number } | null,
+  purgePending: number,
+): DestinationStatus {
+  const interrupted = counts.prepared > 0;
+  const reported = interrupted
+    ? { message: 'Interrupted local move requires recovery or retry', count: counts.prepared }
+    : error;
+  return {
+    pending: kind === 'google-drive' ? Math.max(0, counts.live - counts.covered) : counts.pending,
+    missing: counts.missing,
+    prepared: counts.prepared,
+    verified: counts.verified,
+    trash: counts.trash,
+    blocked: counts.blocked + counts.prepared,
+    bytes: counts.bytes,
+    lastError: reported?.message ?? null,
+    lastErrorCount: reported?.count ?? 0,
+    purgePending,
+  };
+}
+
 /** Status for the Backup settings page, read from the trigger-maintained counters. */
 export async function destinationStatus(
   db: Pick<SqliteDb, 'read'>,
   destination: Pick<BackupDestination, 'id' | 'kind' | 'libraryId'>,
 ): Promise<DestinationStatus> {
-  const [status, error, purgePending] = await Promise.all([
-    counts(db, destination),
+  const [counts, error, purgePending] = await Promise.all([
+    statusCounts(db, destination),
     dominantError(db, destination.id),
     pendingPurges(db, destination.id),
   ]);
-  const interrupted = status.prepared > 0;
-  return {
-    pending:
-      destination.kind === 'google-drive'
-        ? Math.max(0, status.live - status.covered)
-        : status.pending,
-    missing: status.missing,
-    prepared: status.prepared,
-    verified: status.verified,
-    trash: status.trash,
-    blocked: status.blocked + status.prepared,
-    bytes: status.bytes,
-    lastError: interrupted
-      ? 'Interrupted local move requires recovery or retry'
-      : (error?.message ?? null),
-    lastErrorCount: interrupted ? status.prepared : (error?.count ?? 0),
-    purgePending,
-  };
+  return assembleStatus(destination.kind, counts, error, purgePending);
 }

@@ -14,7 +14,7 @@ import { LIVE_LOCATION_COUNT_RECOMPUTE_SQL } from '../../src/db/sqlite/ddl/asset
 import { FACET_STATE_RECOMPUTE_SQL } from '../../src/db/sqlite/ddl/facet-state.ts';
 import { SCHEMA_PRAGMAS } from '../../src/db/sqlite/ddl/index.ts';
 import { ASSETS_FTS_OPTIMIZE_SQL, ASSETS_FTS_REBUILD_SQL } from '../../src/db/sqlite/ddl/search.ts';
-import { fromBunSqlite, runMigrations } from '../../src/db/sqlite/migrate.ts';
+import { fromBunSqlite, runMigrations, type Migration } from '../../src/db/sqlite/migrate.ts';
 import { ALL_MIGRATIONS } from '../../src/db/sqlite/migrations/index.ts';
 import { generateLibrary } from './generate.ts';
 
@@ -77,14 +77,17 @@ function finishBulkLoad(db: Database): void {
  *
  * Empty: the schema and nothing in it. {@link buildLibrary} is this plus a
  * generated library, and the comparison scripts that bring their own fixtures
- * want the empty one.
+ * want the empty one. A script timing a migration passes the list before it.
  */
-export async function openBenchDatabase(path: string): Promise<Database> {
+export async function openBenchDatabase(
+  path: string,
+  migrations: readonly Migration[] = ALL_MIGRATIONS,
+): Promise<Database> {
   await ensureBenchDir();
   await removeDatabase(path);
   const db = new Database(path, { create: true });
   for (const pragma of SCHEMA_PRAGMAS) db.exec(pragma);
-  await runMigrations(fromBunSqlite(db), ALL_MIGRATIONS);
+  await runMigrations(fromBunSqlite(db), migrations);
   return db;
 }
 

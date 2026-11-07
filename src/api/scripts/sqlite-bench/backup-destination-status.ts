@@ -12,15 +12,19 @@
  * batch of entry writes on each side, since the counters move cost onto writes.
  */
 
-import { Database } from 'bun:sqlite';
-import { SCHEMA_PRAGMAS } from '../../src/db/sqlite/ddl/index.ts';
+import type { Database } from 'bun:sqlite';
 import { fromBunSqlite, runMigrations } from '../../src/db/sqlite/migrate.ts';
 import { ALL_MIGRATIONS } from '../../src/db/sqlite/migrations/index.ts';
 import type { SqlParams } from '../../src/db/sqlite/protocol.ts';
 import { destinationStatus } from '../../src/cloud-backup/destination-status.ts';
 import {
+  LEGACY_STATUS_SQL,
+  legacyParams,
+  recountedStatus,
+} from '../../src/cloud-backup/destination-status-legacy.test-helpers.ts';
+import {
   benchDbPath,
-  ensureBenchDir,
+  openBenchDatabase,
   queryPlanLines,
   removeDatabase,
   sizeArgument,
@@ -56,6 +60,28 @@ function manifest(i: number): string {
   });
 }
 
+function entryState(i: number): string {
+  if (i % 200 === 11) return 'purged';
+  return i % 100 === 13 ? 'trash' : 'active';
+}
+
+/** One entry's bindings: 4% pending, 1% Trash, 0.5% purged, 1% failing across three messages. */
+function entryRow(i: number) {
+  const error = i % 100 === 17 ? ERRORS[i % ERRORS.length]! : null;
+  return [
+    crypto.randomUUID(),
+    DESTINATION,
+    hex(i),
+    `2024/${i}.dng`,
+    entryState(i),
+    i % 25 === 3 ? 2 : 1,
+    1,
+    manifest(i),
+    error,
+    error ? i : 0,
+  ] as const;
+}
+
 function seed(db: Database, count: number): void {
   const now = new Date().toISOString();
   db.run(
@@ -82,21 +108,7 @@ function seed(db: Database, count: number): void {
       const id = hex(i);
       asset.run(id, now);
       location.run(id, LIBRARY, `${i}.dng`, i % 100 === 7 ? now : null);
-      const pending = i % 25 === 3;
-      const state = i % 200 === 11 ? 'purged' : i % 100 === 13 ? 'trash' : 'active';
-      const failed = i % 100 === 17;
-      entry.run(
-        crypto.randomUUID(),
-        DESTINATION,
-        id,
-        `2024/${i}.dng`,
-        state,
-        pending ? 2 : 1,
-        1,
-        manifest(i),
-        failed ? ERRORS[i % ERRORS.length]! : null,
-        failed ? i : 0,
-      );
+      entry.run(...entryRow(i));
     }
   })();
   db.run(`UPDATE assets SET deleted_reason='reaped' WHERE rowid % 200 = 5`);
@@ -109,58 +121,6 @@ function seed(db: Database, count: number): void {
     `INSERT INTO backup_purges(destination_id,entry_id,record,completed)
      SELECT destination_id,id,'{}',rowid % 2 FROM backup_entries WHERE state='purged'`,
   );
-}
-
-/** The aggregates as `GET /api/cloud-backup/destinations` ran them before #5707. */
-const BEFORE = {
-  status: `SELECT COALESCE(SUM(CASE WHEN state!='purged' AND verified_sequence<sequence THEN 1 ELSE 0 END),0) AS pending,
-      COALESCE(SUM(CASE WHEN state!='purged' AND verified_sequence=sequence THEN 1 ELSE 0 END),0) AS verified,
-      COALESCE(SUM(CASE WHEN state='trash' THEN 1 ELSE 0 END),0) AS trash,
-      COALESCE(SUM(CASE WHEN last_error IS NOT NULL THEN 1 ELSE 0 END),0) AS blocked,
-      COALESCE(SUM((SELECT SUM(json_extract(value,'$.object.size')) FROM json_each(manifest,'$.files'))),0) AS bytes
-      FROM backup_entries WHERE destination_id=?1`,
-  pending: `SELECT MAX(0,COALESCE((SELECT live_locations FROM backup_coverage_counts WHERE library_id=?2),0)
-      - (SELECT COUNT(*) FROM backup_entries e
-        JOIN asset_locations l ON l.asset_id=e.asset_id AND l.ordinal=e.ordinal
-        JOIN assets a ON a.id=e.asset_id
-        WHERE e.destination_id=?1 AND l.library_id=?2 AND l.deleted_at IS NULL
-          AND l.missing_since IS NULL AND a.deleted_reason IS NULL
-          AND (e.state='purged' OR e.verified_sequence>=e.sequence))) AS pending`,
-  missing: `SELECT (SELECT COUNT(*) FROM asset_locations
-      WHERE library_id=?2 AND missing_since IS NOT NULL)
-      + (SELECT COUNT(*) FROM assets AS a INDEXED BY assets_reaped
-        JOIN asset_locations l ON l.asset_id=a.id
-        WHERE a.deleted_reason='reaped' AND l.library_id=?2 AND l.missing_since IS NULL) AS missing,
-    (SELECT COUNT(*) FROM backup_lifecycle WHERE library_id=?2 AND phase='prepared') AS prepared`,
-  error: `SELECT last_error AS message,COUNT(*) AS count FROM backup_entries
-      WHERE destination_id=?1 AND last_error IS NOT NULL
-      GROUP BY last_error ORDER BY count DESC,MAX(retry_at) DESC LIMIT 1`,
-  purges: `SELECT * FROM backup_purges WHERE destination_id=?1`,
-} as const;
-
-const paramsFor = (sql: string) => (sql.includes('?2') ? [DESTINATION, LIBRARY] : [DESTINATION]);
-
-function beforeStatus(db: Database) {
-  const row = <T>(sql: string) => db.query(sql).get(...paramsFor(sql)) as T;
-  const status = row<{ verified: number; trash: number; blocked: number; bytes: number }>(
-    BEFORE.status,
-  );
-  const { pending } = row<{ pending: number }>(BEFORE.pending);
-  const { missing, prepared } = row<{ missing: number; prepared: number }>(BEFORE.missing);
-  const error = row<{ message: string; count: number } | null>(BEFORE.error);
-  const purges = db.query(BEFORE.purges).all(DESTINATION) as Array<{ completed: number }>;
-  return {
-    pending,
-    missing,
-    prepared,
-    verified: status.verified,
-    trash: status.trash,
-    blocked: status.blocked + prepared,
-    bytes: status.bytes,
-    lastError: error?.message ?? null,
-    lastErrorCount: error?.count ?? 0,
-    purgePending: purges.filter((p) => !p.completed).length,
-  };
 }
 
 function timeWrites(db: Database): number {
@@ -182,12 +142,8 @@ function timeWrites(db: Database): number {
 const args = process.argv.slice(2);
 const count = sizeArgument(args, 343_000);
 const path = benchDbPath('backup-destination-status');
-await ensureBenchDir();
-await removeDatabase(path);
-const db = new Database(path, { create: true });
-for (const pragma of SCHEMA_PRAGMAS) db.exec(pragma);
-await runMigrations(
-  fromBunSqlite(db),
+const db = await openBenchDatabase(
+  path,
   ALL_MIGRATIONS.filter((migration) => migration.id < COUNTS_MIGRATION),
 );
 const seedStarted = performance.now();
@@ -195,13 +151,14 @@ seed(db, count);
 db.exec('ANALYZE');
 console.log(`seeded ${count} entries in ${Math.round(performance.now() - seedStarted)} ms`);
 
+const target = { id: DESTINATION, kind: 'google-drive' as const, libraryId: LIBRARY };
 const beforeMs = Object.fromEntries(
-  Object.entries(BEFORE).map(([name, sql]) => [
+  Object.entries(LEGACY_STATUS_SQL).map(([name, sql]) => [
     name,
-    timeStatement(db, sql, paramsFor(sql), RUNS).ms,
+    timeStatement(db, sql, legacyParams(sql, target), RUNS).ms,
   ]),
 );
-const before = beforeStatus(db);
+const before = recountedStatus(db, target);
 const beforeWriteUs = timeWrites(db) * 1000;
 
 const migrated = await runMigrations(fromBunSqlite(db), ALL_MIGRATIONS);
@@ -211,7 +168,6 @@ const adapter = {
   read: async <T>(sql: string, params?: SqlParams) =>
     db.query(sql).all(...((params ?? []) as never[])) as T[],
 };
-const target = { id: DESTINATION, kind: 'google-drive' as const, libraryId: LIBRARY };
 const after = await destinationStatus(adapter, target);
 const { ms: afterMs } = await timeAsync(() => destinationStatus(adapter, target), RUNS);
 const afterWriteUs = timeWrites(db) * 1000;
