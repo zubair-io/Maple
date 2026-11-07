@@ -43,6 +43,16 @@ import { child as childLogger } from '../log.ts';
 
 const log = childLogger('fs/duplicates');
 
+/** The photo's old-name edit, left at its old path because no conflict copy could carry it. */
+export interface StrandedOldNameEdit {
+  path: string;
+  bytes: Buffer;
+}
+
+export type DuplicatesMoveResult =
+  | { kind: 'ok'; newAbsPath: string; strandedOldNameEdit?: StrandedOldNameEdit }
+  | { kind: 'error'; error: string };
+
 /** Reserved top-level folder (under each library root) holding moved duplicate
  * originals. Excluded from indexing — see the module docstring. */
 export const DUPLICATES_DIR_NAME = '_duplicates';
@@ -107,7 +117,10 @@ async function publishOldNameAhead(
  * new absolute path. Sidecar moves are best-effort (see `moveSidecarsAlongside`),
  * except the old-name edit, which is published first: if that fails, nothing moves.
  */
-export async function moveToDuplicates(absPath: string, folderRoot: string): Promise<MoveResult> {
+export async function moveToDuplicates(
+  absPath: string,
+  folderRoot: string,
+): Promise<DuplicatesMoveResult> {
   const target = computeDuplicatesPath(absPath, folderRoot);
   await fs.mkdir(path.dirname(target), { recursive: true });
   const ownSidecars = await listPairedSidecars(absPath);
@@ -143,13 +156,17 @@ export async function moveToDuplicates(absPath: string, folderRoot: string): Pro
   }
   const kept = await keepPhotoWithOldNameEdit(absPath, freeTarget, ahead);
   if (kept !== 'moved' && kept !== 'blocked') return kept;
-  if (kept === 'blocked') {
-    if (ahead) await carryRetainedOldNameEdit(ahead.source, freeTarget);
-    await publishCaptured(absPath, freeTarget, captured);
-  } else {
+  if (kept !== 'blocked') {
     await moveSidecarsAlongside(absPath, freeTarget);
+    return { kind: 'ok', newAbsPath: freeTarget };
   }
-  return { kind: 'ok', newAbsPath: freeTarget };
+  const stranded = ahead ? await carryRetainedOldNameEdit(ahead.source, freeTarget) : null;
+  await publishCaptured(absPath, freeTarget, captured);
+  return {
+    kind: 'ok',
+    newAbsPath: freeTarget,
+    ...(stranded === null ? {} : { strandedOldNameEdit: stranded }),
+  };
 }
 
 /** The photo's other sidecars as they were before it moved, so a move that
@@ -246,20 +263,24 @@ async function returnCarriedEdit(
  * names this photo, not the file that took its place, so it follows the
  * quarantined photo as a conflict copy and leaves the old path. Only the path
  * this move carried is considered. */
-async function carryRetainedOldNameEdit(legacy: string, movedTo: string): Promise<void> {
+async function carryRetainedOldNameEdit(
+  legacy: string,
+  movedTo: string,
+): Promise<StrandedOldNameEdit | null> {
   // Read, copied and removed under one barrier, so a save in between is never left behind.
-  await serializeSidecarWrite(legacy, async () => {
+  return serializeSidecarWrite(legacy, async () => {
     const bytes = await readSidecarBytes(legacy).catch(() => null);
-    if (bytes === null) return;
+    if (bytes === null) return null;
     if (!(await publishConflictBytes(movedTo, bytes))) {
       log.error(
         { legacy },
         'moveToDuplicates: the retained old-name edit could not follow the photo',
       );
-      return;
+      return { path: legacy, bytes };
     }
     // Another process can still save without this barrier; such a save stays.
     const now = await readSidecarBytes(legacy).catch(() => null);
     if (now?.equals(bytes)) await fs.unlink(legacy).catch(() => {});
+    return null;
   });
 }

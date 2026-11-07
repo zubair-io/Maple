@@ -27,8 +27,8 @@
  * both sets of assertions.
  */
 
-import { describe, it, expect } from 'bun:test';
-import { mkdtempSync, mkdirSync, writeFileSync, existsSync, rmSync } from 'node:fs';
+import { describe, it, expect, spyOn } from 'bun:test';
+import { chmodSync, mkdtempSync, mkdirSync, writeFileSync, existsSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -40,6 +40,7 @@ import {
   type LiveTestDatabase,
 } from '../db/sqlite/test-sqlite.test-helpers.ts';
 import { invalidateLibraryRoots } from '../indexer/libraries.cache.ts';
+import * as fs from '../fs/mirrored.ts';
 import { runDeDuplicateOnce } from './dedupe.ts';
 
 /** Every seeded copy shares one content id — that is what makes them duplicates. */
@@ -447,4 +448,49 @@ describe('runDeDuplicateOnce', () => {
     expect(locations).toHaveLength(1);
     expect(locations[0]!.path).toBe('b'); // rule 4 last-kept, stored flag ignored
   });
+
+  // Root writes into a read-only folder anyway, so there is nothing to refuse.
+  it.skipIf(process.getuid?.() === 0)(
+    'records an old-name edit the mover could not carry beside the quarantined photo (#5089)',
+    async () => {
+      using env = await createEnv();
+      writeCopy(env, 'a', 'IMG.dng');
+      writeCopy(env, 'b', 'IMG.dng');
+      const legacy = join(env.root, 'a', 'IMG.dng.xmp');
+      const maple = (label: string) =>
+        `<x:xmpmeta xmlns:papp="http://ns.justmaple.app/photo/1.0/">${label}</x:xmpmeta>`;
+      writeFileSync(legacy, maple('backup edit'));
+      const id = seedAsset(env, [{ dir: 'a' }, { dir: 'b' }]);
+      const quarantine = join(env.root, DUP, 'a');
+      const raw = join(env.root, 'a', 'IMG.dng');
+      const realRename = fs.rename;
+      // Right after the photo moves: a save lands at both ends of the old-name edit, a new
+      // file takes the old path, and the quarantine folder stops accepting new files.
+      const rename = spyOn(fs, 'rename').mockImplementation(async (from, to) => {
+        await realRename(from, to);
+        if (String(from) !== raw) return;
+        writeFileSync(legacy, maple('saved at the old path'));
+        writeFileSync(`${to}.xmp`, maple('saved at the new path'));
+        writeFileSync(raw, 'a new arrival');
+        chmodSync(quarantine, 0o555);
+      });
+      try {
+        await runDeDuplicateOnce({});
+      } finally {
+        rename.mockRestore();
+        if (existsSync(quarantine)) chmodSync(quarantine, 0o755);
+      }
+
+      const rows = env.live.db
+        .query(`SELECT asset_id, sidecar_rel_path, displaced_xmp FROM sidecar_divergences`)
+        .all();
+      expect(rows).toEqual([
+        {
+          asset_id: id,
+          sidecar_rel_path: 'a/IMG.dng.xmp',
+          displaced_xmp: maple('saved at the old path'),
+        },
+      ]);
+    },
+  );
 });

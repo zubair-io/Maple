@@ -317,3 +317,42 @@ test('an undone duplicates move keeps the quarantined photo while its carried ed
   );
   expect(await fs.readFile(raw, 'utf8')).toBe('photo');
 });
+
+// Root writes into a read-only folder anyway, so there is nothing to refuse.
+test.skipIf(process.getuid?.() === 0)(
+  'the duplicates mover reports the old-name edit it could not carry as a conflict copy (#5089)',
+  async () => {
+    const dir = path.join(tmpRoot, 'old-name-duplicate-stranded');
+    await fs.mkdir(dir, { recursive: true });
+    const raw = path.join(dir, 'IMG_17.HEIC');
+    const legacy = `${raw}.xmp`;
+    await fs.writeFile(raw, 'photo');
+    await fs.writeFile(legacy, maple('backup edit'));
+    const quarantine = path.join(tmpRoot, '_duplicates', 'old-name-duplicate-stranded');
+    const realRename = fs.rename;
+    // Right after the photo moves: a save lands at both ends of the old-name edit, a new
+    // file takes the old path, and the quarantine folder stops accepting new files.
+    const rename = spyOn(fs, 'rename').mockImplementation(async (from, to) => {
+      await realRename(from, to);
+      if (String(from) !== raw) return;
+      await fs.writeFile(legacy, maple('saved at the old path'));
+      await fs.writeFile(`${to}.xmp`, maple('saved at the new path'));
+      await fs.writeFile(raw, 'a new arrival');
+      await fs.chmod(quarantine, 0o555);
+    });
+    try {
+      const moved = await moveToDuplicates(raw, tmpRoot);
+
+      expect(moved.kind).toBe('ok');
+      if (moved.kind !== 'ok') return;
+      expect(moved.strandedOldNameEdit?.path).toBe(legacy);
+      expect(moved.strandedOldNameEdit?.bytes.toString('utf8')).toBe(
+        maple('saved at the old path'),
+      );
+    } finally {
+      rename.mockRestore();
+      await fs.chmod(quarantine, 0o755);
+    }
+    expect(await fs.readFile(legacy, 'utf8')).toBe(maple('saved at the old path'));
+  },
+);
