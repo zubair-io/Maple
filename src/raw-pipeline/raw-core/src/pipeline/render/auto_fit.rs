@@ -524,7 +524,7 @@ pub(super) fn run_auto_profile_stage(
 /// there. Returns `(curve, residual)` with the residual already honouring
 /// `MAPLE_DISABLE_AUTO_LUT` (strength stays with the caller's apply).
 #[allow(clippy::too_many_arguments)]
-fn fit_artifacts_from_pinned_develop(
+pub(super) fn fit_artifacts_from_pinned_develop(
     raw: &RawImage,
     model: &AdjustmentModel,
     quality: RenderQuality,

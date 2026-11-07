@@ -132,6 +132,38 @@ fn prepared_curve(curve: &ProfileCurve) -> impl Fn(&mut [f32]) + Sync + '_ {
     }
 }
 
+/// The Auto Profile tail for one display-encoded sRGB triple: the per-channel
+/// curve, then the residual LUT blended at `strength` (`p + k·(lut(p) − p)`,
+/// plain sampling at `1.0`, no LUT at `0.0`). Pointwise, so a caller that
+/// needs the tail's result per pixel (the Display-P3 render) evaluates it
+/// without a second buffer. The lattice must satisfy the
+/// [`super::lut::sample_lut`] contract.
+pub fn prepared_tail<'a>(
+    curve: Option<&'a ProfileCurve>,
+    residual: Option<(usize, &'a [f32])>,
+    strength: f32,
+) -> impl Fn([f32; 3]) -> [f32; 3] + Sync + 'a {
+    let apply = curve.map(prepared_curve);
+    let residual = residual.filter(|_| strength != 0.0);
+    move |rgb| {
+        let mut rgb = rgb;
+        if let Some(apply) = &apply {
+            apply(&mut rgb);
+        }
+        match residual {
+            Some((size, data)) => {
+                let sampled = super::lut::sample_lut(size, data, rgb);
+                if strength == 1.0 {
+                    sampled
+                } else {
+                    std::array::from_fn(|c| rgb[c] + strength * (sampled[c] - rgb[c]))
+                }
+            }
+            None => rgb,
+        }
+    }
+}
+
 /// Apply already-fitted display-sRGB Auto Profile artifacts to a packed RGBA
 /// f32 buffer in place: the per-channel curve first, then the residual LUT,
 /// exactly the order the RGB display path uses. Alpha is left untouched.

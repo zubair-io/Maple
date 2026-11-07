@@ -349,22 +349,26 @@ pub fn render_detail_tile_cancellable(
         raw.height,
     );
     let origin = (sx - crop.0, sy - crop.1);
-    display_prefix::apply(
-        &mut scene,
-        &context.model,
-        film_lut,
-        context.target,
-        (origin, (crop.2, crop.3)),
-    );
-    let pixels: &mut [f32] = bytemuck::cast_slice_mut(&mut scene.pixels);
-    if let Some(curve) = &context.profile_curve {
-        auto_profile::apply_curve(pixels, curve);
-    }
-    if let Some(lut) = &context.profile_lut {
-        lut.apply_with_strength(pixels, auto_profile::lut::lut_strength_from_env());
-    }
-    if context.auto_guard {
-        encode::gamut_guard_display_encoded_srgb(&mut scene);
+    let window = (origin, (crop.2, crop.3));
+    if super::wide_gamut_auto::engaged(context.target, context.auto_guard) {
+        display_prefix::apply_linear(&mut scene, &context.model, film_lut, window);
+        super::wide_gamut_auto::encode_with_artifacts(
+            &mut scene,
+            context.profile_curve.as_ref(),
+            context.profile_lut.as_ref(),
+        );
+    } else {
+        display_prefix::apply(&mut scene, &context.model, film_lut, context.target, window);
+        let pixels: &mut [f32] = bytemuck::cast_slice_mut(&mut scene.pixels);
+        if let Some(curve) = &context.profile_curve {
+            auto_profile::apply_curve(pixels, curve);
+        }
+        if let Some(lut) = &context.profile_lut {
+            lut.apply_with_strength(pixels, auto_profile::lut::lut_strength_from_env());
+        }
+        if context.auto_guard {
+            encode::gamut_guard_display_encoded_srgb(&mut scene);
+        }
     }
     if cancel.is_cancelled() {
         return Err(Error::Cancelled);
