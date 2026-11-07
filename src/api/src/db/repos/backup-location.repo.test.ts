@@ -91,4 +91,34 @@ describe('repair coalescing onto a catalogued sibling', () => {
       { id: 'sibling-entry', ordinal: 1, source_path: SIBLING, sequence: 3, snapshot_hash: 'hash' },
     ]);
   });
+
+  test('the overlap skip is per destination', async () => {
+    using handle = await createTestDatabase();
+    const { id, lib, sql } = await seedMissingWithSibling(handle.db);
+    handle.db.run(
+      `INSERT INTO backup_destinations(id,library_id,kind,name,enabled,created_at)
+       VALUES('dest2',?,'google-drive','Drive 2',1,'2026-10-04')`,
+      [lib.toHexString()],
+    );
+    entry(handle.db, 'kept-entry', id, 0, MISSING);
+    entry(handle.db, 'sibling-entry', id, 1, SIBLING);
+    handle.db.run(
+      `INSERT INTO backup_entries(id,destination_id,asset_id,ordinal,source_path)
+       VALUES('sibling-entry-2','dest2',?,1,?)`,
+      [id, SIBLING],
+    );
+
+    await appendBackupLocation(
+      new ObjectId(id),
+      { relPath: SIBLING, libraryId: lib, link: null, replacedRelPath: MISSING },
+      sql,
+    );
+
+    const ordinals = handle.db.query(`SELECT id, ordinal FROM backup_entries ORDER BY id`).all();
+    expect(ordinals).toEqual([
+      { id: 'kept-entry', ordinal: 0 },
+      { id: 'sibling-entry', ordinal: 1 },
+      { id: 'sibling-entry-2', ordinal: 0 },
+    ]);
+  });
 });
