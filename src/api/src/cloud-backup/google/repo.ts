@@ -1,4 +1,4 @@
-import { GoogleConnectionError } from './config.ts';
+import { GoogleConnectionError, GoogleFlowUnavailable } from './config.ts';
 import { sqliteDb } from '../../db/repos/db-handle.ts';
 import { DEFAULT_GOOGLE_CONFIG, validDisconnect, type GoogleConfig } from './config.ts';
 import { seal, unseal } from './secrets.ts';
@@ -144,17 +144,13 @@ export async function consumePending(state: string, cookieHash: string): Promise
     'SELECT nonce, payload FROM backup_google_oauth WHERE state = ? AND cookie_hash = ? AND expires_at > ?',
     [state, cookieHash, Date.now()],
   );
-  if (!row)
-    throw new GoogleConnectionError(
-      'Google connection expired or browser session mismatched; start Connect again.',
-    );
+  if (!row) throw new GoogleFlowUnavailable();
   const removed = await sqliteDb().write(
     `DELETE FROM backup_google_oauth WHERE nonce = ?
     AND state = ? AND cookie_hash = ? AND expires_at > ?`,
     [row.nonce, state, cookieHash, Date.now()],
   );
-  if (removed.changes !== 1)
-    throw new GoogleConnectionError('Google callback already used; start Connect again.');
+  if (removed.changes !== 1) throw new GoogleFlowUnavailable();
   return unseal<PendingFlow>(row.payload, `flow:${row.nonce}`);
 }
 export async function claimRefresh(id: string, epoch: number, owner: string): Promise<boolean> {

@@ -1,6 +1,14 @@
 import { isIP } from 'node:net';
 
 export class GoogleConnectionError extends Error {}
+/** The callback carries no live flow for this browser: its cookie is gone or the flow was spent. */
+export class GoogleFlowUnavailable extends GoogleConnectionError {
+  constructor() {
+    super(
+      'This Google sign-in link was already used or has expired. Your connection may already be complete; check its status below, or start Connect again.',
+    );
+  }
+}
 
 export const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.file';
 export const GOOGLE_CALLBACK_PATH = '/api/cloud-backup/google/callback';
