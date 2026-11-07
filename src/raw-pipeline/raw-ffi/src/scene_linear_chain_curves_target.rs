@@ -11,6 +11,13 @@ use crate::scene_linear_chain::maple_encode_display_f32;
 use crate::scene_linear_chain::{chain_inputs_from_params, MapleAdjustmentParams};
 use crate::scene_linear_chain_curves::{inject_tone_curves, MapleChainWindow, MapleToneCurves};
 
+/// What the chain output is encoded to: the plain display encode at a target,
+/// or Display P3 with the Auto tail applied inside the encode (#4741).
+pub(crate) enum DisplayEncode<'a> {
+    Target(u32),
+    P3Auto { lut: &'a [f32], lut_size: usize },
+}
+
 /// # Safety
 /// `in_ptr`/`out_ptr` must each address `width * height * 4` `f32`s;
 /// `params` must point at a valid `MapleAdjustmentParams`; `curves` is null
@@ -36,7 +43,7 @@ pub unsafe extern "C" fn maple_apply_chain_and_encode_display_target_curves_f32(
                 height,
                 params,
                 curves,
-                target_primaries,
+                DisplayEncode::Target(target_primaries),
                 out_ptr,
                 None,
                 std::ptr::null(),
@@ -84,7 +91,7 @@ pub unsafe extern "C" fn maple_apply_chain_and_encode_display_target_window_f32(
                 height,
                 params,
                 curves,
-                target_primaries,
+                DisplayEncode::Target(target_primaries),
                 out_ptr,
                 Some(window.into()),
                 haze,
@@ -115,21 +122,21 @@ pub unsafe extern "C" fn maple_scene_linear_chain_window_reach_px(
     })
 }
 
-unsafe fn chain_and_encode_target(
+pub(crate) unsafe fn chain_and_encode_target(
     in_ptr: *const f32,
     width: u32,
     height: u32,
     params: *const MapleAdjustmentParams,
     curves: *const MapleToneCurves,
-    target_primaries: u32,
+    encode: DisplayEncode<'_>,
     out_ptr: *mut f32,
     window: Option<raw_core::pipeline::ChainWindow>,
     haze: *const crate::MapleHazeMap,
 ) -> i32 {
-    let context = if window.is_some() {
-        "apply_chain_and_encode_display_target_window_f32"
-    } else {
-        "apply_chain_and_encode_display_target_curves_f32"
+    let context = match (&encode, window.is_some()) {
+        (DisplayEncode::P3Auto { .. }, _) => "apply_chain_and_encode_display_p3_auto_f32",
+        (_, true) => "apply_chain_and_encode_display_target_window_f32",
+        (_, false) => "apply_chain_and_encode_display_target_curves_f32",
     };
     if in_ptr.is_null() || params.is_null() || out_ptr.is_null() {
         set_last_error(format!("{context}: null pointer"));
@@ -141,7 +148,7 @@ unsafe fn chain_and_encode_target(
         ));
         return 2;
     }
-    if target_primaries > 1 {
+    if let DisplayEncode::Target(target_primaries @ 2..) = encode {
         set_last_error(format!(
             "{context}: unsupported target_primaries={target_primaries}"
         ));
@@ -197,5 +204,17 @@ unsafe fn chain_and_encode_target(
         ));
         return 9;
     }
-    maple_encode_display_f32(rendered.as_ptr(), width, height, target_primaries, out_ptr)
+    match encode {
+        DisplayEncode::Target(target_primaries) => {
+            maple_encode_display_f32(rendered.as_ptr(), width, height, target_primaries, out_ptr)
+        }
+        DisplayEncode::P3Auto { lut, lut_size } => {
+            use crate::scene_linear_chain_p3_auto::{encode_p3_auto, write_encoded};
+            write_encoded(
+                context,
+                encode_p3_auto(&rendered, width, height, lut, lut_size),
+                out_ptr,
+            )
+        }
+    }
 }
