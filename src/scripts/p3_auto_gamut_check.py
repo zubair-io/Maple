@@ -12,11 +12,17 @@ strided sample of the frame:
   * outside - the share of P3 output pixels whose linear sRGB value leaves the
              sRGB cube (wide-gamut data kept).
 
+Gate (exit 1 on any failure): per fixture, Auto dE_in mean <= MAX_AUTO_DE_MEAN
+and Auto outside share >= Neutral outside share - OUTSIDE_SLACK. A render
+error, an empty fixture selection or a fixture with no r = 1 pixels fails.
+Every render is kept under --work and its SHA-256 recorded in the row.
+
 Usage: p3_auto_gamut_check.py --cli CLI --raw-dir DIR --work DIR [--filter S]
        [--stride N] [--json OUT.json]
 """
 
 import argparse
+import hashlib
 import json
 import pathlib
 import subprocess
@@ -26,10 +32,14 @@ import colour
 import numpy as np
 from PIL import Image
 
+from auto_profile_match import EXTENSIONS
+
 Image.MAX_IMAGE_PIXELS = None
 
 COMPRESS_THRESHOLD = 0.8
 OUTSIDE_TOLERANCE = 2e-3
+MAX_AUTO_DE_MEAN = 0.45
+OUTSIDE_SLACK = 1e-4
 
 M_SRGB_TO_P3 = np.array(
     [
@@ -55,7 +65,6 @@ M2 = np.array(
 )
 M1_INV = np.linalg.inv(M1)
 M2_INV = np.linalg.inv(M2)
-RAW_SUFFIXES = {".dng", ".raw", ".cr2", ".fff", ".raf", ".arw", ".nef", ".x3f"}
 
 
 def decode(png: pathlib.Path, stride: int) -> np.ndarray:
@@ -122,16 +131,24 @@ def stats(values: np.ndarray) -> dict:
     }
 
 
+def sha256(path: pathlib.Path) -> str:
+    with path.open("rb") as f:
+        return hashlib.file_digest(f, "sha256").hexdigest()
+
+
 def measure(cli: str, raw: pathlib.Path, work: pathlib.Path, stride: int) -> dict:
-    renders = {}
-    for profile in ("neutral", "auto"):
-        for primaries in ("srgb", "p3"):
-            png = work / f"{raw.stem}-{profile}-{primaries}.png"
-            render(cli, raw, png, profile, primaries)
-            renders[(profile, primaries)] = decode(png, stride)
-            png.unlink()
+    variants = [(profile, primaries) for profile in ("neutral", "auto") for primaries in ("srgb", "p3")]
+    pngs = {v: work / f"{raw.stem}-{v[0]}-{v[1]}.png" for v in variants}
+    for (profile, primaries), png in pngs.items():
+        render(cli, raw, png, profile, primaries)
+    renders = {v: decode(png, stride) for v, png in pngs.items()}
     in_gamut = below_srgb_knee(p3_encoded_to_linear_srgb(renders[("neutral", "p3")]))
-    row = {"fixture": raw.name, "pixels": int(in_gamut.size), "in_gamut_share": float(in_gamut.mean())}
+    row = {
+        "fixture": raw.name,
+        "pixels": int(in_gamut.size),
+        "in_gamut_share": float(in_gamut.mean()),
+        "renders": {png.name: sha256(png) for png in pngs.values()},
+    }
     for profile in ("neutral", "auto"):
         p3_linear = p3_encoded_to_linear_srgb(renders[(profile, "p3")])
         p3_as_srgb = colour.cctf_encoding(np.clip(p3_linear, 0.0, 1.0), function="sRGB")
@@ -147,7 +164,7 @@ def fixtures(raw_dir: pathlib.Path, needle: str):
     return sorted(
         p
         for p in raw_dir.iterdir()
-        if p.suffix.lower() in RAW_SUFFIXES and p.name.startswith("test_") and needle in p.name
+        if p.suffix.lower() in EXTENSIONS and p.name.startswith("test_") and needle in p.name
     )
 
 
@@ -170,6 +187,21 @@ def table(rows: list) -> str:
     return "\n".join([head, *lines])
 
 
+def failures(row: dict) -> list:
+    if "error" in row:
+        return [row["error"]]
+    auto, neutral = row["auto"], row["neutral"]
+    mean = auto["dE_in_gamut"]["mean"]
+    outside = auto["outside_srgb_share"]
+    floor = neutral["outside_srgb_share"] - OUTSIDE_SLACK
+    checks = [
+        (mean is None, "no r = 1 pixels to measure"),
+        (mean is not None and mean > MAX_AUTO_DE_MEAN, f"Auto dE mean {mean} > {MAX_AUTO_DE_MEAN}"),
+        (outside < floor, f"Auto outside-sRGB share {outside:.6f} < Neutral - {OUTSIDE_SLACK} ({floor:.6f})"),
+    ]
+    return [message for failed, message in checks if failed]
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--cli", required=True)
@@ -181,17 +213,27 @@ def main() -> int:
     args = ap.parse_args()
     args.work.mkdir(parents=True, exist_ok=True)
     rows = []
-    for raw in fixtures(args.raw_dir, args.filter):
+    selected = fixtures(args.raw_dir, args.filter)
+    if not selected:
+        print(f"no RAW fixtures selected in {args.raw_dir}", file=sys.stderr)
+        return 1
+    for raw in selected:
         try:
             rows.append(measure(args.cli, raw, args.work, args.stride))
         except subprocess.CalledProcessError:
             print(f"render failed: {raw.name}", file=sys.stderr)
             rows.append({"fixture": raw.name, "error": "render failed"})
+    for row in rows:
+        row["failures"] = failures(row)
     good = [r for r in rows if "error" not in r]
     if args.json:
         args.json.write_text(json.dumps(rows, indent=2))
     print(table(good))
-    return 0 if len(good) == len(rows) else 1
+    failed = [r for r in rows if r["failures"]]
+    for row in failed:
+        print(f"FAIL {row['fixture']}: {'; '.join(row['failures'])}")
+    print(f"P3 Auto gamut gate: {len(rows) - len(failed)}/{len(rows)} fixtures pass")
+    return 1 if failed else 0
 
 
 if __name__ == "__main__":

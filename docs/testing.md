@@ -279,6 +279,7 @@ They do not define Auto's target or a color CI requirement.
 | [`test_film_looks.sh`](../src/scripts/test_film_looks.sh)                       | Yes; skips without the RAW or LUT pack        | `test_0017.dng` + `.mlut` pack | **not in CI**             |
 | [`test_face_clustering.sh`](../src/scripts/test_face_clustering.sh)             | Yes                                           | Committed JSONL corpus         | `face-clustering-quality` |
 | `test_auto_profile_match.sh`                                                    | Same canonical JPEG gate                      | RAWs + embedded JPEGs          | `color-pipeline`          |
+| [`test_p3_auto_gamut.sh`](../src/scripts/test_p3_auto_gamut.sh)                 | Yes; NOT TESTED without RAWs                  | RAWs (sRGB vs P3 renders)      | `color-pipeline`          |
 | [`check_wgsl.sh`](../src/scripts/check_wgsl.sh)                                 | Yes                                           | WGSL sources                   | `raw-gpu`                 |
 | [`test_halo_detection.sh`](../src/scripts/test_halo_detection.sh)               | Diagnostic only                               | Synthetic disk                 | **not in CI**             |
 | [`test_hue_stability.sh`](../src/scripts/test_hue_stability.sh)                 | Diagnostic only                               | Synthetic primaries            | **not in CI**             |
