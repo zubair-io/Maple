@@ -19,9 +19,8 @@ import { isVideoFilename } from '../indexer/media-types';
 import { sidecarRenameTarget } from './sidecar-rename.ts';
 import { child as childLogger } from '../log.ts';
 import { serializeSidecarWrite } from './sidecar-write-order.ts';
-import { readSidecarBytes } from './sidecar-bytes.ts';
 import {
-  publishConflictBytes,
+  carryAsConflictCopy,
   requireSidecarBytes,
   settleCarriedSidecar,
   sidecarStemClaimedBySibling,
@@ -168,16 +167,14 @@ async function carryOtherSpellings(
       () => false,
     );
     if (!allowed) return;
-    await serializeSidecarWrite(source, async () => {
-      const bytes = await readSidecarBytes(source).catch(() => null);
-      if (bytes === null) return;
-      if (!(await publishConflictBytes(primary.destination, bytes))) {
-        log.error({ source }, 'restore: an old-name edit could not come back — kept in the trash');
-        return;
-      }
-      const now = await readSidecarBytes(source).catch(() => null);
-      if (now?.equals(bytes)) await fs.unlink(source).catch(() => {});
-    });
+    const stranded = await carryAsConflictCopy(source, primary.destination).catch(
+      (error: unknown) => {
+        log.warn({ source, error: String(error) }, 'restore: an old-name edit could not come back');
+        return null;
+      },
+    );
+    if (stranded !== null)
+      log.error({ source }, 'restore: an old-name edit could not come back — kept in the trash');
   }
 }
 

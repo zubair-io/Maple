@@ -254,9 +254,14 @@ export async function unlinkTrashedCopy(
   beforeUnlink: BeforePurgeUnlink,
 ): Promise<number> {
   const sidecars = await ownSidecarsOf(copy.absPath);
-  const otherSpellings = await otherOldNameSpellings(copy.absPath, sidecars).catch(() => []);
-  const targets = [copy.absPath, ...sidecars, ...otherSpellings];
-  const outcomes: boolean[] = [];
+  const otherSpellings = await otherOldNameSpellings(copy.absPath, sidecars).catch(
+    (error: unknown) => {
+      onFailure(copy.absPath, error);
+      return null;
+    },
+  );
+  const targets = [copy.absPath, ...sidecars, ...(otherSpellings ?? [])];
+  const outcomes: boolean[] = otherSpellings === null ? [false] : [];
   for (const target of targets)
     outcomes.push(await unlinkInsideTrash(target, copy.libraryRoot, onFailure, beforeUnlink));
   return outcomes.filter((ok) => !ok).length;
