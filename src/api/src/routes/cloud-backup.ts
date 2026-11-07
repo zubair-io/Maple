@@ -78,6 +78,12 @@ async function reportedError(
   );
   return { lastError: dominant?.message ?? null, lastErrorCount: dominant?.count ?? 0 };
 }
+// Unreadable credentials (rotated server secret, corrupt row) must not hide every destination.
+async function googleConnection(id: string) {
+  return loadConnection(id)
+    .then(({ config }) => connectionState(config))
+    .catch(() => ({ connected: false, disconnect: null }));
+}
 async function projection(row: BackupDestination) {
   const [status] = await repo.db.read<{
     pending: number;
@@ -120,9 +126,7 @@ async function projection(row: BackupDestination) {
   if (!coverage) throw new Error('Backup coverage query failed');
   return {
     ...row,
-    ...(row.kind === 'google-drive'
-      ? { connection: connectionState((await loadConnection(row.id)).config) }
-      : {}),
+    ...(row.kind === 'google-drive' ? { connection: await googleConnection(row.id) } : {}),
     status: {
       pending: row.kind === 'google-drive' ? coverage.pending : status.pending,
       missing: coverage.missing,

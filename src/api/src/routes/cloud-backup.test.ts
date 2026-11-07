@@ -348,14 +348,30 @@ test('Google Drive destinations report a recorded disconnect without opening the
       { ...DEFAULT_GOOGLE_CONFIG, disconnect: { reason: 'invalid_grant', at } },
       0,
     );
+    const unreadable = await repo.createDestination({
+      libraryId: insertFolder(live.db),
+      kind: 'google-drive',
+      name: 'Unreadable',
+      path: null,
+    });
+    run(
+      live.db,
+      `INSERT INTO backup_google_connections(destination_id,epoch,credentials) VALUES(?,1,'not-sealed')`,
+      unreadable.id,
+    );
     const response = await app.handle(
       new Request('http://localhost/api/cloud-backup/destinations', {
         headers: { Authorization: `Bearer ${owner}` },
       }),
     );
+    expect(response.status).toBe(200);
     const body = (await response.json()) as {
       destinations: Array<{ id: string; connection?: unknown }>;
     };
+    expect(body.destinations.find((item) => item.id === unreadable.id)?.connection).toEqual({
+      connected: false,
+      disconnect: null,
+    });
     expect(body.destinations.find((item) => item.id === destination.id)?.connection).toEqual({
       connected: false,
       disconnect: {

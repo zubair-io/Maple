@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test';
-import { loadConnection } from './repo.ts';
-import { publicConfig } from './config.ts';
+import { loadConnection, saveConfig } from './repo.ts';
+import { publicConfig, withoutCredentials } from './config.ts';
 import {
   finishGoogleFlow,
   forgetGoogleAccessToken,
@@ -141,3 +141,38 @@ test('reconnecting clears the recorded cause', async () => {
     disconnect: null,
   });
 });
+
+test('disconnecting or changing settings keeps the recorded cause until a reconnect', async () => {
+  const f = await managedFixture();
+  using _database = f.live;
+  const server = managedServer();
+  await connect(f, server);
+  server.controls.renewal = { error: 'invalid_proof' };
+  server.controls.renewalStatus = 400;
+  await expect(googleAccessToken(f.destination.id, server.transport)).rejects.toThrow();
+  const current = await loadConnection(f.destination.id);
+  await saveConfig(f.destination.id, withoutCredentials(current.config), current.epoch);
+  expect((await loadConnection(f.destination.id)).config.disconnect).toEqual(
+    current.config.disconnect,
+  );
+  expect(current.config.disconnect?.reason).toBe('invalid_proof');
+});
+
+for (const [label, disconnect] of Object.entries({
+  'an unknown reason': { reason: 'future_reason', at: 1 },
+  'a non-numeric time': { reason: 'invalid_grant', at: 'yesterday' },
+  'an out-of-range time': { reason: 'invalid_grant', at: 1e20 },
+})) {
+  test(`a stored disconnect with ${label} loads as no recorded cause`, async () => {
+    const f = await managedFixture();
+    using _database = f.live;
+    f.live.db
+      .query(
+        'INSERT INTO backup_google_connections(destination_id,epoch,credentials) VALUES(?,1,?)',
+      )
+      .run(f.destination.id, await seal({ clientMode: 'maple', disconnect }, f.destination.id));
+    const { config } = await loadConnection(f.destination.id);
+    expect(config.disconnect).toBeNull();
+    expect(publicConfig(config, null).disconnect).toBeNull();
+  });
+}

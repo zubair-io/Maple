@@ -180,7 +180,7 @@ describe('BackupComponent', () => {
     );
     const component = fixture.componentInstance as unknown as { expanded(): string | null };
     expect(component.expanded()).toBeNull();
-    button('Reconnect Google Drive').click();
+    button('Show reconnect options').click();
     expect(component.expanded()).toBe('destination');
   });
   it('alerts for an attached Google folder without credentials but not for a new destination', async () => {
