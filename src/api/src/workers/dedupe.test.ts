@@ -478,7 +478,7 @@ describe('runDeDuplicateOnce', () => {
         await runDeDuplicateOnce({});
       } finally {
         rename.mockRestore();
-        chmodSync(quarantine, 0o755);
+        if (existsSync(quarantine)) chmodSync(quarantine, 0o755);
       }
 
       const rows = env.live.db
