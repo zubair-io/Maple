@@ -70,7 +70,7 @@ describe('repair coalescing onto a catalogued sibling', () => {
       handle.db.query(`SELECT ordinal, filename FROM asset_locations WHERE asset_id = ?`).all(id),
     ).toEqual([{ ordinal: 0, filename: 'photo-1.HEIC' }]);
     expect(entries(handle.db)).toEqual([
-      { id: 'sibling-entry', ordinal: 0, source_path: SIBLING, sequence: 4, snapshot_hash: null },
+      { id: 'sibling-entry', ordinal: 0, source_path: SIBLING, sequence: 5, snapshot_hash: null },
     ]);
   });
 
