@@ -121,7 +121,18 @@ extension AppShell {
         await browseVM.loadCloudDir(source, absPath: url.path)
         // A back swipe during the load already moved the location on.
         guard cloudCurrentPath == url.path else { return }
-        libraryTitle = url.lastPathComponent
+        // Only a return to the library's root takes its sidebar title; with
+        // no cached library record, a subfolder would get the server's name.
+        let libraryRoot = CloudFoldersCache.load(server: serverID)?
+          .first(where: { $0.id == folderID })?.path
+        let isLibraryRoot =
+          libraryRoot.map {
+            URL(fileURLWithPath: $0).standardizedFileURL == url.standardizedFileURL
+          } ?? false
+        libraryTitle =
+          isLibraryRoot
+          ? cloudLibraryTitle(serverID: serverID, folderID: folderID, libraryPath: url.path)
+          : url.lastPathComponent
         pruneSessionsForNewAssetList()
       }
       return

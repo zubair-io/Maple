@@ -130,6 +130,9 @@ struct AppShell: View {
   /// deep path the user left off at.
   @State var cloudCurrentPath: String? = nil
   @State var cloudFolderMove = CloudFolderMoveVM()
+  #if os(iOS)
+    @State var browseBackTarget: String?
+  #endif
 
   // Sheet state.
   @State var showSMBSheet = false
@@ -469,20 +472,21 @@ struct AppShell: View {
     browseVM.selectedID.flatMap { sessions[$0] }
   }
 
-  /// iPad Browse puts the folder name, filters and controls on one floating
-  /// row (#5435); the Mac keeps its window toolbar. Only the folder grid gets
-  /// it: search, the map and the timelines keep the navigation bar and its
-  /// sidebar toggle.
+  /// iPad Browse puts the page name, filters and controls on one floating
+  /// row (#5435); the Mac keeps its window toolbar. The folder grid, the
+  /// timelines and the map share it; search keeps the navigation bar.
   private var browseHeaderModel: BrowseHeaderModel? {
     #if os(iOS)
-      let showsFolderGrid =
-        !(isSearchActive && searchVM != nil) && mapVM == nil && mapUnavailableReason == nil
-        && allSourcesTimelineVM == nil && cloudTimelineVM == nil
+      let isMap = mapVM != nil || mapUnavailableReason != nil
+      let showsFolderGrid = !isMap && allSourcesTimelineVM == nil && cloudTimelineVM == nil
       let isSidebarVisible = columnVisibility == .all || columnVisibility == .doubleColumn
-      return showsFolderGrid
-        ? BrowseHeaderModel(
+      let isSearching = isSearchActive && searchVM != nil
+      return isSearching
+        ? nil
+        : BrowseHeaderModel(
           title: libraryTitle,
-          displayMode: $browseDisplayMode,
+          displayMode: isMap ? nil : $browseDisplayMode,
+          onBack: showsFolderGrid ? browseParentFolderAction : nil,
           searchAvailable: searchAvailable,
           isSidebarVisible: isSidebarVisible,
           onOpenSearch: { toggleSearch() },
@@ -490,7 +494,7 @@ struct AppShell: View {
           onToggleSidebar: {
             withAnimation { columnVisibility = isSidebarVisible ? .detailOnly : .all }
           }
-        ) : nil
+        )
     #else
       return nil
     #endif
@@ -1062,6 +1066,7 @@ struct AppShell: View {
       }
     #endif
     #if os(iOS)
+      .onChange(of: phoneFolderLocationKey, initial: true) { refreshBrowseBackTarget() }
       .sheet(isPresented: $showSettings, onDismiss: { settingsInitialTab = nil }) {
         NavigationStack {
           SettingsView(initialTab: settingsInitialTab, sessionFor: sessionFor)

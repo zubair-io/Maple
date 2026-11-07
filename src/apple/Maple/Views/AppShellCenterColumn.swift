@@ -152,7 +152,8 @@ struct AppShellCenterColumn: View {
   /// macOS Export recipes from the BrowseGrid multi-select action bar
   /// (#5435). nil hides the button.
   var onExportRecipes: (() -> Void)? = nil
-  /// iPad Browse's floating header (#5435); nil keeps the navigation bar.
+  /// iPad Browse's floating header over the folder grid, timelines and map
+  /// (#5435); nil keeps the navigation bar.
   var browseHeader: BrowseHeaderModel? = nil
   /// Delete key / "Move to Trash" context-menu item on BrowseGrid (#2653).
   /// nil disables both.
@@ -247,12 +248,14 @@ struct AppShellCenterColumn: View {
           host: mvm.server.cacheHostKey,
           onSelectPlace: onSelectMapPlace
         )
+        .modifier(FloatingBrowseHeader(model: browseHeader))
       } else if let reason = mapUnavailableReason {
         // `.map` is selected but not ready — a real empty state
         // (#2848) instead of falling through to the Timeline/grid
         // branches below, which would otherwise render silently
         // under a "Map" title with nothing explaining why.
         MapEmptyState(reason: reason, onSignIn: onSignInForMap)
+          .modifier(FloatingBrowseHeader(model: browseHeader))
       } else if let allVM = allSourcesTimelineVM,
         let thumbCache = allSourcesTimelineThumbCache
       {
@@ -263,6 +266,7 @@ struct AppShellCenterColumn: View {
           onSelectAsset: onSelectCloudAsset,
           onSelectLocalAsset: onSelectLocalAsset
         )
+        .modifier(FloatingBrowseHeader(model: browseHeader))
       } else if let vm = cloudTimelineVM,
         let thumbClient = cloudTimelineThumbClient,
         let thumbCache = cloudTimelineThumbCache
@@ -275,6 +279,7 @@ struct AppShellCenterColumn: View {
           onSelectAsset: { asset in onSelectCloudAsset(asset, vm.server) },
           onSelectLocalAsset: onSelectLocalAsset
         )
+        .modifier(FloatingBrowseHeader(model: browseHeader))
       } else {
         // Responsive-program S2 (#623): on phone, the Library tab
         // renders the new responsive 3-col edge-bleed grid with
