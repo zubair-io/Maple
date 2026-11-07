@@ -81,11 +81,22 @@ test('mounted owner backup routes retain folder scope and protect recovery detai
       destination: {
         id: string;
         enabled: boolean;
-        status: { pending: number };
+        status: Record<string, unknown>;
       };
     };
     expect(destination.enabled).toBe(false);
-    expect(destination.status.pending).toBe(1);
+    expect(destination.status).toEqual({
+      pending: 1,
+      missing: 0,
+      prepared: 0,
+      verified: 0,
+      trash: 0,
+      blocked: 0,
+      bytes: 0,
+      lastError: null,
+      lastErrorCount: 0,
+      purgePending: 0,
+    });
     const repo = new BackupRepository(live.handle);
     const second = await repo.createDestination({
       libraryId: otherLibrary,
