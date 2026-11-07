@@ -7,6 +7,7 @@ import {
   FLOW_TTL,
   GOOGLE_CALLBACK_PATH,
   publicConfig,
+  withoutCredentials,
 } from '../cloud-backup/google/config.ts';
 import { loadConnection, reserveRoot, saveConfig } from '../cloud-backup/google/repo.ts';
 import {
@@ -231,7 +232,7 @@ export function buildGoogleBackupRoutes(deps: GoogleRouteDependencies) {
         if (
           !(await saveConfig(
             params.destinationId,
-            { ...current.config, refreshToken: null, relayGrant: null },
+            withoutCredentials(current.config),
             current.epoch,
           ))
         )

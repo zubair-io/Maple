@@ -1,13 +1,15 @@
-import { GoogleConnectionError } from './config.ts';
 import { createHash, randomBytes } from 'node:crypto';
 import { sqliteDb } from '../../db/repos/db-handle.ts';
 import {
   DRIVE_SCOPE,
   FLOW_TTL,
+  GoogleConnectionError,
   RELAY_CALLBACK,
   RELAY_ORIGIN,
   callbackUrl,
+  reconnectMessage,
   validateDirectCallback,
+  withoutCredentials,
 } from './config.ts';
 import {
   loadConnection,
@@ -215,14 +217,12 @@ async function startConnection(
     if (
       !(await saveConfig(
         id,
-        {
+        withoutCredentials({
           ...connection.config,
           clientId,
           clientSecret: '',
           callbackMode: 'relay',
-          refreshToken: null,
-          relayGrant: null,
-        },
+        }),
         connection.epoch,
         null,
       ))
@@ -302,6 +302,7 @@ export async function finishGoogleFlow(
       ...account,
       refreshToken: tokens.refreshToken,
       relayGrant: connection.config.clientMode === 'maple' ? tokens.relayGrant : null,
+      disconnect: null,
     },
     flow.epoch,
   );
@@ -371,8 +372,12 @@ async function renewAccessToken(
   try {
     // Read after claiming: another process may have rotated the grant while we waited.
     const connection = await loadConnection(id);
-    if (connection.epoch !== epoch || !connection.config.refreshToken)
-      throw new GoogleConnectionError('Reconnect Google Drive to resume backup.');
+    if (connection.epoch !== epoch)
+      throw new GoogleConnectionError(
+        'Google Drive was reconnected; retry with the new connection.',
+      );
+    if (!connection.config.refreshToken)
+      throw new GoogleConnectionError(reconnectMessage(connection.config.disconnect));
     return await renewWithLease(id, connection, lease, transport);
   } finally {
     await releaseRefresh(id, lease);
@@ -407,16 +412,17 @@ async function renewWithLease(
     });
     return tokens.accessToken;
   } catch (error) {
-    if (error instanceof GoogleReconnectRequired) {
-      await commitTokens(
-        id,
-        { ...connection.config, refreshToken: null, relayGrant: null },
-        connection.epoch,
-        lease,
-      );
-      cache.delete(id);
-    }
-    throw error;
+    if (!(error instanceof GoogleReconnectRequired)) throw error;
+    const disconnect = { reason: error.reason, at: Date.now() };
+    await commitTokens(
+      id,
+      withoutCredentials(connection.config, disconnect),
+      connection.epoch,
+      lease,
+    );
+    cache.delete(id);
+    // Every entry parked from here on records this same cause, not a generic reconnect.
+    throw new GoogleReconnectRequired(reconnectMessage(disconnect), error.reason);
   }
 }
 
@@ -441,6 +447,7 @@ function renewTokens(connection: Connection, transport: GoogleFetch) {
     if (!connection.config.relayGrant)
       throw new GoogleReconnectRequired(
         'Maple authorization is unavailable; reconnect Google Drive.',
+        'missing_grant',
       );
     return managedTokens(
       'refresh',

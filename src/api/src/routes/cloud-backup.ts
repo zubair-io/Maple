@@ -15,6 +15,8 @@ import { ObjectId } from '../db/object-id.ts';
 import type { BackupDestination, BackupRepository } from '../cloud-backup/repository.ts';
 import { resumeRecoveryJob } from '../cloud-backup/recovery-jobs.ts';
 import { removedDestinationStatements } from '../cloud-backup/destination-removal.ts';
+import { loadConnection } from '../cloud-backup/google/repo.ts';
+import { connectionState } from '../cloud-backup/google/config.ts';
 
 class BackupRequestError extends Error {
   readonly status = 400;
@@ -118,6 +120,9 @@ async function projection(row: BackupDestination) {
   if (!coverage) throw new Error('Backup coverage query failed');
   return {
     ...row,
+    ...(row.kind === 'google-drive'
+      ? { connection: connectionState((await loadConnection(row.id)).config) }
+      : {}),
     status: {
       pending: row.kind === 'google-drive' ? coverage.pending : status.pending,
       missing: coverage.missing,
