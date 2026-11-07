@@ -20,29 +20,32 @@ extension AutoProfileLUT {
     let dimension: Int
   }
 
-  /// The cached cube is reused across renders, so a slider tick reads its
-  /// lattice once instead of rebuilding it from the cube data each time.
-  private final class LatticeMemo: @unchecked Sendable {
-    private let lock = NSLock()
-    private weak var filter: CIFilter?
-    private var lattice: Lattice?
+  /// The lattice a filter `makeFilter(from:)` minted was baked from, held by
+  /// the filter itself. A cache hit mints a fresh filter per render (#844), so
+  /// the lattice rides each filter and hands back the cached cube's own
+  /// storage, never a repack; it is released with the filter.
+  enum MintedLattices {
+    private final class Box {
+      let lattice: Lattice
+      init(_ lattice: Lattice) { self.lattice = lattice }
+    }
 
-    func lattice(of filter: CIFilter, read: (CIFilter) -> Lattice?) -> Lattice? {
-      lock.lock()
-      defer { lock.unlock() }
-      if self.filter === filter, let lattice { return lattice }
-      let fresh = read(filter)
-      (self.filter, self.lattice) = (filter, fresh)
-      return fresh
+    private static var key: UInt8 = 0
+
+    static func register(_ lattice: Lattice, for filter: CIFilter) {
+      objc_setAssociatedObject(filter, &key, Box(lattice), .OBJC_ASSOCIATION_RETAIN)
+    }
+
+    static func lattice(for filter: CIFilter) -> Lattice? {
+      (objc_getAssociatedObject(filter, &key) as? Box)?.lattice
     }
   }
 
-  private static let latticeMemo = LatticeMemo()
-
   /// The lattice of a cube minted by `makeFilter(from:)`, or `nil` when the
-  /// filter carries no readable cube.
+  /// filter carries no readable cube. A filter minted elsewhere is read back
+  /// from its cube data.
   nonisolated static func lattice(of filter: CIFilter) -> Lattice? {
-    latticeMemo.lattice(of: filter, read: readLattice)
+    MintedLattices.lattice(for: filter) ?? readLattice(of: filter)
   }
 
   private nonisolated static func readLattice(of filter: CIFilter) -> Lattice? {
