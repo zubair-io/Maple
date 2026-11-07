@@ -11,12 +11,12 @@ import {
   sidecarAlreadyCarried,
   publishBytesExclusive,
   sidecarStemClaimedBySibling,
+  replaceIfHolds,
   writeVerifiedTemp,
 } from '../../fs/sidecar-ownership.ts';
 import { readSidecarBytes, SidecarNotRegularFileError } from '../../fs/sidecar-bytes.ts';
 import {
   PublishCollisionError,
-  privateSiblingOf,
   publishExclusive,
   type RelocatePublication,
 } from '../../fs/relocate-publish.ts';
@@ -157,47 +157,15 @@ async function replaceSnapshotAtDest(carried: CarriedSidecar, late: Buffer): Pro
   // Staged first, so readers find no sidecar only between the rename and the link.
   const tmp = await writeVerifiedTemp(carried.dest, late);
   try {
-    await swapIfSnapshot(carried, tmp, late);
+    const replaced = await replaceIfHolds(carried.dest, carried.snapshot, tmp, (aside) =>
+      atFreeConflictName(carried.primary, async (conflict) => {
+        await publishExclusive(aside, conflict);
+      }),
+    );
+    if (!replaced) await publishConflictCopy(carried, late);
   } finally {
     await fs.unlink(tmp).catch(() => {});
   }
-}
-
-async function swapIfSnapshot(carried: CarriedSidecar, tmp: string, late: Buffer): Promise<void> {
-  const aside = privateSiblingOf(carried.dest);
-  await fs.rename(carried.dest, aside);
-  const moved = await readSidecarBytes(aside).catch(() => null);
-  if (!moved?.equals(carried.snapshot)) {
-    await putBack(carried, aside);
-    return publishConflictCopy(carried, late);
-  }
-  const published = await publishExclusive(tmp, carried.dest).then(
-    () => true,
-    async (err: unknown) => {
-      if (err instanceof PublishCollisionError) return false;
-      await putBack(carried, aside);
-      throw err;
-    },
-  );
-  await fs.unlink(aside).catch(() => {});
-  if (!published) await publishConflictCopy(carried, late);
-}
-
-/** Return the moved-aside file to `dest`, or beside it when a writer took `dest` meanwhile. */
-async function putBack(carried: CarriedSidecar, aside: string): Promise<void> {
-  await publishExclusive(aside, carried.dest)
-    .catch((err: unknown) => {
-      if (!(err instanceof PublishCollisionError)) throw err;
-      return atFreeConflictName(carried.primary, (conflict) => publishExclusive(aside, conflict));
-    })
-    .catch((err: unknown) => {
-      log.error(
-        { aside, dest: carried.dest, err: err instanceof Error ? err.message : err },
-        'refile: a sidecar moved aside could not be put back — kept at the aside path',
-      );
-      throw err;
-    });
-  await fs.unlink(aside).catch(() => {});
 }
 
 /** Retire the source once the row points at the new path. A failure keeps it. */

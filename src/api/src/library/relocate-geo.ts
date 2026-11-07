@@ -108,14 +108,18 @@ async function carryLateToSurvivor(sourceAbsPath: string, survivor: string): Pro
     publications: [],
   });
   for (const moved of late) {
-    await settleCarriedSidecar(moved.source, moved.dest, moved.snapshot, moved.keepSource).catch(
-      (err: unknown) => {
-        log.warn(
-          { source: moved.source, err: err instanceof Error ? err.message : err },
-          'relocateGeoAsset: late sidecar settle failed — source kept',
-        );
-      },
-    );
+    await settleCarriedSidecar(
+      moved.source,
+      moved.dest,
+      moved.snapshot,
+      moved.keepSource,
+      survivor,
+    ).catch((err: unknown) => {
+      log.warn(
+        { source: moved.source, err: err instanceof Error ? err.message : err },
+        'relocateGeoAsset: late sidecar settle failed — source kept',
+      );
+    });
   }
 }
 

@@ -134,6 +134,7 @@ async function removeSources(
           entry.destination,
           snapshot,
           sidecarClaimedInTrash && !isLegacyBackupSidecarOf(primary!.source, entry.source),
+          primary!.destination,
         )
       : fs.unlink(entry.source);
     await removal.catch((error) => {

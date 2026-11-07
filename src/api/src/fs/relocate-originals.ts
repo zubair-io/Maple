@@ -37,7 +37,7 @@ export async function deleteOriginals(
     ...movedSidecars.map((moved) => ({
       src: moved.source,
       remove: () =>
-        settleCarriedSidecar(moved.source, moved.dest, moved.snapshot, moved.keepSource),
+        settleCarriedSidecar(moved.source, moved.dest, moved.snapshot, moved.keepSource, movedTo),
     })),
     ...movedCompanionSources.map((src) => ({ src, remove: () => fs.unlink(src) })),
   ];
