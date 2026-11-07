@@ -48,7 +48,7 @@ import {
 } from '../fs/relocate-publish.ts';
 import { resolveBackupLocation } from '../backup/ingest-geocode.ts';
 import { isScreenshotFilename } from '../indexer/screenshot.ts';
-import { backupSessionsRepo } from '../db/backup-sessions.repo.ts';
+import type { ProgressArgs } from '../db/repos/backup-sessions.repo.ts';
 import { child as childLogger } from '../log.ts';
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -380,6 +380,7 @@ export const backupIngestRoutes = new Elysia().post(
         existing.alreadyLinked && (liveRelPath ?? existing.missingRelPathInLibrary) !== null
           ? 0
           : 1;
+      const progress: ProgressArgs = { libraryId, deviceId, uploadedDelta, failedDelta: 0 };
       const liveOnDisk =
         liveRelPath !== null && (await holdsUpload(folder.path, liveRelPath, tmpFile));
 
@@ -388,7 +389,7 @@ export const backupIngestRoutes = new Elysia().post(
         // bytes; the canonical copy already lives at this library's location.
         // Linking this device to the existing row is idempotent on retry.
         if (!existing.alreadyLinked) {
-          if (!(await linkPhasset(existing.id, link))) return refusePurged();
+          if (!(await linkPhasset(existing.id, link, undefined, progress))) return refusePurged();
         }
         try {
           await fs.unlink(tmpFile);
@@ -401,12 +402,6 @@ export const backupIngestRoutes = new Elysia().post(
           sessionId: session._id,
           mapleId,
           resolvedRelPath: liveRelPath,
-        });
-        await backupSessionsRepo.upsertProgress({
-          libraryId,
-          deviceId,
-          uploadedDelta,
-          failedDelta: 0,
         });
         log.debug({ phid, mapleId, dedup: true }, 'ingest complete (dedup, same library)');
         set.status = 200;
@@ -447,6 +442,7 @@ export const backupIngestRoutes = new Elysia().post(
         link: existing.alreadyLinked ? null : link,
         ownerId,
         replacedRelPath: liveRelPath ?? existing.missingRelPathInLibrary,
+        progress,
       });
       if (!appended) {
         if (placed.published) await revertCreated([placed.published]);
@@ -457,12 +453,6 @@ export const backupIngestRoutes = new Elysia().post(
         sessionId: session._id,
         mapleId,
         resolvedRelPath: resolvedTargetRelPath,
-      });
-      await backupSessionsRepo.upsertProgress({
-        libraryId,
-        deviceId,
-        uploadedDelta,
-        failedDelta: 0,
       });
       log.debug(
         {
@@ -508,14 +498,7 @@ export const backupIngestRoutes = new Elysia().post(
       isScreenshot,
       link,
       ownerId,
-    });
-
-    // Update per-device backup progress summary.
-    await backupSessionsRepo.upsertProgress({
-      libraryId,
-      deviceId,
-      uploadedDelta: 1,
-      failedDelta: 0,
+      progress: { libraryId, deviceId, uploadedDelta: 1, failedDelta: 0 },
     });
 
     log.debug({ phid, targetRelPath: resolvedTargetRelPath, mapleId }, 'ingest complete');
