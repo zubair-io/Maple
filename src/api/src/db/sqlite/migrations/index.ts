@@ -61,6 +61,7 @@ import { localPurgeObligationsMigration } from './0036-local-purge-obligations.t
 import { bundledEmbedderMigration } from './0037-bundled-embedder.ts';
 import { motionPhotoMigration } from './0038-motion-photo.ts';
 import { livePhotoMigration } from './0039-live-photo.ts';
+import { backupDestinationCountsMigration } from './0040-backup-destination-counts.ts';
 
 export const ALL_MIGRATIONS: readonly Migration[] = [
   initialSchemaMigration,
@@ -102,4 +103,5 @@ export const ALL_MIGRATIONS: readonly Migration[] = [
   bundledEmbedderMigration,
   motionPhotoMigration,
   livePhotoMigration,
+  backupDestinationCountsMigration,
 ];
