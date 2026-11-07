@@ -55,9 +55,30 @@ final class ProcessSceneLinearP3AutoTests: XCTestCase {
 
   func testLatticeRoundTripsThroughTheCubeFilter() throws {
     let lut = Self.lattice(dimension: 9, warmth: 0.04)
-    let lattice = try XCTUnwrap(AutoProfileLUT.lattice(of: try Self.filter(lut, dimension: 9)))
-    XCTAssertEqual(lattice.dimension, 9)
-    XCTAssertEqual(lattice.rgb, lut)
+    let minted = try Self.filter(lut, dimension: 9)
+    let copied = try XCTUnwrap(minted.copy() as? CIFilter)
+    for filter in [minted, copied] {
+      let lattice = try XCTUnwrap(AutoProfileLUT.lattice(of: filter))
+      XCTAssertEqual(lattice.dimension, 9)
+      XCTAssertEqual(lattice.rgb, lut)
+    }
+  }
+
+  /// A cache hit mints a fresh filter per render from the same cached cube;
+  /// every one must hand back the cached lattice storage, not a repack.
+  func testFiltersMintedFromOneCubeShareItsLatticeStorage() throws {
+    let cube = try XCTUnwrap(
+      AutoProfileLUT.buildCubeFromLUT(Self.lattice(dimension: 9, warmth: 0.04), dimension: 9))
+    let first = try XCTUnwrap(AutoProfileLUT.makeFilter(from: cube))
+    let second = try XCTUnwrap(AutoProfileLUT.makeFilter(from: cube))
+    XCTAssertFalse(first === second)
+    let storage = { (filter: CIFilter) throws -> UnsafePointer<Float>? in
+      try XCTUnwrap(AutoProfileLUT.lattice(of: filter)).rgb
+        .withUnsafeBufferPointer { $0.baseAddress }
+    }
+    let cached = cube.lattice.rgb.withUnsafeBufferPointer { $0.baseAddress }
+    XCTAssertEqual(try storage(first), cached)
+    XCTAssertEqual(try storage(second), cached)
   }
 
   func testP3CanvasTakesTheP3AutoRouteAndSRGBStaysOnTheCube() throws {

@@ -68,10 +68,12 @@ public actor AutoProfileLUT {
     }
 
     /// Immutable baked cube for one image, ready to mint a fresh `CIFilter`.
-    /// `data` is the RGBA-float cube body; `dimension` is the cube edge.
+    /// `data` is the RGBA-float cube body; `dimension` is the cube edge;
+    /// `lattice` is the same tail as RGB, cached for the P3 Auto encode (#4741).
     struct CubeData {
         let data: Data
         let dimension: Int
+        let lattice: Lattice
     }
 
     /// A cached entry. `.absent` is an EXPLICIT negative cache — the fit failed
@@ -222,7 +224,9 @@ public actor AutoProfileLUT {
             cube[i * 4 + 2] = lut[i * 3 + 2]
             cube[i * 4 + 3] = 1.0
         }
-        return CubeData(data: cube.withUnsafeBytes { Data($0) }, dimension: n)
+        return CubeData(
+            data: cube.withUnsafeBytes { Data($0) }, dimension: n,
+            lattice: Lattice(rgb: lut, dimension: n))
     }
 
     /// Bake a serialized `ProfileCurve` (`PROFILE_CURVE_FLAT_LEN` f32) into a
@@ -262,6 +266,7 @@ public actor AutoProfileLUT {
         filter.setValue(cube.dimension, forKey: "inputCubeDimension")
         filter.setValue(cube.data, forKey: "inputCubeData")
         filter.setValue(cubeColorSpace, forKey: "inputColorSpace")
+        MintedLattices.register(cube.lattice, for: filter)
         return filter
     }
 
