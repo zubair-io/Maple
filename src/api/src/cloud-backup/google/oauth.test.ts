@@ -497,3 +497,67 @@ test('a connect whose follow-up work fails is never reported as complete', async
   await expect(finished).rejects.toThrow('Drive folder creation failed.');
   expect(await completedGoogleFlowDestination(state)).toBeNull();
 });
+
+test('two callbacks fired together both report the one connect; a wrong cookie never owns it', async () => {
+  const { db, owner } = await setup();
+  using _handle = db;
+  const mock = googleMock();
+  const flow = await startGoogleFlow(
+    destination,
+    owner,
+    'https://photos.example.com',
+    mock.transport,
+  );
+  const state = new URL(flow.authorizationUrl).searchParams.get('state')!;
+  const visit = (cookie: string) =>
+    finishGoogleFlow(state, cookie, 'code', false, 'https://photos.example.com', mock.transport);
+  const outcome = (attempt: Promise<{ destinationId: string }>) =>
+    attempt.then(
+      ({ destinationId }) => ({ owner: true, destinationId }),
+      async (error) => {
+        expect(error).toBeInstanceOf(GoogleFlowUnavailable);
+        return { owner: false, destinationId: await completedGoogleFlowDestination(state) };
+      },
+    );
+  const [wrongCookie, ...results] = await Promise.allSettled([
+    visit('A'.repeat(43)),
+    outcome(visit(flow.cookie)),
+    outcome(visit(flow.cookie)),
+  ]);
+  expect(wrongCookie.status === 'rejected' && wrongCookie.reason).toBeInstanceOf(
+    GoogleFlowUnavailable,
+  );
+  const settled = results.map((result) => (result.status === 'fulfilled' ? result.value : null));
+  expect(settled.map((result) => result?.destinationId)).toEqual([destination, destination]);
+  expect(settled.filter((result) => result?.owner)).toHaveLength(1);
+  expect(mock.requests.filter((request) => request.url.endsWith('/token'))).toHaveLength(1);
+  expect(await outcome(visit(''))).toEqual({ owner: false, destinationId: destination });
+});
+
+test('a wrong-cookie callback for a flow nobody completed reports nothing, without waiting', async () => {
+  const { db, owner } = await setup();
+  using _handle = db;
+  const mock = googleMock();
+  const flow = await startGoogleFlow(
+    destination,
+    owner,
+    'https://photos.example.com',
+    mock.transport,
+  );
+  const state = new URL(flow.authorizationUrl).searchParams.get('state')!;
+  await expect(
+    finishGoogleFlow(state, 'A'.repeat(43), 'code', false, 'https://photos.example.com'),
+  ).rejects.toThrow(GoogleFlowUnavailable);
+  const started = Date.now();
+  expect(await completedGoogleFlowDestination(state)).toBeNull();
+  expect(Date.now() - started).toBeLessThan(1_000);
+  await finishGoogleFlow(
+    state,
+    flow.cookie,
+    'code',
+    false,
+    'https://photos.example.com',
+    mock.transport,
+  );
+  expect(await completedGoogleFlowDestination(state)).toBe(destination);
+});

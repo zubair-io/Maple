@@ -139,12 +139,23 @@ export async function savePending(flow: PendingFlow): Promise<void> {
       'Google destination or configuration changed; start Connect again.',
     );
 }
-export async function consumePending(state: string, cookieHash: string): Promise<PendingFlow> {
-  const [row] = await sqliteDb().read<{ nonce: string; payload: string }>(
+export interface PendingRow {
+  nonce: string;
+  payload: string;
+}
+/** Reads, without consuming, the live flow bound to this exact state and browser cookie. */
+export async function findPending(state: string, cookieHash: string): Promise<PendingRow | null> {
+  const [row] = await sqliteDb().read<PendingRow>(
     'SELECT nonce, payload FROM backup_google_oauth WHERE state = ? AND cookie_hash = ? AND expires_at > ?',
     [state, cookieHash, Date.now()],
   );
-  if (!row) throw new GoogleFlowUnavailable();
+  return row ?? null;
+}
+export async function consumePending(
+  row: PendingRow,
+  state: string,
+  cookieHash: string,
+): Promise<PendingFlow> {
   const removed = await sqliteDb().write(
     `DELETE FROM backup_google_oauth WHERE nonce = ?
     AND state = ? AND cookie_hash = ? AND expires_at > ?`,

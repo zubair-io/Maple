@@ -16,6 +16,7 @@ import {
   loadConnection,
   savePending,
   consumePending,
+  findPending,
   commitTokens,
   claimRefresh,
   releaseRefresh,
@@ -252,15 +253,26 @@ export async function finishGoogleFlow(
   if (!validCallbackState(state) || (code !== null && (code.length < 1 || code.length > 4096)))
     throw new GoogleConnectionError('Invalid Google callback.');
   if (!/^[A-Za-z0-9_-]{43}$/.test(cookie)) throw new GoogleFlowUnavailable();
-  const flow = await consumePending(state, hashCookie(cookie));
-  const rootId = flow.rootId ?? null;
-  const connect = exchangeFlow(flow, code, denied, currentOrigin, transport).then(async (epoch) => {
-    await attach(flow.destinationId, rootId);
-    return epoch;
+  const cookieHash = hashCookie(cookie);
+  const row = await findPending(state, cookieHash);
+  if (!row) throw new GoogleFlowUnavailable();
+  // Only the browser holding the flow's cookie may own its outcome, and it claims ownership
+  // synchronously after that check, so a duplicate can never find the outcome missing.
+  const owned = claimConnect(state);
+  if (!owned) throw new GoogleFlowUnavailable();
+  const connect = consumePending(row, state, cookieHash).then(async (flow) => {
+    const epoch = await exchangeFlow(flow, code, denied, currentOrigin, transport);
+    await attach(flow.destinationId, flow.rootId ?? null);
+    return { destinationId: flow.destinationId, rootId: flow.rootId ?? null, epoch };
   });
-  trackConnect(state, flow.destinationId, connect);
-  await connect;
-  return { destinationId: flow.destinationId, rootId };
+  owned.resolve(
+    connect.then(
+      ({ destinationId, epoch }) => ({ destinationId, epoch }),
+      () => null,
+    ),
+  );
+  const { destinationId, rootId } = await connect;
+  return { destinationId, rootId };
 }
 
 async function exchangeFlow(
@@ -332,10 +344,8 @@ async function exchangeFlow(
 const validCallbackState = (state: string) => state.length > 0 && state.length <= 8192;
 const hashState = (state: string) => createHash('sha256').update(`state:${state}`).digest('hex');
 const REPEAT_WAIT_MS = 30_000;
-const connects = new Map<
-  string,
-  { expires: number; outcome: Promise<{ destinationId: string; epoch: number } | null> }
->();
+type ConnectOutcome = { destinationId: string; epoch: number } | null;
+const connects = new Map<string, { expires: number; outcome: Promise<ConnectOutcome> }>();
 
 /** Runs after the new credentials are saved; a connect only counts as complete once it resolves. */
 export type AttachGoogleConnection = (
@@ -343,17 +353,16 @@ export type AttachGoogleConnection = (
   rootId: string | null,
 ) => Promise<void>;
 
-/** Keeps each consumed flow's outcome so a repeated visit to its callback can report it (#5706). */
-function trackConnect(state: string, destinationId: string, connect: Promise<number>): void {
+/** Claims the outcome slot of a state for the request that is about to consume its flow (#5706).
+ * Returns null when another request already owns that state's connect. */
+function claimConnect(state: string): PromiseWithResolvers<ConnectOutcome> | null {
   const now = Date.now();
   for (const [key, entry] of connects) if (entry.expires <= now) connects.delete(key);
-  connects.set(hashState(state), {
-    expires: now + FLOW_TTL,
-    outcome: connect.then(
-      (epoch) => ({ destinationId, epoch }),
-      () => null,
-    ),
-  });
+  const key = hashState(state);
+  if (connects.has(key)) return null;
+  const outcome = Promise.withResolvers<ConnectOutcome>();
+  connects.set(key, { expires: now + FLOW_TTL, outcome: outcome.promise });
+  return outcome;
 }
 
 async function within<T>(work: Promise<T>, ms: number): Promise<T | null> {
