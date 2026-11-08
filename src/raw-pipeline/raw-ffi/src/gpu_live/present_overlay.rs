@@ -79,6 +79,20 @@ pub unsafe extern "C" fn maple_gpu_present_crop_overlay(
     })
 }
 
+/// Release the cached overlay surface drawn under `surface_generation`, if it
+/// is still the cached one. Call when that overlay layer is torn down: the
+/// surface holds a reference to the layer and its drawables until released
+/// or replaced. Returns 0, or 99 for a contained panic.
+#[no_mangle]
+pub extern "C" fn maple_gpu_release_crop_overlay(surface_generation: u64) -> i32 {
+    catch_panic_rc("gpu_release_crop_overlay", || {
+        if let Some(state) = lock_shared().as_mut() {
+            raw_gpu::release_overlay_surface(&mut state.overlay_surface, surface_generation);
+        }
+        0
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -112,5 +126,10 @@ mod tests {
             maple_gpu_present_crop_overlay(Default::default(), std::ptr::null_mut(), 0, 4, 4)
         };
         assert_eq!(rc, -1);
+    }
+
+    #[test]
+    fn releasing_an_unknown_generation_is_harmless() {
+        assert_eq!(maple_gpu_release_crop_overlay(u64::MAX), 0);
     }
 }

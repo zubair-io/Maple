@@ -195,7 +195,9 @@ pub fn crop_overlay(input: CropOverlayInput) -> CanvasOverlay {
                 .into_iter()
                 .map(|y| corners(x0, y - grid_half, x1, y + grid_half)),
         )
-        .fold(overlay, |acc, rect| acc.with(fill(rect, white(CROP_GRID_ALPHA))));
+        .fold(overlay, |acc, rect| {
+            acc.with(fill(rect, white(CROP_GRID_ALPHA)))
+        });
     [(x0, y0), (x1, y0), (x0, y1), (x1, y1)]
         .into_iter()
         .fold(gridded, |acc, (x, y)| {
@@ -392,11 +394,17 @@ fn rasterize_row(overlay: &CanvasOverlay, width: u32, y: u32, row: &mut [u8]) {
             .iter()
             .zip(varies_per_pixel)
             .any(|(primitive, varies)| varies && disc_reaches(primitive, start, end));
+        let run = &mut row[start as usize * 4..end as usize * 4];
         if per_pixel {
-            (start..end).for_each(|x| write_pixel(row, x, overlay_pixel(overlay, x, y)));
+            run.chunks_exact_mut(4)
+                .zip(start..end)
+                .for_each(|(pixel, x)| {
+                    pixel.copy_from_slice(&overlay_pixel(overlay, x, y).map(unorm8))
+                });
         } else {
-            let value = overlay_pixel(overlay, start, y);
-            (start..end).for_each(|x| write_pixel(row, x, value));
+            let bytes = overlay_pixel(overlay, start, y).map(unorm8);
+            run.chunks_exact_mut(4)
+                .for_each(|pixel| pixel.copy_from_slice(&bytes));
         }
     }
 }
@@ -423,11 +431,6 @@ fn clamp_column(x: f32, width: u32) -> u32 {
     } else {
         x as u32
     }
-}
-
-fn write_pixel(row: &mut [u8], x: u32, value: [f32; 4]) {
-    let at = x as usize * 4;
-    row[at..at + 4].copy_from_slice(&value.map(unorm8));
 }
 
 #[cfg(test)]

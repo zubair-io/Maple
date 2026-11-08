@@ -9,7 +9,9 @@
 //
 // Redraws run on a serial queue so the GPU lock or a drawable wait never
 // blocks the main thread, and coalesce: while one redraw is in flight only
-// the latest input is kept.
+// the latest input is kept. A failed GPU frame is redrawn on the CPU; the
+// layer switches to the CPU for good only when the GPU is unavailable or
+// fails three frames in a row.
 
 import MapleCore
 import QuartzCore
@@ -28,7 +30,10 @@ final class CropOverlayLayerController {
   let cpuLayer = CALayer()
   private let generation = CropOverlaySurface.nextGeneration()
   private let queue = DispatchQueue(label: "app.justmaple.crop-overlay", qos: .userInteractive)
+  private let rasterPool = CropOverlayRasterPool()
   private var useGpu: Bool
+  private var consecutiveGpuFailures = 0
+  private var released = false
   private var pending: CropOverlayInput?
   private var submitted: CropOverlayInput?
   private var inFlight = false
@@ -62,11 +67,12 @@ final class CropOverlayLayerController {
   }
 
   private func drainIfIdle() {
-    guard !inFlight, let input = pending else { return }
+    guard !released, !inFlight, let input = pending else { return }
     pending = nil
     submitted = input
     inFlight = true
-    let target = RedrawTarget(layer: metalLayer, generation: generation, useGpu: useGpu)
+    let target = RedrawTarget(
+      layer: metalLayer, generation: generation, useGpu: useGpu, rasterPool: rasterPool)
     queue.async { [weak self] in
       let outcome = target.draw(input)
       DispatchQueue.main.async {
@@ -78,26 +84,49 @@ final class CropOverlayLayerController {
   private func finish(_ input: CropOverlayInput, _ outcome: RedrawOutcome) {
     inFlight = false
     switch outcome {
-    case .gpuPresented:
-      break
+    case .gpu(.presented):
+      consecutiveGpuFailures = 0
+      showGpu()
+    case .gpu(let failure):
+      consecutiveGpuFailures += 1
+      useGpu = failure != .unavailable && consecutiveGpuFailures < 3
+      showCpu(rasterPool.rasterize(input))
     case .cpuImage(let image):
-      CATransaction.begin()
-      CATransaction.setDisableActions(true)
-      cpuLayer.contents = image
-      CATransaction.commit()
-    case .gpuFailed:
-      useGpu = false
-      metalLayer.isHidden = true
-      cpuLayer.isHidden = false
-      pending = pending ?? input
+      showCpu(image)
     }
     drainIfIdle()
+  }
+
+  /// Tear down: stop redrawing and, behind any in-flight present, release the
+  /// GPU surface, which retains this controller's layer.
+  func release() {
+    released = true
+    pending = nil
+    let generation = generation
+    queue.async { CropOverlaySurface.releaseGpu(generation: generation) }
+  }
+
+  private func showGpu() {
+    CATransaction.begin()
+    CATransaction.setDisableActions(true)
+    metalLayer.isHidden = false
+    cpuLayer.isHidden = true
+    cpuLayer.contents = nil
+    CATransaction.commit()
+  }
+
+  private func showCpu(_ image: CGImage?) {
+    CATransaction.begin()
+    CATransaction.setDisableActions(true)
+    cpuLayer.contents = image
+    cpuLayer.isHidden = false
+    metalLayer.isHidden = true
+    CATransaction.commit()
   }
 }
 
 private enum RedrawOutcome: @unchecked Sendable {
-  case gpuPresented
-  case gpuFailed
+  case gpu(CropOverlaySurface.GpuPresentResult)
   case cpuImage(CGImage?)
 }
 
@@ -108,11 +137,11 @@ private struct RedrawTarget: @unchecked Sendable {
   let layer: CAMetalLayer
   let generation: UInt64
   let useGpu: Bool
+  let rasterPool: CropOverlayRasterPool
 
   func draw(_ input: CropOverlayInput) -> RedrawOutcome {
-    guard useGpu else { return .cpuImage(CropOverlaySurface.rasterize(input)) }
-    return CropOverlaySurface.presentGpu(input, layer: layer, generation: generation)
-      ? .gpuPresented : .gpuFailed
+    guard useGpu else { return .cpuImage(rasterPool.rasterize(input)) }
+    return .gpu(CropOverlaySurface.presentGpu(input, layer: layer, generation: generation))
   }
 }
 
@@ -130,6 +159,10 @@ private struct RedrawTarget: @unchecked Sendable {
 
     func updateNSView(_ nsView: NSView, context: Context) {
       context.coordinator.update(input)
+    }
+
+    static func dismantleNSView(_ nsView: NSView, coordinator: CropOverlayLayerController) {
+      coordinator.release()
     }
 
     final class HostView: NSView {
@@ -163,6 +196,10 @@ private struct RedrawTarget: @unchecked Sendable {
 
     func updateUIView(_ uiView: UIView, context: Context) {
       context.coordinator.update(input)
+    }
+
+    static func dismantleUIView(_ uiView: UIView, coordinator: CropOverlayLayerController) {
+      coordinator.release()
     }
 
     final class HostView: UIView {

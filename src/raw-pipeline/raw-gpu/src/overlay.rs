@@ -247,8 +247,8 @@ pub fn render_overlay_offscreen(
         });
     pipeline.encode(ctx, &mut encoder, params, &view);
     let row_bytes = width * 4;
-    let padded = row_bytes.div_ceil(wgpu::COPY_BYTES_PER_ROW_ALIGNMENT)
-        * wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
+    let padded =
+        row_bytes.div_ceil(wgpu::COPY_BYTES_PER_ROW_ALIGNMENT) * wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
     let readback = ctx.device.create_buffer(&wgpu::BufferDescriptor {
         label: Some("canvas-overlay-readback"),
         size: u64::from(padded) * u64::from(height),
@@ -297,7 +297,7 @@ pub fn render_overlay_offscreen(
 #[path = "overlay/surface.rs"]
 mod surface;
 #[cfg(target_vendor = "apple")]
-pub use surface::{present_overlay_to_surface, PersistentOverlaySurface};
+pub use surface::{present_overlay_to_surface, release_overlay_surface, PersistentOverlaySurface};
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
 #[path = "overlay/tests.rs"]

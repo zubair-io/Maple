@@ -37,12 +37,13 @@ public struct CropOverlayInput: Equatable, Sendable {
     self.activeHandle = activeHandle
   }
 
-  /// The overlay surface's size in pixels; zero on an axis with no extent.
+  /// The overlay surface's size in pixels; zero on an axis with no extent
+  /// or past the 16384 px texture limit, which draws nothing.
   public var pixelSize: (width: Int, height: Int) {
     let scale = pixelScale.isFinite && pixelScale > 0 ? pixelScale : 1
     let pixels = { (points: CGFloat) -> Int in
       let value = (Double(points) * scale).rounded()
-      return value.isFinite && value >= 1 ? Int(min(value, 16384)) : 0
+      return value.isFinite && value >= 1 && value <= 16384 ? Int(value) : 0
     }
     return (pixels(viewport.width), pixels(viewport.height))
   }
@@ -83,31 +84,85 @@ public enum CropOverlaySurface {
     return lastGeneration
   }
 
-  /// Draw the overlay into `layer` on the GPU. Returns `false` when the GPU
-  /// path is unavailable; the caller then switches to `rasterize`.
-  public static func presentGpu(
-    _ input: CropOverlayInput, layer: CAMetalLayer, generation: UInt64
-  ) -> Bool {
-    let size = input.pixelSize
-    guard size.width > 0, size.height > 0 else { return true }
-    let layerPtr = Unmanaged.passUnretained(layer).toOpaque()
-    return maple_gpu_present_crop_overlay(
-      input.ffi, layerPtr, generation, UInt32(size.width), UInt32(size.height)) == 0
+  /// The outcome of one GPU overlay present.
+  public enum GpuPresentResult: Equatable, Sendable {
+    case presented
+    /// This frame failed (a drawable timeout, a lost surface); the next
+    /// present starts from a fresh surface.
+    case frameFailed
+    /// No GPU device: the GPU path will not work this process.
+    case unavailable
   }
 
-  /// Rasterize the overlay on the CPU into a premultiplied RGBA image the size
-  /// of `input.pixelSize`, or `nil` for an empty surface.
-  public static func rasterize(_ input: CropOverlayInput) -> CGImage? {
+  /// Draw the overlay into `layer` on the GPU.
+  public static func presentGpu(
+    _ input: CropOverlayInput, layer: CAMetalLayer, generation: UInt64
+  ) -> GpuPresentResult {
+    let size = input.pixelSize
+    guard size.width > 0, size.height > 0 else { return .presented }
+    let layerPtr = Unmanaged.passUnretained(layer).toOpaque()
+    switch maple_gpu_present_crop_overlay(
+      input.ffi, layerPtr, generation, UInt32(size.width), UInt32(size.height))
+    {
+    case 0: return .presented
+    case -5: return .unavailable
+    default: return .frameFailed
+    }
+  }
+
+  /// Release the GPU surface drawn under `generation`, which holds a
+  /// reference to its layer and drawables until released.
+  public static func releaseGpu(generation: UInt64) {
+    _ = maple_gpu_release_crop_overlay(generation)
+  }
+}
+
+/// CPU-fallback rasterization into a small pool of reused pixel buffers.
+///
+/// Each frame's `CGImage` wraps a pooled buffer through a data provider whose
+/// release callback hands the buffer back once Core Animation drops the
+/// image, so a buffer is never rewritten while an image still shows it and a
+/// redraw at a stable size allocates no pixel memory. Rows are padded to 64
+/// bytes for Core Animation's upload.
+public final class CropOverlayRasterPool: @unchecked Sendable {
+  private let lock = NSLock()
+  private var free: [UnsafeMutableRawPointer] = []
+  private var bufferLength = 0
+
+  public init() {}
+
+  deinit {
+    free.forEach { $0.deallocate() }
+  }
+
+  /// The overlay as a premultiplied RGBA image, or `nil` for an empty surface.
+  public func rasterize(_ input: CropOverlayInput) -> CGImage? {
     let size = input.pixelSize
     guard size.width > 0, size.height > 0 else { return nil }
-    let stride = size.width * 4
+    let stride = (size.width * 4 + 63) / 64 * 64
     let length = stride * size.height
-    guard let data = CFDataCreateMutable(nil, length) else { return nil }
-    CFDataSetLength(data, length)
+    let buffer = take(length: length)
     let rc = maple_canvas_crop_overlay_rasterize(
-      input.ffi, UInt32(size.width), UInt32(size.height), stride,
-      CFDataGetMutableBytePtr(data), length)
-    guard rc == 0, let provider = CGDataProvider(data: data) else { return nil }
+      input.ffi, UInt32(size.width), UInt32(size.height), UInt(stride),
+      buffer.assumingMemoryBound(to: UInt8.self), UInt(length))
+    guard rc == 0 else {
+      give(buffer, length: length)
+      return nil
+    }
+    let lease = Unmanaged.passRetained(RasterLease(pool: self, length: length)).toOpaque()
+    guard
+      let provider = CGDataProvider(
+        dataInfo: lease, data: buffer, size: length,
+        releaseData: { info, data, _ in
+          guard let info else { return }
+          let lease = Unmanaged<RasterLease>.fromOpaque(info).takeRetainedValue()
+          lease.pool.give(UnsafeMutableRawPointer(mutating: data), length: lease.length)
+        })
+    else {
+      Unmanaged<RasterLease>.fromOpaque(lease).release()
+      give(buffer, length: length)
+      return nil
+    }
     return CGImage(
       width: size.width, height: size.height, bitsPerComponent: 8, bitsPerPixel: 32,
       bytesPerRow: stride, space: CGColorSpace(name: CGColorSpace.sRGB)!,
@@ -115,5 +170,42 @@ public enum CropOverlaySurface {
         rawValue: CGImageAlphaInfo.premultipliedLast.rawValue
           | CGBitmapInfo.byteOrder32Big.rawValue),
       provider: provider, decode: nil, shouldInterpolate: false, intent: .defaultIntent)
+  }
+
+  /// Buffers held for reuse right now; for tests.
+  var pooledCount: Int {
+    lock.lock()
+    defer { lock.unlock() }
+    return free.count
+  }
+
+  private func take(length: Int) -> UnsafeMutableRawPointer {
+    lock.lock()
+    defer { lock.unlock() }
+    if length != bufferLength {
+      free.forEach { $0.deallocate() }
+      free.removeAll()
+      bufferLength = length
+    }
+    return free.popLast() ?? UnsafeMutableRawPointer.allocate(byteCount: length, alignment: 64)
+  }
+
+  fileprivate func give(_ buffer: UnsafeMutableRawPointer, length: Int) {
+    lock.lock()
+    defer { lock.unlock() }
+    if length == bufferLength, free.count < 3 {
+      free.append(buffer)
+    } else {
+      buffer.deallocate()
+    }
+  }
+}
+
+private final class RasterLease {
+  let pool: CropOverlayRasterPool
+  let length: Int
+  init(pool: CropOverlayRasterPool, length: Int) {
+    self.pool = pool
+    self.length = length
   }
 }
