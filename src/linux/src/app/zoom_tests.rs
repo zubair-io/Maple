@@ -387,3 +387,134 @@ fn imported_crop_perspective_and_dehaze_refine_at_native_zoom_without_writing() 
         xml
     );
 }
+
+struct ZoomFrame {
+    steps: Vec<f32>,
+    smoothed: f32,
+}
+
+fn zoom_frames(frames: Vec<Vec<egui::Event>>) -> Vec<ZoomFrame> {
+    let context = egui::Context::default();
+    frames
+        .into_iter()
+        .enumerate()
+        .map(|(index, events)| {
+            let input = egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(1000.0, 800.0),
+                )),
+                time: Some(index as f64 / 60.0),
+                events,
+                ..Default::default()
+            };
+            let mut frame = ZoomFrame {
+                steps: Vec::new(),
+                smoothed: 1.0,
+            };
+            let _ = context.run(input, |context| {
+                frame.steps = zoom::zoom_steps(context);
+                frame.smoothed = context.input(|i| i.zoom_delta());
+            });
+            frame
+        })
+        .collect()
+}
+
+fn wheel(unit: egui::MouseWheelUnit, delta_y: f32, modifiers: egui::Modifiers) -> egui::Event {
+    egui::Event::MouseWheel {
+        unit,
+        delta: egui::vec2(0.0, delta_y),
+        modifiers,
+    }
+}
+
+fn ctrl_notch(direction: f32) -> egui::Event {
+    wheel(egui::MouseWheelUnit::Line, direction, egui::Modifiers::CTRL)
+}
+
+fn below_fit_canvas() -> (zoom::CanvasGeometry, zoom::ZoomCanvas) {
+    let geometry = zoom::CanvasGeometry {
+        viewport: egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1000.0, 800.0)),
+        source: egui::vec2(6000.0, 4000.0),
+        pixels_per_point: 1.0,
+    };
+    let mut zoom = zoom::ZoomCanvas::default();
+    zoom.image_rect(&geometry);
+    zoom.zoom_at(0.9, geometry.viewport.center(), &geometry);
+    assert!(zoom.scale() > 0.0, "set up below fit");
+    (geometry, zoom)
+}
+
+fn one_notch_then_idle_frames() -> Vec<ZoomFrame> {
+    let mut frames = vec![vec![ctrl_notch(1.0)]];
+    frames.extend(std::iter::repeat_n(Vec::new(), 12));
+    zoom_frames(frames)
+}
+
+#[test]
+fn one_wheel_notch_toward_fit_from_below_stops_at_fit() {
+    let (geometry, mut zoom) = below_fit_canvas();
+    for factor in one_notch_then_idle_frames()
+        .into_iter()
+        .flat_map(|frame| frame.steps)
+    {
+        zoom.zoom_at(factor, geometry.viewport.center(), &geometry);
+        zoom.image_rect(&geometry);
+    }
+    assert_eq!(zoom.scale(), 0.0, "the notch lands on fit and stays there");
+}
+
+#[test]
+fn egui_smoothed_zoom_delta_would_carry_the_same_notch_past_fit() {
+    let (geometry, mut zoom) = below_fit_canvas();
+    let frames = one_notch_then_idle_frames();
+    assert!(
+        frames[1..].iter().any(|frame| frame.smoothed != 1.0),
+        "egui spreads one notch over later frames"
+    );
+    for frame in &frames {
+        if frame.smoothed != 1.0 {
+            zoom.zoom_at(frame.smoothed, geometry.viewport.center(), &geometry);
+            zoom.image_rect(&geometry);
+        }
+    }
+    assert!(zoom.scale() > 0.0, "the smoothed tail zooms past fit");
+}
+
+#[test]
+fn zoom_steps_are_one_per_wheel_event_and_pinch() {
+    let context = egui::Context::default();
+    let (line_speed, zoom_speed) = context.options(|o| (o.line_scroll_speed, o.scroll_zoom_speed));
+    let notch = (zoom_speed * line_speed).exp();
+    let steps: Vec<_> = zoom_frames(vec![
+        vec![ctrl_notch(1.0), ctrl_notch(-1.0)],
+        vec![egui::Event::Zoom(1.25)],
+        Vec::new(),
+    ])
+    .into_iter()
+    .map(|frame| frame.steps)
+    .collect();
+    assert_eq!(steps[0].len(), 2);
+    assert!((steps[0][0] - notch).abs() < 1e-5);
+    assert!((steps[0][1] - 1.0 / notch).abs() < 1e-5);
+    assert_eq!(steps[1], vec![1.25]);
+    assert!(steps[2].is_empty(), "no momentum after the events");
+}
+
+#[test]
+fn zoom_steps_cover_point_units_and_ignore_plain_and_shift_scroll() {
+    let steps = &zoom_frames(vec![vec![
+        wheel(egui::MouseWheelUnit::Point, 20.0, egui::Modifiers::CTRL),
+        wheel(egui::MouseWheelUnit::Line, 1.0, egui::Modifiers::NONE),
+        wheel(
+            egui::MouseWheelUnit::Line,
+            1.0,
+            egui::Modifiers::CTRL | egui::Modifiers::SHIFT,
+        ),
+    ]])[0]
+        .steps;
+    assert_eq!(steps.len(), 1);
+    let zoom_speed = egui::Context::default().options(|o| o.scroll_zoom_speed);
+    assert!((steps[0] - (20.0 * zoom_speed).exp()).abs() < 1e-5);
+}
