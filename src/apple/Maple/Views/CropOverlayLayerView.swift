@@ -9,9 +9,9 @@
 //
 // Redraws run on a serial queue so the GPU lock or a drawable wait never
 // blocks the main thread, and coalesce: while one redraw is in flight only
-// the latest input is kept. A failed GPU frame is redrawn on the CPU; the
-// layer switches to the CPU for good only when the GPU is unavailable or
-// fails three frames in a row.
+// the latest input is kept. A failed GPU frame is redrawn once on the CPU,
+// off the main thread; the layer switches to the CPU for good only when the
+// GPU is unavailable or fails three frames in a row.
 
 import MapleCore
 import QuartzCore
@@ -33,6 +33,7 @@ final class CropOverlayLayerController {
   private let rasterPool = CropOverlayRasterPool()
   private var useGpu: Bool
   private var consecutiveGpuFailures = 0
+  private var cpuForNextFrame = false
   private var released = false
   private var pending: CropOverlayInput?
   private var submitted: CropOverlayInput?
@@ -72,7 +73,9 @@ final class CropOverlayLayerController {
     submitted = input
     inFlight = true
     let target = RedrawTarget(
-      layer: metalLayer, generation: generation, useGpu: useGpu, rasterPool: rasterPool)
+      layer: metalLayer, generation: generation, useGpu: useGpu && !cpuForNextFrame,
+      rasterPool: rasterPool)
+    cpuForNextFrame = false
     queue.async { [weak self] in
       let outcome = target.draw(input)
       DispatchQueue.main.async {
@@ -87,10 +90,13 @@ final class CropOverlayLayerController {
     case .gpu(.presented):
       consecutiveGpuFailures = 0
       showGpu()
+    case .gpu(.empty):
+      showCpu(nil)
     case .gpu(let failure):
       consecutiveGpuFailures += 1
       useGpu = failure != .unavailable && consecutiveGpuFailures < 3
-      showCpu(rasterPool.rasterize(input))
+      cpuForNextFrame = true
+      pending = pending ?? input
     case .cpuImage(let image):
       showCpu(image)
     }
