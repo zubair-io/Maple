@@ -322,6 +322,40 @@ fn adopting_mid_pinch_continues_the_pinch_relative_to_fit() {
 }
 
 #[test]
+fn adopting_mid_pinch_at_100_percent_keeps_the_adopted_zoom_on_the_next_frame() {
+    let placeholder = (2048.0, 1365.0);
+    let original = (6000.0, 4000.0);
+    let centroid = [1.0, 700.0, 300.0, 0.0];
+    let mut state = [0.0; STATE_LEN];
+    zoom(
+        &mut state,
+        OP_DOUBLE_TAP,
+        [750.0, 375.0, 0.0, 0.0],
+        placeholder,
+    );
+    zoom(&mut state, OP_PINCH_CHANGED, centroid, placeholder);
+    zoom(
+        &mut state,
+        OP_ADOPT_IMAGE,
+        [placeholder.0, placeholder.1, 700.0, 300.0],
+        original,
+    );
+    let adopted = decode(&state);
+    assert_eq!(adopted.pixel_scale, 1.0);
+    zoom(&mut state, OP_PINCH_CHANGED, centroid, original);
+    let next_frame = decode(&state);
+    assert!(
+        (next_frame.pixel_scale - 1.0).abs() < 1e-9,
+        "{}",
+        next_frame.pixel_scale
+    );
+    assert!((next_frame.pan_offset.width - adopted.pan_offset.width).abs() < 1e-9);
+    assert!((next_frame.pan_offset.height - adopted.pan_offset.height).abs() < 1e-9);
+    zoom(&mut state, OP_PINCH_ENDED, [1.0, 0.0, 0.0, 0.0], original);
+    assert!((decode(&state).pixel_scale - 1.0).abs() < 1e-9);
+}
+
+#[test]
 fn adopting_mid_drag_keeps_the_drag_offset() {
     let placeholder = (2048.0, 1365.0);
     let original = (6000.0, 4000.0);

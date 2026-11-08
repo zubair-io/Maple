@@ -99,47 +99,78 @@ fn decode(state: &[f64; STATE_LEN]) -> CanvasZoomModel {
 /// size replaced by the original's): a free scale keeps its on-screen size,
 /// a named stop keeps its meaning (100% stays 1:1, fill re-resolves), and the
 /// image point under `anchor` (viewport pixels) stays as close as the pan
-/// clamp allows. A pinch or drag in progress continues without a jump: the
-/// pinch's start scale is carried relative to fit, and a live drag keeps its
-/// offset from the committed pan.
+/// clamp allows. A pinch or drag in progress continues without a jump: a live
+/// drag keeps its offset from the committed pan, and a live pinch is
+/// re-captured at the adopted zoom (see `recapture_pinch`).
 fn adopt_image_size(
     model: CanvasZoomModel,
     anchor: Point,
     previous: &CanvasZoomContext,
     next: &CanvasZoomContext,
 ) -> CanvasZoomModel {
-    let fit_ratio = next.fit_scale() / previous.fit_scale();
-    let carried = CanvasZoomModel {
-        pinch_start_scale: model.pinch_start_scale.map(|start| start * fit_ratio),
-        ..model
+    let start_scale = previous.effective_scale(model.pixel_scale);
+    let adopted = if model.is_zoomed_in() {
+        let scale = match model.current_stop() {
+            Some(ZoomStop::Fill) => next.fill_scale(),
+            Some(ZoomStop::Fit | ZoomStop::ActualSize) => model.pixel_scale,
+            None => (start_scale * next.fit_scale() / previous.fit_scale()).min(MAX_PIXEL_SCALE),
+        };
+        let pan = anchored_pan(
+            anchor,
+            next.viewport_points(),
+            model.pan_offset,
+            start_scale * previous.native_image_size().width,
+            next.effective_scale(scale) * next.native_image_size().width,
+        );
+        let live_drag = Size::new(
+            model.pan_offset.width - model.base_pan.width,
+            model.pan_offset.height - model.base_pan.height,
+        );
+        CanvasZoomModel {
+            pixel_scale: scale,
+            pan_offset: pan,
+            base_pan: Size::new(pan.width - live_drag.width, pan.height - live_drag.height),
+            ..model
+        }
+        .reclamp_pan(next)
+    } else {
+        model
     };
-    if !carried.is_zoomed_in() {
-        return carried;
+    let adopted_scale = next.effective_scale(adopted.pixel_scale);
+    recapture_pinch(adopted, start_scale, adopted_scale, next)
+}
+
+/// Rewrites a live pinch's start capture so its next frame reproduces the
+/// adopted zoom: the pinch keeps its magnification so far (`live / start`)
+/// and anchors at its last centroid, as if it had begun on the adopted image.
+fn recapture_pinch(
+    model: CanvasZoomModel,
+    live_scale: f64,
+    adopted_scale: f64,
+    next: &CanvasZoomContext,
+) -> CanvasZoomModel {
+    let Some(start) = model.pinch_start_scale else {
+        return model;
+    };
+    let magnification = live_scale / start;
+    if !magnification.is_finite() || magnification <= 0.0 {
+        return model;
     }
-    let start_scale = previous.effective_scale(carried.pixel_scale);
-    let scale = match carried.current_stop() {
-        Some(ZoomStop::Fill) => next.fill_scale(),
-        Some(ZoomStop::Fit | ZoomStop::ActualSize) => carried.pixel_scale,
-        None => (start_scale * fit_ratio).min(MAX_PIXEL_SCALE),
-    };
-    let pan = anchored_pan(
-        anchor,
-        next.viewport_points(),
-        carried.pan_offset,
-        start_scale * previous.native_image_size().width,
-        next.effective_scale(scale) * next.native_image_size().width,
-    );
-    let live_drag = Size::new(
-        carried.pan_offset.width - carried.base_pan.width,
-        carried.pan_offset.height - carried.base_pan.height,
+    let centroid = model.pinch_last_centroid;
+    let viewport = next.viewport_points();
+    let offset = Size::new(
+        centroid.x - viewport.width / 2.0,
+        centroid.y - viewport.height / 2.0,
     );
     CanvasZoomModel {
-        pixel_scale: scale,
-        pan_offset: pan,
-        base_pan: Size::new(pan.width - live_drag.width, pan.height - live_drag.height),
-        ..carried
+        pinch_start_scale: Some(adopted_scale / magnification),
+        pinch_start_centroid: centroid,
+        pinch_start_pan: Size::new(
+            offset.width - (offset.width - model.pan_offset.width) / magnification,
+            offset.height - (offset.height - model.pan_offset.height) / magnification,
+        ),
+        ..model
     }
-    .reclamp_pan(next)
 }
 
 /// One transition; returns the next model and the op's boolean result
