@@ -40,20 +40,21 @@ See [features](features.md) for what each surface actually does, and [apple](app
 
 All colour and geometry math lives in `src/raw-pipeline/`, a cargo workspace of seven crates:
 
-| Crate        | Role                                                                                                                                                           |
-| ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `raw-core`   | Decode, demosaic, camera calibration, every develop stage, the AgX view transform, XMP parse/serialize, stable image ids                                       |
-| `raw-gpu`    | wgpu/WGSL implementations of the same stages, plus the live-session runner and the present path. Optional (`gpu` feature); wgpu is absent from a default build |
-| `raw-ffi`    | C ABI over `raw-core` + `raw-gpu`. `crate-type = ["staticlib", "cdylib", "rlib"]`                                                                              |
-| `raw-wasm`   | `wasm-bindgen` surface for the browser                                                                                                                         |
-| `maple-pano` | Panorama stitching (geometry solve, ALIKED + LightGlue via ONNX Runtime, compositing)                                                                          |
-| `maple-cli`  | Deterministic headless harness — `render`, `batch`, `diff`, `tile`, `pano`, `synthetic`, and more                                                              |
-| `codegen`    | Emits the cross-language constant files (see below)                                                                                                            |
+| Crate             | Role                                                                                                                                                           |
+| ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `raw-core`        | Decode, demosaic, camera calibration, every develop stage, the AgX view transform, XMP parse/serialize, stable image ids                                       |
+| `raw-gpu`         | wgpu/WGSL implementations of the same stages, plus the live-session runner and the present path. Optional (`gpu` feature); wgpu is absent from a default build |
+| `raw-ffi`         | C ABI over `raw-core` + `raw-gpu`. `crate-type = ["staticlib", "cdylib", "rlib"]`                                                                              |
+| `raw-wasm`        | `wasm-bindgen` surface for the browser                                                                                                                         |
+| `raw-wasm-canvas` | The canvas zoom model (raw-core's `canvas` source) as a small unthreaded WebAssembly module for the browser's main thread                                      |
+| `maple-pano`      | Panorama stitching (geometry solve, ALIKED + LightGlue via ONNX Runtime, compositing)                                                                          |
+| `maple-cli`       | Deterministic headless harness — `render`, `batch`, `diff`, `tile`, `pano`, `synthetic`, and more                                                              |
+| `codegen`         | Emits the cross-language constant files (see below)                                                                                                            |
 
 How each app gets it:
 
 - **Apple** — `src/apple/scripts/build-xcframework.sh` compiles `raw-ffi` for `aarch64-apple-ios`, `aarch64-apple-ios-sim`, `aarch64-apple-darwin`, and `x86_64-apple-darwin` with `--features gpu` plus a pano feature (`pano` for macOS, `pano-ios` for the iOS slices, which link ONNX Runtime statically because the iOS sandbox blocks `dlopen`). It runs cbindgen, lipos the two macOS arches, and produces `src/apple/Frameworks/RawPipeline.xcframework`. `MapleCore`'s `Package.swift` consumes that as a `.binaryTarget`; `RawCoreBridge.swift` is the Swift side of the contract. The `.a` files and generated headers are gitignored (the static libs are too large for GitHub), so a fresh clone must run the script once before Xcode will link or SwiftPM can compile.
-- **Web** — `src/raw-pipeline/raw-wasm/build.sh` runs `wasm-pack build --target web --release --features gpu,parallel -Z build-std=panic_abort,std`. The `-Z build-std` is not optional: the crate needs the atomics / bulk-memory target features from `raw-wasm/.cargo/config.toml` for `wasm-bindgen-rayon` to link. `src/web/scripts/sync-raw-wasm.sh` copies the generated `pkg/` into `maple-common`, where the render worker imports it. `pkg/` is gitignored.
+- **Web** — `src/raw-pipeline/raw-wasm/build.sh` runs `wasm-pack build --target web --release --features gpu,parallel -Z build-std=panic_abort,std`. The `-Z build-std` is not optional: the crate needs the atomics / bulk-memory target features from `raw-wasm/.cargo/config.toml` for `wasm-bindgen-rayon` to link. The same script then builds `raw-wasm-canvas` into `pkg/canvas/` with no threading features, for the main thread's zoom model ([zoom](zoom.md#web)). `src/web/scripts/sync-raw-wasm.sh` copies the generated `pkg/` into `maple-common`, where the render worker imports it. `pkg/` is gitignored.
 - **API** — `src/api/scripts/build-raw-ffi.sh` builds the same crate as a dylib into `src/api/native/`, loaded through `bun:ffi` by `src/api/src/ffi/raw_ffi.ts`. It is never `dlopen`'d in the HTTP process: decode runs in a pool of child processes (`src/api/src/ffi/ffi-pool.ts`, `ffi-child-worker.ts`) so a libraw segfault on a malformed RAW kills one child, which the pool respawns, instead of the server.
 - **Windows** — `src/windows/scripts/build-windows.sh` builds `raw-ffi --features gpu` for `x86_64-pc-windows-msvc`; the C# app declares `[DllImport("raw_ffi.dll")]` against it and mirrors the FFI structs field-for-field, with a startup `RawFfi.VerifyAbi()` size assertion.
 
@@ -128,7 +129,7 @@ The `codegen-drift` job in `.github/workflows/cross.yml` regenerates everything 
 ```
 src/
   raw-pipeline/                 cargo workspace (see "One Rust core" above)
-    raw-core/  raw-gpu/  raw-ffi/  raw-wasm/  maple-pano/  maple-cli/  codegen/
+    raw-core/  raw-gpu/  raw-ffi/  raw-wasm/  raw-wasm-canvas/  maple-pano/  maple-cli/  codegen/
     vendor/                     vendored crates (offline Apple/Windows builds)
   apple/
     Maple.xcodeproj             all Apple targets

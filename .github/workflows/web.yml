@@ -104,6 +104,8 @@ jobs:
         run: |
           test -s src/raw-pipeline/raw-wasm/pkg/raw_wasm_bg.wasm
           test -s src/raw-pipeline/raw-wasm/pkg/raw_wasm.js
+          test -s src/raw-pipeline/raw-wasm/pkg/canvas/raw_wasm_canvas_bg.wasm
+          test -s src/raw-pipeline/raw-wasm/pkg/canvas/raw_wasm_canvas.js
           touch src/raw-pipeline/raw-wasm/pkg/.build-stamp
           bash src/web/scripts/sync-raw-wasm.sh
 
@@ -206,6 +208,8 @@ jobs:
         run: |
           test -s src/raw-pipeline/raw-wasm/pkg/raw_wasm_bg.wasm
           test -s src/raw-pipeline/raw-wasm/pkg/raw_wasm.js
+          test -s src/raw-pipeline/raw-wasm/pkg/canvas/raw_wasm_canvas_bg.wasm
+          test -s src/raw-pipeline/raw-wasm/pkg/canvas/raw_wasm_canvas.js
           touch src/raw-pipeline/raw-wasm/pkg/.build-stamp
           bash src/web/scripts/sync-raw-wasm.sh
 
@@ -248,6 +252,8 @@ jobs:
         run: |
           test -s src/raw-pipeline/raw-wasm/pkg/raw_wasm_bg.wasm
           test -s src/raw-pipeline/raw-wasm/pkg/raw_wasm.js
+          test -s src/raw-pipeline/raw-wasm/pkg/canvas/raw_wasm_canvas_bg.wasm
+          test -s src/raw-pipeline/raw-wasm/pkg/canvas/raw_wasm_canvas.js
           touch src/raw-pipeline/raw-wasm/pkg/.build-stamp
           bash src/web/scripts/sync-raw-wasm.sh
 
@@ -352,6 +358,8 @@ jobs:
         run: |
           test -s src/raw-pipeline/raw-wasm/pkg/raw_wasm_bg.wasm
           test -s src/raw-pipeline/raw-wasm/pkg/raw_wasm.js
+          test -s src/raw-pipeline/raw-wasm/pkg/canvas/raw_wasm_canvas_bg.wasm
+          test -s src/raw-pipeline/raw-wasm/pkg/canvas/raw_wasm_canvas.js
           touch src/raw-pipeline/raw-wasm/pkg/.build-stamp
           bash src/web/scripts/sync-raw-wasm.sh
 
@@ -417,6 +425,8 @@ jobs:
         run: |
           test -s src/raw-pipeline/raw-wasm/pkg/raw_wasm_bg.wasm
           test -s src/raw-pipeline/raw-wasm/pkg/raw_wasm.js
+          test -s src/raw-pipeline/raw-wasm/pkg/canvas/raw_wasm_canvas_bg.wasm
+          test -s src/raw-pipeline/raw-wasm/pkg/canvas/raw_wasm_canvas.js
           touch src/raw-pipeline/raw-wasm/pkg/.build-stamp
           bash src/web/scripts/sync-raw-wasm.sh
       - uses: dtolnay/rust-toolchain@stable

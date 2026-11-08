@@ -329,7 +329,7 @@ describe('EditorShellComponent — responsive IA (#2449)', () => {
       editorState.setArmedDisplayValue(25);
       expect(editorState.canUndo()).toBe(true);
       // Zoom / pan.
-      canvasSvc.setPixelScale(2);
+      canvasSvc.pixelScale.set(2);
       canvasSvc.pan.set({ x: 40, y: -12 });
       // A parked commit-on-release value mid-gesture (Noise → Deep).
       editorState.armTool('noise');

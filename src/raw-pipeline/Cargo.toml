@@ -8,6 +8,7 @@ members = [
     "maple-search",
     "raw-ffi",
     "raw-wasm",
+    "raw-wasm-canvas",
     "raw-napi",
     "codegen",
 ]

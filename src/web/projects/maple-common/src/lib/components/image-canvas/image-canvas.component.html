@@ -3,8 +3,17 @@
   <div
     class="flex items-center gap-2 px-3 h-[34px] bg-surface border-b-[0.5px] border-border flex-shrink-0"
   >
-    <!-- Zoom badge (#1100): percent of the effective real pixelScale, always visible. -->
-    <span class="font-mono text-[10px] text-text-muted">{{ zoomLabel() }}</span>
+    <!-- Zoom badge (#1100): percent of the effective real pixelScale, always
+         visible; a click advances fit → fill → 100% (#5714, shared model). -->
+    <button
+      type="button"
+      class="zoom-badge cursor-pointer rounded border-0 bg-transparent px-0.5 font-mono text-[10px] text-text-muted hover:text-text-main"
+      [attr.aria-label]="zoomBadgeAction()"
+      [title]="zoomBadgeAction()"
+      (click)="gestures.advanceStop()"
+    >
+      {{ zoomLabel() }}
+    </button>
     <div
       class="tool-btn flex h-6 w-6 cursor-pointer items-center justify-center rounded font-sans text-[11px] text-text-muted bg-surface-alt border-[0.5px] border-border transition-colors duration-100 hover:bg-surface-hover hover:text-text-main"
       (click)="gestures.stepZoom(-1)"
