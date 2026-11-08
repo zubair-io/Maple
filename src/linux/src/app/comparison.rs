@@ -80,13 +80,9 @@ impl MapleApp {
             self.zoom.drag_ended();
         }
         if response.hovered() && self.zoom.native.is_some() {
-            let factor = ui.input(|i| i.zoom_delta());
-            if factor != 1.0 {
-                self.zoom.zoom_at(
-                    factor,
-                    response.hover_pos().unwrap_or(viewport.center()),
-                    &geometry,
-                );
+            let position = response.hover_pos().unwrap_or(viewport.center());
+            for factor in super::zoom::zoom_steps(ui.ctx()) {
+                self.zoom.zoom_at(factor, position, &geometry);
             }
         }
         if self.zoom.native.is_some() && !super::zoom::text_is_focused(ui.ctx()) {
