@@ -1,6 +1,6 @@
 //! The per-call geometry every zoom transition resolves against.
 
-use super::geometry::Size;
+use super::geometry::{Insets, Point, Size};
 use super::mapping::CanvasMath;
 use super::zoom::{MAX_PIXEL_SCALE, MIN_FIT_FRACTION};
 
@@ -8,13 +8,20 @@ use super::zoom::{MAX_PIXEL_SCALE, MIN_FIT_FRACTION};
 const MIN_DISPLAY_SCALE: f64 = 0.001;
 
 /// The live viewport (points), the trustworthy image extent (oriented source
-/// pixels, `ZERO` until known) and the points→real-pixels factor. Built fresh
-/// for every transition so the math always sees the current viewport.
+/// pixels, `ZERO` until known), the points→real-pixels factor and the insets
+/// the host's chrome covers. Built fresh for every transition so the math
+/// always sees the current viewport.
+///
+/// The image is drawn across the whole viewport, but fit, fill, the
+/// re-centring "home" position and the pan range all resolve against the
+/// VISIBLE area — the viewport minus the insets — so the photo settles
+/// centred in what the user can actually see.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct CanvasZoomContext {
     viewport_points: Size,
     native_image_size: Size,
     display_scale: f64,
+    insets: Insets,
 }
 
 impl CanvasZoomContext {
@@ -30,6 +37,17 @@ impl CanvasZoomContext {
             } else {
                 1.0
             },
+            insets: Insets::ZERO,
+        }
+    }
+
+    /// The same geometry with `insets` of the viewport covered by chrome,
+    /// sanitized against the viewport (`Insets::sanitized_within`).
+    #[must_use]
+    pub fn with_insets(self, insets: Insets) -> Self {
+        Self {
+            insets: insets.sanitized_within(self.viewport_points),
+            ..self
         }
     }
 
@@ -48,6 +66,40 @@ impl CanvasZoomContext {
         self.display_scale
     }
 
+    #[must_use]
+    pub fn insets(&self) -> Insets {
+        self.insets
+    }
+
+    /// The part of the viewport the chrome leaves uncovered, in points.
+    #[must_use]
+    pub fn visible_points(&self) -> Size {
+        Size::new(
+            self.viewport_points.width - self.insets.left - self.insets.right,
+            self.viewport_points.height - self.insets.top - self.insets.bottom,
+        )
+    }
+
+    /// Centre of the visible area, in viewport points.
+    #[must_use]
+    pub fn visible_centre(&self) -> Point {
+        Point::new(
+            self.insets.left + self.visible_points().width / 2.0,
+            self.insets.top + self.visible_points().height / 2.0,
+        )
+    }
+
+    /// The pan that centres the image in the visible area: the offset of the
+    /// visible centre from the viewport centre. Fit, fill and every
+    /// re-centring zoom land here.
+    #[must_use]
+    pub fn home_pan(&self) -> Size {
+        Size::new(
+            (self.insets.left - self.insets.right) / 2.0,
+            (self.insets.top - self.insets.bottom) / 2.0,
+        )
+    }
+
     /// The viewport in real screen pixels — what the render pipeline targets.
     #[must_use]
     pub fn viewport_px(&self) -> Size {
@@ -57,32 +109,48 @@ impl CanvasZoomContext {
         )
     }
 
-    /// The mapping snapshot at a user-intent scale and pan.
+    /// The mapping snapshot at a user-intent scale and pan, over the whole
+    /// viewport. Fit (`0`) resolves to the visible-area fit first, so the
+    /// snapshot draws the image at the size the zoom model means.
     #[must_use]
     pub fn canvas_math(&self, pixel_scale: f64, pan_offset: Size) -> CanvasMath {
         CanvasMath::new(
             self.viewport_px(),
             self.native_image_size,
-            pixel_scale,
+            self.effective_scale(pixel_scale),
             pan_offset,
             self.display_scale,
         )
     }
 
-    /// Real pixels per image pixel at fit; `1` while the image or viewport is
-    /// unknown.
-    #[must_use]
-    pub fn fit_scale(&self) -> f64 {
-        self.canvas_math(0.0, Size::ZERO).fit_pixel_scale()
+    /// The visible area as a mapping snapshot, for the fit and fill scales.
+    fn visible_math(&self) -> CanvasMath {
+        let visible = self.visible_points();
+        CanvasMath::new(
+            Size::new(
+                visible.width * self.display_scale,
+                visible.height * self.display_scale,
+            ),
+            self.native_image_size,
+            0.0,
+            Size::ZERO,
+            self.display_scale,
+        )
     }
 
-    /// The fill scale, capped at `MAX_PIXEL_SCALE` (a sliver image would
-    /// otherwise ask for an unbounded zoom).
+    /// Real pixels per image pixel at which the image fits the visible area;
+    /// `1` while the image or viewport is unknown.
+    #[must_use]
+    pub fn fit_scale(&self) -> f64 {
+        self.visible_math().fit_pixel_scale()
+    }
+
+    /// The scale at which the image covers the visible area, capped at
+    /// `MAX_PIXEL_SCALE` (a sliver image would otherwise ask for an unbounded
+    /// zoom).
     #[must_use]
     pub fn fill_scale(&self) -> f64 {
-        self.canvas_math(0.0, Size::ZERO)
-            .fill_pixel_scale()
-            .min(MAX_PIXEL_SCALE)
+        self.visible_math().fill_pixel_scale().min(MAX_PIXEL_SCALE)
     }
 
     /// The zoom-out floor: `fit × MIN_FIT_FRACTION`.
@@ -91,12 +159,15 @@ impl CanvasZoomContext {
         self.fit_scale() * MIN_FIT_FRACTION
     }
 
-    /// `pixel_scale` with `0 == fit` resolved (and a NaN or negative scale
-    /// read as fit).
+    /// `pixel_scale` with `0 == fit` resolved (and a non-finite or negative
+    /// scale read as fit).
     #[must_use]
     pub fn effective_scale(&self, pixel_scale: f64) -> f64 {
-        self.canvas_math(pixel_scale, Size::ZERO)
-            .effective_pixel_scale()
+        if pixel_scale.is_finite() && pixel_scale > 0.0 {
+            pixel_scale
+        } else {
+            self.fit_scale()
+        }
     }
 
     /// The image's on-screen frame in points; `None` until the size is known.
@@ -106,28 +177,53 @@ impl CanvasZoomContext {
             .display_frame_in_points()
     }
 
-    /// Largest pan magnitude per axis (points) that keeps the image attached
-    /// to the viewport: zero on an axis where the image does not overflow, so
-    /// it stays centred there (the letterbox axis).
+    /// Largest pan per axis (points) away from `home_pan` that keeps the
+    /// image covering the visible area: zero on an axis where the image does
+    /// not overflow it, so the image stays centred there (the letterbox
+    /// axis, and every axis below fit).
     #[must_use]
     pub fn max_pan_offset(&self, pixel_scale: f64) -> Size {
-        match self.display_frame_in_points(pixel_scale) {
-            Some(frame) => Size::new(
-                ((frame.width - self.viewport_points.width) / 2.0).max(0.0),
-                ((frame.height - self.viewport_points.height) / 2.0).max(0.0),
-            ),
-            None => Size::ZERO,
-        }
+        let overflow = self.visible_overflow(pixel_scale);
+        Size::new(overflow.width.max(0.0), overflow.height.max(0.0))
     }
 
-    /// `pan` clamped into `±max_pan_offset` per axis; a NaN component becomes
-    /// zero.
+    /// The resting pan range: `pan` clamped into `home_pan ± max_pan_offset`
+    /// per axis; a NaN component becomes the home position.
     #[must_use]
     pub fn clamped_pan(&self, pan: Size, pixel_scale: f64) -> Size {
-        let limit = self.max_pan_offset(pixel_scale);
+        self.pan_within(pan, self.max_pan_offset(pixel_scale))
+    }
+
+    /// The live-pinch pan range, which is continuous across fit: per axis the
+    /// image either covers the visible area (larger than it) or stays inside
+    /// it (smaller), so `home_pan ± |frame − visible| / 2`. At the size where
+    /// the two meet the range is the home position from both sides, so a
+    /// pinch crossing fit never jumps, and below fit the image may sit
+    /// anywhere in the visible area — wherever the fingers put it.
+    #[must_use]
+    pub fn pinch_clamped_pan(&self, pan: Size, pixel_scale: f64) -> Size {
+        let overflow = self.visible_overflow(pixel_scale);
+        self.pan_within(pan, Size::new(overflow.width.abs(), overflow.height.abs()))
+    }
+
+    /// Half of `display frame − visible area` per axis (points), negative
+    /// where the image is smaller; zero while the frame is unknown.
+    fn visible_overflow(&self, pixel_scale: f64) -> Size {
+        let visible = self.visible_points();
+        self.display_frame_in_points(pixel_scale)
+            .map_or(Size::ZERO, |frame| {
+                Size::new(
+                    (frame.width - visible.width) / 2.0,
+                    (frame.height - visible.height) / 2.0,
+                )
+            })
+    }
+
+    fn pan_within(&self, pan: Size, limit: Size) -> Size {
+        let home = self.home_pan();
         Size::new(
-            clamp_symmetric(pan.width, limit.width),
-            clamp_symmetric(pan.height, limit.height),
+            home.width + clamp_symmetric(pan.width - home.width, limit.width),
+            home.height + clamp_symmetric(pan.height - home.height, limit.height),
         )
     }
 }

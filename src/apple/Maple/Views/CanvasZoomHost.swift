@@ -56,12 +56,26 @@ struct CanvasZoomHost<CanvasLeaf: View, Fallback: View>: View {
   /// Keeps the zoom badge clear of the system bars and the editor's
   /// controls when the canvas runs full-bleed beneath them (#5710).
   var badgeInsets = EdgeInsets()
+  /// Global frame of the region clear of the system bars, when the canvas
+  /// runs beneath them; `nil` when it already sits inside it.
+  var safeAreaFrame: CGRect? = nil
+  /// Global frames of the chrome floating over the canvas (header,
+  /// inspector, dock, filmstrip). With `safeAreaFrame` they define the
+  /// visible area that fit, fill and the centred position resolve inside.
+  var coverFrames: [CGRect] = []
   /// The canvas leaf (CIImage raster / GPU layer). The host frames it to the resolved display frame.
   @ViewBuilder let canvasLeaf: () -> CanvasLeaf
   /// Shown while no frame can resolve (no preview yet / no native size). Gets the viewport's full size.
   @ViewBuilder let fallback: () -> Fallback
 
   @Environment(\.displayScale) private var displayScale
+  /// The move from the frame last shown to a settled zoom (a release below
+  /// fit, a detent, a chrome change), drawn as a compositor transform over
+  /// the settled frame. `nil` at rest.
+  @State private var settle: CanvasSettleAnimation?
+  /// Chrome insets that changed mid-pinch; applied on release so the photo
+  /// never moves under still fingers.
+  @State private var pendingInsets: CanvasViewportInsets?
   #if os(macOS)
     @State private var nudgeAccumulator = CanvasWheelNudgeAccumulator()
   #endif
@@ -105,17 +119,15 @@ struct CanvasZoomHost<CanvasLeaf: View, Fallback: View>: View {
     GeometryReader { geo in
       ZStack {
         if canvasReady, let frame = controller.displayFrameInPoints {
+          // Live pinch (iOS): scale the frozen frame about its centre in the
+          // compositor (cheap, no re-decode); `effectivePanOffset` is the
+          // live pan (the focal anchor). A settle adds its own transform
+          // over the settled frame. Both are identity at rest.
           canvasLeaf()
             .frame(width: frame.width, height: frame.height)
-            #if os(iOS)
-              // Live pinch: scale the frozen frame about its centre in the
-              // compositor (cheap, no re-decode); `effectivePanOffset` is the
-              // would-be committed pan (the focal anchor). `.scaleEffect(1)` is
-              // identity at rest — on release `panOffset == gestureCommittedPan`,
-              // geometrically identical, so there's no jump.
-              .scaleEffect(gestureZoom, anchor: .center)
-            #endif
-            .offset(effectivePanOffset)
+            .modifier(
+              CanvasSettleTransform(
+                settle: settle, liveZoom: liveGestureZoom, pan: effectivePanOffset))
           // #2288 — 0×0 marker carrying the photo's rect as text; see imageRectAccessibilityValue's doc.
           Color.clear.frame(width: 0, height: 0)
             .accessibilityElement(children: .ignore)
@@ -153,18 +165,30 @@ struct CanvasZoomHost<CanvasLeaf: View, Fallback: View>: View {
       #endif
       .simultaneousGesture(dragGesture)
       .onTapGesture(count: 2) { location in
-        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+        animatingFromShown {
           controller.doubleTap(at: location, behavior: doubleTapBehavior)
         }
       }
       .background(wheelCatcher)
-      .overlay(alignment: .bottomLeading) { zoomBadge }
+      .overlay(alignment: .bottomLeading) { zoomBadge(clearing: visibleInsets(geo)) }
       .focusedSceneValue(\.canvasZoomController, canvasReady ? controller : nil)
       .onAppear {
-        controller.viewportChanged(points: geo.size, displayScale: displayScale)
+        controller.viewportChanged(
+          points: geo.size, displayScale: displayScale, insets: visibleInsets(geo))
       }
       .onChange(of: geo.size) { _, newSize in
-        controller.viewportChanged(points: newSize, displayScale: displayScale)
+        settle = nil
+        let insets = visibleInsets(geo)
+        if isPinching { pendingInsets = insets }
+        controller.viewportChanged(
+          points: newSize, displayScale: displayScale,
+          insets: isPinching ? controller.viewportInsets : insets)
+      }
+      .onChange(of: visibleInsets(geo)) { _, insets in
+        insetsChanged(insets)
+      }
+      .onChange(of: controller.restingFrame) { _, settled in
+        retargetSettle(to: settled)
       }
       .onChange(of: ObjectIdentifier(controller)) { _, _ in
         // The host kept its identity but was handed a different controller
@@ -172,13 +196,15 @@ struct CanvasZoomHost<CanvasLeaf: View, Fallback: View>: View {
         // not fire again, and a controller that never learns the viewport
         // resolves fit to 1 — the image frames at 100% and cannot zoom out
         // (#3540). Report the live viewport to the newcomer.
-        controller.viewportChanged(points: geo.size, displayScale: displayScale)
+        controller.viewportChanged(
+          points: geo.size, displayScale: displayScale, insets: visibleInsets(geo))
       }
       .onChange(of: displayScale) { _, newScale in
         // Window dragged to a display with a different backing
         // scale — same points, different real pixels. Re-resolve
         // so 100% stays pixel-perfect on the new screen.
-        controller.viewportChanged(points: geo.size, displayScale: newScale)
+        controller.viewportChanged(
+          points: geo.size, displayScale: newScale, insets: visibleInsets(geo))
       }
       .onChange(of: controller.session.effectiveImageSize) { _, _ in
         // Pre-decode, fit mode guesses; recompute once the real
@@ -196,9 +222,105 @@ struct CanvasZoomHost<CanvasLeaf: View, Fallback: View>: View {
         // Asset switched under a reused view — reset to fit so a
         // stale pixelScale doesn't retarget the new image's
         // refine at full native.
+        settle = nil
         controller.assetChanged()
       }
     }
+  }
+
+  // MARK: - Visible area and settling
+
+  /// The canvas area left by the system bars and the floating chrome, as
+  /// insets of this host's own frame.
+  private func visibleInsets(_ geo: GeometryProxy) -> CanvasViewportInsets {
+    CanvasViewportInsets.covering(
+      viewport: geo.frame(in: .global), safeArea: safeAreaFrame, frames: coverFrames)
+  }
+
+  /// The compositor zoom of a live iOS pinch; 1 elsewhere.
+  private var liveGestureZoom: CGFloat {
+    #if os(iOS)
+      gestureZoom
+    #else
+      1
+    #endif
+  }
+
+  private var isPinching: Bool {
+    #if os(iOS)
+      pinchActive
+    #else
+      controller.model.pinchStartScale != nil
+    #endif
+  }
+
+  /// The model has just settled somewhere other than what `shown` drew:
+  /// animate from `shown`, so only the fingers ever move the photo directly.
+  private func beginSettle(from shown: CanvasShownFrame) {
+    startSettle(CanvasSettleAnimation(from: shown, to: controller.restingFrame, start: Date()))
+  }
+
+  private func startSettle(_ animation: CanvasSettleAnimation?) {
+    settle = animation
+    guard let animation else { return }
+    Task { @MainActor in
+      try? await Task.sleep(for: .seconds(CanvasSettleAnimation.duration))
+      if settle == animation { settle = nil }
+    }
+  }
+
+  /// The model moved somewhere new while a settle was drawing (a zoom
+  /// command, a wheel pan): head there from what is on screen.
+  private func retargetSettle(to settled: CanvasShownFrame) {
+    guard let running = settle, running.to != settled else { return }
+    startSettle(CanvasSettleAnimation(from: running.shown(at: Date()), to: settled, start: Date()))
+  }
+
+  /// A pinch or pan takes over mid-settle: it starts from what is on
+  /// screen, not from where the settle was heading (#5742).
+  private func interruptSettle() {
+    guard let running = settle else { return }
+    settle = nil
+    let now = Date()
+    guard !running.isFinished(at: now) else { return }
+    controller.holdShownFrame(running.shown(at: now))
+  }
+
+  /// A discrete zoom (double-tap, badge) acts on where the zoom is heading.
+  /// Mid-settle the settle carries on from what is shown to the new target;
+  /// at rest the move springs.
+  private func animatingFromShown(_ action: () -> Void) {
+    guard settle == nil else {
+      action()
+      return
+    }
+    withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) { action() }
+  }
+
+  /// A bar shown or hidden, the inspector resized: re-resolve the visible
+  /// area and animate any move it causes from what is on screen. Deferred
+  /// while a pinch is live (#5736); not animated before the photo is drawn.
+  private func insetsChanged(_ insets: CanvasViewportInsets) {
+    guard !isPinching else {
+      pendingInsets = insets
+      return
+    }
+    pendingInsets = nil
+    let shown = settle?.shown(at: Date()) ?? controller.restingFrame
+    settle = nil
+    controller.viewportInsetsChanged(insets)
+    if canvasReady { beginSettle(from: shown) }
+  }
+
+  /// Release: commit, apply any chrome change held during the pinch, then
+  /// animate from the last frame shown to the settled zoom.
+  private func settleRelease(from shown: CanvasShownFrame, commit: () -> Void) {
+    commit()
+    if let pending = pendingInsets {
+      pendingInsets = nil
+      controller.viewportInsetsChanged(pending)
+    }
+    beginSettle(from: shown)
   }
 
   // MARK: - Gestures
@@ -210,6 +332,7 @@ struct CanvasZoomHost<CanvasLeaf: View, Fallback: View>: View {
           // The controller captures the start scale/pan/anchor on
           // the first frame — `magnification` is cumulative, so
           // anchoring against the live scale would compound.
+          if controller.model.pinchStartScale == nil { interruptSettle() }
           let anchor = CGPoint(
             x: value.startAnchor.x * viewport.width,
             y: value.startAnchor.y * viewport.height
@@ -220,7 +343,10 @@ struct CanvasZoomHost<CanvasLeaf: View, Fallback: View>: View {
           )
         }
         .onEnded { value in
-          controller.pinchEnded(magnification: value.magnification)
+          let shown = controller.restingFrame
+          settleRelease(from: shown) {
+            controller.pinchEnded(magnification: value.magnification)
+          }
         }
     }
   #endif
@@ -234,6 +360,7 @@ struct CanvasZoomHost<CanvasLeaf: View, Fallback: View>: View {
     /// re-decode, which was the lag).
     private func pinchChangedLive(scale: CGFloat, location: CGPoint, touchCount: Int) {
       if !pinchActive {
+        interruptSettle()
         pinchActive = true
         // Capture the start state in the model (magnification 1 → no change)
         // so the release commit + the live `gestureTransform` both anchor at
@@ -271,11 +398,16 @@ struct CanvasZoomHost<CanvasLeaf: View, Fallback: View>: View {
         return
       }
       // Commit the LAST displayed frame's magnification + centroid (not the
-      // gesture-end scale, which drifts as the fingers lift) so the committed
-      // scale/pan equals what was on screen — the transform reset is pop-free.
-      controller.pinchChanged(magnification: pinchLastMag, location: pinchLastCentroid)
-      controller.pinchEnded(magnification: pinchLastMag)
-      resetPinchState()
+      // gesture-end scale, which drifts as the fingers lift). The release may
+      // settle elsewhere (back to fit from below it, a detent, the resting
+      // pan range), so the settle animates from exactly this shown frame.
+      let shown = CanvasShownFrame(
+        scale: controller.effectivePixelScale * gestureZoom, pan: gestureCommittedPan)
+      settleRelease(from: shown) {
+        controller.pinchChanged(magnification: pinchLastMag, location: pinchLastCentroid)
+        controller.pinchEnded(magnification: pinchLastMag)
+        resetPinchState()
+      }
       lastPinchEnd = Date()  // open the cooldown for the lingering finger
     }
 
@@ -307,6 +439,8 @@ struct CanvasZoomHost<CanvasLeaf: View, Fallback: View>: View {
             lastPinchEnd = nil  // window elapsed — resume normal panning
           }
         #endif
+        // A pan that takes over a settle starts from what is on screen.
+        if settle != nil, controller.dragIntent == .pan { interruptSettle() }
         controller.dragChanged(translation: value.translation)
       }
       .onEnded { _ in
@@ -381,7 +515,9 @@ struct CanvasZoomHost<CanvasLeaf: View, Fallback: View>: View {
   /// pinned to the viewport's bottom-leading corner — the `.clipped()`
   /// container above keeps it anchored to the visible canvas, not the
   /// potentially-huge image frame.
-  private var zoomBadge: some View {
+  /// Steps up past any chrome along the bottom edge (the iPhone controls)
+  /// as well as by `badgeInsets`.
+  private func zoomBadge(clearing visible: CanvasViewportInsets) -> some View {
     #if os(iOS)
       // During an iOS pinch `pixelScale` is frozen (the zoom is a compositor
       // transform), so read the live factor; macOS updates pixelScale live.
@@ -394,11 +530,14 @@ struct CanvasZoomHost<CanvasLeaf: View, Fallback: View>: View {
       canvasReady: canvasReady,
       nextStop: controller.nextZoomStop,
       onAdvance: {
-        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+        animatingFromShown {
           controller.advanceZoomStop()
         }
       }
     )
-    .padding(badgeInsets)
+    .padding(
+      EdgeInsets(
+        top: badgeInsets.top, leading: badgeInsets.leading,
+        bottom: max(badgeInsets.bottom, visible.bottom), trailing: badgeInsets.trailing))
   }
 }

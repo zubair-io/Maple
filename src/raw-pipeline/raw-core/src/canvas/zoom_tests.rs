@@ -116,10 +116,15 @@ fn drag_intent_is_editing_at_fit_and_pan_when_zoomed() {
     let model = fit_model();
     assert!(!model.is_zoomed_in());
     assert_eq!(model.drag_intent(&ctx), DragIntent::Editing);
-    let zoomed = model.zoom_to_scale(1.0);
+    let zoomed = model.zoom_to_scale(1.0, &CanvasZoomContext::default());
     assert!(zoomed.is_zoomed_in());
     assert_eq!(zoomed.drag_intent(&ctx), DragIntent::Pan);
-    assert_eq!(zoomed.reset_to_fit().drag_intent(&ctx), DragIntent::Editing);
+    assert_eq!(
+        zoomed
+            .reset_to_fit(&CanvasZoomContext::default())
+            .drag_intent(&ctx),
+        DragIntent::Editing
+    );
 }
 
 #[test]
@@ -128,7 +133,7 @@ fn wheel_intent_matrix() {
     let model = fit_model();
     assert_eq!(model.wheel_intent(true, &ctx), WheelIntent::Zoom);
     assert_eq!(model.wheel_intent(false, &ctx), WheelIntent::Editing);
-    let zoomed = model.zoom_to_scale(2.0);
+    let zoomed = model.zoom_to_scale(2.0, &CanvasZoomContext::default());
     assert_eq!(zoomed.wheel_intent(true, &ctx), WheelIntent::Zoom);
     assert_eq!(zoomed.wheel_intent(false, &ctx), WheelIntent::Pan);
 }
@@ -146,7 +151,7 @@ fn drag_at_fit_is_not_consumed() {
 fn drag_when_zoomed_pans_and_commits_on_end() {
     let ctx = landscape();
     let (panned, consumed) = fit_model()
-        .zoom_to_scale(1.0)
+        .zoom_to_scale(1.0, &CanvasZoomContext::default())
         .drag_changed(Size::new(100.0, 50.0), &ctx);
     assert!(consumed);
     assert_eq!(panned.pan_offset, Size::new(100.0, 50.0));
@@ -161,14 +166,19 @@ fn drag_when_zoomed_pans_and_commits_on_end() {
 #[test]
 fn drag_pan_is_clamped_to_viewport_attachment() {
     let ctx = landscape();
-    let model = drag(fit_model().zoom_to_scale(1.0), 99999.0, 99999.0, &ctx);
+    let model = drag(
+        fit_model().zoom_to_scale(1.0, &CanvasZoomContext::default()),
+        99999.0,
+        99999.0,
+        &ctx,
+    );
     assert_eq!(model.pan_offset, Size::new(1500.0, 1100.0));
 }
 
 #[test]
 fn drag_ignores_non_finite_translation() {
     let ctx = landscape();
-    let zoomed = fit_model().zoom_to_scale(1.0);
+    let zoomed = fit_model().zoom_to_scale(1.0, &CanvasZoomContext::default());
     let (model, consumed) = zoomed.drag_changed(Size::new(f64::NAN, 0.0), &ctx);
     assert!(!consumed);
     assert_eq!(model, zoomed);
@@ -265,7 +275,7 @@ fn legacy_double_tap_always_resets_to_fit() {
     let ctx = landscape();
     let tap = Point::new(100.0, 100.0);
     let model = fit_model()
-        .zoom_to_scale(4.0)
+        .zoom_to_scale(4.0, &CanvasZoomContext::default())
         .double_tap(tap, DoubleTapBehavior::ResetToFit, &ctx);
     assert_eq!(model.pixel_scale, 0.0);
     let again = model.double_tap(tap, DoubleTapBehavior::ResetToFit, &ctx);
@@ -275,11 +285,21 @@ fn legacy_double_tap_always_resets_to_fit() {
 #[test]
 fn zoom_to_scale_clamps_and_clears_the_pan() {
     let ctx = landscape();
-    let panned = drag(fit_model().zoom_to_scale(1.0), 100.0, 100.0, &ctx);
-    let capped = panned.zoom_to_scale(9.0);
+    let panned = drag(
+        fit_model().zoom_to_scale(1.0, &CanvasZoomContext::default()),
+        100.0,
+        100.0,
+        &ctx,
+    );
+    let capped = panned.zoom_to_scale(9.0, &CanvasZoomContext::default());
     assert_eq!(capped.pixel_scale, MAX_PIXEL_SCALE);
     assert_eq!(capped.pan_offset, Size::ZERO);
-    assert_eq!(capped.zoom_to_scale(0.001).pixel_scale, MIN_EXPLICIT_ZOOM);
+    assert_eq!(
+        capped
+            .zoom_to_scale(0.001, &CanvasZoomContext::default())
+            .pixel_scale,
+        MIN_EXPLICIT_ZOOM
+    );
 }
 
 #[test]
@@ -290,21 +310,30 @@ fn step_zoom_in_from_fit_moves_off_fit() {
 
 #[test]
 fn step_zoom_out_snaps_to_fit_within_tolerance() {
-    let model = fit_model().zoom_to_scale(0.3).step_zoom_out(&landscape());
+    let model = fit_model()
+        .zoom_to_scale(0.3, &CanvasZoomContext::default())
+        .step_zoom_out(&landscape());
     assert_eq!(model.pixel_scale, 0.0);
     assert_eq!(model.pan_offset, Size::ZERO);
 }
 
 #[test]
 fn step_zoom_out_above_tolerance_steps() {
-    let model = fit_model().zoom_to_scale(1.0).step_zoom_out(&landscape());
+    let model = fit_model()
+        .zoom_to_scale(1.0, &CanvasZoomContext::default())
+        .step_zoom_out(&landscape());
     assert_close(model.pixel_scale, 0.8, 1e-9);
 }
 
 #[test]
 fn step_zoom_rescales_the_pan_about_the_centre() {
     let ctx = landscape();
-    let panned = drag(fit_model().zoom_to_scale(1.0), 100.0, -40.0, &ctx);
+    let panned = drag(
+        fit_model().zoom_to_scale(1.0, &CanvasZoomContext::default()),
+        100.0,
+        -40.0,
+        &ctx,
+    );
     let stepped = panned.step_zoom_in(&ctx);
     assert_close(stepped.pan_offset.width, 125.0, 1e-9);
     assert_close(stepped.pan_offset.height, -50.0, 1e-9);
@@ -321,10 +350,9 @@ fn wheel_zoom_in_from_fit_zooms_anchored() {
 
 #[test]
 fn wheel_zoom_out_snaps_to_fit_at_the_threshold() {
-    let model =
-        fit_model()
-            .zoom_to_scale(0.26)
-            .wheel_zoom(-1000.0, Point::new(500.0, 400.0), &landscape());
+    let model = fit_model()
+        .zoom_to_scale(0.26, &CanvasZoomContext::default())
+        .wheel_zoom(-1000.0, Point::new(500.0, 400.0), &landscape());
     assert_eq!(model.pixel_scale, 0.0);
     assert_eq!(model.pan_offset, Size::ZERO);
 }
@@ -335,7 +363,7 @@ fn wheel_pan_only_acts_when_zoomed() {
     let at_fit = fit_model().wheel_pan(Size::new(40.0, 40.0), &ctx);
     assert_eq!(at_fit.pan_offset, Size::ZERO);
     let zoomed = fit_model()
-        .zoom_to_scale(1.0)
+        .zoom_to_scale(1.0, &CanvasZoomContext::default())
         .wheel_pan(Size::new(40.0, -20.0), &ctx);
     assert_eq!(zoomed.pan_offset, Size::new(40.0, -20.0));
 }
@@ -343,7 +371,13 @@ fn wheel_pan_only_acts_when_zoomed() {
 #[test]
 fn reclamp_pulls_the_pan_inside_new_geometry() {
     let ctx = landscape();
-    let (model, _) = drag(fit_model().zoom_to_scale(1.0), 1500.0, 1100.0, &ctx).drag_ended();
+    let (model, _) = drag(
+        fit_model().zoom_to_scale(1.0, &CanvasZoomContext::default()),
+        1500.0,
+        1100.0,
+        &ctx,
+    )
+    .drag_ended();
     let bigger = context((3000.0, 2400.0), (8000.0, 6000.0));
     assert_eq!(
         model.reclamp_pan(&bigger).pan_offset,
@@ -399,7 +433,7 @@ fn drag_resuming_after_a_pinch_does_not_jump_by_the_pinch_travel() {
 fn rebase_drag_baseline_absorbs_the_translation() {
     let ctx = landscape();
     let rebased = fit_model()
-        .zoom_to_scale(1.0)
+        .zoom_to_scale(1.0, &CanvasZoomContext::default())
         .rebase_drag_baseline(Size::new(30.0, 0.0));
     assert_eq!(
         drag(rebased, 40.0, 0.0, &ctx).pan_offset,

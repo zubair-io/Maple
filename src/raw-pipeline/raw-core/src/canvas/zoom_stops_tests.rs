@@ -4,24 +4,26 @@
 use super::*;
 
 #[test]
-fn pinch_release_below_fit_stays_below_fit_centred() {
+fn pinch_below_fit_follows_the_fingers_and_springs_back_to_fit() {
     let ctx = square();
-    let model = fit_model()
-        .pinch_changed(0.7, Point::new(100.0, 100.0), &ctx)
-        .pinch_ended(0.7, &ctx);
-    assert_close(model.pixel_scale, FIT * 0.7, 1e-9);
-    assert_eq!(model.pan_offset, Size::ZERO);
-    assert!(model.is_zoomed_in());
-    assert_eq!(model.current_stop(), None);
+    let live = fit_model().pinch_changed(0.7, Point::new(100.0, 100.0), &ctx);
+    assert_close(live.pixel_scale, FIT * 0.7, 1e-9);
+    assert_ne!(
+        live.pan_offset,
+        Size::ZERO,
+        "below fit the image stays under the fingers"
+    );
+    let model = live.pinch_ended(0.7, &ctx);
+    assert_eq!(model, fit_model());
+    assert_eq!(model.current_stop(), Some(ZoomStop::Fit));
 }
 
 #[test]
-fn pinch_release_at_the_floor_stays_at_the_floor() {
+fn pinch_held_at_the_floor_releases_to_fit() {
     let ctx = square();
-    let model = fit_model()
-        .pinch_changed(0.1, Point::ZERO, &ctx)
-        .pinch_ended(0.1, &ctx);
-    assert_close(model.pixel_scale, ctx.min_scale(), 1e-9);
+    let live = fit_model().pinch_changed(0.1, Point::ZERO, &ctx);
+    assert_close(live.pixel_scale, ctx.min_scale(), 1e-9);
+    assert_eq!(live.pinch_ended(0.1, &ctx).pixel_scale, 0.0);
 }
 
 #[test]
@@ -73,7 +75,7 @@ fn step_zoom_in_from_below_fit_settles_on_fit() {
 #[test]
 fn step_zoom_in_that_would_jump_past_fit_settles_on_fit() {
     let model = fit_model()
-        .zoom_to_scale(FIT * 0.88)
+        .zoom_to_scale(FIT * 0.88, &CanvasZoomContext::default())
         .step_zoom_in(&square());
     assert_eq!(model.pixel_scale, 0.0);
 }
@@ -81,7 +83,7 @@ fn step_zoom_in_that_would_jump_past_fit_settles_on_fit() {
 #[test]
 fn step_zoom_out_from_just_above_fit_settles_on_fit() {
     let model = fit_model()
-        .zoom_to_scale(FIT * 1.02)
+        .zoom_to_scale(FIT * 1.02, &CanvasZoomContext::default())
         .step_zoom_out(&square());
     assert_eq!(model.pixel_scale, 0.0);
 }
@@ -106,7 +108,7 @@ fn pinch_release_near_fill_settles_on_fill() {
     let ctx = square();
     let magnification = FILL / FIT * 1.02;
     let live = fit_model().pinch_changed(magnification, Point::new(500.0, 400.0), &ctx);
-    assert_close(live.pixel_scale, FILL, 1e-9);
+    assert_close(live.pixel_scale, FIT * magnification, 1e-9);
     let model = live.pinch_ended(magnification, &ctx);
     assert_close(model.pixel_scale, FILL, 1e-9);
     assert!(model.fills_viewport);
@@ -123,10 +125,10 @@ fn pinch_away_from_fill_clears_the_fill_stop() {
 }
 
 #[test]
-fn pinch_just_below_fit_settles_on_fit_live_and_on_release() {
+fn pinch_just_below_fit_settles_on_fit_on_release_only() {
     let ctx = square();
     let live = fit_model().pinch_changed(0.97, Point::new(300.0, 200.0), &ctx);
-    assert_close(live.pixel_scale, FIT, 1e-12);
+    assert_close(live.pixel_scale, FIT * 0.97, 1e-12);
     let released = live.pinch_ended(0.97, &ctx);
     assert_eq!(released.pixel_scale, 0.0);
     assert_eq!(released.pan_offset, Size::ZERO);
@@ -136,7 +138,7 @@ fn pinch_just_below_fit_settles_on_fit_live_and_on_release() {
 fn pinch_release_without_a_change_frame_near_fill_settles_on_fill() {
     let ctx = square();
     let model = fit_model()
-        .zoom_to_scale(FILL * 1.01)
+        .zoom_to_scale(FILL * 1.01, &CanvasZoomContext::default())
         .pinch_ended(1.0, &ctx);
     assert_close(model.pixel_scale, FILL, 1e-12);
     assert_eq!(model.current_stop(), Some(ZoomStop::Fill));
@@ -146,7 +148,7 @@ fn pinch_release_without_a_change_frame_near_fill_settles_on_fill() {
 #[test]
 fn pinch_release_without_a_change_frame_still_honours_the_fit_detent() {
     let model = fit_model()
-        .zoom_to_scale(FIT * 1.01)
+        .zoom_to_scale(FIT * 1.01, &CanvasZoomContext::default())
         .pinch_ended(1.0, &square());
     assert_eq!(model.pixel_scale, 0.0);
 }
@@ -161,14 +163,14 @@ fn pinch_capture_inside_a_detent_band_shows_what_it_commits() {
     assert_close(wide.fill_scale(), 0.32, 1e-12);
     let centroid = Point::new(400.0, 300.0);
     let captured = fit_model()
-        .zoom_to_scale(0.3125)
+        .zoom_to_scale(0.3125, &CanvasZoomContext::default())
         .pinch_changed(1.0, centroid, &wide);
     assert_close(captured.pixel_scale, 0.3125, 1e-12);
     let start = captured
         .pinch_start_scale
         .expect("the capture frame records the start");
     let frozen = wide.effective_scale(captured.pixel_scale);
-    let shown = frozen * pinch_scale(start, 2.0, wide.fit_scale(), wide.fill_scale()) / start;
+    let shown = frozen * pinch_scale(start, 2.0, wide.fit_scale()) / start;
     let committed = captured
         .pinch_changed(2.0, centroid, &wide)
         .pinch_ended(2.0, &wide);
@@ -179,10 +181,9 @@ fn pinch_capture_inside_a_detent_band_shows_what_it_commits() {
 #[test]
 fn pinch_capture_inside_a_detent_band_still_snaps_on_release() {
     let ctx = square();
-    let captured =
-        fit_model()
-            .zoom_to_scale(FILL * 0.98)
-            .pinch_changed(1.0, Point::new(500.0, 400.0), &ctx);
+    let captured = fit_model()
+        .zoom_to_scale(FILL * 0.98, &CanvasZoomContext::default())
+        .pinch_changed(1.0, Point::new(500.0, 400.0), &ctx);
     assert_close(captured.pixel_scale, FILL * 0.98, 1e-12);
     let released = captured.pinch_ended(1.0, &ctx);
     assert_close(released.pixel_scale, FILL, 1e-12);
@@ -247,7 +248,9 @@ fn a_scale_relative_to_fill_is_not_re_resolved_on_resize() {
 
 #[test]
 fn a_free_scale_is_not_re_resolved_on_resize() {
-    let model = fit_model().zoom_to_scale(0.5).reclamp_pan(&landscape());
+    let model = fit_model()
+        .zoom_to_scale(0.5, &CanvasZoomContext::default())
+        .reclamp_pan(&landscape());
     assert_eq!(model.pixel_scale, 0.5);
     assert!(!model.fills_viewport);
 }
@@ -256,8 +259,8 @@ fn a_free_scale_is_not_re_resolved_on_resize() {
 fn every_other_transition_clears_the_fill_stop() {
     let ctx = square();
     let transitions: [fn(CanvasZoomModel, &CanvasZoomContext) -> CanvasZoomModel; 6] = [
-        |model, _| model.reset_to_fit(),
-        |model, _| model.zoom_to_scale(1.0),
+        |model, _| model.reset_to_fit(&CanvasZoomContext::default()),
+        |model, _| model.zoom_to_scale(1.0, &CanvasZoomContext::default()),
         |model, ctx| model.step_zoom_in(ctx),
         |model, ctx| model.step_zoom_out(ctx),
         |model, ctx| model.wheel_zoom(50.0, Point::ZERO, ctx),
@@ -290,7 +293,9 @@ fn badge_from_a_free_scale_returns_to_fit() {
     let ctx = square();
     let below = fit_model().step_zoom_out(&ctx).advance_stop(&ctx);
     assert_eq!(below.pixel_scale, 0.0);
-    let zoomed = fit_model().zoom_to_scale(3.0).advance_stop(&ctx);
+    let zoomed = fit_model()
+        .zoom_to_scale(3.0, &CanvasZoomContext::default())
+        .advance_stop(&ctx);
     assert_eq!(zoomed.pixel_scale, 0.0);
 }
 

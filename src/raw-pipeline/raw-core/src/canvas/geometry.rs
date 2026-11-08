@@ -203,6 +203,62 @@ impl Rect {
     }
 }
 
+/// How far the host's chrome (toolbars, inspector, filmstrip, safe-area
+/// insets) covers the viewport from each edge, in points.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Insets {
+    pub top: f64,
+    pub left: f64,
+    pub bottom: f64,
+    pub right: f64,
+}
+
+impl Insets {
+    pub const ZERO: Insets = Insets {
+        top: 0.0,
+        left: 0.0,
+        bottom: 0.0,
+        right: 0.0,
+    };
+
+    #[must_use]
+    pub const fn new(top: f64, left: f64, bottom: f64, right: f64) -> Self {
+        Self {
+            top,
+            left,
+            bottom,
+            right,
+        }
+    }
+
+    /// Non-finite or negative edges become zero, and an axis whose two
+    /// insets leave no room inside `extent` drops to zero, so the visible
+    /// area is never empty while the viewport is not.
+    #[must_use]
+    pub fn sanitized_within(self, extent: Size) -> Self {
+        let edge = |value: f64| {
+            if value.is_finite() {
+                value.max(0.0)
+            } else {
+                0.0
+            }
+        };
+        let (top, bottom) = (edge(self.top), edge(self.bottom));
+        let (left, right) = (edge(self.left), edge(self.right));
+        let (top, bottom) = if top + bottom < extent.height {
+            (top, bottom)
+        } else {
+            (0.0, 0.0)
+        };
+        let (left, right) = if left + right < extent.width {
+            (left, right)
+        } else {
+            (0.0, 0.0)
+        };
+        Self::new(top, left, bottom, right)
+    }
+}
+
 fn finite_or_zero(value: f64) -> f64 {
     if value.is_finite() {
         value

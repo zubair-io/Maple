@@ -18,6 +18,7 @@ mod native_detail;
 mod render_schedule;
 mod zoom;
 mod zoom_context;
+mod zoom_pinch;
 mod zoom_queries;
 mod zoom_rebase;
 mod zoom_rules;
@@ -27,7 +28,7 @@ pub use crop::{
     resize_crop, view_point_to_normalized, CropEdges, CropHandle, CropResizeOptions,
     MIN_CROP_FRACTION,
 };
-pub use geometry::{Point, Rect, Size};
+pub use geometry::{Insets, Point, Rect, Size};
 pub use mapping::{CanvasMath, MAX_TEXTURE_EDGE};
 pub use native_detail::{
     decode_rect, detail_rect, detail_rect_in_decode_bottom_up, native_detail_should_render,

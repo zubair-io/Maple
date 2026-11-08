@@ -12,20 +12,6 @@ extension CanvasZoomModel {
 
   // MARK: Detents + zoom steps
 
-  /// Live pinch scale: `start × magnification` (cumulative since gesture
-  /// begin) clamped to `fit × minFitFraction … maxPixelScale`, then settled on
-  /// the fit or fill detent within its band.
-  public static func pinchScale(
-    start: CGFloat,
-    magnification: CGFloat,
-    fit: CGFloat,
-    fill: CGFloat
-  ) -> CGFloat {
-    CGFloat(
-      maple_canvas_zoom_pinch_scale(
-        Double(start), Double(magnification), Double(fit), Double(fill)))
-  }
-
   /// The fit or fill stop `scale` sits within `detentTolerance` of — the
   /// nearer one when both bands overlap (fit wins a tie); nil outside both.
   public static func detent(for scale: CGFloat, fit: CGFloat, fill: CGFloat) -> ZoomStop? {
@@ -100,21 +86,4 @@ extension CanvasZoomModel {
         Double(startScale), Double(newScale)))
   }
 
-  /// Pan that keeps the image point under the gesture's START centroid under
-  /// the LIVE centroid across `startScale → newScale`, derived from the start
-  /// values every frame so clamping can't drift the anchor.
-  public static func livePinchPan(
-    liveCentroid: CGPoint,
-    startCentroid: CGPoint,
-    startPan: CGSize,
-    startScale: CGFloat,
-    newScale: CGFloat,
-    viewportPoints: CGSize
-  ) -> CGSize {
-    CGSize(
-      maple_canvas_zoom_live_pinch_pan(
-        MapleCanvasPoint(liveCentroid), MapleCanvasPoint(startCentroid),
-        MapleCanvasSize(startPan), Double(startScale), Double(newScale),
-        MapleCanvasSize(viewportPoints)))
-  }
 }

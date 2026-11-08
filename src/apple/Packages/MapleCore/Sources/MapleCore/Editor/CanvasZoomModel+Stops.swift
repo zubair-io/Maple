@@ -1,8 +1,8 @@
 // CanvasZoomModel+Stops.swift — the named zoom stops (#5710).
 //
 // Fit, fill and 100% are the three levels a user reaches deliberately: the
-// zoom badge cycles them in that order. Pinch reaches the same fit and fill
-// levels through detents. Resolved by raw-core (#5714).
+// zoom badge cycles them in that order. A pinch released inside a fit or
+// fill detent band settles there. Resolved by raw-core (#5714).
 
 import CoreGraphics
 import Foundation
@@ -21,7 +21,7 @@ extension CanvasZoomModel {
     maple_canvas_zoom_badge_stops(context.ffi).zoomStops
   }
 
-  /// Fill: the image covers the whole viewport, centred. The overflowing
+  /// Fill: the image covers the visible area, centred in it. The overflowing
   /// axis can then be panned.
   public mutating func zoomToFill(context: CanvasZoomContext) {
     adopt(maple_canvas_zoom_to_fill(ffi, context.ffi))
