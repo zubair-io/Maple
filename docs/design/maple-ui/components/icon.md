@@ -70,8 +70,8 @@ interactive atom wraps it.
 The inventory lists every direct SF call and its reason. Apple's Settings tab
 metadata and menu/navigation/toolbar metadata retain system symbols because the
 OS owns their rendering. Image-producing placeholder APIs (`MuiRemoteImage`,
-`AtomsGalleryView`, `PreviewZoomController`) retain native images where the public
-API requires `Image` or `UIImage` instead of a View. The vectorscope's Canvas
+`AtomsGalleryView`) retain native images where the public API requires `Image`
+or `UIImage` instead of a View. The vectorscope's Canvas
 person legend stays a data-rendering glyph. These are separate from Maple chrome,
 which uses MuiIcon. The Apple gate runs `tools/check-apple-icons.py` to reject new
 untracked SF calls and stale exceptions. Controls keep their existing accessible
