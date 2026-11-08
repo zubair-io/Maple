@@ -135,6 +135,8 @@ pub mod test_support;
 pub mod stage_dump;
 
 pub mod batch_transfer;
+/// Canvas zoom model and view/image mapping shared by every platform shell (#5714).
+pub mod canvas;
 /// Vectorscope statistics (#3272): the CPU producer/parity oracle for the GPU
 /// scope pass — see `raw-gpu/src/scope.rs` and `scope_vectorscope.wgsl`.
 pub mod scope;

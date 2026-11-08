@@ -17,7 +17,9 @@ Apple's tile consumer is `NativeDetailRenderer`: it develops a single viewport-s
 | Keyboard commands | F / ⌘0 fit, Z / ⌘1 100%, ⌘= / ⌘- step                      | F / ⌘/Ctrl+0 fit, Z / ⌘/Ctrl+1 100%, ⌘/Ctrl+= / ⌘/Ctrl+- step |
 | Wheel zoom        | `exp2(deltaY × wheelZoomSensitivity)`, sensitivity `0.015` | Cmd+wheel / ctrl-wheel trackpad pinch                         |
 
-Apple's state machine is `src/apple/Packages/MapleCore/Sources/MapleCore/Editor/CanvasZoomModel.swift` — a pure, testable value type holding scale, pan, and the pinch-start captures. It exists because `MagnifyGesture.magnification` is _cumulative_: multiplying it into the live scale every frame compounds exponentially, so each frame re-derives scale and pan from the values captured at pinch start rather than from the previous frame. The same model exposes gesture arbitration as intents rather than leaving each host to re-derive the rules: `dragIntent` is `.editing` at fit and `.pan` when zoomed; `wheelIntent(commandHeld:)` is `.zoom` with Cmd, otherwise `.pan` when zoomed and `.editing` at fit. Double-tap behaviour is per-surface — the editor toggles fit ↔ 100%, because pixel-perfect is what you need to judge noise reduction and sharpening; the full image view (Preview) cycles fit ↔ fill.
+The zoom model and the viewport ↔ image mapping live in the Rust core, in `src/raw-pipeline/raw-core/src/canvas/` (#5714): `zoom.rs` is the state machine, `zoom_rules.rs` the detents, steps, stops and anchored-pan formulas, `zoom_context.rs` the per-call geometry with the pan clamp, and `mapping.rs` the `CanvasMath` snapshot (fit and fill scales, display frame, render targets, visible source rect). Every function there is a total function of plain `Copy` values: no allocation, no panics, and NaN or negative sizes degrade to "unknown" instead of propagating. `raw-ffi` exposes them by value (`canvas_zoom.rs`, `canvas_math.rs`, `maple_canvas_*`): the host passes its `MapleCanvasZoomState` into each transition and keeps the state that comes back, so Rust holds nothing between gesture frames. Apple is the first adopter: `src/apple/Packages/MapleCore/Sources/MapleCore/Editor/CanvasZoomModel.swift` and `CanvasMath.swift` are thin wrappers that convert CoreGraphics values, and the Rust unit tests pin every rule the Swift tests check. Web, Windows, Android and Linux still carry their own copies until their slices of #5714 land.
+
+The state machine is a value type holding scale, pan, and the pinch-start captures. It exists because `MagnifyGesture.magnification` is _cumulative_: multiplying it into the live scale every frame compounds exponentially, so each frame re-derives scale and pan from the values captured at pinch start rather than from the previous frame. The same model exposes gesture arbitration as intents rather than leaving each host to re-derive the rules: `dragIntent` is `.editing` at fit and `.pan` when zoomed; `wheelIntent(commandHeld:)` is `.zoom` with Cmd, otherwise `.pan` when zoomed and `.editing` at fit. Double-tap behaviour is per-surface — the editor toggles fit ↔ 100%, because pixel-perfect is what you need to judge noise reduction and sharpening; the full image view (Preview) cycles fit ↔ fill.
 
 Web mirrors all of it in `src/web/projects/maple-common/src/lib/components/image-canvas/image-canvas.zoom-gestures.ts`, including the anchored-zoom pan formula that keeps the image point under the cursor stationary, and a pan clamp that allows at most `(imageCss − wrapCss) / 2` per axis so the image edge can meet the viewport edge but a gap can never open.
 
@@ -41,7 +43,7 @@ Web keeps its fit snap and has no fill stop yet.
 
 Both platforms run a **two-phase** scheduler: a fast pass at viewport resolution on every tick, then a debounced refine pass at higher resolution. The debounce is 150 ms on both (`RenderActor.refineDebounceMilliseconds`, `TwoPhaseRenderScheduler.REFINE_DEBOUNCE_MS`).
 
-Render targets (`CanvasMath` on Apple, `image-canvas.draw2d.ts` on Web) are computed identically:
+Render targets (`raw_core::canvas::CanvasMath`, read through `CanvasMath` on Apple; `image-canvas.draw2d.ts` on Web) are computed identically:
 
 - **Fast target** = the viewport in real pixels (CSS size × `devicePixelRatio` on Web).
 - **Refine target** = `native × min(pixelScale, 1.0)`, floored at the fast target so refine is never worse than fast, and capped. Upscaling past native adds no detail, so `pixelScale` is clamped to 1.0 in that product.
@@ -255,6 +257,7 @@ The gates that do run in CI:
 ```bash
 cd src/raw-pipeline
 cargo test -p raw-core --lib                     # includes the tile geometry + guard tests
+cargo test -p raw-core --lib canvas              # the zoom model and canvas mapping (#5714)
 cargo test -p raw-core --features test-support   # adds the live-vs-tile parity sweep
 cargo test -p raw-core --features test-support --lib pipeline::render::detail
 ```
