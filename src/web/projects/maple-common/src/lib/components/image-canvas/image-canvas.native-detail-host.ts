@@ -1,11 +1,14 @@
+import { computed, type Signal } from '@angular/core';
 import type { ImageCanvasComponent } from './image-canvas.component';
 import { ImageCanvasNativeDetail } from './image-canvas.native-detail';
 import { isNonRawExtension } from '../../state/raw-extensions';
 import { isIdentityCrop } from '../../models/adjustment-model';
 import { resolveCanvasImageExtent } from './image-canvas.crop';
 
+type Extent = { w: number; h: number };
+
 /** The extent the zoom model and the draw share (`resolveCanvasImageExtent`). */
-export function canvasImageExtent(host: ImageCanvasComponent): { w: number; h: number } | null {
+export function canvasImageExtent(host: ImageCanvasComponent): Extent | null {
   const asset = host.state.focusedAsset();
   return resolveCanvasImageExtent({
     painted: host.canvasSvc.paintedAspect(),
@@ -14,6 +17,13 @@ export function canvasImageExtent(host: ImageCanvasComponent): { w: number; h: n
     assetH: asset?.height,
     crop: asset ? host.state.adjustmentFor(asset.id)().crop : undefined,
     cropToolActive: host.cropSession.active(),
+  });
+}
+
+/** The extent as a signal that only fires when the size really changes. */
+export function createImageExtent(host: ImageCanvasComponent): Signal<Extent | null> {
+  return computed(() => canvasImageExtent(host), {
+    equal: (a, b) => a?.w === b?.w && a?.h === b?.h,
   });
 }
 
