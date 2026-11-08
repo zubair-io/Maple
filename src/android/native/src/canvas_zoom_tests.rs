@@ -37,7 +37,7 @@ fn read(state: &[f64; STATE_LEN], which: u32, image: (f64, f64)) -> f64 {
 
 #[test]
 fn fit_is_the_all_zero_state_kotlin_resets_to() {
-    assert_eq!(encode(&CanvasZoomModel::default()), [0.0; STATE_LEN]);
+    assert_eq!(encode(&CanvasZoomModel::default()), [0.0; MODEL_SLOTS]);
     assert_eq!(decode(&[0.0; STATE_LEN]), CanvasZoomModel::default());
 }
 
@@ -353,6 +353,96 @@ fn adopting_mid_pinch_at_100_percent_keeps_the_adopted_zoom_on_the_next_frame() 
     assert!((next_frame.pan_offset.height - adopted.pan_offset.height).abs() < 1e-9);
     zoom(&mut state, OP_PINCH_ENDED, [1.0, 0.0, 0.0, 0.0], original);
     assert!((decode(&state).pixel_scale - 1.0).abs() < 1e-9);
+}
+
+/// Pinches at `magnification` on the placeholder, adopts the original, and
+/// returns the adopted scale and the scale of an identical frame after it.
+fn adopt_mid_pinch(start_at_100: bool, magnification: f64) -> (f64, f64) {
+    let placeholder = (2048.0, 1365.0);
+    let original = (6000.0, 4000.0);
+    let mut state = [0.0; STATE_LEN];
+    if start_at_100 {
+        zoom(
+            &mut state,
+            OP_DOUBLE_TAP,
+            [500.0, 375.0, 0.0, 0.0],
+            placeholder,
+        );
+    }
+    zoom(
+        &mut state,
+        OP_PINCH_CHANGED,
+        [1.0, 500.0, 375.0, 0.0],
+        placeholder,
+    );
+    zoom(
+        &mut state,
+        OP_PINCH_CHANGED,
+        [magnification, 500.0, 375.0, 0.0],
+        placeholder,
+    );
+    zoom(
+        &mut state,
+        OP_ADOPT_IMAGE,
+        [placeholder.0, placeholder.1, 500.0, 375.0],
+        original,
+    );
+    let adopted = read(&state, QUERY_EFFECTIVE_SCALE, original);
+    zoom(
+        &mut state,
+        OP_PINCH_CHANGED,
+        [magnification, 500.0, 375.0, 0.0],
+        original,
+    );
+    (adopted, read(&state, QUERY_EFFECTIVE_SCALE, original))
+}
+
+#[test]
+fn adopting_a_pinch_held_at_the_cap_does_not_jump_on_the_next_frame() {
+    let (adopted, next_frame) = adopt_mid_pinch(true, 10.0);
+    let fit_ratio = (1000.0 / 6000.0) / (1000.0 / 2048.0);
+    assert!(
+        (adopted - MAX_PIXEL_SCALE * fit_ratio).abs() < 1e-9,
+        "{adopted}"
+    );
+    assert!(
+        (next_frame - adopted).abs() < 1e-9,
+        "{adopted} → {next_frame}"
+    );
+}
+
+#[test]
+fn adopting_a_pinch_held_at_the_floor_does_not_jump_on_the_next_frame() {
+    let (adopted, next_frame) = adopt_mid_pinch(false, 0.1);
+    let floor = 0.5 * 1000.0 / 6000.0;
+    assert!((adopted - floor).abs() < 1e-9, "{adopted}");
+    assert!(
+        (next_frame - adopted).abs() < 1e-9,
+        "{adopted} → {next_frame}"
+    );
+}
+
+#[test]
+fn the_pinch_magnification_slot_clears_when_the_pinch_ends() {
+    let image = (2000.0, 1000.0);
+    let mut state = [0.0; STATE_LEN];
+    zoom(
+        &mut state,
+        OP_PINCH_CHANGED,
+        [1.0, 500.0, 375.0, 0.0],
+        image,
+    );
+    zoom(
+        &mut state,
+        OP_PINCH_CHANGED,
+        [3.0, 500.0, 375.0, 0.0],
+        image,
+    );
+    assert_eq!(state[PINCH_MAGNIFICATION_SLOT], 3.0);
+    zoom(&mut state, OP_RECLAMP, [0.0; 4], image);
+    assert_eq!(state[PINCH_MAGNIFICATION_SLOT], 3.0);
+    zoom(&mut state, OP_PINCH_ENDED, [3.0, 0.0, 0.0, 0.0], image);
+    assert_eq!(state[PINCH_MAGNIFICATION_SLOT], 0.0);
 }
 
 #[test]
