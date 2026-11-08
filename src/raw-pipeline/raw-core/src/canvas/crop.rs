@@ -64,19 +64,19 @@ pub enum CropHandle {
 }
 
 impl CropHandle {
-    fn moves_left(self) -> bool {
+    pub(super) fn moves_left(self) -> bool {
         matches!(self, Self::TopLeft | Self::BottomLeft | Self::Left)
     }
 
-    fn moves_right(self) -> bool {
+    pub(super) fn moves_right(self) -> bool {
         matches!(self, Self::TopRight | Self::BottomRight | Self::Right)
     }
 
-    fn moves_top(self) -> bool {
+    pub(super) fn moves_top(self) -> bool {
         matches!(self, Self::TopLeft | Self::TopRight | Self::Top)
     }
 
-    fn moves_bottom(self) -> bool {
+    pub(super) fn moves_bottom(self) -> bool {
         matches!(self, Self::BottomLeft | Self::BottomRight | Self::Bottom)
     }
 }
