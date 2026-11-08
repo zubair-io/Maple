@@ -74,6 +74,7 @@ pub const fn corpus_paths(source: EvidenceSource) -> &'static [&'static str] {
                 "src/apple/Packages/MapleCore/Sources/MapleCore/XMPSidecarFilePublication.swift",
                 "src/apple/Packages/MapleCore/Sources/MapleCore/XMPSidecarFilePublication.swift",
                 "src/apple/Packages/MapleCore/Sources/MapleCore/BatchMetadataViewModel.swift",
+                "src/apple/Packages/MapleCore/Sources/MapleCore/BatchMetadataFields.swift",
                 "src/apple/Packages/MapleCore/Sources/MapleCore/Sources/FilesystemSource.swift",
                 "src/apple/Packages/MapleCore/Sources/MapleCore/Sources/PhotoKitSource.swift",
                 "src/apple/Packages/MapleCore/Sources/MapleCore/Cloud/CloudSidecarStore.swift",
