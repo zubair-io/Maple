@@ -130,7 +130,7 @@ struct PillHeader: View {
         } label: {
           Label("Zoom to Fit", systemImage: "arrow.up.left.and.arrow.down.right")
         }
-        .disabled(state.zoom.displayFrameInPoints == nil)
+        .disabled(state.zoom.displayFrameInPoints == nil || state.zoom.isZoomLocked)
         .accessibilityValue(
           FullImageViewVM.zoomAccessibilityLabel(for: state.zoom.effectivePixelScale)
         )
@@ -141,7 +141,7 @@ struct PillHeader: View {
         } label: {
           Label("Zoom to Fill", systemImage: "aspectratio")
         }
-        .disabled(state.zoom.displayFrameInPoints == nil)
+        .disabled(state.zoom.displayFrameInPoints == nil || state.zoom.isZoomLocked)
         .accessibilityIdentifier("editor-pill-zoom-fill")
       }
     } label: {

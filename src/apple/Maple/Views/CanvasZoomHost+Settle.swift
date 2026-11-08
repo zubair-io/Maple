@@ -20,15 +20,6 @@ extension CanvasZoomHost {
       viewport: geo.frame(in: .global), safeArea: safeAreaFrame, frames: coverFrames)
   }
 
-  /// The compositor zoom of a live iOS pinch; 1 elsewhere.
-  var liveGestureZoom: CGFloat {
-    #if os(iOS)
-      gestureZoom
-    #else
-      1
-    #endif
-  }
-
   var isPinching: Bool {
     #if os(iOS)
       pinchActive
@@ -44,12 +35,7 @@ extension CanvasZoomHost {
   }
 
   func startSettle(_ animation: CanvasSettleAnimation?) {
-    settle = animation
-    guard let animation else { return }
-    Task { @MainActor in
-      try? await Task.sleep(for: .seconds(CanvasSettleAnimation.duration))
-      if settle == animation { settle = nil }
-    }
+    controller.showSettle(animation)
   }
 
   /// The model moved somewhere new while a settle was drawing (a zoom
@@ -102,8 +88,6 @@ extension CanvasZoomHost {
       guard pinchActive else { return }
       let transform = controller.gestureTransform(
         magnification: pinchLastMag, liveCentroid: pinchLastCentroid)
-      gestureZoom = transform.zoom
-      gestureCommittedPan = transform.committedPan
       liveZoomScale = controller.effectivePixelScale * transform.zoom
     #endif
   }

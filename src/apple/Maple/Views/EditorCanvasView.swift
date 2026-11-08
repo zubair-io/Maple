@@ -46,9 +46,12 @@ struct EditorCanvasView: View {
           .paddedToVisibleCanvas(
             safeArea: visibleSafeArea(in: geometry), coverFrames: visibleCoverFrames)
           // Crop overlay (#638): shown while the Crop tool is armed.
-          // The canvas renders UNCROPPED under the overlay.
+          // The canvas renders UNCROPPED under the overlay. Zoom is held at
+          // fit while it shows (#5743); a settle onto fit moves it with the
+          // photo.
           if state.armedTool == .crop {
             CropOverlay(state: state)
+              .modifier(CanvasPresentedOverlayTransform(controller: state.zoom))
           }
           // Mask coverage and handles for the selected component (#3408).
           if state.armedTool == .mask {

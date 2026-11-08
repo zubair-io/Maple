@@ -39,8 +39,7 @@ public final class CanvasZoomController {
   /// asset/session changes (and `assetChanged()` guards view reuse).
   public let session: EditSession
 
-  /// Live zoom state. Mutations go through the methods below so every
-  /// state change lands in the session when it must.
+  /// Live zoom state; mutations go through the methods below.
   public private(set) var model = CanvasZoomModel()
 
   /// Last viewport reported by the host, in points.
@@ -58,6 +57,13 @@ public final class CanvasZoomController {
   /// the badge, the wheel landing on fit) and the frame shown before it.
   /// The host animates from what is shown to the new resting frame (#5741).
   public private(set) var commandedMove: CanvasCommandedMove?
+
+  /// What is drawn over the committed zoom: a live iOS pinch, a settle.
+  /// The leaf and every overlay read it (`presentedGeometry(at:)`).
+  public internal(set) var presentation = CanvasPresentation()
+
+  /// Zoom held at fit (`lockZoomAtFit`): gestures and commands do nothing.
+  public internal(set) var isZoomLocked = false
 
   /// The geometry the model was last carried into, so the next geometry
   /// change carries the zoom from it (`geometryChanged(from:to:)`).
@@ -104,20 +110,25 @@ public final class CanvasZoomController {
   /// Both come from the same `pinchChanged` transition the model runs, so the
   /// live visual is exactly the live model frame, and the release starts
   /// from it. Call only between the start `pinchChanged` (magnification 1)
-  /// and `pinchEnded`.
+  /// and `pinchEnded`. Published as `presentation.livePinch` for overlays.
   public func gestureTransform(
     magnification: CGFloat,
     liveCentroid: CGPoint
   ) -> (zoom: CGFloat, committedPan: CGSize) {
     // Require the start-capture frame (`pinchChanged` magnification 1) to
     // have run: without it the live pan would derive from a default start.
-    guard model.pinchStartScale != nil else { return (1, .zero) }
     let frozen = context.effectiveScale(for: model.pixelScale)
-    guard frozen > 0 else { return (1, .zero) }
+    guard !isZoomLocked, model.pinchStartScale != nil, frozen > 0 else {
+      presentation.livePinch = nil
+      return (1, .zero)
+    }
     trackedPinch = (magnification, liveCentroid)
     var live = model
     live.pinchChanged(magnification: magnification, location: liveCentroid, context: context)
-    return (context.effectiveScale(for: live.pixelScale) / frozen, live.panOffset)
+    let shown = CanvasLivePinch(
+      zoom: context.effectiveScale(for: live.pixelScale) / frozen, pan: live.panOffset)
+    presentation.livePinch = shown
+    return (shown.zoom, shown.pan)
   }
 
   /// The frame on screen at rest: the resolved scale and the pan.
@@ -234,6 +245,7 @@ public final class CanvasZoomController {
   public func assetChanged() {
     trackedPinch = nil
     provisionalImageSize = nil
+    presentation = CanvasPresentation()
     model.pinchCancelled(context: context)
     model.dragCancelled()
     model.resetToFit(context: context)
@@ -248,6 +260,7 @@ public final class CanvasZoomController {
   /// Pinch frame (cumulative `magnification` since gesture start,
   /// anchor in viewport points). Model-only — committed on end.
   public func pinchChanged(magnification: CGFloat, location: CGPoint) {
+    guard !isZoomLocked else { return }
     model.pinchChanged(magnification: magnification, location: location, context: context)
   }
 
@@ -259,6 +272,7 @@ public final class CanvasZoomController {
     shownMagnification: CGFloat, shownLocation: CGPoint,
     magnification: CGFloat, location: CGPoint
   ) {
+    guard !isZoomLocked else { return }
     trackedPinch = (magnification, location)
     model.pinchRebased(
       shownMagnification: shownMagnification, shownLocation: shownLocation,
@@ -268,6 +282,8 @@ public final class CanvasZoomController {
   /// Pinch release — commits the resolved scale + visible rect.
   public func pinchEnded(magnification: CGFloat) {
     trackedPinch = nil
+    presentation.livePinch = nil
+    guard !isZoomLocked else { return }
     model.pinchEnded(magnification: magnification, context: context)
     commitToSession()
   }
@@ -291,6 +307,7 @@ public final class CanvasZoomController {
   public func pinchCancelled() {
     recordTrackedPinch()
     trackedPinch = nil
+    presentation.livePinch = nil
     let before = model
     model.pinchCancelled(context: context)
     guard model != before else { return }
@@ -339,7 +356,7 @@ public final class CanvasZoomController {
   /// flicker for the whole pan) and reschedules a refine Task on every
   /// event.
   public func wheelPan(delta: CGSize) {
-    guard model.isZoomedIn else { return }
+    guard model.isZoomedIn, !isZoomLocked else { return }
     recordTrackedPinch()
     model.wheelPan(by: delta, context: context)
     scheduleWheelPanCommit()
@@ -350,6 +367,7 @@ public final class CanvasZoomController {
   /// Landing on fit from a zoom is a snap, so it animates; every other wheel
   /// zoom follows the wheel directly.
   public func wheelZoom(normalizedDeltaY: CGFloat, location: CGPoint) {
+    guard !isZoomLocked else { return }
     recordTrackedPinch()
     let shown = restingFrame
     let wasZoomed = model.isZoomedIn
@@ -407,6 +425,7 @@ public final class CanvasZoomController {
   /// A deliberate zoom: apply it, record the frame shown before so the host
   /// animates the move, and commit. A live gesture continues from the result.
   private func command(_ transition: (inout CanvasZoomModel) -> Void) {
+    guard !isZoomLocked else { return }
     recordTrackedPinch()
     let shown = restingFrame
     if let tracked = trackedPinch, model.pinchStartScale != nil {
@@ -476,10 +495,6 @@ public final class CanvasZoomController {
   private func scheduleWheelPanCommit() {
     wheelPanCommitTask?.cancel()
     let intervalMilliseconds = wheelPanCommitIntervalMilliseconds
-    // `@MainActor` documents the isolation the closure already inherits
-    // from this @MainActor class (SE-0306: unstructured Tasks inherit
-    // the enclosing actor context) — explicit for readers, zero
-    // behavior change.
     wheelPanCommitTask = Task { @MainActor [weak self] in
       try? await Task.sleep(for: .milliseconds(Int(intervalMilliseconds)))
       guard !Task.isCancelled else { return }

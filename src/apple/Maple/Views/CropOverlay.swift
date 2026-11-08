@@ -19,8 +19,9 @@
 // result renders once, when the tool disarms.
 //
 // The footprint is the FULL-FRAME image's fit rect, centered in the canvas
-// wrap (the crop tool forces fit + zero pan on entry, so the painted image
-// maps 1:1 onto it); all the geometry lives in `MapleCore.CropGeometry`.
+// wrap (zoom is held at fit + zero pan while the crop tool is armed, #5743,
+// so the painted image maps 1:1 onto it); all the geometry lives in
+// `MapleCore.CropGeometry`.
 
 import SwiftUI
 import MapleCore
