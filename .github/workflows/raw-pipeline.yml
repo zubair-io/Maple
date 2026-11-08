@@ -182,6 +182,14 @@ jobs:
       # (term-parser parity with search.fts.ts, exact vector scan, Tantivy
       # leg, RRF), its lint/fmt gates, and a compile of raw-ffi's API-only
       # `search` feature — no other CI job builds that symbol set.
+      # The web main thread's canvas zoom module (#5714): its slot layout and
+      # bindings, plus raw-core's canvas tests compiled into it by path.
+      - name: cargo test -p raw-wasm-canvas
+        working-directory: src/raw-pipeline
+        run: cargo test -p raw-wasm-canvas
+      - name: cargo clippy -p raw-wasm-canvas --all-targets
+        working-directory: src/raw-pipeline
+        run: cargo clippy -p raw-wasm-canvas --all-targets -- -D warnings
       - name: cargo test -p maple-search
         working-directory: src/raw-pipeline
         run: cargo test -p maple-search

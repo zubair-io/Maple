@@ -72,6 +72,11 @@
                 "output": "/pkg"
               },
               {
+                "glob": "canvas/raw_wasm_canvas{.js,_bg.wasm}",
+                "input": "projects/maple-common/src/lib/raw-pipeline/pkg",
+                "output": "/pkg"
+              },
+              {
                 "glob": "*.mlut",
                 "input": "../../resources/film-luts",
                 "output": "/film-luts"
@@ -197,6 +202,11 @@
               },
               {
                 "glob": "raw_wasm.js",
+                "input": "projects/maple-common/src/lib/raw-pipeline/pkg",
+                "output": "/pkg"
+              },
+              {
+                "glob": "canvas/raw_wasm_canvas{.js,_bg.wasm}",
                 "input": "projects/maple-common/src/lib/raw-pipeline/pkg",
                 "output": "/pkg"
               },

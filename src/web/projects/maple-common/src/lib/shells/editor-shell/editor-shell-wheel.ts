@@ -75,7 +75,7 @@ export function unitFor(e: Pick<WheelEvent, 'shiftKey' | 'altKey'>): number {
   return e.shiftKey ? 10 : e.altKey ? 0.1 : 1;
 }
 
-/** Wheel on the canvas layer — nudges the armed tool at fit zoom. */
+/** Wheel on the canvas layer — nudges the armed tool at fit zoom or below. */
 export function onCanvasWheel(
   shell: EditorShellComponent,
   state: WheelNudgeState,
@@ -83,7 +83,7 @@ export function onCanvasWheel(
   now: number = performance.now(),
 ): void {
   if (e.defaultPrevented || e.ctrlKey || e.metaKey) return;
-  if (shell.canvasSvc.pixelScale() !== 0) return;
+  if (!shell.canvasSvc.pointerEditsAtZoom()) return;
   const editorState = shell.editorState;
   if (!editorState.armedToolAcceptsValueEdits()) return;
   e.preventDefault();

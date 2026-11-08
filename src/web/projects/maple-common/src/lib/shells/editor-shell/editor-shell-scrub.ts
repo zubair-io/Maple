@@ -26,7 +26,7 @@ export function newScrubGestureState(): ScrubGestureState {
 }
 
 /** pointerdown on the canvas layer — starts the scrub gesture. Only scrubs
- *  at fit zoom (pixelScale === 0), primary button only, and only when the
+ *  while nothing overflows the viewport (fit or below), primary button only, and only when the
  *  armed tool accepts value edits (e.g. not while Crop is armed). */
 export function onCanvasPointerDown(
   shell: EditorShellComponent,
@@ -38,7 +38,7 @@ export function onCanvasPointerDown(
   // must not start a scrub: that would commit an edit and capture the pointer,
   // retargeting the click the overlay is waiting for.
   if (e.target instanceof Element && e.target.closest('[data-owns-pointer]')) return;
-  if (shell.canvasSvc.pixelScale() !== 0) return;
+  if (!shell.canvasSvc.pointerEditsAtZoom()) return;
   if (!shell.editorState.armedToolAcceptsValueEdits()) return;
 
   const wrap = shell.canvasWrapRef?.nativeElement;

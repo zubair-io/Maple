@@ -9,7 +9,7 @@ import { ImageCanvasService } from './image-canvas.service';
 describe('ImageCanvasService — momentary before/after', () => {
   it('peeks at the whole frame and restores an off split', () => {
     const svc = new ImageCanvasService();
-    svc.setPixelScale(2);
+    svc.pixelScale.set(2);
     svc.pan.set({ x: 9, y: -4 });
     svc.beginPeekBefore();
     expect(svc.peekingBefore()).toBe(true);

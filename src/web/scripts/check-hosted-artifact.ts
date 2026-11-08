@@ -101,6 +101,10 @@ async function verifySecurityHeaders(): Promise<void> {
     rules.get('/pkg/raw_wasm_bg.wasm')?.get('Content-Type') === 'application/wasm',
     '_headers omits the WASM MIME override',
   );
+  assertContract(
+    rules.get('/pkg/canvas/raw_wasm_canvas_bg.wasm')?.get('Content-Type') === 'application/wasm',
+    '_headers omits the canvas zoom WASM MIME override',
+  );
 }
 
 async function verifyIndexCspCompatibility(): Promise<void> {
@@ -178,6 +182,14 @@ async function verifyBinaryAssets(): Promise<string> {
   assertContract(
     startsWith(await bytes('/pkg/raw_wasm_bg.wasm'), [0x00, 0x61, 0x73, 0x6d]),
     '/pkg/raw_wasm_bg.wasm has invalid magic bytes',
+  );
+  assertContract(
+    startsWith(await bytes('/pkg/canvas/raw_wasm_canvas_bg.wasm'), [0x00, 0x61, 0x73, 0x6d]),
+    '/pkg/canvas/raw_wasm_canvas_bg.wasm has invalid magic bytes',
+  );
+  assertContract(
+    (await text('/pkg/canvas/raw_wasm_canvas.js')).includes('export function canvas_scratch_ptr'),
+    '/pkg/canvas/raw_wasm_canvas.js omits the canvas zoom exports',
   );
   assertContract(
     (await text('/pkg/raw_wasm.js')).includes('export function initThreadPool'),

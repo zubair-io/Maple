@@ -20,7 +20,7 @@ function fakeShell() {
     beginGesture: vi.fn(),
   };
   const shell = {
-    canvasSvc: { pixelScale: () => 0 },
+    canvasSvc: { pointerEditsAtZoom: () => true },
     canvasWrapRef: { nativeElement: wrap },
     editorState,
     scrubbing: { set: vi.fn() },
