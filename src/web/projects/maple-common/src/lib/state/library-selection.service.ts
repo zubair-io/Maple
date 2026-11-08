@@ -75,30 +75,33 @@ export class LibrarySelection {
 
   // ── Derived signals ────────────────────────────────────────────────────────
 
-  readonly assetsInSelectedFolder = computed(() => {
+  /** The folder's photos after the toolbar search but before the cull
+   * filter — what lets the grid tell "the filter hides every photo" apart
+   * from "this folder has no photos" (#5712). Search is filename-only;
+   * structured search lives on /search. */
+  readonly searchMatchedAssetsInSelectedFolder = computed(() => {
     const sid = this.selectedSourceId();
-    let list = this.store.assets().filter((a) => a.folderId === sid);
-
-    const f = this.prefs.filter();
-    if (f === 'picks') list = list.filter((a) => a.flag === 'pick');
-    if (f === '4stars') list = list.filter((a) => a.rating >= 4);
-    // Responsive-program S2 (#623): "Edited" chip keys off the
-    // optional `Asset.edited` boolean already populated by the
-    // server / sidecar pass.
-    if (f === 'edited') list = list.filter((a) => a.edited === true);
-
-    // Filename substring filter from the toolbar search input.
-    // Pragmatic scope: filename only — structured search lives on /search.
+    const inFolder = this.store.assets().filter((a) => a.folderId === sid);
     const q = this.searchQuery().trim().toLowerCase();
-    if (q.length > 0) {
-      list = list.filter((a) => a.filename.toLowerCase().includes(q));
-    }
+    return q.length > 0 ? inFolder.filter((a) => a.filename.toLowerCase().includes(q)) : inFolder;
+  });
 
-    if (this.prefs.sort() === 'name') {
-      list = [...list].sort((a, b) => naturalCompare(a.filename, b.filename));
-    }
-
-    return list;
+  readonly assetsInSelectedFolder = computed(() => {
+    const searched = this.searchMatchedAssetsInSelectedFolder();
+    const f = this.prefs.filter();
+    // Responsive-program S2 (#623): "Edited" keys off the optional
+    // `Asset.edited` boolean already populated by the server / sidecar pass.
+    const culled =
+      f === 'picks'
+        ? searched.filter((a) => a.flag === 'pick')
+        : f === '4stars'
+          ? searched.filter((a) => a.rating >= 4)
+          : f === 'edited'
+            ? searched.filter((a) => a.edited === true)
+            : searched;
+    return this.prefs.sort() === 'name'
+      ? [...culled].sort((a, b) => naturalCompare(a.filename, b.filename))
+      : culled;
   });
 
   readonly foldersInSelectedFolder = computed(() => {

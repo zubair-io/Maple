@@ -362,6 +362,7 @@ export class LibraryStateService {
 
   // ── Derived signals ────────────────────────────────────────────────────────
   readonly assetsInSelectedFolder = this.selection.assetsInSelectedFolder;
+  readonly searchMatchedAssetsInSelectedFolder = this.selection.searchMatchedAssetsInSelectedFolder;
   readonly foldersInSelectedFolder = this.selection.foldersInSelectedFolder;
   readonly focusedAsset = this.selection.focusedAsset;
   readonly selectedCount = this.selection.selectedCount;

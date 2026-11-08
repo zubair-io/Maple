@@ -32,6 +32,8 @@ import { GridFolderItem } from '../../models/folder';
 import { AssetTileComponent } from '../asset-tile/asset-tile.component';
 import { FolderTileComponent } from '../folder-tile/folder-tile.component';
 import { MuiButtonComponent } from '../../ui/button/mui-button.component';
+import { MuiEmptyStateComponent } from '../../ui/empty-state/mui-empty-state.component';
+import type { CullFilter } from '../../state/browse-preferences.service';
 import { STORAGE_KEYS, TypedStorage } from '../../util/typed-storage';
 import { parseAddress } from '../../addressing/maple-address';
 import { viewRouteCommands } from '../../addressing/route-address';
@@ -45,7 +47,7 @@ export type GridItem = { kind: 'folder'; folder: GridFolderItem } | { kind: 'ima
  * left-to-right in their own section above the photos (#3099 — the Windows
  * `BrowseFolderTiles` layout); image rows are justified to the container. */
 interface GridRow {
-  kind: 'folders' | 'images';
+  kind: 'folders' | 'images' | 'filter-empty';
   items: GridItem[];
   height: number;
   /** Space between tiles in this row, in px. */
@@ -62,6 +64,14 @@ const FOLDER_TILE_GAP = 4;
 /** Gap between the folder section and the first photo row. */
 const FOLDER_SECTION_GAP = 12;
 const IMAGE_GAP = 3;
+/** Tall enough for the empty state's icon, title, two-line message and button. */
+export const FILTER_EMPTY_ROW_HEIGHT = 220;
+
+const FILTER_EMPTY_SUBJECTS: Record<Exclude<CullFilter, 'all'>, string> = {
+  picks: 'picks',
+  '4stars': '4+ star photos',
+  edited: 'edited photos',
+};
 
 @Component({
   selector: 'app-asset-grid',
@@ -69,6 +79,7 @@ const IMAGE_GAP = 3;
   imports: [
     MapleIconComponent,
     MuiButtonComponent,
+    MuiEmptyStateComponent,
     ScrollingModule,
     RowHeightsVirtualScrollDirective,
     DragDropModule,
@@ -82,12 +93,14 @@ const IMAGE_GAP = 3;
 })
 export class AssetGridComponent implements AfterViewInit, OnDestroy {
   @ViewChild('gridContainer', { read: ElementRef }) gridContainerRef!: ElementRef<HTMLElement>;
+  @ViewChild('filterPill', { read: ElementRef }) filterPillRef?: ElementRef<HTMLElement>;
 
   /** Stable track-by for virtual scroll: keys off the first item's id so row
    * identity survives across re-packs of the same head item. Folder rows and
    * image rows share the same key space (folder ids are 'fs:<path>', asset
    * ids are UUIDs or 'fs:<path>' — disjoint by construction in practice). */
   trackRow = (_: number, row: GridRow): string => {
+    if (row.kind === 'filter-empty') return 'filter-empty';
     const head = row.items[0];
     if (!head) return `r${_}`;
     return head.kind === 'image' ? head.asset.id : head.folder.id;
@@ -203,7 +216,43 @@ export class AssetGridComponent implements AfterViewInit, OnDestroy {
       });
     }
 
-    return rows;
+    return this.filterHidesAllPhotos()
+      ? [
+          ...rows,
+          {
+            kind: 'filter-empty',
+            items: [],
+            height: FILTER_EMPTY_ROW_HEIGHT,
+            gap: 0,
+            spacingBelow: 0,
+          },
+        ]
+      : rows;
+  });
+
+  /** Without this a persisted filter that matches nothing reads as a broken
+   * or empty folder (#5712). */
+  readonly filterHidesAllPhotos = computed(
+    () =>
+      this.state.assetsInSelectedFolder().length === 0 &&
+      this.state.filter() !== 'all' &&
+      this.state.searchMatchedAssetsInSelectedFolder().length > 0,
+  );
+
+  private readonly searching = computed(() => this.state.searchQuery().trim().length > 0);
+
+  readonly filterEmptyTitle = computed(() => {
+    const f = this.state.filter();
+    if (f === 'all') return '';
+    const subject = FILTER_EMPTY_SUBJECTS[f];
+    return this.searching() ? `No ${subject} match this search` : `No ${subject} in this folder`;
+  });
+
+  readonly filterEmptyMessage = computed(() => {
+    const hidden = this.state.searchMatchedAssetsInSelectedFolder().length;
+    const photos = this.searching() ? 'matching photo' : 'photo';
+    const subject = hidden === 1 ? `1 ${photos} is` : `${hidden} ${photos}s are`;
+    return `${subject} hidden by the ${this.filterLabel()} filter.`;
   });
 
   /** Each row's full box height (row + spacing below) — what the viewport's
@@ -431,8 +480,18 @@ export class AssetGridComponent implements AfterViewInit, OnDestroy {
 
   cycleFilter(): void {
     const cur = this.state.filter();
-    const next =
-      cur === 'all' ? 'picks' : cur === 'picks' ? '4stars' : cur === '4stars' ? 'edited' : 'all';
+    this.applyFilter(
+      cur === 'all' ? 'picks' : cur === 'picks' ? '4stars' : cur === '4stars' ? 'edited' : 'all',
+    );
+  }
+
+  showAllPhotos(): void {
+    this.applyFilter('all');
+    // The pressed button's row is removed with the filter, which would drop focus to <body>.
+    this.filterPillRef?.nativeElement.querySelector('button')?.focus();
+  }
+
+  private applyFilter(next: CullFilter): void {
     this.state.filter.set(next);
     TypedStorage.set(STORAGE_KEYS.FILTER, next);
   }
