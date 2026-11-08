@@ -62,5 +62,6 @@ Only the selected layer renders; unselected layers show nothing (their list rows
 - The weight tint and the shape strokes are decorative and hidden from assistive technology.
 - Arming the tool snaps the canvas to fit so every handle is reachable without panning; the edge
   margin keeps a frame-edge handle's full grab radius inside the gesture region. Zoom stays live
-  afterwards: on Apple the tint and handles are placed through the photo's presented transform, so
-  they follow a pinch, a settle animation or a zoom command in the same frame (#5744).
+  afterwards. On Apple the tint and handles are placed through the photo's presented transform, so
+  they follow a pinch, a settle animation or a zoom command in the same frame (#5744); the web
+  overlay is still placed at fit only and drifts under zoom (#5743).
