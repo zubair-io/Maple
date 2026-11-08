@@ -241,8 +241,10 @@ Imported point curves that exceed the GPU's normalized knot capacity also use
 the shared CPU renderer. Their complete control points remain in the XMP;
 duplicate points that normalize within capacity stay eligible for GPU rendering.
 Before/after comparison still uses the CPU reference.
-RAW and raster canvases expose Fit / 100%, F / Z, anchored pinch/ctrl-wheel zoom and
-clamped drag pan, with physical-pixel scale rather than preview-texture scale.
+RAW and raster canvases expose Fit / Fill / 100%, F / Z, anchored pinch/ctrl-wheel
+zoom from half of fit to 800%, double-click fit ↔ 100% and clamped drag pan, with
+physical-pixel scale rather than preview-texture scale. The zoom rules are the
+shared `raw_core::canvas` model (docs/zoom.md § Linux native canvas).
 Raster source dimensions come from the shared header probe with EXIF orientation
 applied, retained against the immutable opened snapshot. At 100% and above,
 a 150ms debounce develops one visible native-resolution RAW or raster patch
