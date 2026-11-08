@@ -263,7 +263,7 @@ class CanvasZoomState {
         const val SWIPE_PAGE_THRESHOLD_PX = 96f
 
         // Mirrors of `src/android/native/src/canvas_zoom.rs`.
-        private const val STATE_LEN = 18
+        private const val STATE_LEN = 20
         private const val OP_PINCH_CHANGED = 0
         private const val OP_PINCH_ENDED = 1
         private const val OP_DRAG_CHANGED = 2

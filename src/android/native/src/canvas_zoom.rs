@@ -11,12 +11,14 @@ use raw_core::canvas::{
 
 /// Slots holding the shared model; the layout is `encode`'s.
 const MODEL_SLOTS: usize = 17;
-/// The live pinch's last cumulative magnification as Kotlin sent it (0 when
-/// no pinch is in progress). The model only keeps the clamped scale, which
-/// cannot recover the magnification once the pinch has hit the cap or floor.
+/// The live gesture's last cumulative input as Kotlin sent it: the pinch
+/// magnification (0 when no pinch is in progress) and the drag translation
+/// (zero once the drag ends). The model keeps only clamped results, which
+/// cannot recover these once a pinch or drag has run into a limit.
 const PINCH_MAGNIFICATION_SLOT: usize = MODEL_SLOTS;
+const DRAG_TRANSLATION_SLOT: usize = MODEL_SLOTS + 1;
 /// Slots in the Kotlin state array.
-const STATE_LEN: usize = MODEL_SLOTS + 1;
+const STATE_LEN: usize = MODEL_SLOTS + 3;
 
 const OP_PINCH_CHANGED: u32 = 0;
 const OP_PINCH_ENDED: u32 = 1;
@@ -102,78 +104,149 @@ fn decode<const N: usize>(state: &[f64; N]) -> CanvasZoomModel {
     }
 }
 
+/// The live gesture's last cumulative input (see `PINCH_MAGNIFICATION_SLOT`).
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct LiveGesture {
+    pinch_magnification: f64,
+    drag_translation: Size,
+}
+
+impl LiveGesture {
+    fn read(state: &[f64; STATE_LEN]) -> Self {
+        Self {
+            pinch_magnification: state[PINCH_MAGNIFICATION_SLOT],
+            drag_translation: Size::new(
+                state[DRAG_TRANSLATION_SLOT],
+                state[DRAG_TRANSLATION_SLOT + 1],
+            ),
+        }
+    }
+
+    fn write(self, state: &mut [f64; STATE_LEN]) {
+        state[PINCH_MAGNIFICATION_SLOT] = self.pinch_magnification;
+        state[DRAG_TRANSLATION_SLOT] = self.drag_translation.width;
+        state[DRAG_TRANSLATION_SLOT + 1] = self.drag_translation.height;
+    }
+
+    /// The input to keep after `op` (first arguments `a`, `b`) produced
+    /// `next`: the latest values Kotlin sent while each gesture is live. At
+    /// fit nothing pans, so the translation is not kept and fit stays the
+    /// all-zero state.
+    fn after(self, op: u32, a: f64, b: f64, next: &CanvasZoomModel) -> Self {
+        let pinch_magnification = match (next.pinch_start_scale, op) {
+            (None, _) => 0.0,
+            (Some(_), OP_PINCH_CHANGED) if a.is_finite() => a,
+            (Some(_), _) => self.pinch_magnification,
+        };
+        let translation = Size::new(a, b);
+        let drag_translation = match op {
+            _ if !next.is_zoomed_in() => Size::ZERO,
+            OP_DRAG_ENDED => Size::ZERO,
+            OP_DRAG_CHANGED | OP_REBASE_DRAG if translation.is_finite() => translation,
+            _ => self.drag_translation,
+        };
+        Self {
+            pinch_magnification,
+            drag_translation,
+        }
+    }
+}
+
 /// Carries the zoom across the image extent changing under it (a placeholder
 /// size replaced by the original's): a free scale keeps its on-screen size,
 /// a named stop keeps its meaning (100% stays 1:1, fill re-resolves), and the
 /// image point under `anchor` (viewport pixels) stays as close as the pan
-/// clamp allows. A pinch or drag in progress continues without a jump: a live
-/// drag keeps its offset from the committed pan, and a live pinch is
-/// re-captured at the adopted zoom (see `recapture_pinch`).
+/// clamp allows.
 fn adopt_image_size(
     model: CanvasZoomModel,
     anchor: Point,
-    pinch_magnification: f64,
     previous: &CanvasZoomContext,
     next: &CanvasZoomContext,
 ) -> CanvasZoomModel {
+    if !model.is_zoomed_in() {
+        return model;
+    }
     let start_scale = previous.effective_scale(model.pixel_scale);
-    let adopted = if model.is_zoomed_in() {
-        let scale = match model.current_stop() {
-            Some(ZoomStop::Fill) => next.fill_scale(),
-            Some(ZoomStop::Fit | ZoomStop::ActualSize) => model.pixel_scale,
-            None => (start_scale * next.fit_scale() / previous.fit_scale()).min(MAX_PIXEL_SCALE),
-        };
-        let pan = anchored_pan(
-            anchor,
-            next.viewport_points(),
-            model.pan_offset,
-            start_scale * previous.native_image_size().width,
-            next.effective_scale(scale) * next.native_image_size().width,
-        );
-        let live_drag = Size::new(
-            model.pan_offset.width - model.base_pan.width,
-            model.pan_offset.height - model.base_pan.height,
-        );
+    let scale = match model.current_stop() {
+        Some(ZoomStop::Fill) => next.fill_scale(),
+        Some(ZoomStop::Fit | ZoomStop::ActualSize) => model.pixel_scale,
+        None => (start_scale * next.fit_scale() / previous.fit_scale()).min(MAX_PIXEL_SCALE),
+    };
+    let pan = anchored_pan(
+        anchor,
+        next.viewport_points(),
+        model.pan_offset,
+        start_scale * previous.native_image_size().width,
+        next.effective_scale(scale) * next.native_image_size().width,
+    );
+    CanvasZoomModel {
+        pixel_scale: scale,
+        pan_offset: pan,
+        base_pan: pan,
+        ..model
+    }
+    .reclamp_pan(next)
+}
+
+/// Re-anchors a live gesture's captures on a zoom that changed under it
+/// (adoption or a viewport change), so the gesture's next frame with the same
+/// cumulative input reproduces that zoom and then continues from it. A drag's
+/// committed pan absorbs the translation so far; a pinch restarts at its last
+/// centroid with its magnification so far, as if it had begun on the new zoom.
+fn recapture_live_gesture(
+    model: CanvasZoomModel,
+    live: LiveGesture,
+    context: &CanvasZoomContext,
+) -> CanvasZoomModel {
+    let drag_base = model.drag_translation_base.unwrap_or(Size::ZERO);
+    let dragged = Size::new(
+        live.drag_translation.width - drag_base.width,
+        live.drag_translation.height - drag_base.height,
+    );
+    let rebased = if model.is_zoomed_in() {
         CanvasZoomModel {
-            pixel_scale: scale,
-            pan_offset: pan,
-            base_pan: Size::new(pan.width - live_drag.width, pan.height - live_drag.height),
+            base_pan: Size::new(
+                model.pan_offset.width - dragged.width,
+                model.pan_offset.height - dragged.height,
+            ),
             ..model
         }
-        .reclamp_pan(next)
     } else {
         model
     };
-    let adopted_scale = next.effective_scale(adopted.pixel_scale);
-    recapture_pinch(adopted, pinch_magnification, adopted_scale, next)
-}
-
-/// Rewrites a live pinch's start capture so the pinch's next frame at the
-/// same cumulative `magnification` reproduces the adopted zoom, anchored at
-/// its last centroid, as if it had begun on the adopted image.
-fn recapture_pinch(
-    model: CanvasZoomModel,
-    magnification: f64,
-    adopted_scale: f64,
-    next: &CanvasZoomContext,
-) -> CanvasZoomModel {
-    if model.pinch_start_scale.is_none() || !magnification.is_finite() || magnification <= 0.0 {
-        return model;
+    let magnification = live.pinch_magnification;
+    if rebased.pinch_start_scale.is_none() || !magnification.is_finite() || magnification <= 0.0 {
+        return rebased;
     }
-    let centroid = model.pinch_last_centroid;
-    let viewport = next.viewport_points();
+    let centroid = rebased.pinch_last_centroid;
+    let viewport = context.viewport_points();
     let offset = Size::new(
         centroid.x - viewport.width / 2.0,
         centroid.y - viewport.height / 2.0,
     );
     CanvasZoomModel {
-        pinch_start_scale: Some(adopted_scale / magnification),
+        pinch_start_scale: Some(context.effective_scale(rebased.pixel_scale) / magnification),
         pinch_start_centroid: centroid,
         pinch_start_pan: Size::new(
-            offset.width - (offset.width - model.pan_offset.width) / magnification,
-            offset.height - (offset.height - model.pan_offset.height) / magnification,
+            offset.width - (offset.width - rebased.pan_offset.width) / magnification,
+            offset.height - (offset.height - rebased.pan_offset.height) / magnification,
         ),
-        ..model
+        ..rebased
+    }
+}
+
+/// `next` with any live gesture re-anchored on it when `next` changed the
+/// zoom out from under the gesture (see `recapture_live_gesture`).
+fn keeping_live_gesture(
+    model: CanvasZoomModel,
+    next: CanvasZoomModel,
+    live: LiveGesture,
+    context: &CanvasZoomContext,
+) -> CanvasZoomModel {
+    if next == model {
+        next
+    } else {
+        recapture_live_gesture(next, live, context)
     }
 }
 
@@ -184,7 +257,7 @@ fn apply(
     model: CanvasZoomModel,
     op: u32,
     args: [f64; 4],
-    pinch_magnification: f64,
+    live: LiveGesture,
     geometry: Geometry,
 ) -> Option<(CanvasZoomModel, bool)> {
     let context = geometry.context();
@@ -201,34 +274,18 @@ fn apply(
             &context,
         ),
         OP_ADVANCE_STOP => model.advance_stop(&context),
-        OP_RECLAMP => model.reclamp_pan(&context),
+        OP_RECLAMP => keeping_live_gesture(model, model.reclamp_pan(&context), live, &context),
         OP_ADOPT_IMAGE => {
             let previous = Geometry {
                 image: Size::new(a, b),
                 ..geometry
             };
-            adopt_image_size(
-                model,
-                Point::new(c, d),
-                pinch_magnification,
-                &previous.context(),
-                &context,
-            )
+            let adopted = adopt_image_size(model, Point::new(c, d), &previous.context(), &context);
+            recapture_live_gesture(adopted, live, &context)
         }
         _ => return None,
     };
     Some((transitioned, true))
-}
-
-/// The live pinch magnification to keep after `op` (with first argument
-/// `magnification`) produced `next`: the latest value Kotlin sent while a
-/// pinch is in progress, and 0 once none is.
-fn next_pinch_magnification(op: u32, magnification: f64, kept: f64, next: &CanvasZoomModel) -> f64 {
-    match (next.pinch_start_scale, op) {
-        (None, _) => 0.0,
-        (Some(_), OP_PINCH_CHANGED) if magnification.is_finite() => magnification,
-        (Some(_), _) => kept,
-    }
 }
 
 fn stop_code(stop: ZoomStop) -> f64 {
@@ -287,12 +344,12 @@ pub unsafe extern "C" fn maple_android_canvas_zoom(
     let slots = unsafe { &mut *state.cast::<[f64; STATE_LEN]>() };
     let geometry = Geometry::new(viewport_width, viewport_height, image_width, image_height);
     crate::guarded(REJECTED, || {
-        let kept = slots[PINCH_MAGNIFICATION_SLOT];
+        let live = LiveGesture::read(slots);
         Ok(
-            match apply(decode(slots), op, [a, b, c, d], kept, geometry) {
+            match apply(decode(slots), op, [a, b, c, d], live, geometry) {
                 Some((next, result)) => {
                     slots[..MODEL_SLOTS].copy_from_slice(&encode(&next));
-                    slots[PINCH_MAGNIFICATION_SLOT] = next_pinch_magnification(op, a, kept, &next);
+                    live.after(op, a, b, &next).write(slots);
                     i32::from(result)
                 }
                 None => REJECTED,
@@ -328,3 +385,7 @@ pub unsafe extern "C" fn maple_android_canvas_zoom_query(
 #[cfg(test)]
 #[path = "canvas_zoom_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "canvas_zoom_live_tests.rs"]
+mod live_tests;

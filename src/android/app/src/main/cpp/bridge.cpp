@@ -103,7 +103,7 @@ void check(JNIEnv *env, int result) {
     if (result != 0 && !env->ExceptionCheck()) env->ThrowNew(env->FindClass("java/lang/IllegalStateException"), maple_android_error());
 }
 Editor *editor(jlong handle) { return reinterpret_cast<Editor *>(handle); }
-constexpr jsize CANVAS_ZOOM_STATE_LEN = 18;
+constexpr jsize CANVAS_ZOOM_STATE_LEN = 20;
 // The state crosses as a copy on the stack: no allocation and no pinned array.
 bool readCanvasZoom(JNIEnv *env, jdoubleArray state, double (&slots)[CANVAS_ZOOM_STATE_LEN]) {
     if (maple_android_canvas_zoom_state_len() != static_cast<size_t>(CANVAS_ZOOM_STATE_LEN)) {
