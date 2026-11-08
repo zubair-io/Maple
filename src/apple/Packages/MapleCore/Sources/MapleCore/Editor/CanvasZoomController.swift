@@ -39,22 +39,23 @@ public final class CanvasZoomController {
   /// asset/session changes (and `assetChanged()` guards view reuse).
   public let session: EditSession
 
-  /// Live zoom state; mutations go through the methods below.
-  public private(set) var model = CanvasZoomModel()
+  /// Live zoom state. Mutations go through the methods below so every
+  /// state change lands in the session when it must.
+  public internal(set) var model = CanvasZoomModel()
 
   /// Last viewport reported by the host, in points.
-  public private(set) var viewportPoints: CGSize = .zero
+  public internal(set) var viewportPoints: CGSize = .zero
   /// Points → real-pixels factor reported by the host.
-  public private(set) var displayScale: CGFloat = 1
+  public internal(set) var displayScale: CGFloat = 1
   /// Parts of the viewport the host's chrome covers. Fit, fill and the
   /// centred position resolve inside what is left.
-  public private(set) var viewportInsets: CanvasViewportInsets = .zero
+  public internal(set) var viewportInsets: CanvasViewportInsets = .zero
   /// The extent the canvas lays the photo out with until the real one is
   /// known (`setProvisionalImageSize`); `nil` once `nativeImageSizeChanged`
   /// carries the zoom into the real size. Layout keeps reading it until
   /// then: the host learns of the new size after its body has re-evaluated,
   /// and that frame must still draw the rect on screen (#5755).
-  public private(set) var provisionalImageSize: CGSize?
+  public internal(set) var provisionalImageSize: CGSize?
 
   /// The last commanded zoom (a menu or keyboard command, a double-tap,
   /// the badge, the wheel landing on fit) and the frame shown before it.
@@ -70,12 +71,12 @@ public final class CanvasZoomController {
 
   /// The geometry the model was last carried into, so the next geometry
   /// change carries the zoom from it (`geometryChanged(from:to:)`).
-  @ObservationIgnored private var carriedContext: CanvasZoomContext?
+  @ObservationIgnored var carriedContext: CanvasZoomContext?
 
   /// The live input of an iOS pinch, which freezes the committed frame and
   /// draws the live one itself (`gestureTransform`). Recorded into the model
   /// before any other transition so it continues from the frame on screen.
-  @ObservationIgnored private var trackedPinch: (magnification: CGFloat, location: CGPoint)?
+  @ObservationIgnored var trackedPinch: (magnification: CGFloat, location: CGPoint)?
 
   /// Whether zoom and viewport changes reach the session (its viewport
   /// size, pixel scale and visible region), and so start and steer its
@@ -248,7 +249,7 @@ public final class CanvasZoomController {
     return old / context.nativeImageSize.width
   }
 
-  private var realImageSize: CGSize { session.effectiveImageSize }
+  var realImageSize: CGSize { session.effectiveImageSize }
 
   /// The host's asset switched under a reused view — reset to fit so a
   /// stale zoom doesn't make the new image's refine pass target the
@@ -457,7 +458,7 @@ public final class CanvasZoomController {
 
   /// Carry the zoom from the geometry it was last resolved against into the
   /// current one; the first geometry only re-resolves.
-  private func carryIntoCurrentGeometry(resolvingProvisional: Bool = false) {
+  func carryIntoCurrentGeometry(resolvingProvisional: Bool = false) {
     recordTrackedPinch()
     let next = context
     if let previous = carriedContext, resolvingProvisional {
@@ -470,7 +471,7 @@ public final class CanvasZoomController {
     carriedContext = next
   }
 
-  private func recordTrackedPinch() {
+  func recordTrackedPinch() {
     guard let tracked = trackedPinch, model.pinchStartScale != nil else { return }
     model.pinchTracked(magnification: tracked.magnification, location: tracked.location)
   }

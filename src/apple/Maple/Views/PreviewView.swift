@@ -13,11 +13,8 @@
 //     `.maple/previews` for local assets, `/api/fs/preview` 1280 px for Maple
 //     Cloud, PHImageManager high-quality for PhotoKit. The RAW renders only
 //     once the photo is zoomed past that still's resolution.
-//   • The canvas and Info's rating and flag controls use the asset's
-//     `EditSession` (created lazily by the grid's `ensureSession`;
-//     `EditSession.init` allocates a pipeline object but does NOT decode or
-//     render — the heavy work is `ensureRenderStarted()`, which the canvas
-//     calls only past the still's resolution).
+//   • The canvas and Info use the asset's `EditSession`, whose init decodes
+//     nothing; Edit hands the editor the canvas as shown (#5764).
 //
 // Layout (spec §4):
 //   ┌──────────────────────────────────────────────┐
@@ -101,6 +98,7 @@ struct PreviewView: View {
   /// The photo area at rest, in window space (`photoAreaAtRestReporter`).
   @State private var photoArea: CGRect = .zero
   @State private var isPlainPullDismissing = false
+  @State private var canvasOnScreen = PreviewCanvasOnScreen()
   /// Whether the server has an Android Motion Photo clip for this still, and
   /// whether the user asked to play it (#5447).
   @State private var hasMotionClip = false
@@ -276,6 +274,7 @@ struct PreviewView: View {
         }
 
         Button {
+          canvasOnScreen.handOff(to: sessions[asset.id])
           onEdit(asset)
         } label: {
           Image(systemName: "pencil")
@@ -393,8 +392,7 @@ struct PreviewView: View {
 
   // MARK: - Image body
 
-  /// The photo through the editor's shared canvas (#5762), which shows the
-  /// cached stills and renders nothing until zoomed past them.
+  /// The photo through the editor's shared canvas (#5762, #5764).
   @ViewBuilder
   private var imageBody: some View {
     if asset.isVideo {
@@ -406,6 +404,7 @@ struct PreviewView: View {
         source: source,
         provider: provider,
         session: sessions[asset.id],
+        onScreen: canvasOnScreen,
         onSelectAsset: onSelectAsset,
         onPlainPullChanged: updatePlainPull,
         onPlainPullEnded: finishPlainPull
