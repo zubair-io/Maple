@@ -21,6 +21,7 @@
 #                                          helpers (compile_with_matrices / _nr)
 #     * generated/agx_coeffs.wgsl       — the AgX inset/outset matrices (agx only)
 #     * generated/local_mask_wire.wgsl — the local mask composition wire constants
+#     * generated/canvas_overlay.wgsl  — the overlay primitive tags + capacity
 #   So validating a kernel that calls `mul_rec2020_to_srgb` standalone reports a
 #   false "unknown identifier". To mirror the runtime concat without hard-coding
 #   a per-kernel header map (which would drift from the Rust source), each kernel
@@ -31,6 +32,7 @@
 #       (d) color_matrices + local_mask_wire + kernel
 #       (e) present_chain + kernel (display histogram shares the display quantizer)
 #       (f) color_matrices + present_chain + kernel (P3-to-scRGB presentation)
+#       (g) canvas_overlay + kernel (canvas overlay surface)
 #   A kernel PASSES if it validates under ANY rung (unused header helpers are
 #   legal WGSL), and FAILS only if a genuine syntax/type error makes every rung
 #   fail. The generated headers are themselves validated standalone (rung a).
@@ -57,7 +59,8 @@ fi
 COLOR_MATRICES="$GEN_DIR/color_matrices.wgsl"
 AGX_COEFFS="$GEN_DIR/agx_coeffs.wgsl"
 LOCAL_MASK_WIRE="$GEN_DIR/local_mask_wire.wgsl"
-for f in "$COLOR_MATRICES" "$AGX_COEFFS" "$LOCAL_MASK_WIRE"; do
+CANVAS_OVERLAY="$GEN_DIR/canvas_overlay.wgsl"
+for f in "$COLOR_MATRICES" "$AGX_COEFFS" "$LOCAL_MASK_WIRE" "$CANVAS_OVERLAY"; do
 	if [[ ! -f "$f" ]]; then
 		echo "check_wgsl: generated header missing: $f (run tools/codegen.sh)" >&2
 		exit 2
@@ -188,6 +191,13 @@ while IFS= read -r kernel; do
 	cat "$COLOR_MATRICES" "$WGSL_DIR/present_chain.wgsl" "$kernel" >"$assembled"
 	if validate "$assembled"; then
 		echo "PASS  $base  (+color_matrices+present_chain)"
+		continue
+	fi
+
+	# Rung (g): the overlay surface shares the generated primitive tags.
+	cat "$CANVAS_OVERLAY" "$kernel" >"$assembled"
+	if validate "$assembled"; then
+		echo "PASS  $base  (+canvas_overlay)"
 		continue
 	fi
 

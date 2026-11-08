@@ -311,7 +311,7 @@ cargo test -p raw-gpu -- --test-threads=1                  # every WGSL kernel v
 cargo test -p raw-wasm --features gpu                      # render_bytes_gpu vs render_bytes
 ```
 
-`check_wgsl.sh` exists because naga has no `#include` but the Rust pipeline accessors assemble kernels by prepending generated headers (`generated/color_matrices.wgsl`, `generated/agx_coeffs.wgsl`). It validates each kernel under a ladder of header prefixes — standalone, with matrices, with matrices plus AgX coefficients — and passes if any rung validates, so a kernel calling `mul_rec2020_to_srgb` isn't a false "unknown identifier". naga-cli is pinned to the version wgpu bundles so the gate matches the compiler the app runs.
+`check_wgsl.sh` exists because naga has no `#include` but the Rust pipeline accessors assemble kernels by prepending generated headers (`generated/color_matrices.wgsl`, `generated/agx_coeffs.wgsl`, `generated/canvas_overlay.wgsl`). It validates each kernel under a ladder of header prefixes — standalone, with matrices, with matrices plus AgX coefficients — and passes if any rung validates, so a kernel calling `mul_rec2020_to_srgb` isn't a false "unknown identifier". naga-cli is pinned to the version wgpu bundles so the gate matches the compiler the app runs.
 
 The job sets `MAPLE_REQUIRE_GPU=1`, which turns raw-wasm's developer-friendly "no adapter, skipping" soft-pass into a panic. On a runner deliberately provisioned with an adapter, a skip is a broken gate, not a valid outcome.
 

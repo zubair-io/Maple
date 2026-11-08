@@ -39,6 +39,7 @@ mod adjustment_transfer;
 mod adjustment_ts_enums;
 mod auto_fit_codes;
 mod batch_transfer_contract;
+mod canvas_overlay;
 mod capability_registry;
 mod capability_summary;
 mod color_labels;
@@ -109,6 +110,8 @@ enum Target {
 #[derive(Copy, Clone, Debug, ValueEnum, PartialEq, Eq)]
 enum Schema {
     LocalMaskWire,
+    /// Canvas overlay primitive tags and uniform capacity (#5715).
+    CanvasOverlay,
     /// Broadcast graticule directions from the shared Rec.709 scope producer.
     ScopeTargets,
     /// Auto Profile fit return codes for the WinUI host (#5458).
@@ -205,6 +208,10 @@ fn main() {
     let cli = Cli::parse();
     let out = match (cli.schema, cli.target) {
         (Schema::LocalMaskWire, target) => local_mask_wire::emit(target),
+        (Schema::CanvasOverlay, target) => canvas_overlay::emit(target).unwrap_or_else(|| {
+            eprintln!("canvas-overlay supports rust / wgsl");
+            std::process::exit(2);
+        }),
         (Schema::FfiStatus, Target::Ts) => ffi_status::emit_ts(),
         (Schema::FfiStatus, _) => {
             eprintln!("ffi-status supports ts");
@@ -402,7 +409,9 @@ fn main() {
             std::process::exit(2);
         }
         (_, Target::Rust) => {
-            eprintln!("codegen: --target rust is supported only by local-mask-wire");
+            eprintln!(
+                "codegen: --target rust is supported only by local-mask-wire / canvas-overlay"
+            );
             std::process::exit(2);
         }
     };
