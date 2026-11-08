@@ -47,6 +47,9 @@ public final class CanvasZoomController {
   public private(set) var viewportPoints: CGSize = .zero
   /// Points → real-pixels factor reported by the host.
   public private(set) var displayScale: CGFloat = 1
+  /// Parts of the viewport the host's chrome covers. Fit, fill and the
+  /// centred position resolve inside what is left.
+  public private(set) var viewportInsets: CanvasViewportInsets = .zero
 
   public init(session: EditSession) {
     self.session = session
@@ -67,7 +70,8 @@ public final class CanvasZoomController {
     CanvasZoomContext(
       viewportPoints: viewportPoints,
       nativeImageSize: session.effectiveImageSize,
-      displayScale: displayScale
+      displayScale: displayScale,
+      insets: viewportInsets
     )
   }
 
@@ -78,41 +82,28 @@ public final class CanvasZoomController {
 
   /// Live pinch transform for the iOS host's compositor `.scaleEffect(anchor:
   /// .center)` + `.offset` (#1493): the scale factor relative to the frozen
-  /// frame's scale (`pixelScale` does not move mid-pinch), and the would-be
-  /// COMMITTED pan. Both use the SAME
-  /// clamps the release will — `pinchScale` for the scale, `clampedPan` for the
-  /// pan — so the live visual can't over-zoom or detach the image, and the pan
-  /// (which carries the focal anchor via `livePinchPan`) makes the live visual
-  /// land exactly on the committed `panOffset`: scaling the frozen frame about
-  /// its centre and offsetting by `committedPan` reproduces the committed
-  /// geometry, so there's no jump on release. Call only between the start
-  /// `pinchChanged` (magnification 1) and `pinchEnded`.
+  /// frame's scale (`pixelScale` does not move mid-pinch), and the live pan.
+  /// Both come from the same `pinchChanged` transition the model runs, so the
+  /// live visual is exactly the live model frame, and the release starts
+  /// from it. Call only between the start `pinchChanged` (magnification 1)
+  /// and `pinchEnded`.
   public func gestureTransform(
     magnification: CGFloat,
     liveCentroid: CGPoint
   ) -> (zoom: CGFloat, committedPan: CGSize) {
     // Require the start-capture frame (`pinchChanged` magnification 1) to
-    // have run: the pan is derived from `pinchStartCentroid`/`Pan`, which
-    // default to .zero, so without a capture the result would be computed
-    // from an inconsistent start state. No capture → identity transform.
-    guard let start = model.pinchStartScale, start > 0 else { return (1, .zero) }
-    let next = CanvasZoomModel.pinchScale(
-      start: start, magnification: magnification,
-      fit: context.fitScale, fill: context.fillScale
-    )
-    let committed = context.clampedPan(
-      CanvasZoomModel.livePinchPan(
-        liveCentroid: liveCentroid,
-        startCentroid: model.pinchStartCentroid,
-        startPan: model.pinchStartPan,
-        startScale: start, newScale: next,
-        viewportPoints: context.viewportPoints
-      ),
-      at: next
-    )
+    // have run: without it the live pan would derive from a default start.
+    guard model.pinchStartScale != nil else { return (1, .zero) }
     let frozen = context.effectiveScale(for: model.pixelScale)
     guard frozen > 0 else { return (1, .zero) }
-    return (next / frozen, committed)
+    var live = model
+    live.pinchChanged(magnification: magnification, location: liveCentroid, context: context)
+    return (context.effectiveScale(for: live.pixelScale) / frozen, live.panOffset)
+  }
+
+  /// The frame on screen at rest: the resolved scale and the pan.
+  public var restingFrame: CanvasShownFrame {
+    CanvasShownFrame(scale: effectivePixelScale, pan: model.panOffset)
   }
 
   /// On-screen image frame (points) at the current zoom. `nil` until
@@ -143,12 +134,37 @@ public final class CanvasZoomController {
   /// recomputed visible source rect — the visible rect depends on the
   /// viewport, so a resize that skipped the commit would leave
   /// deep-zoom consumers acting on a stale region (#1125 review).
-  public func viewportChanged(points: CGSize, displayScale: CGFloat) {
+  public func viewportChanged(
+    points: CGSize, displayScale: CGFloat, insets: CanvasViewportInsets = .zero
+  ) {
     guard points.width > 0, points.height > 0 else { return }
     self.viewportPoints = points
     self.displayScale = displayScale
+    self.viewportInsets = insets
     model.reclampPan(context: context)
     session.previewSize = context.viewportPx
+    commitToSession()
+  }
+
+  /// The chrome covering the canvas changed (a bar shown or hidden, the
+  /// inspector resized). A zoomed image keeps its place unless the new
+  /// visible area leaves it outside the resting range; at fit it re-fits in
+  /// the new visible area. The host animates from what it showed.
+  public func viewportInsetsChanged(_ insets: CanvasViewportInsets) {
+    guard insets != viewportInsets else { return }
+    viewportInsets = insets
+    guard viewportPoints != .zero else { return }
+    model.reclampPan(context: context)
+    commitToSession()
+  }
+
+  /// Hold the frame the host is showing mid-animation as the resting state,
+  /// so a pinch or pan that interrupts a settle starts from what is on
+  /// screen rather than from where the settle was heading (#5742).
+  public func holdShownFrame(_ frame: CanvasShownFrame) {
+    let before = model
+    model.holdShown(frame, context: context)
+    guard model != before else { return }
     commitToSession()
   }
 
@@ -168,7 +184,7 @@ public final class CanvasZoomController {
   /// stale zoom doesn't make the new image's refine pass target the
   /// full native extent.
   public func assetChanged() {
-    model.resetToFit()
+    model.resetToFit(context: context)
     guard viewportPoints != .zero else { return }
     session.previewSize = context.viewportPx
     commitToSession()
@@ -260,7 +276,7 @@ public final class CanvasZoomController {
 
   /// Fit (⌘0).
   public func resetToFit() {
-    model.resetToFit()
+    model.resetToFit(context: context)
     commitToSession()
   }
 
@@ -284,7 +300,7 @@ public final class CanvasZoomController {
 
   /// 100% (⌘1) — or any explicit scale.
   public func zoomToScale(_ scale: CGFloat) {
-    model.zoomToScale(scale)
+    model.zoomToScale(scale, context: context)
     commitToSession()
   }
 

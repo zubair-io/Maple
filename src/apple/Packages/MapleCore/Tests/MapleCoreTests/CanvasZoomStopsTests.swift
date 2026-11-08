@@ -55,21 +55,23 @@ final class CanvasZoomStopsTests: XCTestCase {
 
     // MARK: - Below fit
 
-    func testPinchReleaseBelowFitStaysBelowFitCentred() {
+    func testPinchBelowFitFollowsTheFingersAndReleasesToFit() {
         var model = CanvasZoomModel()
         model.pinchChanged(magnification: 0.7, location: CGPoint(x: 100, y: 100), context: square)
-        model.pinchEnded(magnification: 0.7, context: square)
         XCTAssertEqual(model.pixelScale, fit * 0.7, accuracy: 1e-9)
-        XCTAssertEqual(model.panOffset, .zero, "an image smaller than the viewport stays centred")
-        XCTAssertTrue(model.isZoomedIn)
-        XCTAssertNil(model.currentStop)
+        XCTAssertNotEqual(model.panOffset, .zero, "below fit the photo stays under the fingers")
+        model.pinchEnded(magnification: 0.7, context: square)
+        XCTAssertEqual(model.pixelScale, 0, "the release springs back to fit")
+        XCTAssertEqual(model.panOffset, .zero)
+        XCTAssertEqual(model.currentStop, .fit)
     }
 
-    func testPinchReleaseAtFloorStaysAtFloor() {
+    func testPinchHeldAtFloorReleasesToFit() {
         var model = CanvasZoomModel()
         model.pinchChanged(magnification: 0.1, location: .zero, context: square)
-        model.pinchEnded(magnification: 0.1, context: square)
         XCTAssertEqual(model.pixelScale, square.minScale, accuracy: 1e-9)
+        model.pinchEnded(magnification: 0.1, context: square)
+        XCTAssertEqual(model.pixelScale, 0)
     }
 
     func testBelowFitInputsBelongToTheEditingSurface() {
@@ -152,20 +154,16 @@ final class CanvasZoomStopsTests: XCTestCase {
 
     // MARK: - Pinch detents
 
-    func testPinchScaleSettlesOnFitAndFillInsideTheirBands() {
-        let start = fit
-        XCTAssertEqual(
-            CanvasZoomModel.pinchScale(start: start, magnification: 1.03, fit: fit, fill: fill), fit)
-        XCTAssertEqual(
-            CanvasZoomModel.pinchScale(
-                start: start, magnification: fill / fit * 0.97, fit: fit, fill: fill),
-            fill)
-        XCTAssertEqual(
-            CanvasZoomModel.pinchScale(start: start, magnification: 1.12, fit: fit, fill: fill),
-            fit * 1.12, accuracy: 1e-9, "between the bands the pinch is continuous")
-        XCTAssertEqual(
-            CanvasZoomModel.pinchScale(start: start, magnification: 0.8, fit: fit, fill: fill),
-            fit * 0.8, accuracy: 1e-9)
+    func testLivePinchFollowsTheFingersThroughTheDetentBands() {
+        let centroid = CGPoint(x: 400, y: 300)
+        for (magnification, expected) in [
+            (1.03, fit * 1.03), (fill / fit * 0.97, fill * 0.97), (0.8, fit * 0.8),
+        ] {
+            var model = CanvasZoomModel()
+            model.pinchChanged(magnification: 1, location: centroid, context: square)
+            model.pinchChanged(magnification: magnification, location: centroid, context: square)
+            XCTAssertEqual(model.pixelScale, expected, accuracy: 1e-12, "no live detent")
+        }
     }
 
     func testOverlappingBandsPickTheNearerStopAndFitWinsATie() {
@@ -180,7 +178,9 @@ final class CanvasZoomStopsTests: XCTestCase {
         var model = CanvasZoomModel()
         let magnification = fill / fit * 1.02
         model.pinchChanged(magnification: magnification, location: CGPoint(x: 500, y: 400), context: square)
-        XCTAssertEqual(model.pixelScale, fill, accuracy: 1e-9, "the live frame sits on the detent")
+        XCTAssertEqual(
+            model.pixelScale, fit * magnification, accuracy: 1e-9,
+            "the live frame follows the fingers")
         model.pinchEnded(magnification: magnification, context: square)
         XCTAssertEqual(model.pixelScale, fill, accuracy: 1e-9)
         XCTAssertTrue(model.fillsViewport)
@@ -197,10 +197,10 @@ final class CanvasZoomStopsTests: XCTestCase {
         XCTAssertEqual(model.pixelScale, fill * 2, accuracy: 1e-9)
     }
 
-    func testPinchJustBelowFitSettlesOnFitLiveAndOnRelease() {
+    func testPinchJustBelowFitSettlesOnFitOnReleaseOnly() {
         var model = CanvasZoomModel()
         model.pinchChanged(magnification: 0.97, location: CGPoint(x: 300, y: 200), context: square)
-        XCTAssertEqual(model.pixelScale, fit, accuracy: 1e-12)
+        XCTAssertEqual(model.pixelScale, fit * 0.97, accuracy: 1e-12)
         model.pinchEnded(magnification: 0.97, context: square)
         XCTAssertEqual(model.pixelScale, 0)
         XCTAssertEqual(model.panOffset, .zero)
@@ -240,12 +240,9 @@ final class CanvasZoomStopsTests: XCTestCase {
 
         model.pinchChanged(magnification: 1, location: centroid, context: wide)
         XCTAssertEqual(model.pixelScale, 0.3125, accuracy: 1e-12, "capture leaves the frame alone")
-        let start = try! XCTUnwrap(model.pinchStartScale)
+        XCTAssertNotNil(model.pinchStartScale)
         let frozen = wide.effectiveScale(for: model.pixelScale)
-        let ratio =
-            CanvasZoomModel.pinchScale(
-                start: start, magnification: 2, fit: wide.fitScale, fill: wide.fillScale) / start
-        let shown = frozen * ratio
+        let shown = frozen * 2
 
         model.pinchChanged(magnification: 2, location: centroid, context: wide)
         model.pinchEnded(magnification: 2, context: wide)

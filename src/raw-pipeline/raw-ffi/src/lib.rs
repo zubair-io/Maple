@@ -58,6 +58,7 @@ mod canvas_math;
 mod canvas_native_detail;
 mod canvas_render_schedule;
 mod canvas_zoom;
+mod canvas_zoom_insets;
 mod canvas_zoom_rules;
 mod capture_base;
 mod capture_creative;

@@ -1,4 +1,5 @@
 use super::*;
+use crate::canvas_zoom_insets::*;
 use crate::canvas_zoom_rules::*;
 
 fn landscape() -> MapleCanvasZoomContext {
@@ -12,6 +13,7 @@ fn landscape() -> MapleCanvasZoomContext {
             height: 6000.0,
         },
         display_scale: 2.0,
+        insets: MapleCanvasInsets::default(),
     }
 }
 
@@ -207,5 +209,65 @@ fn pinch_rebased_threads_the_state_through() {
         maple_canvas_zoom_pinch_rebased(idle, 1.0, shown_at, 1.0, lifted, context)
             .has_pinch_start_scale,
         0
+    );
+}
+
+#[test]
+fn insets_reach_the_core_and_a_below_fit_release_returns_to_the_visible_centre() {
+    let context = MapleCanvasZoomContext {
+        insets: MapleCanvasInsets {
+            top: 100.0,
+            left: 0.0,
+            bottom: 0.0,
+            right: 200.0,
+        },
+        ..landscape()
+    };
+    assert_eq!(
+        maple_canvas_zoom_context_sanitize(context).insets,
+        context.insets
+    );
+    assert_eq!(maple_canvas_zoom_fit_scale(context), 0.2);
+    assert_eq!(maple_canvas_zoom_effective_scale(context, 0.0), 0.2);
+    let home = MapleCanvasSize {
+        width: -100.0,
+        height: 50.0,
+    };
+    assert_eq!(maple_canvas_zoom_home_pan(context), home);
+    let fit = maple_canvas_zoom_reset_to_fit(MapleCanvasZoomState::default(), context);
+    assert_eq!(fit.pan_offset, home);
+    let fingers = MapleCanvasPoint { x: 700.0, y: 150.0 };
+    let captured = maple_canvas_zoom_pinch_changed(fit, 1.0, fingers, context);
+    let below = maple_canvas_zoom_pinch_changed(captured, 0.6, fingers, context);
+    assert!((below.pixel_scale - 0.12).abs() < 1e-12);
+    assert_ne!(below.pan_offset, home);
+    let released = maple_canvas_zoom_pinch_ended(below, 0.6, context);
+    assert_eq!(released.pixel_scale, 0.0);
+    assert_eq!(released.pan_offset, home);
+    assert_eq!(
+        maple_canvas_zoom_to_scale(released, 1.0, context).pan_offset,
+        home
+    );
+    assert_eq!(maple_canvas_zoom_pinch_scale(0.2, 1.03, 0.2), 0.2 * 1.03);
+}
+
+#[test]
+fn holding_a_shown_frame_reaches_the_core_and_refuses_before_the_image_is_known() {
+    let context = landscape();
+    let pan = MapleCanvasSize {
+        width: 30.0,
+        height: -20.0,
+    };
+    let held = maple_canvas_zoom_hold_shown(MapleCanvasZoomState::default(), 0.18, pan, context);
+    assert_eq!(held.pixel_scale, 0.18);
+    assert_eq!(held.pan_offset, pan);
+    assert_eq!(held.base_pan, pan);
+    let unknown = MapleCanvasZoomContext {
+        native_image_size: MapleCanvasSize::default(),
+        ..context
+    };
+    assert_eq!(
+        maple_canvas_zoom_hold_shown(MapleCanvasZoomState::default(), 1.0, pan, unknown),
+        MapleCanvasZoomState::default()
     );
 }

@@ -7,6 +7,8 @@ struct EditorCanvasView: View {
   @Bindable var state: EditorState
   var filmstripSource: (any ImageSource)? = nil
   var wheelExclusionFrame: CGRect?
+  /// Global frames of the chrome floating over the canvas (#5749 visible area).
+  var coverFrames: [CGRect] = []
   var hasFilmstrip = false
   @Environment(\.mapleLayout) private var layout
   private var isRegular: Bool { layout != .phone }
@@ -25,16 +27,24 @@ struct EditorCanvasView: View {
             },
             canvasReady: canvasIsReady,
             wheelExcludedFrame: wheelExclusionFrame,
-            badgeInsets: badgeInsets(in: geometry)
+            badgeInsets: badgeInsets(in: geometry),
+            safeAreaFrame: visibleSafeArea(in: geometry),
+            coverFrames: visibleCoverFrames
           ) {
             canvasLeaf
           } fallback: {
             canvasPlaceholder
+              .paddedToVisibleCanvas(
+                safeArea: visibleSafeArea(in: geometry), coverFrames: visibleCoverFrames)
           }
           // Seed thumbnail until real pixels land, then the download
-          // progress above it (#2374).
-          seedThumbnail
-          downloadOverlay
+          // progress above it (#2374), both in the area the photo fits.
+          Group {
+            seedThumbnail
+            downloadOverlay
+          }
+          .paddedToVisibleCanvas(
+            safeArea: visibleSafeArea(in: geometry), coverFrames: visibleCoverFrames)
           // Crop overlay (#638): shown while the Crop tool is armed.
           // The canvas renders UNCROPPED under the overlay.
           if state.armedTool == .crop {
@@ -102,6 +112,18 @@ struct EditorCanvasView: View {
         idiom: MapleShellKind.currentIdiom, screen: FullBleedCanvas.screen(of: geometry))
   }
 
+  /// The region clear of the system bars, when the full-bleed canvas runs
+  /// beneath them: this view's own frame, which keeps the safe area.
+  private func visibleSafeArea(in geometry: GeometryProxy) -> CGRect? {
+    isFullBleed(in: geometry) ? geometry.frame(in: .global) : nil
+  }
+
+  /// The crop tool keeps its inset canvas; everywhere else the chrome over
+  /// the canvas shapes the visible area fit and centring use.
+  private var visibleCoverFrames: [CGRect] {
+    state.armedTool == .crop ? [] : coverFrames
+  }
+
   /// The full-bleed canvas reaches the screen corner, so the badge steps
   /// in by the safe area and, when the controls cover the bottom-leading
   /// corner (the portrait inspector and dock), sits just above them.
@@ -121,19 +143,18 @@ struct EditorCanvasView: View {
   /// The badge's footprint: 44 pt plus its padding, with margin.
   private static let badgeClearance: CGFloat = 80
 
+  /// Only the crop tool insets the canvas. Elsewhere it spans the editor and
+  /// the chrome becomes visible-area insets, so showing, hiding or resizing
+  /// it never moves a zoomed photo (#5749).
   private func canvasInsets(size: CGSize) -> EdgeInsets {
-    if state.armedTool == .crop {
-      let controlsAtBottom = EditorCropGeometry.stacksControlsAtBottom(
-        size: size, isTablet: EditorCropGeometry.isTabletClass,
-        hasFilmstrip: hasFilmstrip, usesVerticalBar: EditorVerticalControlBar.fits(in: size))
-      return EditorCropGeometry.insets(
-        size: size, controlsFrame: wheelExclusionFrame,
-        isRegular: isRegular, hasFilmstrip: hasFilmstrip,
-        controlsAtBottom: controlsAtBottom)
-    }
-    guard !isRegular, size.height > size.width else { return EdgeInsets() }
-    let coveredHeight = wheelExclusionFrame.map { max(0, size.height - $0.minY) } ?? 0
-    return EdgeInsets(top: 56, leading: 0, bottom: coveredHeight, trailing: 0)
+    guard state.armedTool == .crop else { return EdgeInsets() }
+    let controlsAtBottom = EditorCropGeometry.stacksControlsAtBottom(
+      size: size, isTablet: EditorCropGeometry.isTabletClass,
+      hasFilmstrip: hasFilmstrip, usesVerticalBar: EditorVerticalControlBar.fits(in: size))
+    return EditorCropGeometry.insets(
+      size: size, controlsFrame: wheelExclusionFrame,
+      isRegular: isRegular, hasFilmstrip: hasFilmstrip,
+      controlsAtBottom: controlsAtBottom)
   }
 
 }

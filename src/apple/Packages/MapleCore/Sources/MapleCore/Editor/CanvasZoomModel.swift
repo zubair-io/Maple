@@ -18,61 +18,106 @@ import RawPipeline
 
 // MARK: - Context
 
+/// Points of the canvas viewport that the host's chrome covers from each
+/// edge (header, inspector, filmstrip, safe-area insets). Left and right are
+/// in the viewport's own coordinate space, not leading/trailing.
+public struct CanvasViewportInsets: Equatable, Sendable {
+  public let top: CGFloat
+  public let left: CGFloat
+  public let bottom: CGFloat
+  public let right: CGFloat
+
+  public static let zero = CanvasViewportInsets(top: 0, left: 0, bottom: 0, right: 0)
+
+  public init(top: CGFloat, left: CGFloat, bottom: CGFloat, right: CGFloat) {
+    self.top = top
+    self.left = left
+    self.bottom = bottom
+    self.right = right
+  }
+
+  init(_ insets: MapleCanvasInsets) {
+    self.init(
+      top: CGFloat(insets.top), left: CGFloat(insets.left), bottom: CGFloat(insets.bottom),
+      right: CGFloat(insets.right))
+  }
+
+  var ffi: MapleCanvasInsets {
+    MapleCanvasInsets(
+      top: Double(top), left: Double(left), bottom: Double(bottom), right: Double(right))
+  }
+}
+
 /// Immutable per-call geometry the zoom transitions resolve against: the live
 /// viewport (points), the trustworthy image extent (oriented source pixels,
-/// `.zero` until known) and the points→real-pixels factor. Stored exactly as
-/// Rust sanitizes it (non-finite or negative sizes → `.zero`, display scale
-/// ≥ 0.001).
+/// `.zero` until known), the points→real-pixels factor and the chrome insets.
+/// The image is drawn across the whole viewport, but fit, fill and the
+/// centred position resolve inside the visible area the insets leave. Stored
+/// exactly as Rust sanitizes it (non-finite or negative sizes → `.zero`,
+/// display scale ≥ 0.001, insets that leave no room dropped).
 public struct CanvasZoomContext: Equatable, Sendable {
   public let viewportPoints: CGSize
   public let nativeImageSize: CGSize
   public let displayScale: CGFloat
+  public let insets: CanvasViewportInsets
 
-  public init(viewportPoints: CGSize, nativeImageSize: CGSize, displayScale: CGFloat) {
+  public init(
+    viewportPoints: CGSize, nativeImageSize: CGSize, displayScale: CGFloat,
+    insets: CanvasViewportInsets = .zero
+  ) {
     let sanitized = maple_canvas_zoom_context_sanitize(
       MapleCanvasZoomContext(
         viewport_points: MapleCanvasSize(viewportPoints),
         native_image_size: MapleCanvasSize(nativeImageSize),
-        display_scale: Double(displayScale)
+        display_scale: Double(displayScale),
+        insets: insets.ffi
       ))
     self.viewportPoints = CGSize(sanitized.viewport_points)
     self.nativeImageSize = CGSize(sanitized.native_image_size)
     self.displayScale = CGFloat(sanitized.display_scale)
+    self.insets = CanvasViewportInsets(sanitized.insets)
   }
 
   var ffi: MapleCanvasZoomContext {
     MapleCanvasZoomContext(
       viewport_points: MapleCanvasSize(viewportPoints),
       native_image_size: MapleCanvasSize(nativeImageSize),
-      display_scale: Double(displayScale)
+      display_scale: Double(displayScale),
+      insets: insets.ffi
     )
   }
 
   /// Viewport in REAL screen pixels — what the render pipeline targets.
   public var viewportPx: CGSize { CGSize(maple_canvas_zoom_viewport_px(ffi)) }
 
-  /// `CanvasMath` snapshot for a given user-intent scale + pan.
+  /// `CanvasMath` snapshot for a given user-intent scale + pan. Fit (`0`)
+  /// resolves to the visible-area fit first.
   public func canvasMath(pixelScale: CGFloat, panOffset: CGSize = .zero) -> CanvasMath {
     CanvasMath(
       viewportPx: viewportPx,
       nativeImageSize: nativeImageSize,
-      pixelScale: pixelScale,
+      pixelScale: effectiveScale(for: pixelScale),
       panOffset: panOffset,
       displayScale: displayScale
     )
   }
 
+  /// Scale at which the image fits the visible area.
   public var fitScale: CGFloat { CGFloat(maple_canvas_zoom_fit_scale(ffi)) }
 
-  /// Fill scale, capped at `CanvasZoomModel.maxPixelScale`.
+  /// Scale at which the image covers the visible area, capped at
+  /// `CanvasZoomModel.maxPixelScale`.
   public var fillScale: CGFloat { CGFloat(maple_canvas_zoom_fill_scale(ffi)) }
 
   /// Smallest legal scale: `fit × minFitFraction`.
   public var minScale: CGFloat { CGFloat(maple_canvas_zoom_min_scale(ffi)) }
 
+  /// The pan that centres the image in the visible area.
+  public var homePan: CGSize { CGSize(maple_canvas_zoom_home_pan(ffi)) }
+
   /// Resolves the `0 == fit` sentinel into a concrete scale.
   public func effectiveScale(for pixelScale: CGFloat) -> CGFloat {
-    canvasMath(pixelScale: pixelScale).effectivePixelScale
+    CGFloat(maple_canvas_zoom_effective_scale(ffi, Double(pixelScale)))
   }
 
   /// On-screen frame (points) at `pixelScale`; nil until the size is known.
@@ -80,13 +125,13 @@ public struct CanvasZoomContext: Equatable, Sendable {
     canvasMath(pixelScale: pixelScale).displayFrameInPoints
   }
 
-  /// Largest pan magnitude (points, per axis) that keeps the image attached
-  /// to the viewport; zero on an axis where it does not overflow.
+  /// Largest pan (points, per axis) away from `homePan` that keeps the image
+  /// covering the visible area; zero on an axis where it does not overflow.
   public func maxPanOffset(at pixelScale: CGFloat) -> CGSize {
     CGSize(maple_canvas_zoom_max_pan_offset(ffi, Double(pixelScale)))
   }
 
-  /// Clamp a pan offset into the legal range at `pixelScale`.
+  /// Clamp a pan offset into the resting range at `pixelScale`.
   public func clampedPan(_ pan: CGSize, at pixelScale: CGFloat) -> CGSize {
     CGSize(maple_canvas_zoom_clamped_pan(ffi, MapleCanvasSize(pan), Double(pixelScale)))
   }
@@ -212,8 +257,9 @@ public struct CanvasZoomModel: Equatable, Sendable {
         Double(magnification), MapleCanvasPoint(location), context.ffi))
   }
 
-  /// Pinch release: commit the final scale, settle on the fit or fill detent
-  /// inside its band, clear the start capture.
+  /// Pinch release: commit the final scale and clear the start capture, then
+  /// settle — below fit or inside fit's band onto fit centred in the visible
+  /// area, inside fill's band onto fill, otherwise into the resting pan range.
   public mutating func pinchEnded(magnification: CGFloat, context: CanvasZoomContext) {
     adopt(maple_canvas_zoom_pinch_ended(ffi, Double(magnification), context.ffi))
   }
@@ -270,29 +316,41 @@ public struct CanvasZoomModel: Equatable, Sendable {
       maple_canvas_zoom_double_tap(ffi, MapleCanvasPoint(location), UInt32(code), context.ffi))
   }
 
-  /// Back to fit mode: `pixelScale = 0`, pans and captures cleared.
-  public mutating func resetToFit() {
-    adopt(maple_canvas_zoom_reset_to_fit(ffi))
+  /// Back to fit mode: `pixelScale = 0`, centred in the visible area,
+  /// captures cleared.
+  /// Rest at the frame an interrupted settle was showing, held to the zoom
+  /// range and inside the visible area; ignored for an undrawable frame or
+  /// before the image size is known.
+  public mutating func holdShown(_ frame: CanvasShownFrame, context: CanvasZoomContext) {
+    adopt(
+      maple_canvas_zoom_hold_shown(
+        ffi, Double(frame.scale), MapleCanvasSize(frame.pan), context.ffi))
   }
 
-  /// Explicit zoom target (toolbar "100%", ⌘1): clamped, re-centred.
-  public mutating func zoomToScale(_ scale: CGFloat) {
-    adopt(maple_canvas_zoom_to_scale(ffi, Double(scale)))
+  public mutating func resetToFit(context: CanvasZoomContext) {
+    adopt(maple_canvas_zoom_reset_to_fit(ffi, context.ffi))
   }
 
-  /// ⌘= step, anchored at the viewport centre.
+  /// Explicit zoom target (toolbar "100%", ⌘1): clamped, re-centred in the
+  /// visible area.
+  public mutating func zoomToScale(_ scale: CGFloat, context: CanvasZoomContext) {
+    adopt(maple_canvas_zoom_to_scale(ffi, Double(scale), context.ffi))
+  }
+
+  /// ⌘= step, anchored at the visible centre.
   public mutating func stepZoomIn(context: CanvasZoomContext) {
     adopt(maple_canvas_zoom_step_in(ffi, context.ffi))
   }
 
-  /// ⌘- step, anchored at the viewport centre; settles on fit when it
+  /// ⌘- step, anchored at the visible centre; settles on fit when it
   /// reaches it.
   public mutating func stepZoomOut(context: CanvasZoomContext) {
     adopt(maple_canvas_zoom_step_out(ffi, context.ffi))
   }
 
-  /// Re-resolve against fresh geometry (viewport resize, native size seed):
-  /// fill follows the new viewport and the pan is pulled back inside range.
+  /// Re-resolve against fresh geometry (viewport resize, chrome insets, native
+  /// size seed): fit re-centres in the visible area, fill follows it, and any
+  /// other pan is pulled back inside range (a pan already inside stays put).
   public mutating func reclampPan(context: CanvasZoomContext) {
     adopt(maple_canvas_zoom_reclamp_pan(ffi, context.ffi))
   }

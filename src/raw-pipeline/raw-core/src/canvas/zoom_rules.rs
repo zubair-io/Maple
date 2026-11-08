@@ -82,21 +82,18 @@ pub fn detent(scale: f64, fit: f64, fill: f64) -> Option<ZoomStop> {
 
 /// Live pinch scale: `start × magnification` (magnification is cumulative
 /// since the gesture began) clamped to `fit × MIN_FIT_FRACTION …
-/// MAX_PIXEL_SCALE`, then settled on fit or fill inside its detent band. A NaN
+/// MAX_PIXEL_SCALE`. No detent applies while the fingers are down — snapping
+/// onto fit or fill mid-gesture jumped the image — so the scale follows the
+/// fingers continuously and the release settles it (`pinch_ended`). A NaN
 /// product resolves to fit. The floor is applied last, so on an image so small
 /// that half of fit exceeds the cap, the floor wins.
 #[must_use]
-pub fn pinch_scale(start: f64, magnification: f64, fit: f64, fill: f64) -> f64 {
+pub fn pinch_scale(start: f64, magnification: f64, fit: f64) -> f64 {
     let product = start * magnification;
     if product.is_nan() {
         return fit;
     }
-    let clamped = product.min(MAX_PIXEL_SCALE).max(fit * MIN_FIT_FRACTION);
-    match detent(clamped, fit, fill) {
-        Some(ZoomStop::Fit) => fit,
-        Some(ZoomStop::Fill) => fill,
-        Some(ZoomStop::ActualSize) | None => clamped,
-    }
+    product.min(MAX_PIXEL_SCALE).max(fit * MIN_FIT_FRACTION)
 }
 
 /// True when a discrete zoom `current → next` reaches fit's detent band from

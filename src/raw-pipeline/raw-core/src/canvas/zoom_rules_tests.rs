@@ -33,19 +33,24 @@ fn detent_ignores_non_positive_stops_and_nan() {
 }
 
 #[test]
-fn pinch_scale_settles_on_fit_and_fill_inside_their_bands() {
+fn pinch_scale_follows_the_fingers_through_the_fit_and_fill_bands() {
     let (fit, fill, start) = (SQUARE_FIT, SQUARE_FILL, SQUARE_FIT);
-    assert_eq!(pinch_scale(start, 1.03, fit, fill), fit);
-    assert_eq!(pinch_scale(start, fill / fit * 0.97, fit, fill), fill);
-    assert_close(pinch_scale(start, 1.12, fit, fill), fit * 1.12, 1e-9);
-    assert_close(pinch_scale(start, 0.8, fit, fill), fit * 0.8, 1e-9);
+    assert_close(pinch_scale(start, 1.03, fit), fit * 1.03, 1e-12);
+    assert_close(pinch_scale(start, 0.97, fit), fit * 0.97, 1e-12);
+    assert_close(
+        pinch_scale(start, fill / fit * 0.97, fit),
+        fill * 0.97,
+        1e-12,
+    );
+    assert_close(pinch_scale(start, 1.12, fit), fit * 1.12, 1e-9);
+    assert_close(pinch_scale(start, 0.8, fit), fit * 0.8, 1e-9);
 }
 
 #[test]
 fn pinch_scale_clamps_to_the_floor_and_the_cap() {
-    assert_eq!(pinch_scale(0.25, 1000.0, 0.25, 0.4), MAX_PIXEL_SCALE);
-    assert_close(pinch_scale(0.25, 0.01, 0.25, 0.4), 0.125, 1e-12);
-    assert_eq!(pinch_scale(0.25, f64::NAN, 0.25, 0.4), 0.25);
+    assert_eq!(pinch_scale(0.25, 1000.0, 0.25), MAX_PIXEL_SCALE);
+    assert_close(pinch_scale(0.25, 0.01, 0.25), 0.125, 1e-12);
+    assert_eq!(pinch_scale(0.25, f64::NAN, 0.25), 0.25);
 }
 
 #[test]

@@ -36,6 +36,7 @@ struct EditorControls: View {
         maximumPanelHeight: min(300, height * 0.4), showsScope: showsScope
       )
       .reportsWheelExclusion(in: "editorCanvas", active: true)
+      .coversCanvas()
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity)
     .ignoresSafeArea(edges: .bottom)
@@ -62,6 +63,7 @@ struct EditorControls: View {
         maximumHeight: max(geometry.size.height - top - 12, 1)
       )
       .reportsWheelExclusion(in: "editorCanvas", active: true)
+      .coversCanvas()
       .padding(.top, top)
       .padding([.bottom, .leading], 12)
       .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
@@ -133,6 +135,7 @@ struct EditorControls: View {
       // The inspector is scrollable for every tool; the dock scrolls too.
       // Wheel events over either must reach that surface, never the canvas.
       .reportsWheelExclusion(in: "editorCanvas", active: true)
+      .coversCanvas()
       .padding(.top, isBottom ? 0 : 64)
       .padding(12)
       .frame(

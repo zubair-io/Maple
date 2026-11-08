@@ -82,6 +82,10 @@ struct EditorSurface: View {
   /// tool or zooming/panning the canvas underneath it.
   @State private var wheelExclusionFrame: CGRect?
 
+  /// Global frames of the header, controls and filmstrip floating over the
+  /// canvas: the canvas fits and centres the photo in what they leave visible.
+  @State private var canvasCoverFrames: [CGRect] = []
+
   /// Whether the vectorscope HUD is showing (#3277). Persisted so the
   /// choice survives app restarts; the HUD itself arms
   /// `session.scopeEnabled` on appear.
@@ -104,6 +108,7 @@ struct EditorSurface: View {
         state: state,
         filmstripSource: filmstripSource,
         wheelExclusionFrame: wheelExclusionFrame,
+        coverFrames: canvasCoverFrames,
         hasFilmstrip: !filmstripAssets.isEmpty
       )
 
@@ -123,6 +128,7 @@ struct EditorSurface: View {
           source: filmstripSource,
           onSelect: onSelectAsset
         )
+        .coversCanvas()
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
         .padding(.leading, EditorCropGeometry.filmstripLeadingPadding)
         .ignoresSafeArea(edges: .bottom)
@@ -158,6 +164,7 @@ struct EditorSurface: View {
                 showsGroupTabs: !usesDuoToolRail, showsScope: showsScope
               )
               .reportsWheelExclusion(in: "editorCanvas", active: true)
+              .coversCanvas()
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .ignoresSafeArea(edges: .bottom)
@@ -197,6 +204,7 @@ struct EditorSurface: View {
             scopesPanelAvailable: isRegular,
             showsGroupSwitcher: headerCarriesGroups
           )
+          .coversCanvas()
           Spacer(minLength: 0)
         }
         EditorSidecarLoadNotice(session: state.session)
@@ -237,6 +245,7 @@ struct EditorSurface: View {
     // (#2683) — see `wheelExclusionFrame`.
     .coordinateSpace(name: "editorCanvas")
     .onPreferenceChange(CanvasWheelExclusionKey.self) { wheelExclusionFrame = $0 }
+    .onPreferenceChange(CanvasCoverFramesKey.self) { canvasCoverFrames = $0 }
     // Scope producer arming (#3277, #3251): one switch for both scope
     // surfaces, so hiding the HUD while the panel is up (or vice versa)
     // cannot disarm the producer the other one still reads.
