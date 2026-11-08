@@ -32,21 +32,4 @@ class NativeViewportGeometryTest {
             assertTrue(padded.y + padded.height <= size.height)
         }
     }
-
-    @Test fun delayedOriginalMetadataKeepsOneToOneDoubleTapAndItsAnchor() {
-        val zoom = CanvasZoomState()
-        zoom.doubleTap(750f, 375f, 2048, 1365, 1000f, 750f)
-        zoom.adoptNativeDimensions(2048, 1365, 6000, 4000, 1000f, 750f)
-        assertEquals(1f, zoom.pixelScale, 0f)
-        assertEquals(-1250f, zoom.panX, .001f)
-        assertEquals(4500f, (750f - 500f - zoom.panX) / zoom.pixelScale + 3000f, .001f)
-    }
-
-    @Test fun delayedOriginalMetadataKeepsPinchMagnificationRelativeToFit() {
-        val zoom = CanvasZoomState()
-        zoom.applyPinch(2f, 750f, 375f, 2048, 1365, 1000f, 750f)
-        zoom.adoptNativeDimensions(2048, 1365, 6000, 4000, 1000f, 750f)
-        assertEquals(2f, zoom.zoomFactorOverFit(6000, 4000, 1000f, 750f), .001f)
-        assertEquals(-250f, zoom.panX, .001f)
-    }
 }

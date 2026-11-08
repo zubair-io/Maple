@@ -137,6 +137,9 @@ internal fun PhotoCanvas(
                     zoomState.pixelScale, zoomState.panX, zoomState.panY))
             }
         }
+        LaunchedEffect(viewportPxW, viewportPxH, currentImageDims) {
+            zoomState.reclamp(currentImageDims.first, currentImageDims.second, viewportPxW, viewportPxH)
+        }
         DisposableEffect(model) { onDispose { model.cancelNativeDetail() } }
         val zoomFactor =
             zoomState.zoomFactorOverFit(
@@ -253,7 +256,14 @@ internal fun PhotoCanvas(
                     else -> zoomState.badgeLabel(imageDims.first, imageDims.second, viewportPxW, viewportPxH)
                 },
                 isZoomed = zoomState.isZoomed,
-                onReset = zoomState::reset,
+                actionDescription = if (nativeReady) zoomState.nextStopDescription(imageDims.first,
+                    imageDims.second, viewportPxW, viewportPxH) else "Zoom to Fit",
+                enabled = nativeReady || zoomState.isZoomed,
+                onClick = {
+                    if (nativeReady) zoomState.advanceStop(imageDims.first, imageDims.second,
+                        viewportPxW, viewportPxH)
+                    else zoomState.reset()
+                },
                 modifier =
                     Modifier.align(Alignment.BottomStart)
                         .padding(start = badgeStartPadding, bottom = badgeBottomPadding),
