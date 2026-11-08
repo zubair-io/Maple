@@ -34,6 +34,22 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.justmaple.aperture.data.NativeBridge
+import app.justmaple.aperture.generated.CanvasZoomAbi.OP_ADOPT_IMAGE
+import app.justmaple.aperture.generated.CanvasZoomAbi.OP_ADVANCE_STOP
+import app.justmaple.aperture.generated.CanvasZoomAbi.OP_DOUBLE_TAP
+import app.justmaple.aperture.generated.CanvasZoomAbi.OP_DRAG_CHANGED
+import app.justmaple.aperture.generated.CanvasZoomAbi.OP_DRAG_ENDED
+import app.justmaple.aperture.generated.CanvasZoomAbi.OP_PINCH_CHANGED
+import app.justmaple.aperture.generated.CanvasZoomAbi.OP_PINCH_ENDED
+import app.justmaple.aperture.generated.CanvasZoomAbi.OP_REBASE_DRAG
+import app.justmaple.aperture.generated.CanvasZoomAbi.OP_REBASE_PINCH
+import app.justmaple.aperture.generated.CanvasZoomAbi.OP_RECLAMP
+import app.justmaple.aperture.generated.CanvasZoomAbi.QUERY_EFFECTIVE_SCALE
+import app.justmaple.aperture.generated.CanvasZoomAbi.QUERY_FIT_SCALE
+import app.justmaple.aperture.generated.CanvasZoomAbi.QUERY_NEXT_STOP
+import app.justmaple.aperture.generated.CanvasZoomAbi.STATE_LEN
+import app.justmaple.aperture.generated.CanvasZoomAbi.STOP_ACTUAL_SIZE
+import app.justmaple.aperture.generated.CanvasZoomAbi.STOP_FILL
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.roundToInt
@@ -140,6 +156,25 @@ class CanvasZoomState {
         anchorY = centroidY
         transition(OP_PINCH_CHANGED, imageWidth, imageHeight, viewportWidth, viewportHeight,
             magnification.toDouble(), centroidX.toDouble(), centroidY.toDouble())
+    }
+
+    /**
+     * The fingers in the pinch changed: it continues about their centroid ([centroidX],
+     * [centroidY]) from the current zoom, so the next frame with the same magnification moves
+     * nothing.
+     */
+    fun rebasePinch(
+        centroidX: Float,
+        centroidY: Float,
+        imageWidth: Int,
+        imageHeight: Int,
+        viewportWidth: Float,
+        viewportHeight: Float,
+    ) {
+        anchorX = centroidX
+        anchorY = centroidY
+        transition(OP_REBASE_PINCH, imageWidth, imageHeight, viewportWidth, viewportHeight,
+            centroidX.toDouble(), centroidY.toDouble())
     }
 
     fun pinchEnded(
@@ -260,23 +295,6 @@ class CanvasZoomState {
         const val DOUBLE_TAP_TIMEOUT_MS = 280L
         const val DOUBLE_TAP_SLOP_PX = 48f
         const val SWIPE_PAGE_THRESHOLD_PX = 96f
-
-        // Mirrors of `src/android/native/src/canvas_zoom.rs`.
-        private const val STATE_LEN = 20
-        private const val OP_PINCH_CHANGED = 0
-        private const val OP_PINCH_ENDED = 1
-        private const val OP_DRAG_CHANGED = 2
-        private const val OP_DRAG_ENDED = 3
-        private const val OP_REBASE_DRAG = 4
-        private const val OP_DOUBLE_TAP = 5
-        private const val OP_ADVANCE_STOP = 6
-        private const val OP_RECLAMP = 7
-        private const val OP_ADOPT_IMAGE = 8
-        private const val QUERY_EFFECTIVE_SCALE = 0
-        private const val QUERY_FIT_SCALE = 1
-        private const val QUERY_NEXT_STOP = 2
-        private const val STOP_FILL = 1
-        private const val STOP_ACTUAL_SIZE = 2
     }
 }
 
@@ -360,13 +378,23 @@ internal suspend fun PointerInputScope.detectCanvasZoomPanAndSwipe(
             val (imgW, imgH) = imageDimensions()
 
             if (pressed.size >= 2) {
-                val tracker = pinch ?: PinchTracker(pressed.map { it.position }).also {
-                    zoomState.dragEnded()
-                    pinch = it
-                }
+                val tracker =
+                    pinch?.also { tracker ->
+                        val fingers =
+                            event.changes.map {
+                                PinchFinger(
+                                    previous = if (it.previousPressed) it.previousPosition else null,
+                                    current = if (it.pressed) it.position else null,
+                                )
+                            }
+                        tracker.advance(fingers)?.let { regrouped ->
+                            zoomState.rebasePinch(regrouped.x, regrouped.y, imgW, imgH, viewportW, viewportH)
+                        }
+                    } ?: PinchTracker(pressed.map { it.position }).also {
+                        zoomState.dragEnded()
+                        pinch = it
+                    }
                 gestureWasMultiTouch = true
-                val held = event.changes.filter { it.pressed && it.previousPressed }
-                tracker.advance(held.map { it.previousPosition }, held.map { it.position })
                 zoomState.pinchChanged(
                     magnification = tracker.magnification,
                     centroidX = tracker.centroid.x,

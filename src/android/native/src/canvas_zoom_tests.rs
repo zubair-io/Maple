@@ -117,7 +117,7 @@ fn drag_at_fit_is_not_consumed() {
         zoom(&mut state, OP_DRAG_CHANGED, [50.0, 40.0, 0.0, 0.0], image),
         0
     );
-    assert_eq!(state, [0.0; STATE_LEN]);
+    assert_eq!(state[..GEOMETRY_SLOT], [0.0; GEOMETRY_SLOT]);
     assert_eq!(zoom(&mut state, OP_DRAG_ENDED, [0.0; 4], image), 0);
 }
 
@@ -155,7 +155,11 @@ fn pinch_derives_from_cumulative_magnification_and_settles_on_detents() {
         "magnification does not compound"
     );
     zoom(&mut state, OP_PINCH_ENDED, [1.03, 0.0, 0.0, 0.0], image);
-    assert_eq!(state, [0.0; STATE_LEN], "within 4% of fit settles on fit");
+    assert_eq!(
+        state[..GEOMETRY_SLOT],
+        [0.0; GEOMETRY_SLOT],
+        "within 4% of fit settles on fit"
+    );
 
     zoom(
         &mut state,
@@ -179,7 +183,7 @@ fn badge_cycles_fit_fill_and_100_percent() {
     zoom(&mut state, OP_ADVANCE_STOP, [0.0; 4], image);
     assert_eq!(decode(&state).pixel_scale, 1.0);
     zoom(&mut state, OP_ADVANCE_STOP, [0.0; 4], image);
-    assert_eq!(state, [0.0; STATE_LEN]);
+    assert_eq!(state[..GEOMETRY_SLOT], [0.0; GEOMETRY_SLOT]);
 }
 
 #[test]
@@ -227,38 +231,4 @@ fn non_finite_geometry_degrades_instead_of_panicking() {
 #[test]
 fn the_exported_state_length_is_the_layout_length() {
     assert_eq!(maple_android_canvas_zoom_state_len(), STATE_LEN);
-}
-
-/// Kotlin and C++ mirror the binding's numbers by hand; this pins them.
-#[test]
-fn kotlin_and_bridge_mirror_the_binding_constants() {
-    let kotlin =
-        include_str!("../../app/src/main/java/app/justmaple/aperture/ui/CanvasZoomState.kt");
-    let bridge = include_str!("../../app/src/main/cpp/bridge.cpp");
-    let mirrored = [
-        ("STATE_LEN", STATE_LEN as f64),
-        ("OP_PINCH_CHANGED", f64::from(OP_PINCH_CHANGED)),
-        ("OP_PINCH_ENDED", f64::from(OP_PINCH_ENDED)),
-        ("OP_DRAG_CHANGED", f64::from(OP_DRAG_CHANGED)),
-        ("OP_DRAG_ENDED", f64::from(OP_DRAG_ENDED)),
-        ("OP_REBASE_DRAG", f64::from(OP_REBASE_DRAG)),
-        ("OP_DOUBLE_TAP", f64::from(OP_DOUBLE_TAP)),
-        ("OP_ADVANCE_STOP", f64::from(OP_ADVANCE_STOP)),
-        ("OP_RECLAMP", f64::from(OP_RECLAMP)),
-        ("OP_ADOPT_IMAGE", f64::from(OP_ADOPT_IMAGE)),
-        ("QUERY_EFFECTIVE_SCALE", f64::from(QUERY_EFFECTIVE_SCALE)),
-        ("QUERY_FIT_SCALE", f64::from(QUERY_FIT_SCALE)),
-        ("QUERY_NEXT_STOP", f64::from(QUERY_NEXT_STOP)),
-        ("STOP_FILL", stop_code(ZoomStop::Fill)),
-        ("STOP_ACTUAL_SIZE", stop_code(ZoomStop::ActualSize)),
-    ];
-    for (name, value) in mirrored {
-        let line = format!("private const val {name} = {value}\n");
-        assert!(kotlin.contains(&line), "CanvasZoomState.kt lacks `{line}`");
-    }
-    let bridge_len = format!("constexpr jsize CANVAS_ZOOM_STATE_LEN = {STATE_LEN};");
-    assert!(
-        bridge.contains(&bridge_len),
-        "bridge.cpp lacks `{bridge_len}`"
-    );
 }

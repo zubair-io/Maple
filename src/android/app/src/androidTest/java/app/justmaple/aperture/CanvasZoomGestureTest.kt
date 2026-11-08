@@ -140,6 +140,39 @@ class CanvasZoomGestureTest {
         }
     }
 
+    /** Codex on #5722: after a third finger lands, the pinch pivots on all three fingers' centroid. */
+    @Test
+    fun aPinchAfterAThirdFingerLandsPivotsOnTheThreeFingerCentroid() {
+        val zoom = CanvasZoomState()
+        compose.setContent {
+            Box(Modifier.size(300.dp).testTag("pivot-box").pointerInput(Unit) {
+                detectCanvasZoomPanAndSwipe(zoom, { 4000 to 4000 }, false, {})
+            })
+        }
+        var width = 0f
+        compose.onNodeWithTag("pivot-box").performTouchInput {
+            width = this.width.toFloat()
+            down(0, Offset(width * 0.3f, centerY))
+            advanceEventTime(16)
+            down(1, Offset(width * 0.7f, centerY))
+            advanceEventTime(16)
+            down(2, Offset(width * 0.8f, centerY))
+            advanceEventTime(16)
+            updatePointerTo(0, Offset(width * 0.15f, centerY))
+            updatePointerTo(1, Offset(width * 0.75f, centerY))
+            updatePointerTo(2, Offset(width * 0.9f, centerY))
+            move()
+            up(0)
+            up(1)
+            up(2)
+        }
+        compose.runOnIdle {
+            assertTrue(zoom.isZoomed)
+            assertEquals("the image point under x = 0.6w stays put", -0.05f * width, zoom.panX, 1f)
+            assertEquals(0f, zoom.panY, 1f)
+        }
+    }
+
     @Test
     fun doubleTapSelects100PercentEvenWhenFitAlreadyEnlargesTheImage() {
         val zoom = CanvasZoomState()

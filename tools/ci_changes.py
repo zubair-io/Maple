@@ -214,6 +214,7 @@ def dependencies(path):
             "src/api/src/fs/xmp-conditional.ts",
             "src/api/src/fs/xmp.ts",
             "src/android/native/src/fields.rs",
+            "src/android/native/src/canvas_zoom_abi.rs",
             "src/android/app/src/main/res/values/maple-tokens.xml",
         )
         else set()
