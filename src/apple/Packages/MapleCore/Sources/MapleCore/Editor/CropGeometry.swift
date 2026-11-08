@@ -73,8 +73,8 @@ public enum CropGeometry {
   // MARK: - Footprint / mapping
 
   /// Fit footprint: the largest centered rect of the image's aspect that
-  /// fits the viewport without upscaling past 1:1 — the same rule as
-  /// `CanvasMath.fitPixelScale`, so the overlay aligns with the painted
+  /// fits the viewport, upscaling an image smaller than it — the same rule
+  /// as `CanvasMath.fitPixelScale`, so the overlay aligns with the painted
   /// image.
   public static func fitFootprint(
     wrapW: Double, wrapH: Double, imgW: Double, imgH: Double

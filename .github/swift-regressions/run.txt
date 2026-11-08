@@ -99,6 +99,7 @@ BoundedAsyncSemaphoreTests
 CameraSupportRegistryTests
 CanvasColorSpaceTests
 CanvasVisibleAreaTests
+CanvasZoomContinuityTests
 CanvasZoomControllerTests
 CanvasZoomModelTests
 CanvasZoomPinchRebaseTests

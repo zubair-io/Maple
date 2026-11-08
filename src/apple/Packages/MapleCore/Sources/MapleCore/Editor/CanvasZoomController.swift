@@ -51,6 +51,20 @@ public final class CanvasZoomController {
   /// centred position resolve inside what is left.
   public private(set) var viewportInsets: CanvasViewportInsets = .zero
 
+  /// The last commanded zoom (a menu or keyboard command, a double-tap,
+  /// the badge, the wheel landing on fit) and the frame shown before it.
+  /// The host animates from what is shown to the new resting frame (#5741).
+  public private(set) var commandedMove: CanvasCommandedMove?
+
+  /// The geometry the model was last carried into, so the next geometry
+  /// change carries the zoom from it (`geometryChanged(from:to:)`).
+  @ObservationIgnored private var carriedContext: CanvasZoomContext?
+
+  /// The live input of an iOS pinch, which freezes the committed frame and
+  /// draws the live one itself (`gestureTransform`). Recorded into the model
+  /// before any other transition so it continues from the frame on screen.
+  @ObservationIgnored private var trackedPinch: (magnification: CGFloat, location: CGPoint)?
+
   public init(session: EditSession) {
     self.session = session
   }
@@ -96,6 +110,7 @@ public final class CanvasZoomController {
     guard model.pinchStartScale != nil else { return (1, .zero) }
     let frozen = context.effectiveScale(for: model.pixelScale)
     guard frozen > 0 else { return (1, .zero) }
+    trackedPinch = (magnification, liveCentroid)
     var live = model
     live.pinchChanged(magnification: magnification, location: liveCentroid, context: context)
     return (context.effectiveScale(for: live.pixelScale) / frozen, live.panOffset)
@@ -141,7 +156,7 @@ public final class CanvasZoomController {
     self.viewportPoints = points
     self.displayScale = displayScale
     self.viewportInsets = insets
-    model.reclampPan(context: context)
+    carryIntoCurrentGeometry()
     session.previewSize = context.viewportPx
     commitToSession()
   }
@@ -154,7 +169,7 @@ public final class CanvasZoomController {
     guard insets != viewportInsets else { return }
     viewportInsets = insets
     guard viewportPoints != .zero else { return }
-    model.reclampPan(context: context)
+    carryIntoCurrentGeometry()
     commitToSession()
   }
 
@@ -162,6 +177,7 @@ public final class CanvasZoomController {
   /// so a pinch or pan that interrupts a settle starts from what is on
   /// screen rather than from where the settle was heading (#5742).
   public func holdShownFrame(_ frame: CanvasShownFrame) {
+    recordTrackedPinch()
     let before = model
     model.holdShown(frame, context: context)
     guard model != before else { return }
@@ -175,7 +191,7 @@ public final class CanvasZoomController {
   /// extent (#1125 review).
   public func nativeImageSizeChanged() {
     guard viewportPoints != .zero else { return }
-    model.reclampPan(context: context)
+    carryIntoCurrentGeometry()
     session.previewSize = context.viewportPx
     commitToSession()
   }
@@ -184,7 +200,10 @@ public final class CanvasZoomController {
   /// stale zoom doesn't make the new image's refine pass target the
   /// full native extent.
   public func assetChanged() {
+    trackedPinch = nil
+    model.gesturesCancelled(context: context)
     model.resetToFit(context: context)
+    carriedContext = context
     guard viewportPoints != .zero else { return }
     session.previewSize = context.viewportPx
     commitToSession()
@@ -206,6 +225,7 @@ public final class CanvasZoomController {
     shownMagnification: CGFloat, shownLocation: CGPoint,
     magnification: CGFloat, location: CGPoint
   ) {
+    trackedPinch = (magnification, location)
     model.pinchRebased(
       shownMagnification: shownMagnification, shownLocation: shownLocation,
       magnification: magnification, location: location, context: context)
@@ -213,6 +233,7 @@ public final class CanvasZoomController {
 
   /// Pinch release — commits the resolved scale + visible rect.
   public func pinchEnded(magnification: CGFloat) {
+    trackedPinch = nil
     model.pinchEnded(magnification: magnification, context: context)
     commitToSession()
   }
@@ -220,12 +241,31 @@ public final class CanvasZoomController {
   /// Drag frame. No-op at fit (the drag belongs to the editing
   /// surface); pans when zoomed. Model-only — committed on end.
   public func dragChanged(translation: CGSize) {
+    recordTrackedPinch()
     model.dragChanged(translation: translation, context: context)
   }
 
   /// Drag release — pushes the new visible rect when a pan committed. A
   /// drag that began from a held, out-of-range frame settles into range
   /// here; the host animates that move.
+  /// A new drag gesture began. Commits what the previous drag left on
+  /// screen, so a drag whose end SwiftUI never delivered (a cancelled
+  /// gesture) cannot make this one jump back (#5739).
+  public func dragBegan() {
+    model.dragBegan()
+  }
+
+  /// The gesture in progress was cancelled: a pinch ends at its last frame,
+  /// a drag commits where it is.
+  public func gesturesCancelled() {
+    recordTrackedPinch()
+    trackedPinch = nil
+    let before = model
+    model.gesturesCancelled(context: context)
+    guard model != before else { return }
+    commitToSession()
+  }
+
   public func dragEnded() {
     guard model.dragEnded() else { return }
     model.reclampPan(context: context)
@@ -242,8 +282,7 @@ public final class CanvasZoomController {
 
   /// Double-tap / double-click per the configured behavior.
   public func doubleTap(at location: CGPoint, behavior: CanvasZoomModel.DoubleTapBehavior) {
-    model.doubleTap(at: location, behavior: behavior, context: context)
-    commitToSession()
+    command { $0.doubleTap(at: location, behavior: behavior, context: context) }
   }
 
   /// Two-finger scroll / wheel pan while zoomed (deltas in points).
@@ -256,14 +295,21 @@ public final class CanvasZoomController {
   /// event.
   public func wheelPan(delta: CGSize) {
     guard model.isZoomedIn else { return }
+    recordTrackedPinch()
     model.wheelPan(by: delta, context: context)
     scheduleWheelPanCommit()
   }
 
   /// Cmd+scroll zoom anchored at the cursor (normalized delta —
   /// positive zooms in).
+  /// Landing on fit from a zoom is a snap, so it animates; every other wheel
+  /// zoom follows the wheel directly.
   public func wheelZoom(normalizedDeltaY: CGFloat, location: CGPoint) {
+    recordTrackedPinch()
+    let shown = restingFrame
+    let wasZoomed = model.isZoomedIn
     model.wheelZoom(normalizedDeltaY: normalizedDeltaY, location: location, context: context)
+    if wasZoomed, !model.isZoomedIn { recordCommandedMove(from: shown) }
     commitToSession()
   }
 
@@ -272,26 +318,22 @@ public final class CanvasZoomController {
   /// Option-arrow pan is discrete, bounded by the same geometry as a drag.
   public func keyboardPan(delta: CGSize) {
     guard model.isZoomedIn else { return }
-    model.wheelPan(by: delta, context: context)
-    commitToSession()
+    command { $0.wheelPan(by: delta, context: context) }
   }
 
   /// Fit (⌘0).
   public func resetToFit() {
-    model.resetToFit(context: context)
-    commitToSession()
+    command { $0.resetToFit(context: context) }
   }
 
   /// Fill — the image covers the whole viewport.
   public func zoomToFill() {
-    model.zoomToFill(context: context)
-    commitToSession()
+    command { $0.zoomToFill(context: context) }
   }
 
   /// Zoom badge: cycle `fit → fill → 100%` (a free scale returns to fit).
   public func advanceZoomStop() {
-    model.advanceStop(context: context)
-    commitToSession()
+    command { $0.advanceStop(context: context) }
   }
 
   /// The badge's next stop, for its accessibility hint.
@@ -302,20 +344,52 @@ public final class CanvasZoomController {
 
   /// 100% (⌘1) — or any explicit scale.
   public func zoomToScale(_ scale: CGFloat) {
-    model.zoomToScale(scale, context: context)
-    commitToSession()
+    command { $0.zoomToScale(scale, context: context) }
   }
 
   /// Zoom in one step (⌘=).
   public func stepZoomIn() {
-    model.stepZoomIn(context: context)
-    commitToSession()
+    command { $0.stepZoomIn(context: context) }
   }
 
   /// Zoom out one step (⌘-).
   public func stepZoomOut() {
-    model.stepZoomOut(context: context)
+    command { $0.stepZoomOut(context: context) }
+  }
+
+  // MARK: - Continuity
+
+  /// A deliberate zoom: apply it, record the frame shown before so the host
+  /// animates the move, and commit. A live gesture continues from the result.
+  private func command(_ transition: (inout CanvasZoomModel) -> Void) {
+    recordTrackedPinch()
+    let shown = restingFrame
+    transition(&model)
+    recordCommandedMove(from: shown)
     commitToSession()
+  }
+
+  private func recordCommandedMove(from shown: CanvasShownFrame) {
+    guard restingFrame != shown else { return }
+    commandedMove = CanvasCommandedMove(from: shown, serial: (commandedMove?.serial ?? 0) + 1)
+  }
+
+  /// Carry the zoom from the geometry it was last resolved against into the
+  /// current one; the first geometry only re-resolves.
+  private func carryIntoCurrentGeometry() {
+    recordTrackedPinch()
+    let next = context
+    if let previous = carriedContext {
+      model.geometryChanged(from: previous, to: next)
+    } else {
+      model.reclampPan(context: next)
+    }
+    carriedContext = next
+  }
+
+  private func recordTrackedPinch() {
+    guard let tracked = trackedPinch, model.pinchStartScale != nil else { return }
+    model.pinchTracked(magnification: tracked.magnification, location: tracked.location)
   }
 
   // MARK: - Wheel-pan commit debounce (#2036)

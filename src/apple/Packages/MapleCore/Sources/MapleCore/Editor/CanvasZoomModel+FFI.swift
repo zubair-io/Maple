@@ -18,7 +18,11 @@ extension CanvasZoomModel {
       pinch_start_pan: MapleCanvasSize(pinchStartPan),
       pinch_start_centroid: MapleCanvasPoint(pinchStartCentroid),
       pinch_last_centroid: MapleCanvasPoint(pinchLastCentroid),
-      fills_viewport: fillsViewport ? 1 : 0
+      fills_viewport: fillsViewport ? 1 : 0,
+      pinch_start_magnification: Double(pinchStartMagnification),
+      pinch_last_magnification: Double(pinchLastMagnification),
+      has_drag_last_translation: dragLastTranslation == nil ? 0 : 1,
+      drag_last_translation: MapleCanvasSize(dragLastTranslation ?? .zero)
     )
   }
 
@@ -33,6 +37,10 @@ extension CanvasZoomModel {
     pinchStartCentroid = CGPoint(x: state.pinch_start_centroid.x, y: state.pinch_start_centroid.y)
     pinchLastCentroid = CGPoint(x: state.pinch_last_centroid.x, y: state.pinch_last_centroid.y)
     fillsViewport = state.fills_viewport != 0
+    pinchStartMagnification = CGFloat(state.pinch_start_magnification)
+    pinchLastMagnification = CGFloat(state.pinch_last_magnification)
+    dragLastTranslation =
+      state.has_drag_last_translation != 0 ? CGSize(state.drag_last_translation) : nil
   }
 }
 
