@@ -29,10 +29,22 @@ public sealed partial class MainWindow
                 SyncCanvasZoom(refreshDetail: false);
                 _canvasZoom.ResetToFit();
                 for (var step = 0; step < 3; step++) _canvasZoom.StepIn();
+                // The model caps zoom at 8 real pixels per image pixel, so an
+                // image whose fit is already past that (the 64px lifecycle
+                // fixture) cannot zoom in; exercise the zoomed-out scale then.
+                if (_canvasZoom.View.ScaleToFit <= 1)
+                {
+                    _canvasZoom.ResetToFit();
+                    for (var step = 0; step < 3; step++) _canvasZoom.StepOut();
+                }
                 _canvasZoom.PanBy(-40, -30);
                 ApplyCanvasZoom();
-                if (_canvasZoom.View.ScaleToFit <= 1)
-                    throw new InvalidOperationException("Repair zoom diagnostic did not zoom in");
+                var view = _canvasZoom.View;
+                if (view.ScaleToFit == 1)
+                    throw new InvalidOperationException("Repair zoom diagnostic did not leave fit");
+                if (ZoomPanTransform.ScaleX != view.ScaleToFit || ZoomPanTransform.ScaleY != view.ScaleToFit
+                    || ZoomPanTransform.TranslateX != view.PanX || ZoomPanTransform.TranslateY != view.PanY)
+                    throw new InvalidOperationException("Repair zoom diagnostic was not applied to the viewer transform");
                 await Task.Yield();
                 ZoomHost.UpdateLayout();
                 var fit = ContentFitRect() ?? throw new InvalidOperationException("Repair image footprint missing");
@@ -47,7 +59,7 @@ public sealed partial class MainWindow
                 var dx = (db.X - da.X) * fit.W;
                 var dy = (db.Y - da.Y) * fit.H;
                 var radians = angle * Math.PI / 180;
-                var scale = Math.Min(ZoomHost.ActualWidth / (.6 * fit.W), ZoomHost.ActualHeight / (.7 * fit.H)) * _canvasZoom.View.ScaleToFit;
+                var scale = Math.Min(ZoomHost.ActualWidth / (.6 * fit.W), ZoomHost.ActualHeight / (.7 * fit.H)) * ZoomPanTransform.ScaleX;
                 Near(screenB.X - screenA.X, (dx * Math.Cos(radians) - dy * Math.Sin(radians)) * scale, .1);
                 Near(screenB.Y - screenA.Y, (dx * Math.Sin(radians) + dy * Math.Cos(radians)) * scale, .1);
                 var inverse = ViewerViewport.TransformToVisual(_repairCanvas).TransformPoint(screenB);
