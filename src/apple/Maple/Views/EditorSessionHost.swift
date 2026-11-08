@@ -66,7 +66,10 @@ struct EditorSessionHost: View {
       if let state, builtAssetID == session.asset.id {
         EditorView(
           state: state,
-          onDismiss: onDismiss,
+          onDismiss: {
+            state.handOffCanvas()
+            onDismiss()
+          },
           onInfo: onInfo,
           filmstripAssets: filmstripAssets,
           onSelectAsset: onSelectAsset,
@@ -81,21 +84,12 @@ struct EditorSessionHost: View {
     // synchronous identity check — no async session creation here.
     // `state` and `builtAssetID` are set together so the gate above
     // never sees a state that doesn't match the live session.
+    // Built on appear too, so an open from Preview has its first frame
+    // (#5764) rather than an empty one before the task runs.
+    .onAppear(perform: buildState)
     .task(id: session.asset.id) {
       AgentEditService.shared.activate(session)
-      // `.task(id:)` can fire more than once for the same asset (a
-      // re-appear, or the modifier re-evaluating while the shell's
-      // `sessions` store changes underneath it). Rebuilding here
-      // handed the on-screen `CanvasZoomHost` a second, fresh
-      // `CanvasZoomController` whose viewport was never reported —
-      // `.onAppear` had already fired for the first one — so fit
-      // resolved against a zero viewport and the image opened at
-      // 100% with no way to zoom out (#3540). One state per asset.
-      if let state, state.session === session, builtAssetID == session.asset.id {
-        return
-      }
-      state = EditorState(session: session)
-      builtAssetID = session.asset.id
+      buildState()
     }
     .onDisappear {
       AgentEditService.shared.deactivate(session)
@@ -104,5 +98,17 @@ struct EditorSessionHost: View {
       let session = self.session
       Task.detached { await session.flushPendingSidecarWrite() }
     }
+  }
+
+  /// `.task(id:)` can fire more than once for the same asset (a re-appear, or
+  /// the modifier re-evaluating while the shell's `sessions` store changes
+  /// underneath it). Rebuilding handed the on-screen `CanvasZoomHost` a
+  /// second, fresh `CanvasZoomController` whose viewport was never reported,
+  /// so fit resolved against a zero viewport and the image opened at 100%
+  /// with no way to zoom out (#3540). One state per asset.
+  private func buildState() {
+    if let state, state.session === session, builtAssetID == session.asset.id { return }
+    state = EditorState(session: session)
+    builtAssetID = session.asset.id
   }
 }

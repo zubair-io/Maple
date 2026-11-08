@@ -11,7 +11,7 @@ struct EditorCanvasView: View {
   var coverFrames: [CGRect] = []
   var hasFilmstrip = false
   /// The seed still drawn as the canvas until real pixels land (#5755).
-  @State var seedStore = EditorSeedStore()
+  var seedStore: EditorSeedStore { state.seed }
   @Environment(\.mapleLayout) private var layout
   private var isRegular: Bool { layout != .phone }
 

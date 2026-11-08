@@ -33,8 +33,15 @@ struct EditorSeedLoader: View {
   let zoom: CanvasZoomController
   let session: EditSession
 
-  private struct DisplayTierKey: Equatable {
+  /// The store belongs to the editor state, which a host can rebuild for
+  /// the same photo; a new store loads again.
+  private struct SeedKey: Equatable {
     let assetID: AssetRef.ID
+    let store: ObjectIdentifier
+  }
+
+  private struct DisplayTierKey: Equatable {
+    let seed: SeedKey
     let visible: Bool
   }
 
@@ -54,11 +61,12 @@ struct EditorSeedLoader: View {
 
   var body: some View {
     let seed = store.image(for: asset.id)
+    let seedKey = SeedKey(assetID: asset.id, store: ObjectIdentifier(store))
     Color.clear
       .frame(width: 0, height: 0)
       .allowsHitTesting(false)
       .accessibilityHidden(true)
-      .task(id: asset.id) {
+      .task(id: seedKey) {
         // The cancellation guard matters: `.task(id:)` reuses this view
         // across an id change, and the superseded load can still land.
         store.begin(asset.id)
@@ -68,7 +76,7 @@ struct EditorSeedLoader: View {
       }
       // Keyed on visibility too, so real pixels landing cancel the
       // network fetch instead of letting it compete with the download.
-      .task(id: DisplayTierKey(assetID: asset.id, visible: visible)) {
+      .task(id: DisplayTierKey(seed: seedKey, visible: visible)) {
         store.begin(asset.id)
         guard visible, !store.hasDisplayPreview(for: asset.id) else { return }
         let display = await EditorSeedVM.loadDisplayPreview(asset: asset, source: source)

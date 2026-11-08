@@ -48,6 +48,34 @@ final class PreviewStillLoaderTests: XCTestCase {
     XCTAssertEqual(loader.image?.width, 64)
   }
 
+  /// #5764: the editor's still holds until something at least as sharp lands,
+  /// and never stands in for the display tier, which still loads.
+  func testAStillHandedBackKeepsItsPlaceUntilTheDisplayTierLands() async throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(
+      UUID().uuidString)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let url = directory.appendingPathComponent("photo.png")
+    try encodedImage(size: 40).write(to: url)
+    await ThumbnailDiskCache.shared.configure(folderURL: directory)
+    await ThumbnailDiskCache.shared.storeThumbnailData(try encodedImage(size: 8), for: url)
+    let sink = LocalDisplayPreviewSink(previewURL: MapleSidecarPaths.previewURL(for: url))
+    await sink.write(try encodedImage(size: 40))
+    let handed = try XCTUnwrap(
+      CGImageSourceCreateWithData(try encodedImage(size: 24) as CFData, nil).flatMap {
+        CGImageSourceCreateImageAtIndex($0, 0, nil)
+      })
+
+    let loader = PreviewStillLoader(asset: AssetRef(url: url), source: nil, provider: .local())
+    loader.showHandedOff(CanvasHandoffStill(image: handed, isDisplayPreview: true))
+    loader.prepare(for: loader.reloadKey)
+    await loader.loadFirstPaint(displayTierDimension: 2048, isVisible: true)
+    XCTAssertTrue(loader.image === handed, "the smaller thumbnail does not replace it")
+    XCTAssertFalse(loader.isDisplayTierSettled)
+    await loader.loadDisplayTier(maxDimension: 2048)
+    XCTAssertEqual(loader.image?.width, 40)
+  }
+
   func testAFailedDisplayTierIsRetriedUntilItLands() async throws {
     let script = OutcomeScript([.indexing(retryAfter: 0), .data(try encodedImage(size: 48))])
     let loader = PreviewStillLoader(

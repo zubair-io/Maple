@@ -73,8 +73,12 @@ public final class EditorState {
   /// spec §5.0). Owned here so its lifetime matches the (session,
   /// editor) pairing exactly — both hosts (`EditorSessionHost`,
   /// `EditorDestination`) rebuild `EditorState` per asset, which
-  /// resets zoom to fit on every open, same as the legacy surface.
+  /// resets zoom to fit on every open, except an open from Preview, which
+  /// hands over its zoom (#5764).
   public let zoom: CanvasZoomController
+  /// The still drawn as the canvas until real pixels land (#5755); an open
+  /// from Preview starts with Preview's.
+  public let seed = EditorSeedStore()
   public let whiteBalancePicker: WhiteBalancePicker
   /// The mask panel's colour-range eyedropper (#362) — same shape as the WB picker.
   public let maskRangePicker: MaskRangePicker
@@ -106,6 +110,13 @@ public final class EditorState {
     self.armedSubParamId = Self.resolveSubParamId(
       for: armedTool, memory: memory
     )
+    if let handoff = session.takeCanvasHandoff() {
+      zoom.receive(handoff)
+      seed.begin(session.asset.id)
+      if let still = handoff.still {
+        seed.publish(still.image, for: session.asset.id, isDisplayPreview: still.isDisplayPreview)
+      }
+    }
   }
 
   /// `true` when the session's model has diverged from its original

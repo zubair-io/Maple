@@ -6,7 +6,8 @@
 // page; zoomed in, it pans, and once the photo's edge reaches the screen's
 // the rest of the same drag moves the page. A turned page keeps its still, so
 // the photo that slides in never reloads. macOS pages with the arrow keys and
-// shows the visible page alone.
+// shows the visible page alone. Edit hands the editor the zoom and the still
+// on screen, and coming back picks up where the editor left it (#5764).
 
 import MapleCore
 import SwiftUI
@@ -18,6 +19,8 @@ struct PreviewCanvasPager: View {
   let provider: ThumbnailProvider
   /// The visible photo's session, once primed; it owns the canvas.
   let session: EditSession?
+  /// Where Edit finds the canvas on screen to hand to the editor.
+  let onScreen: PreviewCanvasOnScreen
   let onSelectAsset: (AssetRef) -> Void
   var onPlainPullChanged: (CGSize) -> Void = { _ in }
   var onPlainPullEnded: (CGSize, CGSize, CGRect?) -> Void = { _, _, _ in }
@@ -62,6 +65,14 @@ struct PreviewCanvasPager: View {
     .onChange(of: SessionKey(asset: asset.id, session: session), initial: true) {
       adoptSession()
     }
+    .onChange(of: isCovered || !isOnScreen) { _, covered in
+      guard !covered, let zoom = currentZoom else { return }
+      receiveHandoff(into: zoom)
+    }
+    .onChange(of: OnScreenKey(zoom: currentZoom, loader: visibleLoader), initial: true) {
+      onScreen.zoom = currentZoom
+      onScreen.loader = visibleLoader
+    }
     .onChange(of: window.map(\.asset.id)) { _, ids in
       stills.keep(Set(ids))
     }
@@ -71,6 +82,21 @@ struct PreviewCanvasPager: View {
   /// photo's while the next one's session is being primed.
   private var currentZoom: CanvasZoomController? {
     zoom.flatMap { $0.session.asset.id == asset.id ? $0 : nil }
+  }
+
+  /// The visible page's loader: a source arriving late replaces it (#3551).
+  private var visibleLoader: PreviewStillLoader {
+    stills.loader(for: asset, source: source, provider: provider)
+  }
+
+  private struct OnScreenKey: Equatable {
+    let zoom: ObjectIdentifier?
+    let loader: ObjectIdentifier
+
+    init(zoom: CanvasZoomController?, loader: PreviewStillLoader) {
+      self.zoom = zoom.map(ObjectIdentifier.init)
+      self.loader = ObjectIdentifier(loader)
+    }
   }
 
   private struct SessionKey: Equatable {
@@ -93,6 +119,16 @@ struct PreviewCanvasPager: View {
       Task { await previous.session.releaseTransientMemory() }
     }
     zoom = adopted.map { CanvasZoomController(session: $0, rendersSession: false) }
+    if let zoom { receiveHandoff(into: zoom) }
+  }
+
+  /// The editor closed over this photo: show it as the editor left it.
+  private func receiveHandoff(into zoom: CanvasZoomController) {
+    guard let handoff = zoom.session.takeCanvasHandoff() else { return }
+    zoom.receive(handoff)
+    if let still = handoff.still {
+      visibleLoader.showHandedOff(still)
+    }
   }
 
   // MARK: - Pages
@@ -228,5 +264,19 @@ final class PreviewStillStore {
 
   func keep(_ ids: Set<AssetRef.ID>) {
     loaders = loaders.filter { ids.contains($0.key) }
+  }
+}
+
+/// The visible page's canvas and still, which Edit hands to the editor.
+@MainActor
+final class PreviewCanvasOnScreen {
+  weak var zoom: CanvasZoomController?
+  weak var loader: PreviewStillLoader?
+
+  /// Replaces whatever `session` held, so the editor never opens with an
+  /// older photo's leftovers.
+  func handOff(to session: EditSession?) {
+    let shown = zoom.flatMap { $0.session === session ? $0 : nil }
+    session?.canvasHandoff = shown?.handoff(still: loader?.handoffStill)
   }
 }
