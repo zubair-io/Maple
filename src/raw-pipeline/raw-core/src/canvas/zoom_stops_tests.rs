@@ -6,7 +6,9 @@ use super::*;
 #[test]
 fn pinch_below_fit_follows_the_fingers_and_springs_back_to_fit() {
     let ctx = square();
-    let live = fit_model().pinch_changed(0.7, Point::new(100.0, 100.0), &ctx);
+    let live = fit_model()
+        .pinch_changed(1.0, Point::new(100.0, 100.0), &ctx)
+        .pinch_changed(0.7, Point::new(100.0, 100.0), &ctx);
     assert_close(live.pixel_scale, FIT * 0.7, 1e-9);
     assert_ne!(
         live.pan_offset,
@@ -21,7 +23,9 @@ fn pinch_below_fit_follows_the_fingers_and_springs_back_to_fit() {
 #[test]
 fn pinch_held_at_the_floor_releases_to_fit() {
     let ctx = square();
-    let live = fit_model().pinch_changed(0.1, Point::ZERO, &ctx);
+    let live = fit_model()
+        .pinch_changed(1.0, Point::ZERO, &ctx)
+        .pinch_changed(0.1, Point::ZERO, &ctx);
     assert_close(live.pixel_scale, ctx.min_scale(), 1e-9);
     assert_eq!(live.pinch_ended(0.1, &ctx).pixel_scale, 0.0);
 }
@@ -30,6 +34,7 @@ fn pinch_held_at_the_floor_releases_to_fit() {
 fn below_fit_inputs_belong_to_the_editing_surface() {
     let ctx = square();
     let model = fit_model()
+        .pinch_changed(1.0, Point::ZERO, &ctx)
         .pinch_changed(0.6, Point::ZERO, &ctx)
         .pinch_ended(0.6, &ctx);
     assert_eq!(model.drag_intent(&ctx), DragIntent::Editing);
@@ -107,7 +112,9 @@ fn wheel_zoom_out_from_fit_reaches_the_floor_and_back_through_fit() {
 fn pinch_release_near_fill_settles_on_fill() {
     let ctx = square();
     let magnification = FILL / FIT * 1.02;
-    let live = fit_model().pinch_changed(magnification, Point::new(500.0, 400.0), &ctx);
+    let live = fit_model()
+        .pinch_changed(1.0, Point::new(500.0, 400.0), &ctx)
+        .pinch_changed(magnification, Point::new(500.0, 400.0), &ctx);
     assert_close(live.pixel_scale, FIT * magnification, 1e-9);
     let model = live.pinch_ended(magnification, &ctx);
     assert_close(model.pixel_scale, FILL, 1e-9);
@@ -127,7 +134,9 @@ fn pinch_away_from_fill_clears_the_fill_stop() {
 #[test]
 fn pinch_just_below_fit_settles_on_fit_on_release_only() {
     let ctx = square();
-    let live = fit_model().pinch_changed(0.97, Point::new(300.0, 200.0), &ctx);
+    let live = fit_model()
+        .pinch_changed(1.0, Point::new(300.0, 200.0), &ctx)
+        .pinch_changed(0.97, Point::new(300.0, 200.0), &ctx);
     assert_close(live.pixel_scale, FIT * 0.97, 1e-12);
     let released = live.pinch_ended(0.97, &ctx);
     assert_eq!(released.pixel_scale, 0.0);

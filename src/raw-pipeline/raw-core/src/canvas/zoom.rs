@@ -62,6 +62,19 @@ pub struct CanvasZoomModel {
     pub pinch_start_centroid: Point,
     /// Latest live centroid, so the release commits at the same focal point.
     pub pinch_last_centroid: Point,
+    /// Cumulative magnification at the capture: the pinch scales by
+    /// `magnification / pinch_start_magnification` (1 when unset), so a
+    /// capture at any magnification reproduces the frame on screen.
+    pub pinch_start_magnification: f64,
+    /// Cumulative magnification of the latest pinch input (with
+    /// `pinch_last_centroid`, the live pinch input). A transition that is not
+    /// finger motion re-captures the pinch on what it produced, so the next
+    /// frame continues from there (#5736, #5737).
+    pub pinch_last_magnification: f64,
+    /// The latest cumulative translation of a live drag, `Some` from its
+    /// first frame to its release. A transition that commits the pan mid-drag
+    /// rebases the drag on it (#5738).
+    pub drag_last_translation: Option<Size>,
     /// True while the zoom is the fill stop; fill is re-resolved whenever the
     /// viewport or image changes (a rotation keeps the image covering it).
     pub fills_viewport: bool,
@@ -83,27 +96,31 @@ impl CanvasZoomModel {
         if !translation.is_finite() {
             return (self, false);
         }
-        if self.pinch_start_scale.is_some() {
+        let tracked = Self {
+            drag_last_translation: Some(translation),
+            ..self
+        };
+        if tracked.pinch_start_scale.is_some() {
             return (
                 Self {
                     drag_translation_base: Some(translation),
-                    ..self
+                    ..tracked
                 },
                 false,
             );
         }
-        if !self.can_pan(context) {
-            return (self, false);
+        if !tracked.can_pan(context) {
+            return (tracked, false);
         }
-        let baseline = self.drag_translation_base.unwrap_or(Size::ZERO);
+        let baseline = tracked.drag_translation_base.unwrap_or(Size::ZERO);
         let raw = Size::new(
-            self.base_pan.width + translation.width - baseline.width,
-            self.base_pan.height + translation.height - baseline.height,
+            tracked.base_pan.width + translation.width - baseline.width,
+            tracked.base_pan.height + translation.height - baseline.height,
         );
         (
             Self {
-                pan_offset: context.clamped_pan_from(raw, self.pixel_scale, self.base_pan),
-                ..self
+                pan_offset: context.clamped_pan_from(raw, tracked.pixel_scale, tracked.base_pan),
+                ..tracked
             },
             true,
         )
@@ -116,6 +133,7 @@ impl CanvasZoomModel {
     pub fn drag_ended(self) -> (Self, bool) {
         let ended = Self {
             drag_translation_base: None,
+            drag_last_translation: None,
             ..self
         };
         if ended.pinch_start_scale.is_some() || !ended.is_zoomed_in() {
@@ -139,6 +157,7 @@ impl CanvasZoomModel {
         }
         Self {
             drag_translation_base: Some(translation),
+            drag_last_translation: Some(translation),
             ..self
         }
     }
@@ -161,6 +180,7 @@ impl CanvasZoomModel {
             base_pan: pan,
             ..self
         }
+        .continuing(context)
     }
 
     /// Command-scroll zoom anchored at the cursor; positive deltas zoom in.
@@ -200,6 +220,7 @@ impl CanvasZoomModel {
             base_pan: pan,
             ..self
         }
+        .continuing(context)
     }
 
     /// Double-tap per `behavior`. The editor zooms fit → 100% anchored at the
@@ -239,18 +260,22 @@ impl CanvasZoomModel {
             base_pan: pan,
             ..self
         }
+        .continuing(context)
     }
 
-    /// Fit mode, centred in the visible area, with every gesture capture
-    /// cleared.
+    /// Fit mode, centred in the visible area. A live pinch or drag
+    /// continues from fit (#5737).
     #[must_use]
     pub fn reset_to_fit(self, context: &CanvasZoomContext) -> Self {
         let home = context.home_pan();
         Self {
+            pixel_scale: 0.0,
+            fills_viewport: false,
             pan_offset: home,
             base_pan: home,
-            ..Self::default()
+            ..self
         }
+        .continuing(context)
     }
 
     /// Explicit zoom target (toolbar "100%", ⌘1), clamped, re-centred in the
@@ -265,6 +290,7 @@ impl CanvasZoomModel {
             base_pan: home,
             ..self
         }
+        .continuing(context)
     }
 
     /// The fill stop, centred in the visible area; the overflowing axis can
@@ -279,6 +305,7 @@ impl CanvasZoomModel {
             base_pan: home,
             ..self
         }
+        .continuing(context)
     }
 
     /// Badge tap: the next stop in `fit → fill → 100%`; a free scale returns
@@ -303,6 +330,7 @@ impl CanvasZoomModel {
         }
         self.rescaled_pan(current, next, context)
             .at_free_scale(next)
+            .continuing(context)
     }
 
     /// Zoom-out step anchored at the visible centre; reaching fit from above
@@ -314,27 +342,32 @@ impl CanvasZoomModel {
             ZoomOutResult::SnapToFit => self.reset_to_fit(context),
             ZoomOutResult::Scale(next) => self
                 .rescaled_pan(current, next, context)
-                .at_free_scale(next),
+                .at_free_scale(next)
+                .continuing(context),
         }
     }
 
-    /// Re-resolve against fresh geometry (viewport resize, rotation, chrome
-    /// insets changing, image size landing): fit re-centres in the new
-    /// visible area, fill follows it — or becomes fit when the two now
-    /// coincide — and any other pan is pulled back inside the legal range,
-    /// so a pan already inside it does not move.
+    /// Re-resolve against fresh geometry when the previous geometry is not
+    /// known (`geometry_changed` carries the zoom when it is): fit re-centres
+    /// in the new visible area, fill follows it — or becomes fit when the two
+    /// now coincide — and any other pan is pulled back inside the legal
+    /// range, so a pan already inside it does not move. A live pinch or drag
+    /// continues from the result (#5736).
     #[must_use]
     pub fn reclamp_pan(self, context: &CanvasZoomContext) -> Self {
+        self.resolved_at_rest(context).continuing(context)
+    }
+
+    /// `reclamp_pan` without re-capturing a live gesture.
+    pub(super) fn resolved_at_rest(self, context: &CanvasZoomContext) -> Self {
         if !self.is_zoomed_in() {
             let home = context.home_pan();
-            return if self.pan_offset == home && self.base_pan == home {
-                self
-            } else {
-                Self {
-                    pan_offset: home,
-                    base_pan: home,
-                    ..self
-                }
+            return Self {
+                pixel_scale: 0.0,
+                fills_viewport: false,
+                pan_offset: home,
+                base_pan: home,
+                ..self
             };
         }
         let resolved = if !self.fills_viewport {
@@ -345,17 +378,20 @@ impl CanvasZoomModel {
                 ..self
             }
         } else {
-            return self.reset_to_fit(context);
+            let home = context.home_pan();
+            return Self {
+                pixel_scale: 0.0,
+                fills_viewport: false,
+                pan_offset: home,
+                base_pan: home,
+                ..self
+            };
         };
         let clamped = context.clamped_pan(resolved.pan_offset, resolved.pixel_scale);
-        if clamped == resolved.pan_offset {
-            resolved
-        } else {
-            Self {
-                pan_offset: clamped,
-                base_pan: clamped,
-                ..resolved
-            }
+        Self {
+            pan_offset: clamped,
+            base_pan: clamped,
+            ..resolved
         }
     }
 

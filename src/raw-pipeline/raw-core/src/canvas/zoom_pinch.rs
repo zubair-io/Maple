@@ -12,13 +12,16 @@
 use super::geometry::{Point, Size};
 use super::zoom::CanvasZoomModel;
 use super::zoom_context::CanvasZoomContext;
+use super::zoom_continuity::is_magnification;
 use super::zoom_rules::{detent, live_pinch_pan, pinch_scale, ZoomStop};
 
 impl CanvasZoomModel {
-    /// One pinch frame. The first frame captures the start scale, pan and
-    /// centroid; a capture frame at magnification 1 changes nothing else,
-    /// because the iOS compositor freezes that frame and scales it by the
-    /// ratio to the start (#5710). Non-finite inputs are ignored.
+    /// One pinch frame. The first frame captures the gesture so that it
+    /// reproduces the frame on screen: its magnification and centroid are the
+    /// baseline later frames measure from, so a capture never moves the image
+    /// (#5737) — the iOS compositor freezes that frame and scales it by the
+    /// ratio to the start (#5710). Non-finite or non-positive inputs are
+    /// ignored.
     #[must_use]
     pub fn pinch_changed(
         self,
@@ -26,34 +29,31 @@ impl CanvasZoomModel {
         location: Point,
         context: &CanvasZoomContext,
     ) -> Self {
-        if !magnification.is_finite() || !location.is_finite() {
+        if !is_magnification(magnification) || !location.is_finite() {
             return self;
         }
-        let is_capture_frame = self.pinch_start_scale.is_none();
-        let start = self
-            .pinch_start_scale
-            .unwrap_or_else(|| context.effective_scale(self.pixel_scale));
-        let captured = if is_capture_frame {
-            Self {
-                pinch_start_scale: Some(start),
-                pinch_start_pan: self.pan_offset,
-                pinch_start_centroid: location,
-                ..self
-            }
-        } else {
-            self
-        };
-        if is_capture_frame && magnification == 1.0 {
-            return Self {
+        let Some(start) = self.pinch_start_scale else {
+            let tracked = Self {
+                pinch_start_scale: Some(1.0),
+                pinch_last_magnification: magnification,
                 pinch_last_centroid: location,
-                ..captured
+                ..self
             };
-        }
-        let next = pinch_scale(start, magnification, context.fit_scale());
+            return tracked.recaptured_pinch(
+                context.effective_scale(self.pixel_scale),
+                self.pan_offset,
+                context,
+            );
+        };
+        let next = pinch_scale(
+            start,
+            magnification / self.start_magnification(),
+            context.fit_scale(),
+        );
         let pan = live_pinch_pan(
             location,
-            captured.pinch_start_centroid,
-            captured.pinch_start_pan,
+            self.pinch_start_centroid,
+            self.pinch_start_pan,
             start,
             next,
             context.viewport_points(),
@@ -61,9 +61,10 @@ impl CanvasZoomModel {
         Self {
             pixel_scale: next,
             fills_viewport: false,
-            pan_offset: context.pinch_clamped_pan_from(pan, next, captured.pinch_start_pan, start),
+            pan_offset: context.pinch_clamped_pan_from(pan, next, self.pinch_start_pan, start),
             pinch_last_centroid: location,
-            ..captured
+            pinch_last_magnification: magnification,
+            ..self
         }
     }
 
@@ -78,8 +79,8 @@ impl CanvasZoomModel {
         let fit = context.fit_scale();
         let fill = context.fill_scale();
         let committed = match self.pinch_start_scale {
-            Some(start) if magnification.is_finite() => {
-                let scale = pinch_scale(start, magnification, fit);
+            Some(start) if is_magnification(magnification) => {
+                let scale = pinch_scale(start, magnification / self.start_magnification(), fit);
                 let pan = live_pinch_pan(
                     self.pinch_last_centroid,
                     self.pinch_start_centroid,
@@ -106,6 +107,8 @@ impl CanvasZoomModel {
             pinch_start_pan: Size::ZERO,
             pinch_start_centroid: Point::ZERO,
             pinch_last_centroid: Point::ZERO,
+            pinch_last_magnification: 0.0,
+            pinch_start_magnification: 0.0,
             ..committed
         };
         let scale = context.effective_scale(released.pixel_scale);
@@ -157,6 +160,7 @@ impl CanvasZoomModel {
             fills_viewport: false,
             ..self
         }
+        .continuing(context)
     }
 }
 

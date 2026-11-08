@@ -206,9 +206,10 @@ fn the_rebase_keeps_the_frozen_frame_and_restarts_at_the_shown_scale() {
     assert_eq!(rebased.pan_offset, model.pan_offset);
     assert_eq!(rebased.pinch_last_centroid, LIFTED_AT);
     assert_close(
-        rebased.pinch_start_scale.unwrap_or(0.0) * 1.45,
+        rebased.pinch_start_scale.unwrap_or(0.0),
         shown(model, &ctx).pixel_scale,
     );
+    assert_close(rebased.pinch_start_magnification, 1.45);
 }
 
 #[test]

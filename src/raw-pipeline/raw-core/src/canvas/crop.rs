@@ -82,17 +82,16 @@ impl CropHandle {
 }
 
 /// The image's on-screen rect at fit zoom, centred in a `wrap` viewport:
-/// the largest rect of the image's aspect that fits without upscaling past
-/// 1:1, the same rule as the canvas fit scale. A non-positive image axis
-/// reads as one pixel; `wrap` is used as given, so a negative or NaN viewport
-/// yields a rect of the same kind.
+/// the largest rect of the image's aspect that fits, upscaling an image
+/// smaller than the viewport — the same rule as the canvas fit scale
+/// (`CanvasMath::fit_pixel_scale`), so the overlay lies on the painted
+/// image. A non-positive image axis reads as one pixel; `wrap` is used as
+/// given, so a negative or NaN viewport yields a rect of the same kind.
 #[must_use]
 pub fn fit_footprint(wrap: Size, image: Size) -> Rect {
     let image_width = positive_or_one(image.width);
     let image_height = positive_or_one(image.height);
-    let scale = (wrap.width / image_width)
-        .min(wrap.height / image_height)
-        .min(1.0);
+    let scale = (wrap.width / image_width).min(wrap.height / image_height);
     let width = image_width * scale;
     let height = image_height * scale;
     Rect::new(
