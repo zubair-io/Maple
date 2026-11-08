@@ -197,6 +197,9 @@ struct PreviewCanvasPage: View {
     guard !zoom.rendersSession, loader.isDisplayTierSettled,
       zoom.showsMoreThanStill(ofLongEdge: loader.longEdgePixels)
     else { return }
+    // The GPU canvas about to mount brings a new, empty layer; a frame the
+    // editor's layer presented must not reveal it before it presents.
+    if usesGpuCanvas(zoom.session) { zoom.session.gpuFramePresented = false }
     zoom.startRenderingSession()
     if !usesGpuCanvas(zoom.session) { zoom.session.ensureRenderStarted() }
   }
@@ -208,7 +211,8 @@ struct PreviewCanvasPage: View {
   }
 
   /// The still beneath and, once rendering, the GPU canvas over it (whose
-  /// controller starts the render), the render's CPU frames until the GPU
+  /// controller starts the render; hidden until it presents, so its empty
+  /// layer never covers the still), the render's CPU frames until the GPU
   /// presents, and the native-resolution detail patch.
   private func leaf(_ zoom: CanvasZoomController) -> some View {
     let session = zoom.session
@@ -221,6 +225,7 @@ struct PreviewCanvasPage: View {
       if rendering, gpu {
         GpuLiveCanvasView(session: session)
           .id(ObjectIdentifier(session))
+          .opacity(session.gpuFramePresented ? 1 : 0)
       }
       if rendering, !gpu || session.isFullQualityDecoding || !session.gpuFramePresented,
         let preview = session.renderedPreview
