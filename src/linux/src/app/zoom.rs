@@ -179,11 +179,19 @@ impl ZoomCanvas {
         egui::Rect::from_center_size(geometry.viewport.center() + self.pan(), extent)
     }
 
-    /// Adopts `next`, releasing any native detail when it returns to fit. A
-    /// drag in progress continues from the new pan instead of jumping.
+    /// Adopts `next`, releasing any native detail when it returns to fit. When
+    /// the zoom or clamp moved the photo, a drag in progress continues from
+    /// the new pan: the pan is committed together with the translation so far.
     fn settle(&mut self, next: CanvasZoomModel) {
+        if next == self.model {
+            return;
+        }
         let returned_to_fit = self.model.is_zoomed_in() && !next.is_zoomed_in();
-        self.model = next.rebase_drag_baseline(size(self.drag_translation));
+        self.model = CanvasZoomModel {
+            base_pan: next.pan_offset,
+            ..next
+        }
+        .rebase_drag_baseline(size(self.drag_translation));
         if returned_to_fit {
             self.invalidate();
         }
