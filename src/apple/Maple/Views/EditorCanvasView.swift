@@ -9,12 +9,6 @@ struct EditorCanvasView: View {
   var wheelExclusionFrame: CGRect?
   var hasFilmstrip = false
   @Environment(\.mapleLayout) private var layout
-  #if os(iOS)
-    @Environment(\.verticalSizeClass) private var verticalSizeClass
-    private var hasCompactHeight: Bool { verticalSizeClass == .compact }
-  #else
-    private let hasCompactHeight = false
-  #endif
   private var isRegular: Bool { layout != .phone }
 
   // MARK: - Canvas layer
@@ -72,7 +66,7 @@ struct EditorCanvasView: View {
           }
         }
         .padding(canvasInsets(size: geometry.size))
-        .ignoresSafeArea(edges: isFullBleed ? .all : [])
+        .ignoresSafeArea(edges: isFullBleed(in: geometry) ? .all : [])
         // Before/after "BEFORE" badge — surfaced while the session is
         // showing the original (the canvas itself falls back to the
         // placeholder).
@@ -102,17 +96,17 @@ struct EditorCanvasView: View {
   /// the status bar, header and controls, so fit is the whole screen
   /// (#5710). The crop tool keeps its inset canvas so its handles stay
   /// clear of the controls.
-  private var isFullBleed: Bool {
+  private func isFullBleed(in geometry: GeometryProxy) -> Bool {
     isRegular && state.armedTool != .crop
       && FullBleedCanvas.isAllowed(
-        idiom: MapleShellKind.currentIdiom, hasCompactHeight: hasCompactHeight)
+        idiom: MapleShellKind.currentIdiom, screen: FullBleedCanvas.screen(of: geometry))
   }
 
   /// The full-bleed canvas reaches the screen corner, so the badge steps
   /// in by the safe area and, when the controls cover the bottom-leading
   /// corner (the portrait inspector and dock), sits just above them.
   private func badgeInsets(in geometry: GeometryProxy) -> EdgeInsets {
-    guard isFullBleed else { return EdgeInsets() }
+    guard isFullBleed(in: geometry) else { return EdgeInsets() }
     let safe = geometry.safeAreaInsets
     let coversBadgeCorner = { (frame: CGRect) in
       frame.minX < Self.badgeClearance && frame.maxY > geometry.size.height - Self.badgeClearance

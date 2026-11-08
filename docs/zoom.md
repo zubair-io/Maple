@@ -25,7 +25,7 @@ The always-visible zoom percentage badge lives at the viewport's bottom-leading 
 
 ## Zoom range and stops (Apple)
 
-The editor canvas and the full image view both draw the photo edge to edge on iPad, the open Duo and the Mac — beneath the status bar, header and controls — so fit means the photo fits the whole screen (#5710). iPhone keeps its inset compact layout, and the crop tool keeps an inset canvas so its handles clear the controls.
+The editor canvas and the full image view both draw the photo edge to edge on iPad, the open Duo and the Mac — beneath the status bar, header and controls — so fit means the photo fits the whole screen (#5710). A conventional landscape iPhone keeps its inset canvas, so the photo stays clear of the sensor housing and home indicator on its long edges. The open Duo can report a compact height in landscape, so the screen's shape decides instead of the size class: a phone screen wider than 1.6:1 keeps the inset (`FullBleedCanvas`). Every conventional iPhone is at least 16:9, and the open Duo's inner display is about 1.4:1. The crop tool keeps an inset canvas so its handles clear the controls.
 
 - **Range.** Zoom runs continuously from `fit × 0.5` to `8.0`. Below fit the image is centred with background around it and cannot be panned (the pan clamp is zero on any axis where the image is smaller than the viewport).
 - **Fill.** `max(viewportPx.width / image.width, viewportPx.height / image.height)`, capped at `8.0`: the image covers the viewport with no letterbox, whatever its aspect ratio, and only the overflowing axis pans. `CanvasZoomModel.fillsViewport` marks the stop so a rotation or window resize re-resolves it and the image keeps covering the new viewport.
