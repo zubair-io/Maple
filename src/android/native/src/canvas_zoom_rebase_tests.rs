@@ -4,7 +4,7 @@
 //! live gesture.
 
 use super::*;
-use raw_core::canvas::pinch_scale;
+use raw_core::canvas::held_pinch_scale;
 
 const VIEWPORT: (f64, f64) = (1000.0, 750.0);
 const IMAGE: (f64, f64) = (4000.0, 3000.0);
@@ -246,20 +246,16 @@ fn new_geometry_mid_pinch_keeps_the_frame_on_screen() {
             let (mut state, _) = live_gesture(name, IMAGE);
             let (scale, pan) = visible(&state, START);
             send(&mut state, OP_RECLAMP, [0.0; 4], layout);
-            let fit = Geometry::new(
+            let context = Geometry::new(
                 layout.viewport.0,
                 layout.viewport.1,
                 layout.image.0,
                 layout.image.1,
             )
-            .context()
-            .fit_scale();
+            .context();
+            let held = held_pinch_scale(scale, context.fit_scale(), context.fill_scale());
             let label = format!("{name}, reclamped for {layout:?}");
-            assert_same_view(
-                visible(&state, layout),
-                (pinch_scale(scale, 1.0, fit), pan),
-                &label,
-            );
+            assert_same_view(visible(&state, layout), (held, pan), &label);
         }
     }
 }

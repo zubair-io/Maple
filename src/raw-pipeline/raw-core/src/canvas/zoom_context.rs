@@ -3,9 +3,14 @@
 use super::geometry::{Insets, Point, Size};
 use super::mapping::CanvasMath;
 use super::zoom::{MAX_PIXEL_SCALE, MIN_FIT_FRACTION};
+use super::zoom_rules::max_zoom;
 
 /// Smallest accepted points→pixels factor; keeps every division finite.
 const MIN_DISPLAY_SCALE: f64 = 0.001;
+
+/// Fill never asks for more than this multiple of fit (or `MAX_PIXEL_SCALE`,
+/// whichever is larger): only a sliver image has fill ≫ fit.
+const MAX_FILL_OVER_FIT: f64 = 8.0;
 
 /// The live viewport (points), the trustworthy image extent (oriented source
 /// pixels, `ZERO` until known), the points→real-pixels factor and the insets
@@ -146,11 +151,32 @@ impl CanvasZoomContext {
     }
 
     /// The scale at which the image covers the visible area, capped at
-    /// `MAX_PIXEL_SCALE` (a sliver image would otherwise ask for an unbounded
-    /// zoom).
+    /// `MAX_PIXEL_SCALE` or `MAX_FILL_OVER_FIT ×` fit, whichever is larger: a
+    /// sliver image would otherwise ask for an unbounded zoom, while a tiny
+    /// image or crop that already fits above `MAX_PIXEL_SCALE` keeps a fill
+    /// that really covers the visible area.
     #[must_use]
     pub fn fill_scale(&self) -> f64 {
-        self.visible_math().fill_pixel_scale().min(MAX_PIXEL_SCALE)
+        let fit = self.fit_scale();
+        self.visible_math()
+            .fill_pixel_scale()
+            .min(MAX_PIXEL_SCALE.max(fit * MAX_FILL_OVER_FIT))
+    }
+
+    /// The zoom-in cap: `max_zoom(fit, fill)` — `MAX_PIXEL_SCALE` unless fit
+    /// or fill already exceeds it. Never below `min_scale`.
+    #[must_use]
+    pub fn max_scale(&self) -> f64 {
+        max_zoom(self.fit_scale(), self.fill_scale())
+    }
+
+    /// True once both the image extent and the viewport are positive, so fit,
+    /// fill and the cap describe the real image rather than fallbacks.
+    #[must_use]
+    pub fn geometry_known(&self) -> bool {
+        self.viewport_points.width > 0.0
+            && self.viewport_points.height > 0.0
+            && self.display_frame_in_points(0.0).is_some()
     }
 
     /// The zoom-out floor: `fit × MIN_FIT_FRACTION`.

@@ -175,6 +175,12 @@ fn steps_and_stops_match_the_core_model() {
         crate::canvas::MIN_EXPLICIT_ZOOM
     );
     canvas_zoom_wheel_zoom(-10_000.0, 0.0, 0.0);
+    assert_eq!(
+        canvas_zoom_effective_scale(),
+        crate::canvas::MIN_EXPLICIT_ZOOM
+    );
+    canvas_zoom_reset_to_fit();
+    canvas_zoom_wheel_zoom(-10_000.0, 0.0, 0.0);
     assert_eq!(canvas_zoom_effective_scale(), read_context().min_scale());
     canvas_zoom_reset_to_fit();
     assert_eq!(read_model(), CanvasZoomModel::default());

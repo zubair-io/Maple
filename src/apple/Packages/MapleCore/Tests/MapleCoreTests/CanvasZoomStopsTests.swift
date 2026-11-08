@@ -441,4 +441,30 @@ final class CanvasZoomStopsTests: XCTestCase {
         XCTAssertEqual(CanvasZoomModel.nextStop(after: nil, in: stops), .fit)
         XCTAssertEqual(CanvasZoomModel.nextStop(after: .fill, in: [.fit]), .fit)
     }
+
+    /// #5714: a 64×64 image in 2000×1600px fits at 25× and fills at 31.25×,
+    /// above the 8× cap; zooming in must not shrink it, and fill stays real.
+    func testZoomInOnAnImageThatFitsAbove800PercentNeverShrinksIt() {
+        let tiny = CanvasZoomContext(
+            viewportPoints: CGSize(width: 1000, height: 800),
+            nativeImageSize: CGSize(width: 64, height: 64),
+            displayScale: 2
+        )
+        XCTAssertEqual(tiny.fitScale, 25, accuracy: 1e-9)
+        XCTAssertEqual(tiny.fillScale, 31.25, accuracy: 1e-9)
+
+        var stepped = CanvasZoomModel()
+        stepped.stepZoomIn(context: tiny)
+        XCTAssertEqual(stepped.pixelScale, 31.25, accuracy: 1e-9)
+
+        var pinched = CanvasZoomModel()
+        pinched.pinchChanged(magnification: 1, location: CGPoint(x: 500, y: 400), context: tiny)
+        pinched.pinchChanged(magnification: 3, location: CGPoint(x: 500, y: 400), context: tiny)
+        pinched.pinchEnded(magnification: 3, context: tiny)
+        XCTAssertEqual(pinched.pixelScale, 31.25, accuracy: 1e-9)
+
+        var tapped = CanvasZoomModel()
+        tapped.doubleTap(at: CGPoint(x: 500, y: 400), behavior: .toggleFitAnd100, context: tiny)
+        XCTAssertEqual(tapped.pixelScale, 31.25, accuracy: 1e-9)
+    }
 }

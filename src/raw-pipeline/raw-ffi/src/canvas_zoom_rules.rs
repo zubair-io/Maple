@@ -121,9 +121,14 @@ pub extern "C" fn maple_canvas_zoom_detent(scale: f64, fit: f64, fill: f64) -> u
 }
 
 #[no_mangle]
-pub extern "C" fn maple_canvas_zoom_pinch_scale(start: f64, magnification: f64, fit: f64) -> f64 {
+pub extern "C" fn maple_canvas_zoom_pinch_scale(
+    start: f64,
+    magnification: f64,
+    fit: f64,
+    fill: f64,
+) -> f64 {
     crate::error::catch_panic("maple_canvas_zoom_pinch_scale", start, || {
-        canvas::pinch_scale(start, magnification, fit)
+        canvas::pinch_scale(start, magnification, fit, fill)
     })
 }
 

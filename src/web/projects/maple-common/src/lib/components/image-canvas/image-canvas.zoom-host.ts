@@ -22,7 +22,7 @@ export interface ZoomHostHost {
 }
 
 export class ImageCanvasZoomHost {
-  // pixelScale = REAL px per image px (0 = fit, 1 = 100%, cap 8, docs/zoom.md);
+  // pixelScale = REAL px per image px (0 = fit, 1 = 100%, cap 8 or fit/fill if larger, docs/zoom.md);
   // the draw/refine geometry works in CSS scale.
   readonly dpr = (): number => (typeof window !== 'undefined' && window.devicePixelRatio) || 1;
 

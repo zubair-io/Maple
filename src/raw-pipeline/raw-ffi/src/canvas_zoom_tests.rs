@@ -256,7 +256,10 @@ fn insets_reach_the_core_and_a_below_fit_release_returns_to_the_visible_centre()
         maple_canvas_zoom_to_scale(released, 1.0, context).pan_offset,
         home
     );
-    assert_eq!(maple_canvas_zoom_pinch_scale(0.2, 1.03, 0.2), 0.2 * 1.03);
+    assert_eq!(
+        maple_canvas_zoom_pinch_scale(0.2, 1.03, 0.2, 0.25),
+        0.2 * 1.03
+    );
 }
 
 #[test]

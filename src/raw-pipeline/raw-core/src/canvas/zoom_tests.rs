@@ -461,3 +461,6 @@ fn rebase_drag_baseline_absorbs_the_translation() {
 
 #[path = "zoom_stops_tests.rs"]
 mod stops;
+
+#[path = "zoom_cap_tests.rs"]
+mod cap;

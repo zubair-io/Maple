@@ -28,7 +28,8 @@ class CanvasZoomGestureTest {
     @Test
     fun pinchFrom100PercentBelowFitFollowsTheFingersAndReturnsToFitOnRelease() {
         val zoom = CanvasZoomState()
-        zoom.doubleTap(500f, 375f, 800, 600, 1000f, 750f)
+        zoom.advanceStop(800, 600, 1000f, 750f)
+        assertEquals(1f, zoom.pixelScale, 0f)
         zoom.pinchChanged(1f, 500f, 375f, 800, 600, 1000f, 750f)
         zoom.pinchChanged(1.1f, 500f, 375f, 800, 600, 1000f, 750f)
         assertEquals(1.1f, zoom.pixelScale, 1e-6f)
@@ -222,12 +223,12 @@ class CanvasZoomGestureTest {
     }
 
     @Test
-    fun doubleTapSelects100PercentEvenWhenFitAlreadyEnlargesTheImage() {
+    fun doubleTapZoomsInToTheCapWhenFitAlreadyEnlargesTheImage() {
         val zoom = CanvasZoomState()
         zoom.doubleTap(600f, 450f, 1000, 750, 1200f, 900f)
-        assertEquals(1f, zoom.pixelScale, 0f)
-        assertEquals(1f / 1.2f, zoom.zoomFactorOverFit(1000, 750, 1200f, 900f), 1e-6f)
-        assertEquals("100%", zoom.badgeLabel(1000, 750, 1200f, 900f))
+        assertEquals("100% would shrink an image that fits at 120%", 8f, zoom.pixelScale, 0f)
+        assertEquals(8f / 1.2f, zoom.zoomFactorOverFit(1000, 750, 1200f, 900f), 1e-5f)
+        assertEquals("800%", zoom.badgeLabel(1000, 750, 1200f, 900f))
         zoom.doubleTap(600f, 450f, 1000, 750, 1200f, 900f)
         assertFalse(zoom.isZoomed)
     }

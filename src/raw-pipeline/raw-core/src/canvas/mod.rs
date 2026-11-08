@@ -58,6 +58,7 @@ pub use zoom::{
 pub use zoom_context::CanvasZoomContext;
 pub use zoom_queries::{DragIntent, WheelIntent};
 pub use zoom_rules::{
-    anchored_pan, clamped_explicit_zoom, crosses_fit, detent, distinct_stops, live_pinch_pan,
-    next_stop, pinch_scale, zoom_in_target, zoom_out_target, ZoomOutResult, ZoomStop, ZoomStops,
+    anchored_pan, clamped_explicit_zoom, crosses_fit, detent, distinct_stops, held_pinch_scale,
+    live_pinch_pan, live_pinch_range, next_stop, pinch_scale, zoom_in_target, zoom_out_target,
+    ZoomOutResult, ZoomStop, ZoomStops,
 };
