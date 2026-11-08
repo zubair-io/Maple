@@ -83,7 +83,10 @@ fn dragged_corner_emphasises_its_two_edges_only() {
     assert_eq!(width(&dragged.active()[left]), 4.0);
     assert_eq!(dragged.active()[top].color, [1.0; 4]);
     assert_eq!(dragged.active()[bottom], idle.active()[bottom]);
-    assert_eq!(width(&dragged.active()[right]), width(&idle.active()[right]));
+    assert_eq!(
+        width(&dragged.active()[right]),
+        width(&idle.active()[right])
+    );
 }
 
 #[test]
@@ -116,7 +119,10 @@ fn handle_centers_sit_on_the_crop_rect_in_points() {
         inset_crop(),
         fit_footprint(Size::new(400.0, 300.0), Size::new(6000.0, 4000.0)),
     );
-    assert_eq!(centers[0], (CropHandle::TopLeft, Point::new(rect.x, rect.y)));
+    assert_eq!(
+        centers[0],
+        (CropHandle::TopLeft, Point::new(rect.x, rect.y))
+    );
     assert_eq!(
         centers[3],
         (
@@ -142,6 +148,19 @@ fn rasterizer_matches_the_per_pixel_reference_exactly() {
         rasterize_overlay(&overlay, width, height, width as usize * 4, &mut out).unwrap();
         assert!(out == reference_bytes(&overlay, width, height));
     }
+}
+
+#[test]
+fn rasterizer_matches_the_reference_at_fractional_scale_and_odd_viewport() {
+    let overlay = crop_overlay(CropOverlayInput {
+        viewport: Size::new(257.0, 311.0),
+        pixel_scale: 1.5,
+        ..input(inset_crop(), Some(CropHandle::TopLeft))
+    });
+    let (width, height) = (386, 467);
+    let mut out = vec![0_u8; width as usize * height as usize * 4];
+    rasterize_overlay(&overlay, width, height, width as usize * 4, &mut out).unwrap();
+    assert!(out == reference_bytes(&overlay, width, height));
 }
 
 #[test]

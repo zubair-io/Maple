@@ -85,8 +85,14 @@ fn overlay_draws_its_primitives_not_a_blank_surface() {
     let ctx = GpuContext::new_blocking().expect("gpu context");
     let overlay = crop_overlay(crop_input((200.0, 150.0), 1.0, None));
     let gpu = render_overlay_offscreen(&ctx, &params(&overlay), 200, 150).expect("gpu");
-    let opaque_white = gpu.chunks(4).filter(|px| *px == [255, 255, 255, 255]).count();
-    let dimmed = gpu.chunks(4).filter(|px| px[..3] == [0, 0, 0] && px[3] > 100).count();
+    let opaque_white = gpu
+        .chunks(4)
+        .filter(|px| *px == [255, 255, 255, 255])
+        .count();
+    let dimmed = gpu
+        .chunks(4)
+        .filter(|px| px[..3] == [0, 0, 0] && px[3] > 100)
+        .count();
     assert!(opaque_white > 100, "corner dots: {opaque_white} px");
     assert!(dimmed > 1000, "mask: {dimmed} px");
 }
