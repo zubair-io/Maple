@@ -1,12 +1,12 @@
-// EditorSeedThumbnail+VM.swift — where the editor's seed thumbnail comes
+// EditorSeed+VM.swift — where the editor's seed thumbnail comes
 // from (#2374). No SwiftUI: this is the unit-testable half of
-// `EditorSeedThumbnail`, per the view-model split in pattern #192.
+// `EditorSeedLoader`, per the view-model split in pattern #192.
 
 import CoreGraphics
 import Foundation
 import MapleCore
 
-enum EditorSeedThumbnailVM {
+enum EditorSeedVM {
   /// The asset's existing thumbnail bytes, decoded.
   ///
   /// Catalog-backed (Maple Cloud) refs resolve through

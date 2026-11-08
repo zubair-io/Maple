@@ -51,7 +51,10 @@ public final class CanvasZoomController {
   /// centred position resolve inside what is left.
   public private(set) var viewportInsets: CanvasViewportInsets = .zero
   /// The extent the canvas lays the photo out with until the real one is
-  /// known (`setProvisionalImageSize`); `nil` once the real size lands.
+  /// known (`setProvisionalImageSize`); `nil` once `nativeImageSizeChanged`
+  /// carries the zoom into the real size. Layout keeps reading it until
+  /// then: the host learns of the new size after its body has re-evaluated,
+  /// and that frame must still draw the rect on screen (#5755).
   public private(set) var provisionalImageSize: CGSize?
 
   /// The last commanded zoom (a menu or keyboard command, a double-tap,
@@ -82,12 +85,12 @@ public final class CanvasZoomController {
   /// off the CROPPED extent so the cropped result fills the frame instead
   /// of being letterboxed inside the full-sensor rect. While the crop
   /// tool is armed `effectiveImageSize` resolves back to the full frame
-  /// (the overlay sits over the uncropped image).
+  /// (the overlay sits over the uncropped image). A provisional extent, while
+  /// one is held, takes precedence (`provisionalImageSize`).
   public var context: CanvasZoomContext {
     CanvasZoomContext(
       viewportPoints: viewportPoints,
-      nativeImageSize: realImageSize == .zero
-        ? (provisionalImageSize ?? .zero) : realImageSize,
+      nativeImageSize: provisionalImageSize ?? realImageSize,
       displayScale: displayScale,
       insets: viewportInsets
     )
@@ -540,7 +543,7 @@ public final class CanvasZoomController {
     // image that should open at fit (#3540). The seed's
     // `nativeImageSizeChanged` commits the real fit the moment it lands.
     // A provisional extent is a layout stand-in, never a source region.
-    guard realImageSize != .zero else { return }
+    guard provisionalImageSize == nil, realImageSize != .zero else { return }
     let math = context.canvasMath(
       pixelScale: model.pixelScale,
       panOffset: model.panOffset

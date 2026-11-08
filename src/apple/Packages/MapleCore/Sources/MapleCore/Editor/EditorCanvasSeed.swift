@@ -1,11 +1,14 @@
-// EditorCanvasSeed.swift — the image painted over the editor canvas before
-// the first real frame of a Maple Cloud asset (#5731).
+// EditorCanvasSeed.swift — the image drawn as the editor canvas before the
+// first real frame of a Maple Cloud asset (#5731, #5755).
 //
 // A Cloud asset's thumbnail lands in whichever cache its grid used: the
 // Timeline and Search grids write `CloudThumbCache`, while folder browse and
 // the filmstrip go through `ThumbnailLoader`, which keys the sourceless
-// `ThumbnailDiskCache` by the asset's stable id.
+// `ThumbnailDiskCache` by the asset's stable id. Until real pixels land the
+// seed stands in for the photo inside the zoom host, laid out at its own
+// aspect, so a gesture on it survives the real size landing (#5755).
 
+import CoreGraphics
 import Foundation
 import MapleCloudKit
 
@@ -46,12 +49,24 @@ public enum EditorCanvasSeed {
     (source as? CloudSource).flatMap { $0.identity == catalog.serverID ? $0 : nil }
   }
 
-  /// A bytes-backed asset learns its pixel size only from the downloaded
-  /// original, so until then the zoom host has no frame to draw even a
-  /// published preview into; the seed stays up through that window.
-  public static func isVisible(
-    showingOriginal: Bool, hasOnscreenFrame: Bool, hasDisplayFrame: Bool
-  ) -> Bool {
-    !showingOriginal && !(hasOnscreenFrame && hasDisplayFrame)
+  /// The seed is drawn inside the zoom host's leaf, at the photo's rect, so
+  /// it retires only once real pixels are on screen.
+  public static func isVisible(showingOriginal: Bool, hasOnscreenFrame: Bool) -> Bool {
+    !showingOriginal && !hasOnscreenFrame
+  }
+
+  /// No photo's pixel size is known before its original downloads, so the
+  /// seed lays the canvas out at its own aspect and this long edge (#5755).
+  /// Large enough that the 100% stop and a double-tap zoom in from fit on
+  /// any screen, as they do on a real photo; the real size then replaces it
+  /// with the on-screen rect kept.
+  public static let provisionalLongEdge: CGFloat = 8192
+
+  /// The stand-in extent for a seed image of `pixelSize`; `nil` for an
+  /// empty image.
+  public static func provisionalImageSize(forSeedOfPixelSize pixelSize: CGSize) -> CGSize? {
+    guard pixelSize.width > 0, pixelSize.height > 0 else { return nil }
+    let scale = provisionalLongEdge / max(pixelSize.width, pixelSize.height)
+    return CGSize(width: pixelSize.width * scale, height: pixelSize.height * scale)
   }
 }
