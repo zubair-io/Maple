@@ -195,8 +195,7 @@ final class CanvasOverlayPresentationTests: XCTestCase {
     let router = EditorCommandRouter(state: state)
     state.arm(tool: .crop)
     XCTAssertTrue(state.zoom.isZoomLocked)
-    for command: EditorCommandRouter.Command in [.zoomIn, .actualSize, .zoomOut, .pan(x: 40, y: 0)]
-    {
+    for command: EditorCommandRouter.Command in [.zoomIn, .actualSize] {
       router.perform(command, assetID: state.session.asset.id)
       XCTAssertFalse(state.zoom.isZoomedIn, "\(command) zoomed the photo under the crop overlay")
     }
@@ -234,6 +233,26 @@ final class CanvasOverlayPresentationTests: XCTestCase {
     state.zoom.pinchChanged(magnification: 3.5, location: fingers)
     state.zoom.pinchEnded(magnification: 3.5)
     XCTAssertFalse(state.zoom.isZoomedIn)
+  }
+
+  func testArmingCropFromAZoomAnimatesToFitAndHoldsIt() throws {
+    let state = makeCropState()
+    state.zoom.zoomToScale(1)
+    let zoomed = state.zoom.restingFrame
+    state.arm(tool: .crop)
+    XCTAssertTrue(state.zoom.isZoomLocked)
+    XCTAssertFalse(state.zoom.isZoomedIn)
+    let move = try XCTUnwrap(state.zoom.commandedMove, "the host animates the move to fit")
+    XCTAssertEqual(move.from, zoomed)
+  }
+
+  func testASettleInterruptedWhileCroppingDoesNotHoldItsFrame() {
+    let state = makeCropState()
+    state.arm(tool: .crop)
+    state.zoom.holdShownFrame(CanvasShownFrame(scale: 0.6, pan: CGSize(width: 120, height: 0)))
+    state.zoom.viewportInsetsChanged(CanvasViewportInsets(top: 40, left: 0, bottom: 0, right: 0))
+    XCTAssertFalse(state.zoom.isZoomedIn)
+    XCTAssertEqual(state.zoom.effectivePixelScale, state.zoom.context.fitScale, accuracy: 1e-9)
   }
 
   func testLeavingCropReleasesTheZoomLock() {

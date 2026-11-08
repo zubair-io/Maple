@@ -169,14 +169,9 @@ public final class EditorState {
     if nowCropEditing && !wasCropEditing {
       cropAspectId = .free
     } else if tool == .mask && !wasMaskArmed {
-      // Entering Mask fits too (#3354). `MaskOverlay` positions the
-      // raster with `CropGeometry.fitFootprint` — fit zoom, zero pan,
-      // exactly the assumption `CropOverlay` is built on and states in
-      // its header. Arming Mask left the canvas at whatever zoom the
-      // user was at, so the overlay was stretched across a viewport
-      // showing a zoomed crop: the red tint lined up with nothing and
-      // covered the frame, which reads as "the mask selected
-      // everything" rather than "the overlay is misaligned".
+      // Entering Mask fits too (#3354), so every handle starts within
+      // reach. Zoom stays live afterwards: `MaskOverlay` follows the
+      // photo's presented transform (#5744).
       zoom.resetToFit()
     }
   }

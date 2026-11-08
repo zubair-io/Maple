@@ -98,6 +98,10 @@ struct CanvasZoomHost<CanvasLeaf: View, Fallback: View>: View {
     // committed pan), so the live visual equals the committed geometry. The controller holds
     // that frame (`presentation.livePinch`) so overlays draw it too (#5744).
     @State var pinchActive = false
+    // A pinch that began, or was overtaken, while zoom was held at fit is
+    // ignored to its end: resuming mid-gesture would jump by the scale the
+    // recognizer had already accumulated.
+    @State private var pinchIgnored = false
     @State var pinchLastCentroid: CGPoint = .zero
     // Magnification of the LAST rendered frame — the commit uses this (not the gesture-end
     // recognizer scale, which differs as fingers lift), so committed scale/pan exactly matches.
@@ -130,7 +134,8 @@ struct CanvasZoomHost<CanvasLeaf: View, Fallback: View>: View {
             .frame(width: frame.width, height: frame.height)
             .modifier(CanvasSettleTransform(controller: controller))
           // #2288 — 0×0 marker carrying the photo's rect as text; see imageRectAccessibilityValue's doc.
-          let shown = controller.presentedGeometry(at: Date())
+          // The rect the photo rests at: the body is not redrawn per settle frame.
+          let shown = controller.settledGeometry
           Color.clear.frame(width: 0, height: 0)
             .accessibilityElement(children: .ignore)
             .accessibilityLabel("Editor canvas image rect")
@@ -195,6 +200,18 @@ struct CanvasZoomHost<CanvasLeaf: View, Fallback: View>: View {
       .onChange(of: controller.commandedMove) { _, move in
         animateCommand(move)
       }
+      #if os(iOS)
+        .onChange(of: controller.isZoomLocked) { _, locked in
+          if locked { zoomLockEngaged() }
+        }
+        .onDisappear {
+          // The live pinch is the controller's now; a host torn down
+          // mid-pinch must not leave it drawn over the next one.
+          guard pinchActive else { return }
+          controller.pinchCancelled()
+          resetPinchState()
+        }
+      #endif
       #if os(macOS)
         .onChange(of: magnifyGestureLive) { _, live in
           guard !live, magnifyInProgress else { return }
@@ -301,7 +318,10 @@ struct CanvasZoomHost<CanvasLeaf: View, Fallback: View>: View {
     /// `.scaleEffect` (no `pixelScale` write → no frame growth → no per-frame
     /// re-decode, which was the lag).
     private func pinchChangedLive(scale: CGFloat, location: CGPoint, touchCount: Int) {
-      guard !controller.isZoomLocked else { return }
+      guard !pinchIgnored, !controller.isZoomLocked else {
+        pinchIgnored = true
+        return
+      }
       if !pinchActive {
         interruptSettle()
         pinchActive = true
@@ -334,6 +354,10 @@ struct CanvasZoomHost<CanvasLeaf: View, Fallback: View>: View {
     /// transform in the same update is pop-free — the canvas just sharpens as
     /// the re-render lands.
     private func pinchEndedLive(scale: CGFloat) {
+      guard !pinchIgnored else {
+        pinchIgnored = false
+        return
+      }
       guard pinchActive else {
         controller.pinchEnded(magnification: scale)
         return
@@ -352,6 +376,15 @@ struct CanvasZoomHost<CanvasLeaf: View, Fallback: View>: View {
         resetPinchState()
       }
       lastPinchEnd = Date()  // open the cooldown for the lingering finger
+    }
+
+    /// Zoom was held at fit under a live pinch (Crop armed): the controller
+    /// ended it, so drop the host's side and ignore the rest of the gesture.
+    private func zoomLockEngaged() {
+      guard pinchActive else { return }
+      resetPinchState()
+      pinchIgnored = true
+      if let pending = pendingInsets { insetsChanged(pending) }
     }
 
     /// Clear the per-gesture pinch bookkeeping so a release can't leave state

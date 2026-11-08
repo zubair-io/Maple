@@ -122,7 +122,7 @@ public final class CanvasZoomController {
     // have run: without it the live pan would derive from a default start.
     let frozen = context.effectiveScale(for: model.pixelScale)
     guard !isZoomLocked, model.pinchStartScale != nil, frozen > 0 else {
-      presentation.livePinch = nil
+      clearLivePinch()
       return (1, .zero)
     }
     trackedPinch = (magnification, liveCentroid)
@@ -195,6 +195,7 @@ public final class CanvasZoomController {
   /// so a pinch or pan that interrupts a settle starts from what is on
   /// screen rather than from where the settle was heading (#5742).
   public func holdShownFrame(_ frame: CanvasShownFrame) {
+    guard !isZoomLocked else { return }
     recordTrackedPinch()
     let before = model
     model.holdShown(frame, context: context)
@@ -285,7 +286,7 @@ public final class CanvasZoomController {
   /// Pinch release — commits the resolved scale + visible rect.
   public func pinchEnded(magnification: CGFloat) {
     trackedPinch = nil
-    presentation.livePinch = nil
+    clearLivePinch()
     guard !isZoomLocked else { return }
     model.pinchEnded(magnification: magnification, context: context)
     commitToSession()
@@ -310,7 +311,7 @@ public final class CanvasZoomController {
   public func pinchCancelled() {
     recordTrackedPinch()
     trackedPinch = nil
-    presentation.livePinch = nil
+    clearLivePinch()
     let before = model
     model.pinchCancelled(context: context)
     guard model != before else { return }

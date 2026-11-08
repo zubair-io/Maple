@@ -23,13 +23,8 @@ public struct CanvasLivePinch: Equatable, Sendable {
 
 /// Everything drawn over the committed zoom. Empty at rest.
 public struct CanvasPresentation: Equatable, Sendable {
-  public var livePinch: CanvasLivePinch?
-  public var settle: CanvasSettleAnimation?
-
-  public init(livePinch: CanvasLivePinch? = nil, settle: CanvasSettleAnimation? = nil) {
-    self.livePinch = livePinch
-    self.settle = settle
-  }
+  public internal(set) var livePinch: CanvasLivePinch?
+  public internal(set) var settle: CanvasSettleAnimation?
 }
 
 /// The compositor transform of the canvas leaf, which is framed at the
@@ -69,6 +64,12 @@ extension CanvasZoomController {
       panOffset: shown.pan)
   }
 
+  /// Where the photo comes to rest: the live pinch without the running
+  /// settle. For a reader that is not redrawn every frame.
+  public var settledGeometry: CanvasPresentedGeometry? {
+    presentedGeometry(at: .distantFuture)
+  }
+
   /// True while a settle animation draws over the committed frame, so a
   /// reader redraws every display frame.
   public var isPresentationAnimating: Bool { presentation.settle != nil }
@@ -96,5 +97,11 @@ extension CanvasZoomController {
       resetToFit()
     }
     isZoomLocked = locked
+  }
+
+  /// Every reader redraws on a write, so only clear a pinch that is shown.
+  func clearLivePinch() {
+    guard presentation.livePinch != nil else { return }
+    presentation.livePinch = nil
   }
 }
