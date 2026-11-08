@@ -102,7 +102,7 @@ impl CanvasZoomModel {
         );
         (
             Self {
-                pan_offset: context.clamped_pan(raw, self.pixel_scale),
+                pan_offset: context.clamped_pan_from(raw, self.pixel_scale, self.base_pan),
                 ..self
             },
             true,
