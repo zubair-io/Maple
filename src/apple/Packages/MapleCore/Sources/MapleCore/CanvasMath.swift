@@ -92,8 +92,7 @@ public struct CanvasMath: Sendable, Equatable {
   /// Visible region in oriented source pixels, clamped to the image; `.zero`
   /// when degenerate.
   public var visibleSourceRect: CGRect {
-    let rect = resolved.visible_source_rect
-    return CGRect(x: rect.x, y: rect.y, width: rect.width, height: rect.height)
+    CGRect(resolved.visible_source_rect)
   }
 }
 
@@ -112,5 +111,19 @@ extension MapleCanvasPoint {
 extension CGSize {
   init(_ size: MapleCanvasSize) {
     self.init(width: size.width, height: size.height)
+  }
+}
+
+extension MapleCanvasRect {
+  init(_ rect: CGRect) {
+    self.init(
+      x: Double(rect.origin.x), y: Double(rect.origin.y),
+      width: Double(rect.size.width), height: Double(rect.size.height))
+  }
+}
+
+extension CGRect {
+  init(_ rect: MapleCanvasRect) {
+    self.init(x: rect.x, y: rect.y, width: rect.width, height: rect.height)
   }
 }

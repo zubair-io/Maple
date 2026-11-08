@@ -54,6 +54,7 @@
 
 import CoreImage
 import Foundation
+import RawPipeline
 
 /// Per-session actor boundary for the render pipeline. Owns the decoded-
 /// image cache (slice 2) plus the two-phase scheduler (slice 3).
@@ -322,20 +323,18 @@ public actor RenderActor {
   /// `internal` for `RenderActor+TestHooks.swift` — see `renderTask`.
   var refineTask: Task<Void, Never>?
 
-  /// Monotonic generation counter — bumped by `scheduleRender` and `cancelAll`
-  /// (NOT on `scheduleRefine`). The render closure receives its
+  /// Generation counter, advanced by the shared scheduling rules
+  /// (`raw_core::canvas::RenderSchedule`, #5714) on `scheduleRender` and
+  /// `cancelAll` (NOT on `scheduleRefine`). The render closure receives its
   /// generation at spawn time and must re-read `currentGeneration()`
   /// (or compare against the captured `gen`) before publishing so
   /// stale results from a superseded schedule don't clobber the
   /// preview produced by the newer one.
-  private var renderGeneration: UInt64 = 0
+  private var schedule = MapleCanvasRenderSchedule()
 
-  /// Refine debounce — 150 ms matches CLAUDE.md § Performance
-  /// invariants. Slice-2 EditSession used 250 ms; slice 3 aligns to
-  /// the spec. The shorter delay makes the refine pass land sooner
-  /// after the user stops dragging without measurably hurting the
-  /// coalesce ratio on a continuous slider drag.
-  public static let refineDebounceMilliseconds: UInt64 = 150
+  /// Refine debounce from the shared scheduling rules — 150 ms, matching
+  /// CLAUDE.md § Performance invariants.
+  public static let refineDebounceMilliseconds: UInt64 = maple_canvas_refine_debounce_ms()
 
   public init(pipeline: ImageEditPipeline) {
     self.pipeline = pipeline
@@ -428,7 +427,7 @@ public actor RenderActor {
   /// Identical semantics to the `gen != renderGeneration` guard the
   /// pre-slice-3 EditSession scheduler used.
   public func currentGeneration() -> UInt64 {
-    renderGeneration
+    schedule.generation
   }
 
   /// Cancel previous fast/refine work and admit the newest generation
@@ -440,8 +439,8 @@ public actor RenderActor {
   ) -> UInt64 {
     renderTask?.cancel()
     refineTask?.cancel()
-    renderGeneration &+= 1
-    let gen = renderGeneration
+    schedule = maple_canvas_render_schedule_render(schedule)
+    let gen = schedule.generation
     editSessionLogger.debug(
       "scheduleRender gen=\(gen) phase=\(String(describing: phase), privacy: .public)"
     )
@@ -454,7 +453,9 @@ public actor RenderActor {
   private func runScheduledRender(
     gen: UInt64, work: @Sendable (UInt64) async -> Void
   ) async {
-    guard gen == renderGeneration, !Task.isCancelled else { return }
+    guard maple_canvas_render_schedule_is_current(schedule, gen) != 0, !Task.isCancelled else {
+      return
+    }
     await work(gen)
   }
 
@@ -467,11 +468,11 @@ public actor RenderActor {
   ) -> UInt64 {
     // An old fast pass can resume after a newer pass registered its refine.
     // Reject it before cancel-previous touches the newer tail (#3363).
-    if let expectedGeneration, expectedGeneration != renderGeneration {
-      return renderGeneration
-    }
+    let admitted = maple_canvas_render_schedule_admits_refine(
+      schedule, expectedGeneration == nil ? 0 : 1, expectedGeneration ?? 0)
+    guard admitted != 0 else { return schedule.generation }
     refineTask?.cancel()
-    let gen = renderGeneration
+    let gen = schedule.generation
     refineTask = Task { [work] in
       try? await Task.sleep(for: .milliseconds(Int(RenderActor.refineDebounceMilliseconds)))
       guard !Task.isCancelled else { return }
@@ -518,7 +519,7 @@ public actor RenderActor {
   /// teardown so background work from the previous asset doesn't
   /// continue to spend GPU cycles after the user moved on.
   public func cancelAll() {
-    renderGeneration &+= 1
+    schedule = maple_canvas_render_schedule_cancel_all(schedule)
     renderTask?.cancel()
     refineTask?.cancel()
     renderTask = nil

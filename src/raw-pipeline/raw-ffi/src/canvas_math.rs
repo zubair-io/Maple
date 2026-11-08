@@ -58,6 +58,12 @@ impl From<Point> for MapleCanvasPoint {
     }
 }
 
+impl From<MapleCanvasRect> for Rect {
+    fn from(rect: MapleCanvasRect) -> Self {
+        Rect::new(rect.x, rect.y, rect.width, rect.height)
+    }
+}
+
 impl From<Rect> for MapleCanvasRect {
     fn from(rect: Rect) -> Self {
         Self {

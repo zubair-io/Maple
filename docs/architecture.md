@@ -83,7 +83,7 @@ Every editing surface implements the same two phases.
 - **Fast phase** — runs immediately on every slider tick, at viewport resolution (element size × device pixel ratio) using the preview-quality demosaic. Only the most recent tick survives: older work is cancelled or its result dropped.
 - **Refine phase** — a 150 ms trailing debounce that re-renders at full resolution. During a continuous drag the refine task is cancelled on every tick, so it fires once, when the user lets go.
 
-On Apple this lives in `RenderActor` and `EditSession+RenderScheduling.swift` (`RenderActor.refineDebounceMilliseconds = 150`); the actor owns the task handles, the generation counter, and the cancel/coalesce decisions, while the render work itself stays on the main actor. On the web it is `TwoPhaseRenderScheduler` in `src/web/projects/maple-common/src/lib/components/image-canvas/image-canvas.two-phase.ts` (`REFINE_DEBOUNCE_MS = 150`). Because a WASM render cannot be interrupted mid-flight, the web's "cancel" is really "drop the stale result via the generation counter."
+The scheduling rules themselves (which generation is current, whether a refine may be scheduled, whether the refine tries the native-detail patch or the whole image, and when the refine can be skipped) are pure functions in `raw_core::canvas::render_schedule` (#5714). On Apple `RenderActor` and `EditSession+RenderScheduling.swift` read them through `raw-ffi` (`RenderActor.refineDebounceMilliseconds` is `maple_canvas_refine_debounce_ms()`, 150); the actor owns the task handles, the timers, and the generation value it passes through each rule, while the render work itself stays on the main actor. On the web it is `TwoPhaseRenderScheduler` in `src/web/projects/maple-common/src/lib/components/image-canvas/image-canvas.two-phase.ts` (`REFINE_DEBOUNCE_MS = 150`). Because a WASM render cannot be interrupted mid-flight, the web's "cancel" is really "drop the stale result via the generation counter."
 
 Underneath, two things happen per tick. The expensive part — decode, demosaic, camera profile, auto-exposure — runs once and its result is cached as an fp16 RGBA buffer in scene-linear Rec.2020. Each subsequent tick re-runs only the cheap, model-dependent stages on that buffer: `raw_core::pipeline::scene_linear_chain` on the CPU, or the equivalent WGSL chain in `raw-gpu` on the GPU.
 
@@ -91,7 +91,7 @@ When a GPU is available, the app opens a **live session** instead: the decoded i
 
 The GPU is never the reference. `raw-core`'s CPU chain is the oracle, and CI diffs the WGSL chain against it (the `raw-gpu` job in `.github/workflows/raw-pipeline.yml`).
 
-The canvas zoom model and viewport ↔ image mapping (fit / fill / 100% stops, pinch detents, anchored zoom, pan clamping, render targets) are pure value math in `raw_core::canvas`, exposed by value through `raw-ffi`; Apple reads it there today, and the other shells adopt it under #5714. See [zoom](zoom.md).
+The canvas zoom model and viewport ↔ image mapping (fit / fill / 100% stops, pinch detents, anchored zoom, pan clamping, render targets), deep-zoom tile selection, the two-phase scheduling rules and the interactive crop geometry are pure value math in `raw_core::canvas`, exposed by value through `raw-ffi`; Apple reads it there today, and the other shells adopt it under #5714. See [zoom](zoom.md).
 
 Deep zoom is a third path — a tile renderer (`raw_core::pipeline::tile`, `NativeDetailRenderer.swift` on Apple, the canvas zoom host on web) that renders only the visible region at native resolution. See [zoom](zoom.md).
 

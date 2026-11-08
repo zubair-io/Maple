@@ -7,139 +7,91 @@
 
 import CoreImage
 import Foundation
+import RawPipeline
 
-/// Pure source-geometry helpers shared by the renderer, session, and tests.
+/// Deep-zoom tile selection, resolved by the shared Rust implementation
+/// (`raw_core::canvas::native_detail`, #5714): the 1:1 gate, the displayed
+/// detail rect, the pan-reuse margin (#2063), the decode halo (#5169) and the
+/// visible-region update decision. All rects are oriented source pixels with
+/// a top-left origin.
 enum NativeDetailLOD {
-  static let minimumPixelScale: CGFloat = 1
-  /// Floor on the filter context around a patch. The per-tick chain's actual
-  /// reach (`PipelineRenderer.sceneLinearChainWindowReach`) widens it when
-  /// the frame-scaled S/H mask needs more (#5169).
-  static let filterHalo: CGFloat = 96
+  private static let constants = maple_canvas_native_detail_constants()
+  static let minimumPixelScale = CGFloat(constants.min_pixel_scale)
+  /// Floor on the filter context around a patch; the per-tick chain's reach
+  /// (`PipelineRenderer.sceneLinearChainWindowReach`) widens it (#5169).
+  static let filterHalo = CGFloat(constants.filter_halo)
+  /// The published patch grows by this fraction of the visible rect's longer
+  /// edge, at most `panMarginCeiling` px, so small pans reuse it (#2063).
+  static let panMarginFraction = CGFloat(constants.pan_margin_fraction)
+  static let panMarginCeiling = CGFloat(constants.pan_margin_ceiling)
 
-  /// Ticket #2063 pan-reuse margin — independent of `filterHalo`.
-  /// `filterHalo` is unpublished filter-stencil context added around the
-  /// developed patch when `decodeRect` builds the decode-tile request;
-  /// this margin instead grows the DEVELOPED AND PUBLISHED patch itself
-  /// (`patchRect`, below) beyond the immediate viewport (`detailRect`), so
-  /// a typical small pan's new viewport still lands inside the previous
-  /// publish and hits the containment fast path in
-  /// `EditSession.updateTileVisibleRegion` / `refineNativeDetail` instead
-  /// of paying a fresh 150 ms-debounced develop.
-  ///
-  /// `panMargin(for:)` returns the TOTAL pixels added along each
-  /// dimension (split evenly between both edges by `patchRect`) — 25% of
-  /// the visible rect's larger dimension, clamped to `panMarginCeiling`,
-  /// applied to BOTH width and height. For a SQUARE viewport, unclamped,
-  /// that grows both dimensions by exactly `panMarginFraction` and raises
-  /// the developed area by (1 + panMarginFraction)² ≈ 1.56×. A wider (or
-  /// taller) viewport grows its shorter axis by a bigger relative
-  /// fraction — the margin is sized from the LONGER dimension but
-  /// applied evenly to both — so a typical widescreen viewport's
-  /// multiplier lands a bit above that; the ceiling caps it back down
-  /// once a dimension exceeds `panMarginCeiling / panMarginFraction`
-  /// (2048 px at these defaults). See the PR description for the
-  /// worked numbers on a representative viewport size.
-  static let panMarginFraction: CGFloat = 0.25
-  static let panMarginCeiling: CGFloat = 512
-
+  /// At 1:1 or above, for a non-empty region not already covering the image.
   static func shouldRender(
     pixelScale: CGFloat,
     visibleRect: CGRect,
     imageSize: CGSize? = nil
   ) -> Bool {
-    guard pixelScale >= minimumPixelScale,
-      !visibleRect.isEmpty,
-      !visibleRect.isNull,
-      visibleRect.width > 0,
-      visibleRect.height > 0
-    else { return false }
-    if let imageSize, imageSize.width > 0, imageSize.height > 0 {
-      if visibleRect.width >= imageSize.width && visibleRect.height >= imageSize.height {
-        return false
-      }
-    }
-    return true
+    maple_canvas_native_detail_should_render(
+      Double(pixelScale), MapleCanvasRect(visibleRect), MapleCanvasSize(imageSize ?? .zero)) != 0
   }
 
-  /// Integer source rect displayed by the overlay. Rounds outward so every
-  /// visible source pixel is covered, then clamps to the oriented image.
+  /// The visible rect rounded outward and clamped to the oriented image.
   static func detailRect(visibleRect: CGRect, imageSize: CGSize) -> CGRect {
-    let bounds = CGRect(origin: .zero, size: imageSize)
-    guard bounds.width > 0, bounds.height > 0 else { return .zero }
-    let rect = visibleRect.standardized.integral.intersection(bounds)
-    return rect.isNull ? .zero : rect
+    CGRect(
+      maple_canvas_native_detail_rect(MapleCanvasRect(visibleRect), MapleCanvasSize(imageSize)))
   }
 
-  /// Total pixels the pan-reuse patch grows by along each dimension
-  /// (`patchRect` splits this evenly between both edges) — 25% of
-  /// `visibleRect`'s larger dimension, clamped to `panMarginCeiling` so an
-  /// unusually large viewport doesn't blow the develop out arbitrarily.
-  /// Pure function of the rect's size alone so it's directly
-  /// unit-testable without a full detail/image-bounds round trip.
+  /// Total pixels the patch grows by on each axis (split across both edges).
   static func panMargin(for visibleRect: CGRect) -> CGFloat {
-    guard !visibleRect.isEmpty, !visibleRect.isNull else { return 0 }
-    let longest = max(visibleRect.width, visibleRect.height)
-    return min(longest * panMarginFraction, panMarginCeiling)
+    CGFloat(maple_canvas_native_detail_pan_margin(MapleCanvasRect(visibleRect)))
   }
 
-  /// The rect actually DEVELOPED and PUBLISHED as `nativeDetailPreview` /
-  /// `nativeDetailSourceRect` (#2063) — `detailRect` grown by
-  /// `panMargin(for:)`, split evenly across both edges, and re-clamped to
-  /// the oriented image bounds. Deliberately larger than the immediate
-  /// viewport so an ordinary small pan's new `detailRect` still lands
-  /// inside the previous publish and hits the containment fast path
-  /// instead of a fresh develop. The chain's reach (at least
-  /// `filterHalo`) is added on top by `decodeRect` for filter-stencil
-  /// context only — it is never grown by this margin and is never itself
-  /// published.
+  /// The rect developed and published: `detailRect` grown by `panMargin`.
   static func patchRect(visibleRect: CGRect, imageSize: CGSize) -> CGRect {
-    let base = detailRect(visibleRect: visibleRect, imageSize: imageSize)
-    guard !base.isEmpty else { return base }
-    let margin = panMargin(for: visibleRect)
-    guard margin > 0 else { return base }
-    let bounds = CGRect(origin: .zero, size: imageSize)
-    let grown =
-      base
-      .insetBy(dx: -margin / 2, dy: -margin / 2)
-      .integral
-      .intersection(bounds)
-    return grown.isNull ? base : grown
+    CGRect(
+      maple_canvas_native_detail_patch_rect(
+        MapleCanvasRect(visibleRect), MapleCanvasSize(imageSize)))
   }
 
-  /// Source rect sent to the RAW tile entry. The halo (at least
-  /// `filterHalo`) gives the per-tick chain's spatial stages context beyond
-  /// the displayed patch without ever expanding work to the full sensor.
-  ///
-  /// The complete patch and its required halo must fit Metal's texture edge
-  /// limit. Returning empty requests whole-image refinement; truncating one
-  /// side of the halo would make edge pixels disagree with that refinement.
+  /// Source rect sent to the RAW tile entry: the patch plus a two-sided halo
+  /// of at least `filterHalo`. Empty requests whole-image refinement.
   static func decodeRect(
     detailRect: CGRect, imageSize: CGSize, halo: CGFloat
   ) -> CGRect {
-    let bounds = CGRect(origin: .zero, size: imageSize)
-    guard !detailRect.isEmpty, bounds.width > 0, bounds.height > 0 else {
-      return .zero
-    }
-    let expanded =
-      detailRect
-      .insetBy(dx: -max(filterHalo, halo), dy: -max(filterHalo, halo))
-      .integral
-      .intersection(bounds)
-    let maxEdge = CanvasMath.metalMaxTextureEdge
-    guard !expanded.isNull, expanded.width <= maxEdge, expanded.height <= maxEdge else {
-      return .zero
-    }
-    return expanded
+    CGRect(
+      maple_canvas_native_detail_decode_rect(
+        MapleCanvasRect(detailRect), MapleCanvasSize(imageSize), Double(halo)))
   }
 
-  /// Convert a top-left-oriented source rect into the local CoreImage
-  /// (bottom-left-origin) coordinates of its containing decode patch.
+  /// A top-left-oriented source rect in the local CoreImage (bottom-left
+  /// origin) coordinates of its containing decode patch.
   static func localCoreImageRect(detailRect: CGRect, decodeRect: CGRect) -> CGRect {
-    guard !detailRect.isEmpty, !decodeRect.isEmpty else { return .zero }
-    let x = detailRect.minX - decodeRect.minX
-    let top = detailRect.minY - decodeRect.minY
-    let y = decodeRect.height - top - detailRect.height
-    return CGRect(x: x, y: y, width: detailRect.width, height: detailRect.height)
+    CGRect(
+      maple_canvas_native_detail_bottom_up_rect(
+        MapleCanvasRect(detailRect), MapleCanvasRect(decodeRect)))
+  }
+
+  /// Whether the published patch (nil when none) already covers `detailRect`.
+  static func publishedPatchCovers(_ patch: CGRect?, detailRect: CGRect) -> Bool {
+    maple_canvas_native_detail_patch_covers(
+      patch == nil ? 0 : 1, MapleCanvasRect(patch ?? .zero), MapleCanvasRect(detailRect)) != 0
+  }
+
+  /// What a visible-region update must do to the published patch.
+  static func visibleRegionChange(
+    from previousViewport: CGRect, to viewport: CGRect,
+    previousZoom: CGFloat, zoom: CGFloat,
+    publishedPatch: CGRect?, imageSize: CGSize
+  ) -> MapleCanvasVisibleRegionChange {
+    maple_canvas_visible_region_change(
+      MapleCanvasVisibleRegionUpdate(
+        previous_viewport: MapleCanvasRect(previousViewport),
+        viewport: MapleCanvasRect(viewport),
+        previous_zoom: Double(previousZoom),
+        zoom: Double(zoom),
+        has_published_patch: publishedPatch == nil ? 0 : 1,
+        published_patch: MapleCanvasRect(publishedPatch ?? .zero),
+        image_size: MapleCanvasSize(imageSize)))
   }
 }
 
