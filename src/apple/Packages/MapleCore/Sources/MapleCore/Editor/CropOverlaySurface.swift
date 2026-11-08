@@ -87,6 +87,9 @@ public enum CropOverlaySurface {
   /// The outcome of one GPU overlay present.
   public enum GpuPresentResult: Equatable, Sendable {
     case presented
+    /// The surface has no pixels (zero or past the texture limit); nothing
+    /// was drawn and the layer's previous frame is stale.
+    case empty
     /// This frame failed (a drawable timeout, a lost surface); the next
     /// present starts from a fresh surface.
     case frameFailed
@@ -99,7 +102,7 @@ public enum CropOverlaySurface {
     _ input: CropOverlayInput, layer: CAMetalLayer, generation: UInt64
   ) -> GpuPresentResult {
     let size = input.pixelSize
-    guard size.width > 0, size.height > 0 else { return .presented }
+    guard size.width > 0, size.height > 0 else { return .empty }
     let layerPtr = Unmanaged.passUnretained(layer).toOpaque()
     switch maple_gpu_present_crop_overlay(
       input.ffi, layerPtr, generation, UInt32(size.width), UInt32(size.height))
