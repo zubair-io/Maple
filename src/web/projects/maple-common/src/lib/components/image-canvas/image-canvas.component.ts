@@ -65,7 +65,7 @@ import { ImageCanvasRawOpen } from './image-canvas.raw-open';
 import { ImageCanvasFilmSync } from './image-canvas.film';
 import { FilmLutService } from '../../film/film-lut.service';
 import { ImageCanvasZoomHost } from './image-canvas.zoom-host';
-import { canvasImageExtent, createNativeDetail } from './image-canvas.native-detail-host';
+import { createImageExtent, createNativeDetail } from './image-canvas.native-detail-host';
 import { ImageCanvasNativeDetail } from './image-canvas.native-detail';
 import { HOST_CLASS, beforeAfterBtnClass as beforeAfterBtnClassFn } from './image-canvas.classes';
 
@@ -208,18 +208,10 @@ export class ImageCanvasComponent
   readonly deepDenoiseProgress = computed(() => canvasDeepDenoiseProgress(this.pipeline));
 
   /** One extent for the zoom model and the draw, so neither jumps (#5746). */
-  readonly imageExtent = computed(() => canvasImageExtent(this), {
-    equal: (a, b) => a?.w === b?.w && a?.h === b?.h,
-  });
+  readonly imageExtent = createImageExtent(this);
   private effectivePx = computed(() => {
-    const extent = this.imageExtent();
-    return computeEffectivePx(
-      this.zoomHost.cssZoom(),
-      extent?.w,
-      extent?.h,
-      this.wrapW(),
-      this.wrapH(),
-    );
+    const { w, h } = this.imageExtent() ?? {};
+    return computeEffectivePx(this.zoomHost.cssZoom(), w, h, this.wrapW(), this.wrapH());
   });
 
   // Crop shows the full frame + live straighten under its interactive rect.
