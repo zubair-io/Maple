@@ -3460,6 +3460,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "raw-wasm-canvas"
+version = "0.1.0"
+dependencies = [
+ "wasm-bindgen",
+]
+
+[[package]]
 name = "raw-window-handle"
 version = "0.6.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
