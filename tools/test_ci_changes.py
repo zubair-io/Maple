@@ -42,6 +42,11 @@ class ClassificationTests(unittest.TestCase):
                 "codegen",
                 "swift",
             },
+            "src/android/native/src/canvas_zoom_abi.rs": {"android", "codegen"},
+            "src/android/app/src/main/cpp/generated/canvas_zoom_abi.h": {
+                "android",
+                "codegen",
+            },
             "src/apple/Maple/App.swift": {"codegen", "swift"},
             "src/apple/Packages/MapleCore/Package.swift": {"codegen", "swift"},
             "docs/features.md": set(),

@@ -66,7 +66,7 @@ fn adopting_at_fit_changes_nothing() {
         [2048.0, 1365.0, 750.0, 375.0],
         (6000.0, 4000.0),
     );
-    assert_eq!(state, [0.0; STATE_LEN]);
+    assert_eq!(state[..GEOMETRY_SLOT], [0.0; GEOMETRY_SLOT]);
 }
 
 #[test]
@@ -418,10 +418,10 @@ fn the_drag_translation_slots_clear_when_the_drag_ends() {
     drag(&mut state, 30.0, image);
     zoom(&mut state, OP_DRAG_CHANGED, [30.0, -20.0, 0.0, 0.0], image);
     assert_eq!(
-        state[DRAG_TRANSLATION_SLOT..],
+        state[DRAG_TRANSLATION_SLOT..GEOMETRY_SLOT],
         [30.0, -20.0],
         "the last cumulative translation"
     );
     zoom(&mut state, OP_DRAG_ENDED, [0.0; 4], image);
-    assert_eq!(state[DRAG_TRANSLATION_SLOT..], [0.0, 0.0]);
+    assert_eq!(state[DRAG_TRANSLATION_SLOT..GEOMETRY_SLOT], [0.0, 0.0]);
 }

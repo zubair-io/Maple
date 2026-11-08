@@ -9,30 +9,25 @@ use raw_core::canvas::{
     ZoomStop, MAX_PIXEL_SCALE,
 };
 
+#[path = "canvas_zoom_abi.rs"]
+mod abi;
+#[path = "canvas_zoom_live.rs"]
+mod live;
+
+use abi::*;
+use live::{
+    adopt_image_size, rebase_pinch, rebased_for_geometry, recapture_live_gesture, LiveGesture,
+};
+
 /// Slots holding the shared model; the layout is `encode`'s.
 const MODEL_SLOTS: usize = 17;
-/// The live gesture's last cumulative input as Kotlin sent it: the pinch
-/// magnification (0 when no pinch is in progress) and the drag translation
-/// (zero once the drag ends). The model keeps only clamped results, which
-/// cannot recover these once a pinch or drag has run into a limit.
+/// The live gesture's cumulative input (`LiveGesture`).
 const PINCH_MAGNIFICATION_SLOT: usize = MODEL_SLOTS;
 const DRAG_TRANSLATION_SLOT: usize = MODEL_SLOTS + 1;
-/// Slots in the Kotlin state array.
-const STATE_LEN: usize = MODEL_SLOTS + 3;
-
-const OP_PINCH_CHANGED: u32 = 0;
-const OP_PINCH_ENDED: u32 = 1;
-const OP_DRAG_CHANGED: u32 = 2;
-const OP_DRAG_ENDED: u32 = 3;
-const OP_REBASE_DRAG: u32 = 4;
-const OP_DOUBLE_TAP: u32 = 5;
-const OP_ADVANCE_STOP: u32 = 6;
-const OP_RECLAMP: u32 = 7;
-const OP_ADOPT_IMAGE: u32 = 8;
-
-const QUERY_EFFECTIVE_SCALE: u32 = 0;
-const QUERY_FIT_SCALE: u32 = 1;
-const QUERY_NEXT_STOP: u32 = 2;
+/// The previous call's geometry, so a change can re-capture a live gesture;
+/// all zero until the first call that carries one.
+const GEOMETRY_SLOT: usize = MODEL_SLOTS + 3;
+const _: () = assert!(GEOMETRY_SLOT + 4 == STATE_LEN);
 
 /// Returned by a transition that was rejected (null state, unknown op, or a
 /// caught panic).
@@ -55,6 +50,23 @@ impl Geometry {
 
     fn context(self) -> CanvasZoomContext {
         CanvasZoomContext::new(self.viewport, self.image, 1.0)
+    }
+
+    fn read(state: &[f64; STATE_LEN]) -> Option<Self> {
+        let stored = Self::new(
+            state[GEOMETRY_SLOT],
+            state[GEOMETRY_SLOT + 1],
+            state[GEOMETRY_SLOT + 2],
+            state[GEOMETRY_SLOT + 3],
+        );
+        (stored != Self::new(0.0, 0.0, 0.0, 0.0)).then_some(stored)
+    }
+
+    fn write(self, state: &mut [f64; STATE_LEN]) {
+        state[GEOMETRY_SLOT] = self.viewport.width;
+        state[GEOMETRY_SLOT + 1] = self.viewport.height;
+        state[GEOMETRY_SLOT + 2] = self.image.width;
+        state[GEOMETRY_SLOT + 3] = self.image.height;
     }
 }
 
@@ -104,152 +116,6 @@ fn decode<const N: usize>(state: &[f64; N]) -> CanvasZoomModel {
     }
 }
 
-/// The live gesture's last cumulative input (see `PINCH_MAGNIFICATION_SLOT`).
-#[derive(Clone, Copy, Debug, PartialEq)]
-struct LiveGesture {
-    pinch_magnification: f64,
-    drag_translation: Size,
-}
-
-impl LiveGesture {
-    fn read(state: &[f64; STATE_LEN]) -> Self {
-        Self {
-            pinch_magnification: state[PINCH_MAGNIFICATION_SLOT],
-            drag_translation: Size::new(
-                state[DRAG_TRANSLATION_SLOT],
-                state[DRAG_TRANSLATION_SLOT + 1],
-            ),
-        }
-    }
-
-    fn write(self, state: &mut [f64; STATE_LEN]) {
-        state[PINCH_MAGNIFICATION_SLOT] = self.pinch_magnification;
-        state[DRAG_TRANSLATION_SLOT] = self.drag_translation.width;
-        state[DRAG_TRANSLATION_SLOT + 1] = self.drag_translation.height;
-    }
-
-    /// The input to keep after `op` (first arguments `a`, `b`) produced
-    /// `next`: the latest values Kotlin sent while each gesture is live. At
-    /// fit nothing pans, so the translation is not kept and fit stays the
-    /// all-zero state.
-    fn after(self, op: u32, a: f64, b: f64, next: &CanvasZoomModel) -> Self {
-        let pinch_magnification = match (next.pinch_start_scale, op) {
-            (None, _) => 0.0,
-            (Some(_), OP_PINCH_CHANGED) if a.is_finite() => a,
-            (Some(_), _) => self.pinch_magnification,
-        };
-        let translation = Size::new(a, b);
-        let drag_translation = match op {
-            _ if !next.is_zoomed_in() => Size::ZERO,
-            OP_DRAG_ENDED => Size::ZERO,
-            OP_DRAG_CHANGED | OP_REBASE_DRAG if translation.is_finite() => translation,
-            _ => self.drag_translation,
-        };
-        Self {
-            pinch_magnification,
-            drag_translation,
-        }
-    }
-}
-
-/// Carries the zoom across the image extent changing under it (a placeholder
-/// size replaced by the original's): a free scale keeps its on-screen size,
-/// a named stop keeps its meaning (100% stays 1:1, fill re-resolves), and the
-/// image point under `anchor` (viewport pixels) stays as close as the pan
-/// clamp allows.
-fn adopt_image_size(
-    model: CanvasZoomModel,
-    anchor: Point,
-    previous: &CanvasZoomContext,
-    next: &CanvasZoomContext,
-) -> CanvasZoomModel {
-    if !model.is_zoomed_in() {
-        return model;
-    }
-    let start_scale = previous.effective_scale(model.pixel_scale);
-    let scale = match model.current_stop() {
-        Some(ZoomStop::Fill) => next.fill_scale(),
-        Some(ZoomStop::Fit | ZoomStop::ActualSize) => model.pixel_scale,
-        None => (start_scale * next.fit_scale() / previous.fit_scale()).min(MAX_PIXEL_SCALE),
-    };
-    let pan = anchored_pan(
-        anchor,
-        next.viewport_points(),
-        model.pan_offset,
-        start_scale * previous.native_image_size().width,
-        next.effective_scale(scale) * next.native_image_size().width,
-    );
-    CanvasZoomModel {
-        pixel_scale: scale,
-        pan_offset: pan,
-        base_pan: pan,
-        ..model
-    }
-    .reclamp_pan(next)
-}
-
-/// Re-anchors a live gesture's captures on a zoom that changed under it
-/// (adoption or a viewport change), so the gesture's next frame with the same
-/// cumulative input reproduces that zoom and then continues from it. A drag's
-/// committed pan absorbs the translation so far; a pinch restarts at its last
-/// centroid with its magnification so far, as if it had begun on the new zoom.
-fn recapture_live_gesture(
-    model: CanvasZoomModel,
-    live: LiveGesture,
-    context: &CanvasZoomContext,
-) -> CanvasZoomModel {
-    let drag_base = model.drag_translation_base.unwrap_or(Size::ZERO);
-    let dragged = Size::new(
-        live.drag_translation.width - drag_base.width,
-        live.drag_translation.height - drag_base.height,
-    );
-    let rebased = if model.is_zoomed_in() {
-        CanvasZoomModel {
-            base_pan: Size::new(
-                model.pan_offset.width - dragged.width,
-                model.pan_offset.height - dragged.height,
-            ),
-            ..model
-        }
-    } else {
-        model
-    };
-    let magnification = live.pinch_magnification;
-    if rebased.pinch_start_scale.is_none() || !magnification.is_finite() || magnification <= 0.0 {
-        return rebased;
-    }
-    let centroid = rebased.pinch_last_centroid;
-    let viewport = context.viewport_points();
-    let offset = Size::new(
-        centroid.x - viewport.width / 2.0,
-        centroid.y - viewport.height / 2.0,
-    );
-    CanvasZoomModel {
-        pinch_start_scale: Some(context.effective_scale(rebased.pixel_scale) / magnification),
-        pinch_start_centroid: centroid,
-        pinch_start_pan: Size::new(
-            offset.width - (offset.width - rebased.pan_offset.width) / magnification,
-            offset.height - (offset.height - rebased.pan_offset.height) / magnification,
-        ),
-        ..rebased
-    }
-}
-
-/// `next` with any live gesture re-anchored on it when `next` changed the
-/// zoom out from under the gesture (see `recapture_live_gesture`).
-fn keeping_live_gesture(
-    model: CanvasZoomModel,
-    next: CanvasZoomModel,
-    live: LiveGesture,
-    context: &CanvasZoomContext,
-) -> CanvasZoomModel {
-    if next == model {
-        next
-    } else {
-        recapture_live_gesture(next, live, context)
-    }
-}
-
 /// One transition; returns the next model and the op's boolean result
 /// (drag consumed / pan committed; `true` for ops without one), or `None` for
 /// an unknown op.
@@ -268,13 +134,14 @@ fn apply(
         OP_DRAG_CHANGED => return Some(model.drag_changed(Size::new(a, b), &context)),
         OP_DRAG_ENDED => return Some(model.drag_ended()),
         OP_REBASE_DRAG => model.rebase_drag_baseline(Size::new(a, b)),
+        OP_REBASE_PINCH => rebase_pinch(model, Point::new(a, b), live, &context),
         OP_DOUBLE_TAP => model.double_tap(
             Point::new(a, b),
             DoubleTapBehavior::ToggleFitAnd100,
             &context,
         ),
         OP_ADVANCE_STOP => model.advance_stop(&context),
-        OP_RECLAMP => keeping_live_gesture(model, model.reclamp_pan(&context), live, &context),
+        OP_RECLAMP => recapture_live_gesture(model.reclamp_pan(&context), live, &context),
         OP_ADOPT_IMAGE => {
             let previous = Geometry {
                 image: Size::new(a, b),
@@ -289,11 +156,11 @@ fn apply(
 }
 
 fn stop_code(stop: ZoomStop) -> f64 {
-    match stop {
-        ZoomStop::Fit => 0.0,
-        ZoomStop::Fill => 1.0,
-        ZoomStop::ActualSize => 2.0,
-    }
+    f64::from(match stop {
+        ZoomStop::Fit => STOP_FIT,
+        ZoomStop::Fill => STOP_FILL,
+        ZoomStop::ActualSize => STOP_ACTUAL_SIZE,
+    })
 }
 
 fn query(model: CanvasZoomModel, which: u32, geometry: Geometry) -> f64 {
@@ -345,16 +212,18 @@ pub unsafe extern "C" fn maple_android_canvas_zoom(
     let geometry = Geometry::new(viewport_width, viewport_height, image_width, image_height);
     crate::guarded(REJECTED, || {
         let live = LiveGesture::read(slots);
-        Ok(
-            match apply(decode(slots), op, [a, b, c, d], live, geometry) {
-                Some((next, result)) => {
-                    slots[..MODEL_SLOTS].copy_from_slice(&encode(&next));
-                    live.after(op, a, b, &next).write(slots);
-                    i32::from(result)
+        let model = rebased_for_geometry(decode(slots), op, live, Geometry::read(slots), geometry);
+        Ok(match apply(model, op, [a, b, c, d], live, geometry) {
+            Some((next, result)) => {
+                slots[..MODEL_SLOTS].copy_from_slice(&encode(&next));
+                live.after(op, a, b, &next).write(slots);
+                if op != OP_DRAG_ENDED {
+                    geometry.write(slots);
                 }
-                None => REJECTED,
-            },
-        )
+                i32::from(result)
+            }
+            None => REJECTED,
+        })
     })
 }
 
@@ -389,3 +258,7 @@ mod tests;
 #[cfg(test)]
 #[path = "canvas_zoom_live_tests.rs"]
 mod live_tests;
+
+#[cfg(test)]
+#[path = "canvas_zoom_rebase_tests.rs"]
+mod rebase_tests;
