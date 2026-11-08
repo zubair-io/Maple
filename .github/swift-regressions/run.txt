@@ -22,6 +22,7 @@ RawRenderSourceCancellationTests
 EditSessionNativeSizeSeedTests
 EditSessionPreviewCeilingTests
 CanvasMathTests
+GpuCanvasPlaceholderTests
 GpuPrescaledExtentTests
 GpuReadbackFreshnessTests
 GpuExitPreviewCacheTests

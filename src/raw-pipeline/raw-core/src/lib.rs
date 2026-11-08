@@ -137,6 +137,8 @@ pub mod stage_dump;
 pub mod batch_transfer;
 /// Canvas zoom model and view/image mapping shared by every platform shell (#5714).
 pub mod canvas;
+/// The still the canvas draws until the first render (#5758); outside `canvas` because it needs the colour and view modules.
+pub mod canvas_placeholder;
 /// Vectorscope statistics (#3272): the CPU producer/parity oracle for the GPU
 /// scope pass — see `raw-gpu/src/scope.rs` and `scope_vectorscope.wgsl`.
 pub mod scope;

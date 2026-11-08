@@ -260,6 +260,9 @@ pub use present_android::AndroidPresentSurface;
 // gated inside). Absent on wasm.
 #[cfg(not(target_arch = "wasm32"))]
 mod present_chain;
+// The canvas placeholder still (#5758), presented through the chain present.
+#[cfg(not(target_arch = "wasm32"))]
+mod present_placeholder;
 // Windows chain-output present (#2561): the live chain's final f32 buffer → a
 // DXGI composition swapchain bound to a WinUI 3 `SwapChainPanel`, via wgpu's
 // `SurfaceTargetUnsafe::SwapChainPanel`. Shares `present_chain.wgsl` +
@@ -385,9 +388,13 @@ pub use overlay::{OverlayParams, OverlayPrimitive, OVERLAY_CAPACITY};
 #[cfg(not(target_arch = "wasm32"))]
 pub use present_chain::present_chain_to_offscreen;
 #[cfg(target_vendor = "apple")]
-pub use present_chain::{present_chain_to_surface, PersistentPresentSurface};
+pub use present_chain::{
+    present_chain_to_surface, present_placeholder_to_surface, PersistentPresentSurface,
+};
 /// Manual geometry for the present shader (#3410) — see [`PresentGeometry`].
 pub use present_chain_pipeline::PresentGeometry;
+#[cfg(not(target_arch = "wasm32"))]
+pub use present_placeholder::{present_placeholder_to_offscreen, PlaceholderSource};
 // Windows chain-output present (#2561): the SwapChainPanel twin of the Apple
 // surface entry above.
 #[cfg(all(target_os = "windows", not(target_arch = "wasm32")))]
