@@ -62,8 +62,9 @@ pub unsafe extern "C" fn maple_canvas_crop_overlay_rasterize(
         return -1;
     }
     let bytes = std::slice::from_raw_parts_mut(out, out_len);
-    catch_panic_rc("maple_canvas_crop_overlay_rasterize", || {
-        match rasterize_overlay(&overlay_from_input(input), width, height, stride, bytes) {
+    catch_panic_rc(
+        "maple_canvas_crop_overlay_rasterize",
+        || match rasterize_overlay(&overlay_from_input(input), width, height, stride, bytes) {
             Ok(()) => 0,
             Err(RasterizeError::StrideTooSmall) => {
                 set_last_error(format!(
@@ -77,8 +78,8 @@ pub unsafe extern "C" fn maple_canvas_crop_overlay_rasterize(
                 ));
                 -3
             }
-        }
-    })
+        },
+    )
 }
 
 /// The centre, in viewport points, of the corner or edge handle `handle`

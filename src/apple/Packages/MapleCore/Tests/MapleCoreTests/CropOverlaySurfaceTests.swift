@@ -36,12 +36,16 @@ final class CropOverlaySurfaceTests: XCTestCase {
     var empty = input()
     empty.viewport = .zero
     XCTAssertTrue(empty.pixelSize == (0, 0))
-    XCTAssertNil(CropOverlaySurface.rasterize(empty))
+    XCTAssertNil(CropOverlayRasterPool().rasterize(empty))
+    var huge = input()
+    huge.viewport = CGSize(width: 9000, height: 100)
+    XCTAssertTrue(huge.pixelSize == (0, 200))
   }
 
   func testRasterizeDrawsMaskFrameAndDots() throws {
-    let image = try XCTUnwrap(CropOverlaySurface.rasterize(input()))
+    let image = try XCTUnwrap(CropOverlayRasterPool().rasterize(input()))
     XCTAssertEqual(image.width, 600)
+    XCTAssertEqual(image.bytesPerRow % 64, 0)
     XCTAssertEqual(image.height, 400)
     let bytes = try XCTUnwrap(image.dataProvider?.data as Data?)
     let pixel = { (x: Int, y: Int) -> [UInt8] in
@@ -57,9 +61,27 @@ final class CropOverlaySurfaceTests: XCTestCase {
   }
 
   func testActiveHandleChangesTheRaster() throws {
-    let idle = try XCTUnwrap(CropOverlaySurface.rasterize(input()))
-    let dragged = try XCTUnwrap(CropOverlaySurface.rasterize(input(active: .t)))
+    let pool = CropOverlayRasterPool()
+    let idle = try XCTUnwrap(pool.rasterize(input()))
+    let dragged = try XCTUnwrap(pool.rasterize(input(active: .t)))
     XCTAssertNotEqual(idle.dataProvider?.data as Data?, dragged.dataProvider?.data as Data?)
+  }
+
+  func testReleasedImagesReturnTheirBufferToThePool() {
+    let pool = CropOverlayRasterPool()
+    autoreleasepool {
+      let shown = (pool.rasterize(input()), pool.rasterize(input()))
+      withExtendedLifetime(shown) {
+        XCTAssertNotNil(shown.0)
+        XCTAssertNotNil(shown.1)
+        XCTAssertEqual(pool.pooledCount, 0, "a buffer under a live image is never reused")
+      }
+    }
+    XCTAssertEqual(pool.pooledCount, 2)
+    autoreleasepool { _ = pool.rasterize(input()) }
+    XCTAssertEqual(pool.pooledCount, 2, "a stable size reuses a pooled buffer")
+    autoreleasepool { _ = pool.rasterize(input(scale: 1)) }
+    XCTAssertEqual(pool.pooledCount, 1, "a new size drops buffers of the old one")
   }
 
   func testGenerationsAreUnique() {
