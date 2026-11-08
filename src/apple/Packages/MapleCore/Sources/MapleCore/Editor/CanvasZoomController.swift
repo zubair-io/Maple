@@ -71,8 +71,15 @@ public final class CanvasZoomController {
   /// before any other transition so it continues from the frame on screen.
   @ObservationIgnored private var trackedPinch: (magnification: CGFloat, location: CGPoint)?
 
-  public init(session: EditSession) {
+  /// Whether zoom and viewport changes reach the session (its viewport
+  /// size, pixel scale and visible region), and so start and steer its
+  /// render. Preview holds them back until the photo is zoomed past its
+  /// still's resolution, so opening and paging never decode (#5762).
+  public internal(set) var rendersSession: Bool
+
+  public init(session: EditSession, rendersSession: Bool = true) {
     self.session = session
+    self.rendersSession = rendersSession
   }
 
   // MARK: - Derived geometry
@@ -164,7 +171,7 @@ public final class CanvasZoomController {
     self.displayScale = displayScale
     self.viewportInsets = insets
     carryIntoCurrentGeometry()
-    session.previewSize = context.viewportPx
+    pushViewportToSession()
     commitToSession()
   }
 
@@ -221,7 +228,7 @@ public final class CanvasZoomController {
     if resolvesProvisional { provisionalImageSize = nil }
     guard viewportPoints != .zero else { return 1 }
     carryIntoCurrentGeometry(resolvingProvisional: resolvesProvisional)
-    session.previewSize = context.viewportPx
+    pushViewportToSession()
     commitToSession()
     guard resolvesProvisional, let old = previous?.nativeImageSize.width, old > 0 else {
       return 1
@@ -242,7 +249,7 @@ public final class CanvasZoomController {
     model.resetToFit(context: context)
     carriedContext = context
     guard viewportPoints != .zero else { return }
-    session.previewSize = context.viewportPx
+    pushViewportToSession()
     commitToSession()
   }
 
@@ -528,14 +535,14 @@ public final class CanvasZoomController {
   /// model already holds the user's intent, so the skipped commit
   /// flushes naturally on the next `viewportChanged` — which always
   /// commits.
-  private func commitToSession() {
+  func commitToSession() {
     // Any commit supersedes a pending debounced wheel-pan commit — both
     // would push the same current model state, so letting the debounce
     // fire later would only re-trigger `updateTileVisibleRegion` for
     // nothing (PR #2047 review).
     wheelPanCommitTask?.cancel()
     wheelPanCommitTask = nil
-    guard viewportPoints.width > 0, viewportPoints.height > 0 else { return }
+    guard rendersSession, viewportPoints.width > 0, viewportPoints.height > 0 else { return }
     // Same rule for the image extent: before the metadata seed lands,
     // `CanvasMath` resolves fit to 1, so a commit here would write a
     // literal 100% into `session.pixelScale` — sizing the seed thumbnail

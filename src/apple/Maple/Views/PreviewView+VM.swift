@@ -160,23 +160,6 @@ enum PreviewViewVM {
 
   // MARK: - Pull-down dismissal (iPhone)
 
-  /// Travel before a touch is classified as a pull or a page swipe. Long
-  /// enough to read a direction from a real finger (whose first points
-  /// wobble sideways), short enough that paging never feels delayed.
-  static let pullDecisionDistance: CGFloat = 14
-  /// A pull only has to be at least as vertical as it is horizontal —
-  /// Photos' rule; anything stricter drops real pulls.
-  static let pullVerticalDominance: CGFloat = 1
-
-  /// Whether a pan that has just been recognised is a pull-down rather
-  /// than a page swipe or an upward flick (let the pager have it). Decided
-  /// once, after `pullDecisionDistance` of travel, and locked for the rest
-  /// of the touch — a vertical pull never becomes a page turn halfway
-  /// through.
-  static func shouldBeginDismissDrag(translation: CGSize) -> Bool {
-    translation.height > 0 && translation.height >= abs(translation.width) * pullVerticalDominance
-  }
-
   // MARK: - Hero (iPhone open / close between the tile and fullscreen)
 
   /// Where the still is drawn at a point of the hero: a straight blend
@@ -202,13 +185,6 @@ enum PreviewViewVM {
     return CGRect(
       x: bounds.midX - size.width / 2, y: bounds.midY - size.height / 2, width: size.width,
       height: size.height)
-  }
-
-  /// Zoom factor, relative to fit, at which a photo fitted to `fitted`
-  /// covers the whole `page` (#5710). 1 when either size is degenerate.
-  static func fillZoomScale(fitted: CGSize, page: CGSize) -> CGFloat {
-    guard fitted.width > 0, fitted.height > 0, page.width > 0, page.height > 0 else { return 1 }
-    return max(page.width / fitted.width, page.height / fitted.height)
   }
 
   /// Tile corner radius fading to square as the hero opens.

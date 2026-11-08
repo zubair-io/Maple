@@ -241,7 +241,7 @@ extension EditorCanvasView {
 /// `sourceRect` is top-left-oriented source geometry, matching the zoom
 /// controller; SwiftUI's geometry is top-left-oriented too, so placement is a
 /// direct normalized mapping. The parent host clips this leaf to the viewport.
-private struct NativeDetailOverlay: View {
+struct NativeDetailOverlay: View {
   let image: CIImage
   let sourceRect: CGRect
   let sourceSize: CGSize
