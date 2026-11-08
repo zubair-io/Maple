@@ -2,7 +2,8 @@
 //! 100% zoom model with its gesture transitions, the mapping between the
 //! viewport and the oriented image (fit scale, on-screen frame, render
 //! targets, visible source rect), deep-zoom tile selection, the two-phase
-//! render scheduling rules, and the interactive crop geometry.
+//! render scheduling rules, the interactive crop geometry, and the overlay
+//! primitives the shared overlay surface draws (#5715).
 //!
 //! Every type is a `Copy` value with no allocation, and every function is a
 //! total function of its inputs: non-finite or negative sizes, a zero
@@ -15,6 +16,7 @@ mod crop;
 mod geometry;
 mod mapping;
 mod native_detail;
+mod overlay;
 mod render_schedule;
 mod zoom;
 mod zoom_context;
@@ -37,6 +39,13 @@ pub use native_detail::{
     VisibleRegionUpdate, NATIVE_DETAIL_FILTER_HALO, NATIVE_DETAIL_MIN_PIXEL_SCALE,
     NATIVE_DETAIL_PAN_MARGIN_CEILING, NATIVE_DETAIL_PAN_MARGIN_FRACTION,
     NATIVE_DETAIL_ZOOM_CHANGE_EPSILON,
+};
+pub use overlay::{
+    crop_handle_centers, crop_overlay, overlay_pixel, rasterize_overlay, unorm8, CanvasOverlay,
+    CropOverlayInput, OverlayPrimitive, RasterizeError, CROP_ACTIVE_FRAME_WIDTH,
+    CROP_CORNER_DOT_DIAMETER, CROP_FRAME_ALPHA, CROP_FRAME_WIDTH, CROP_GRID_ALPHA, CROP_GRID_WIDTH,
+    CROP_MASK_ALPHA, OVERLAY_CAPACITY, OVERLAY_KIND_DISC, OVERLAY_KIND_FILL,
+    OVERLAY_KIND_FILL_OUTSIDE, OVERLAY_KIND_NONE,
 };
 pub use render_schedule::{
     refine_matches_fast_target, refine_tries_native_detail, RefineContext, RenderSchedule,
