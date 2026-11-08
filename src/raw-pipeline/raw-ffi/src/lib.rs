@@ -56,6 +56,7 @@ mod cancel;
 mod canvas_crop;
 mod canvas_math;
 mod canvas_native_detail;
+mod canvas_overlay;
 mod canvas_render_schedule;
 mod canvas_zoom;
 mod canvas_zoom_continuity;

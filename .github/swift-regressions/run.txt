@@ -126,6 +126,7 @@ ColorWheelGeometryTests
 ComposedSourceTests
 CreateXMPPreconditionTests
 CropGeometryTests
+CropOverlaySurfaceTests
 DeepLinkParserSearchTests
 DeepLinkParserTests
 DeepLinkSearchParamsTests

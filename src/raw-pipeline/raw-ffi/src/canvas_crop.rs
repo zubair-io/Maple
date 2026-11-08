@@ -79,7 +79,7 @@ fn handle_code(handle: Option<CropHandle>) -> u32 {
     }
 }
 
-fn handle_from_code(code: u32) -> Option<CropHandle> {
+pub(crate) fn handle_from_code(code: u32) -> Option<CropHandle> {
     match code {
         MAPLE_CANVAS_CROP_HANDLE_TOP_LEFT => Some(CropHandle::TopLeft),
         MAPLE_CANVAS_CROP_HANDLE_TOP_RIGHT => Some(CropHandle::TopRight),
