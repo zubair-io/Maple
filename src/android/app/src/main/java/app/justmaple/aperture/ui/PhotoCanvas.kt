@@ -97,6 +97,7 @@ internal fun PhotoCanvas(
     val imageDims = adoptedSize?.let { it.width to it.height } ?: fallbackDims
     val nativeReady = adoptedSize != null && adoptedSize == state.nativeImageSize
     val currentImageDims by rememberUpdatedState(imageDims)
+    val currentFallbackDims by rememberUpdatedState(fallbackDims)
     val currentMode by rememberUpdatedState(state.mode)
 
     BoxWithConstraints(
@@ -106,7 +107,9 @@ internal fun PhotoCanvas(
                 if (showCropOverlay) return@pointerInput
                 detectCanvasZoomPanAndSwipe(
                     zoomState = zoomState,
-                    imageDimensions = { currentImageDims },
+                    // Read live: a gesture frame between adoption and the next recomposition
+                    // must already carry the adopted size, or the zoom rebases onto the old one.
+                    imageDimensions = { adoptedSize?.let { it.width to it.height } ?: currentFallbackDims },
                     allowSwipePaging = currentMode == PhotoMode.Preview,
                     onSwipePage = { delta -> model.openAdjacent(delta) },
                 )
@@ -115,8 +118,9 @@ internal fun PhotoCanvas(
         contentAlignment = Alignment.Center,
     ) {
         val density = LocalDensity.current.density
-        val viewportPxW = (maxWidth.value * density).coerceAtLeast(1f)
-        val viewportPxH = (maxHeight.value * density).coerceAtLeast(1f)
+        // Whole pixels, the same viewport the gesture loop reads from its node size.
+        val viewportPxW = constraints.maxWidth.toFloat().coerceAtLeast(1f)
+        val viewportPxH = constraints.maxHeight.toFloat().coerceAtLeast(1f)
         LaunchedEffect(state.nativeImageSize, state.selected?.key) {
             val size = state.nativeImageSize ?: return@LaunchedEffect
             if (adoptedSize == null) zoomState.adoptNativeDimensions(fallbackDims.first, fallbackDims.second,

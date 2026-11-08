@@ -187,14 +187,14 @@ fn write_white_balance_presets(kotlin: &Path) -> std::io::Result<()> {
 
 /// The canvas zoom binding's shared numbers, read from their one Rust
 /// definition so Kotlin and the JNI bridge cannot drift from it.
-fn canvas_zoom_abi() -> Vec<(String, u64)> {
+fn canvas_zoom_abi() -> Vec<(String, i32)> {
     let source = include_str!("../../../android/native/src/canvas_zoom_abi.rs");
     let file = syn::parse_file(source).expect("canvas zoom ABI source");
     file.items
         .iter()
-        .filter_map(|item| match item {
-            syn::Item::Const(constant) => Some(constant),
-            _ => None,
+        .map(|item| match item {
+            syn::Item::Const(constant) => constant,
+            _ => panic!("canvas_zoom_abi.rs holds only integer constants"),
         })
         .map(|constant| {
             let syn::Expr::Lit(syn::ExprLit {
@@ -204,7 +204,9 @@ fn canvas_zoom_abi() -> Vec<(String, u64)> {
             else {
                 panic!("{} must be an integer literal", constant.ident);
             };
-            let value = value.base10_parse().expect("canvas zoom ABI value");
+            let value = value
+                .base10_parse()
+                .unwrap_or_else(|_| panic!("{} must fit a JNI int", constant.ident));
             (constant.ident.to_string(), value)
         })
         .collect()

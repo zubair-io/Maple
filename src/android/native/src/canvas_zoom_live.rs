@@ -60,9 +60,11 @@ impl LiveGesture {
 }
 
 /// Re-anchors the live gesture on `model` under `context`, so the gesture's
-/// next frame with the same cumulative input reproduces `model`. A drag's
+/// next frame with the same cumulative input reproduces the result. A drag's
 /// committed pan absorbs its translation so far; a pinch restarts at its last
-/// centroid with its magnification so far, as if it had begun on `model`.
+/// centroid with its magnification so far, as if it had begun on `model`,
+/// after first settling on the floor, cap, fit or fill band its next frame
+/// would apply under `context`.
 pub(super) fn recapture_live_gesture(
     model: CanvasZoomModel,
     live: LiveGesture,
@@ -88,20 +90,32 @@ pub(super) fn recapture_live_gesture(
     if rebased.pinch_start_scale.is_none() || !magnification.is_finite() || magnification <= 0.0 {
         return rebased;
     }
-    let centroid = rebased.pinch_last_centroid;
+    let captured = recapture_pinch(rebased, magnification, context);
+    let settled = captured.pinch_changed(magnification, captured.pinch_last_centroid, context);
+    recapture_pinch(settled, magnification, context)
+}
+
+/// The pinch start that makes `magnification` about the last centroid land
+/// exactly on `model`.
+fn recapture_pinch(
+    model: CanvasZoomModel,
+    magnification: f64,
+    context: &CanvasZoomContext,
+) -> CanvasZoomModel {
+    let centroid = model.pinch_last_centroid;
     let viewport = context.viewport_points();
     let offset = Size::new(
         centroid.x - viewport.width / 2.0,
         centroid.y - viewport.height / 2.0,
     );
     CanvasZoomModel {
-        pinch_start_scale: Some(context.effective_scale(rebased.pixel_scale) / magnification),
+        pinch_start_scale: Some(context.effective_scale(model.pixel_scale) / magnification),
         pinch_start_centroid: centroid,
         pinch_start_pan: Size::new(
-            offset.width - (offset.width - rebased.pan_offset.width) / magnification,
-            offset.height - (offset.height - rebased.pan_offset.height) / magnification,
+            offset.width - (offset.width - model.pan_offset.width) / magnification,
+            offset.height - (offset.height - model.pan_offset.height) / magnification,
         ),
-        ..rebased
+        ..model
     }
 }
 

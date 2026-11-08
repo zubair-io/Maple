@@ -174,6 +174,52 @@ class CanvasZoomGestureTest {
     }
 
     @Test
+    fun aResetMidPinchHoldsFitUntilTheFingersMoveAgain() {
+        val zoom = CanvasZoomState()
+        compose.setContent {
+            Box(Modifier.size(300.dp).testTag("reset-box").pointerInput(Unit) {
+                detectCanvasZoomPanAndSwipe(zoom, { 4000 to 4000 }, false, {})
+            })
+        }
+        val box = compose.onNodeWithTag("reset-box")
+        var side = 0f
+        box.performTouchInput {
+            side = width.toFloat()
+            down(0, Offset(width * 0.3f, centerY))
+            advanceEventTime(16)
+            down(1, Offset(width * 0.7f, centerY))
+            advanceEventTime(16)
+            updatePointerTo(0, Offset(width * 0.2f, centerY))
+            updatePointerTo(1, Offset(width * 0.8f, centerY))
+            move()
+        }
+        compose.runOnIdle {
+            assertTrue(zoom.isZoomed)
+            zoom.reset()
+        }
+        box.performTouchInput {
+            advanceEventTime(16)
+            updatePointerTo(0, Offset(width * 0.2f, centerY + 1f))
+            updatePointerTo(1, Offset(width * 0.8f, centerY + 1f))
+            move()
+        }
+        compose.runOnIdle { assertFalse("the same fingers hold fit after the reset", zoom.isZoomed) }
+        box.performTouchInput {
+            advanceEventTime(16)
+            updatePointerTo(0, Offset(width * 0.1f, centerY + 1f))
+            updatePointerTo(1, Offset(width * 0.9f, centerY + 1f))
+            move()
+            up(0)
+            up(1)
+        }
+        compose.runOnIdle {
+            val fit = zoom.fitScale(4000, 4000, side, side)
+            assertEquals("spreading 0.6w → 0.8w zooms 4/3 from fit", fit * 4f / 3f,
+                zoom.effectiveScale(4000, 4000, side, side), fit * 0.01f)
+        }
+    }
+
+    @Test
     fun doubleTapSelects100PercentEvenWhenFitAlreadyEnlargesTheImage() {
         val zoom = CanvasZoomState()
         zoom.doubleTap(600f, 450f, 1000, 750, 1200f, 900f)
