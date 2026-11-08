@@ -96,6 +96,7 @@ final class CanvasZoomControllerTests: XCTestCase {
 
   func testPinchFramesDoNotRetargetSessionUntilEnd() {
     let controller = makeController()
+    controller.pinchChanged(magnification: 1, location: CGPoint(x: 500, y: 400))
     controller.pinchChanged(magnification: 4.0, location: CGPoint(x: 500, y: 400))
     XCTAssertEqual(
       controller.model.pixelScale, 1.0, accuracy: 1e-9,
@@ -111,6 +112,7 @@ final class CanvasZoomControllerTests: XCTestCase {
   func testPinchEndPushesVisibleSourceRect() {
     let controller = makeController()
     // Center-anchored pinch fit → 100%.
+    controller.pinchChanged(magnification: 1, location: CGPoint(x: 500, y: 400))
     controller.pinchChanged(magnification: 4.0, location: CGPoint(x: 500, y: 400))
     controller.pinchEnded(magnification: 4.0)
     // 100%: 2000×1600 viewport px over an 8000×6000 image, centered.

@@ -24,6 +24,13 @@ public struct CanvasShownFrame: Equatable, Sendable {
   }
 }
 
+/// A deliberate zoom the host animates: the frame shown before it, and a
+/// serial so two commands from the same frame are still two moves.
+public struct CanvasCommandedMove: Equatable, Sendable {
+  public let from: CanvasShownFrame
+  public let serial: Int
+}
+
 public struct CanvasSettleAnimation: Equatable, Sendable {
   /// Time to settle; the spring is within half a point of rest by then.
   public static let duration: TimeInterval = 0.35
