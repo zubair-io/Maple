@@ -140,9 +140,9 @@ public final class EditorState {
   /// Crop (#638): arming `.crop` puts the session into crop-editing mode
   /// (`session.cropEditingActive`) so the canvas renders UNCROPPED under
   /// the overlay, resets the aspect lock to Free (so a ratio chosen on one
-  /// image doesn't carry into the next crop session), and snaps the canvas
-  /// to fit + zero pan (the overlay footprint maps 1:1 onto the painted
-  /// image only at fit). Arming any other tool clears crop-editing mode, so
+  /// image doesn't carry into the next crop session), and holds the canvas
+  /// at fit + zero pan while armed (the overlay footprint maps 1:1 onto the
+  /// painted image only at fit). Arming any other tool clears crop-editing mode, so
   /// the next render publishes the cropped+straightened result.
   public func arm(tool: Tool) {
     whiteBalancePicker.cancel()
@@ -163,10 +163,11 @@ public final class EditorState {
     // full frame before we fit — entering crop fits the whole frame, not
     // the cropped extent.
     session.cropEditingActive = nowCropEditing
+    // The crop overlay is drawn at the fit footprint, so zoom stays at fit
+    // + zero pan for the whole crop session, not only on entry (#5743).
+    zoom.lockZoomAtFit(nowCropEditing)
     if nowCropEditing && !wasCropEditing {
-      // Entering crop — reset the aspect lock and force fit + zero pan.
       cropAspectId = .free
-      zoom.resetToFit()
     } else if tool == .mask && !wasMaskArmed {
       // Entering Mask fits too (#3354). `MaskOverlay` positions the
       // raster with `CropGeometry.fitFootprint` — fit zoom, zero pan,

@@ -71,8 +71,12 @@ struct CanvasZoomHost<CanvasLeaf: View, Fallback: View>: View {
   @Environment(\.displayScale) private var displayScale
   /// The move from the frame last shown to a settled zoom (a release below
   /// fit, a detent, a chrome change), drawn as a compositor transform over
-  /// the settled frame. `nil` at rest.
-  @State var settle: CanvasSettleAnimation?
+  /// the settled frame. `nil` at rest. Held by the controller so overlays
+  /// follow it in the same frame (#5744).
+  var settle: CanvasSettleAnimation? {
+    get { controller.presentation.settle }
+    nonmutating set { controller.showSettle(newValue) }
+  }
   /// Chrome insets that changed mid-pinch; applied on release so the photo
   /// never moves under still fingers.
   @State var pendingInsets: CanvasViewportInsets?
@@ -90,11 +94,9 @@ struct CanvasZoomHost<CanvasLeaf: View, Fallback: View>: View {
   #if os(iOS)
     // Live pinch renders as a compositor `.scaleEffect` about the viewport CENTRE — `pixelScale`
     // stays untouched until release, so the frame never grows mid-gesture and never re-decodes
-    // per frame (#1493). Focal-anchoring lives entirely in `gestureCommittedPan` (the would-be
-    // committed pan), so the live visual equals the committed geometry. At rest `gestureZoom ==
-    // 1`, so the modifier chain is inert.
-    @State var gestureZoom: CGFloat = 1
-    @State var gestureCommittedPan: CGSize = .zero
+    // per frame (#1493). Focal-anchoring lives entirely in the live pinch's pan (the would-be
+    // committed pan), so the live visual equals the committed geometry. The controller holds
+    // that frame (`presentation.livePinch`) so overlays draw it too (#5744).
     @State var pinchActive = false
     @State var pinchLastCentroid: CGPoint = .zero
     // Magnification of the LAST rendered frame — the commit uses this (not the gesture-end
@@ -115,35 +117,28 @@ struct CanvasZoomHost<CanvasLeaf: View, Fallback: View>: View {
     // movement into the baseline so a deliberate continued pan resumes smoothly). Self-clearing.
     @State private var lastPinchEnd: Date?
   #endif
-  /// Shared with editing overlays; an in-flight iOS pinch uses its committed baseline.
-  private var effectivePanOffset: CGSize {
-    #if os(iOS)
-      if pinchActive { return gestureCommittedPan }
-    #endif
-    return controller.panOffset
-  }
-
   var body: some View {
     GeometryReader { geo in
       ZStack {
         if canvasReady, let frame = controller.displayFrameInPoints {
           // Live pinch (iOS): scale the frozen frame about its centre in the
-          // compositor (cheap, no re-decode); `effectivePanOffset` is the
-          // live pan (the focal anchor). A settle adds its own transform
-          // over the settled frame. Both are identity at rest.
+          // compositor (cheap, no re-decode), offset by the live pan (the
+          // focal anchor). A settle adds its own transform over the settled
+          // frame. Both are identity at rest; overlays read the same
+          // transform (`presentedGeometry(at:)`).
           canvasLeaf()
             .frame(width: frame.width, height: frame.height)
-            .modifier(
-              CanvasSettleTransform(
-                settle: settle, liveZoom: liveGestureZoom, pan: effectivePanOffset))
+            .modifier(CanvasSettleTransform(controller: controller))
           // #2288 — 0×0 marker carrying the photo's rect as text; see imageRectAccessibilityValue's doc.
+          let shown = controller.presentedGeometry(at: Date())
           Color.clear.frame(width: 0, height: 0)
             .accessibilityElement(children: .ignore)
             .accessibilityLabel("Editor canvas image rect")
             .accessibilityIdentifier("canvas-image-rect")
             .accessibilityValue(
               FullImageViewVM.imageRectAccessibilityValue(
-                containerSize: geo.size, imageSize: frame, panOffset: effectivePanOffset))
+                containerSize: geo.size, imageSize: shown?.displayFrame ?? frame,
+                panOffset: shown?.panOffset ?? controller.panOffset))
         } else {
           fallback()
         }
@@ -306,6 +301,7 @@ struct CanvasZoomHost<CanvasLeaf: View, Fallback: View>: View {
     /// `.scaleEffect` (no `pixelScale` write → no frame growth → no per-frame
     /// re-decode, which was the lag).
     private func pinchChangedLive(scale: CGFloat, location: CGPoint, touchCount: Int) {
+      guard !controller.isZoomLocked else { return }
       if !pinchActive {
         interruptSettle()
         pinchActive = true
@@ -326,8 +322,6 @@ struct CanvasZoomHost<CanvasLeaf: View, Fallback: View>: View {
       // frozen frame about its centre and offsetting by this pan reproduces the
       // committed geometry exactly — the live visual == the commit, no jump.
       let transform = controller.gestureTransform(magnification: scale, liveCentroid: location)
-      gestureZoom = transform.zoom
-      gestureCommittedPan = transform.committedPan
       // `effectivePixelScale` is frozen at the pre-pinch scale mid-gesture, and
       // `zoom` is relative to it, so their product is the live scale for the badge.
       liveZoomScale = controller.effectivePixelScale * transform.zoom
@@ -336,7 +330,7 @@ struct CanvasZoomHost<CanvasLeaf: View, Fallback: View>: View {
     /// Pinch release: commit the final scale + focal-anchored pan to the model
     /// (one re-render at the new size) and reset the compositor transform.
     /// Because the committed frame at the new scale is geometrically identical
-    /// to the old frame under `.scaleEffect(gestureZoom)`, clearing the
+    /// to the old frame under the live pinch's `.scaleEffect`, clearing the
     /// transform in the same update is pop-free — the canvas just sharpens as
     /// the re-render lands.
     private func pinchEndedLive(scale: CGFloat) {
@@ -348,8 +342,10 @@ struct CanvasZoomHost<CanvasLeaf: View, Fallback: View>: View {
       // gesture-end scale, which drifts as the fingers lift). The release may
       // settle elsewhere (back to fit from below it, a detent, the resting
       // pan range), so the settle animates from exactly this shown frame.
+      let live = controller.presentation.livePinch
       let shown = CanvasShownFrame(
-        scale: controller.effectivePixelScale * gestureZoom, pan: gestureCommittedPan)
+        scale: controller.effectivePixelScale * (live?.zoom ?? 1),
+        pan: live?.pan ?? controller.panOffset)
       settleRelease(from: shown) {
         controller.pinchChanged(magnification: pinchLastMag, location: pinchLastCentroid)
         controller.pinchEnded(magnification: pinchLastMag)
@@ -362,8 +358,6 @@ struct CanvasZoomHost<CanvasLeaf: View, Fallback: View>: View {
     /// set for the next pinch.
     private func resetPinchState() {
       pinchActive = false
-      gestureZoom = 1
-      gestureCommittedPan = .zero
       pinchLastMag = 1
       pinchTouchCount = 0
       liveZoomScale = nil
@@ -485,7 +479,7 @@ struct CanvasZoomHost<CanvasLeaf: View, Fallback: View>: View {
     return CanvasZoomBadge(
       // A stand-in extent's percentage would change when the real size lands.
       scale: controller.provisionalImageSize == nil ? scale : nil,
-      canvasReady: canvasReady,
+      canvasReady: canvasReady && !controller.isZoomLocked,
       nextStop: controller.nextZoomStop,
       onAdvance: { controller.advanceZoomStop() }
     )
