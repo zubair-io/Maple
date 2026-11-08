@@ -85,4 +85,31 @@ public sealed class CanvasTouchTrackerTests
         Assert.Equal(default(CanvasTouchUpdate), tracker.Release(9));
         Assert.Equal((5.0, 5.0), tracker.Move(1, 15, 15).DragTranslation!.Value);
     }
+
+    [Fact]
+    public void A_pinch_that_starts_after_a_drag_reports_the_drag_so_far_as_the_model_s_baseline()
+    {
+        var tracker = new CanvasTouchTracker();
+        tracker.Press(1, 100, 100);
+        tracker.Move(1, 150, 100);
+        var started = tracker.Press(2, 300, 100);
+        Assert.Equal((50.0, 0.0), started.DragTranslation!.Value);
+        Assert.Equal((1.0, 225.0, 100.0), started.Pinch!.Value);
+        tracker.Move(2, 400, 100);
+        tracker.Release(2);
+        Assert.Equal((51.0, 0.0), tracker.Move(1, 151, 100).DragTranslation!.Value);
+    }
+
+    [Fact]
+    public void Reset_forgets_a_pinch_in_progress()
+    {
+        var tracker = new CanvasTouchTracker();
+        tracker.Press(1, 0, 0);
+        tracker.Press(2, 100, 0);
+        tracker.Reset();
+        Assert.False(tracker.IsPinching);
+        Assert.Equal(0, tracker.Count);
+        Assert.Equal(default(CanvasTouchUpdate), tracker.Move(2, 300, 0));
+        Assert.Equal(default(CanvasTouchUpdate), tracker.Press(3, 5, 5));
+    }
 }

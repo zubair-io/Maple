@@ -28,6 +28,7 @@ public sealed partial class MainWindow
         try
         {
             // A free scale holds its pixel scale across resizes (#5714).
+            await _geometryWork;
             SyncCanvasZoom(refreshDetail: false);
             _canvasZoom.ResetToFit();
             for (var step = 0; step < 3; step++) _canvasZoom.StepIn();
@@ -65,6 +66,7 @@ public sealed partial class MainWindow
                     group != _activeGroup || EditPanel.Visibility != Visibility.Visible)
                     throw new InvalidOperationException("Native resize changed the selected document or active tool");
                 if (ViewModel.UndoCount != originalDepth + 1 || _canvasZoom.State.pixel_scale != zoomedScale ||
+                    ZoomPanTransform.ScaleX != _canvasZoom.View.ScaleToFit ||
                     editedState != Services.Xmp.XmpWriter.Serialize(
                         new Services.Xmp.XmpSidecarDocument { Adjustments = ViewModel.Adjustments }))
                     throw new InvalidOperationException("Native resize changed edits, undo history or zoom");

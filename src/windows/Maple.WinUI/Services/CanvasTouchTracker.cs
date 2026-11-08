@@ -33,6 +33,16 @@ namespace Maple.WinUI.Services
 
         public bool IsPinching => _pinching;
 
+        /// <summary>Forget every contact (navigation or a mode change
+        /// mid-gesture).</summary>
+        public void Reset()
+        {
+            _contacts.Clear();
+            _lastTranslation = (0, 0);
+            _lastMagnification = 1;
+            _pinching = false;
+        }
+
         public CanvasTouchUpdate Press(uint id, double x, double y)
         {
             if (IndexOf(id) >= 0) return default;
@@ -89,7 +99,10 @@ namespace Maple.WinUI.Services
             _lastMagnification = 1;
             _pinching = true;
             var (cx, cy) = Centroid();
-            return new CanvasTouchUpdate(null, (1, cx, cy), null, false);
+            // The drag frame lets the model take the primary contact's current
+            // translation as its post-pinch baseline, so a drag made before
+            // this pinch is not applied a second time afterwards.
+            return new CanvasTouchUpdate(null, (1, cx, cy), _lastTranslation, false);
         }
 
         private (double X, double Y) Translation()

@@ -85,14 +85,18 @@ namespace Maple.WinUI.Services
             var previous = _context;
             _context = next;
             _extentIsSource = extentIsSource;
-            if (unitChanged && HasExtent(previous) && HasExtent(next)
-                && CurrentStop == RawFfi.MAPLE_CANVAS_ZOOM_STOP_NONE && _state.pixel_scale > 0)
+            if (unitChanged && HasExtent(previous) && HasExtent(next))
             {
                 var sameViewport = previous with { native_image_size = next.native_image_size };
                 var ratio = RawFfi.maple_canvas_zoom_fit_scale(sameViewport)
                     / RawFfi.maple_canvas_zoom_fit_scale(previous);
                 if (double.IsFinite(ratio) && ratio > 0)
-                    _state.pixel_scale *= ratio;
+                {
+                    if (CurrentStop == RawFfi.MAPLE_CANVAS_ZOOM_STOP_NONE && _state.pixel_scale > 0)
+                        _state.pixel_scale *= ratio;
+                    if (_state.has_pinch_start_scale != 0)
+                        _state.pinch_start_scale *= ratio;
+                }
             }
             _state = RawFfi.maple_canvas_zoom_reclamp_pan(_state, _context);
         }
@@ -102,17 +106,34 @@ namespace Maple.WinUI.Services
         /// <summary>Ctrl+1: 100%, re-centred.</summary>
         public void ZoomToActualSize() => _state = RawFfi.maple_canvas_zoom_to_scale(_state, 1);
 
-        public void ZoomToFill() => _state = RawFfi.maple_canvas_zoom_to_fill(_state, _context);
+        /// <summary>Whether the viewport and image extent are known; before
+        /// that, fit resolves against a stand-in and any relative zoom would
+        /// jump once the first frame lands, so zoom input is ignored.</summary>
+        public bool HasGeometry => HasExtent(_context);
 
-        public void StepIn() => _state = RawFfi.maple_canvas_zoom_step_in(_state, _context);
+        public void ZoomToFill()
+        {
+            if (HasGeometry) _state = RawFfi.maple_canvas_zoom_to_fill(_state, _context);
+        }
 
-        public void StepOut() => _state = RawFfi.maple_canvas_zoom_step_out(_state, _context);
+        public void StepIn()
+        {
+            if (HasGeometry) _state = RawFfi.maple_canvas_zoom_step_in(_state, _context);
+        }
+
+        public void StepOut()
+        {
+            if (HasGeometry) _state = RawFfi.maple_canvas_zoom_step_out(_state, _context);
+        }
 
         /// <summary>Editor double-click / double-tap: fit → 100% anchored at
         /// the point (viewport points), anything else → fit.</summary>
-        public void DoubleTap(double x, double y) =>
+        public void DoubleTap(double x, double y)
+        {
+            if (!HasGeometry) return;
             _state = RawFfi.maple_canvas_zoom_double_tap(_state, new MapleCanvasPoint(x, y),
                 RawFfi.MAPLE_CANVAS_DOUBLE_TAP_TOGGLE_FIT_AND_100, _context);
+        }
 
         public void PanBy(double dx, double dy) =>
             _state = RawFfi.maple_canvas_zoom_wheel_pan(_state, new MapleCanvasSize(dx, dy), _context);
@@ -126,7 +147,7 @@ namespace Maple.WinUI.Services
         /// </summary>
         public bool Wheel(int delta, bool horizontal, bool ctrl, bool shift, double x, double y)
         {
-            if (delta == 0) return false;
+            if (delta == 0 || !HasGeometry) return false;
             var detents = delta / WheelDetent;
             var intent = RawFfi.maple_canvas_zoom_wheel_intent(_state, (byte)(ctrl ? 1 : 0), _context);
             if (intent == RawFfi.MAPLE_CANVAS_WHEEL_INTENT_ZOOM)
@@ -163,9 +184,12 @@ namespace Maple.WinUI.Services
 
         /// <summary>One pinch frame: cumulative magnification since the
         /// pinch began, centroid in viewport points.</summary>
-        public void PinchChanged(double magnification, double x, double y) =>
-            _state = RawFfi.maple_canvas_zoom_pinch_changed(_state, magnification,
-                new MapleCanvasPoint(x, y), _context);
+        public void PinchChanged(double magnification, double x, double y)
+        {
+            if (HasGeometry)
+                _state = RawFfi.maple_canvas_zoom_pinch_changed(_state, magnification,
+                    new MapleCanvasPoint(x, y), _context);
+        }
 
         public void PinchEnded(double magnification) =>
             _state = RawFfi.maple_canvas_zoom_pinch_ended(_state, magnification, _context);
