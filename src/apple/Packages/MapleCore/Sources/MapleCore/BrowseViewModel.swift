@@ -463,7 +463,8 @@ public final class BrowseViewModel {
       photosAuthNeeded = false
       listingGeneration &+= 1
     } catch {
-      guard gen == loadGeneration else { return }
+      // A cancelled listing was abandoned, not refused by the server.
+      guard gen == loadGeneration, !error.isCancellation else { return }
       loadError = error
     }
   }

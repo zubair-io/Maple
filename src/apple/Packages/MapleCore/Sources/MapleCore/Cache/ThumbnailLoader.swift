@@ -400,19 +400,14 @@ public actor ThumbnailLoader {
     let ref = stableID.map {
       ImageRef(id: $0, displayName: displayName, smbPath: smbPath, smbSourceID: smbSourceID)
     }
-    let task = Task.detached(priority: .utility) { () -> Data? in
-      do { try await self.acquireDecodeSlot() } catch { return nil }
-      let result = await self.produceSourcelessThumbnail(
+    // A producer, like the URL-keyed path: a Maple Cloud request already on
+    // the wire finishes and fills the cache when its last cell scrolls away,
+    // instead of being cancelled into the RAW-download fallback (#5735).
+    let task = startLocalProducer(key: coalescingKey) {
+      await self.produceSourcelessThumbnail(
         source: source, ref: ref, key: key, provider: provider, hint: hint)
-      await self.releaseDecodeSlot()
-      return result
     }
-    inFlight[coalescingKey] = task
-    let result = await awaitThumbnail(task)
-    if inFlight[coalescingKey] == task {
-      inFlight.removeValue(forKey: coalescingKey)
-    }
-    return result
+    return await awaitThumbnail(task)
   }
 
   private nonisolated func produceSourcelessThumbnail(

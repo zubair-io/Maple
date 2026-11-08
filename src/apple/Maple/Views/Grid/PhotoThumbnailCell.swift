@@ -228,15 +228,20 @@ struct PhotoThumbnailCell: View {
       // resolves 20–30 tiles at once drives that many overlapping
       // animations and hitches the scroll. Thumbnails just appear
       // (Photos.app does the same during scroll).
-      let bytes = await provider.thumbnail(for: item.thumbnailSource) { camera in
-        let image = await ThumbnailDecoder.image(for: camera, key: "camera:" + key)
-        guard !Task.isCancelled, let image else { return }
-        // Keep camera pixels under a separate bounded bitmap-cache key so
-        // the final authored thumbnail can replace them.
-        decoded = image
+      // An empty answer is retried on a bounded backoff while the cell
+      // stays on screen, instead of leaving it grey until it is scrolled
+      // away and back (#5735).
+      let image = await ThumbnailRetry.load { () async -> CGImage? in
+        let bytes = await provider.thumbnail(for: item.thumbnailSource) { camera in
+          let image = await ThumbnailDecoder.image(for: camera, key: "camera:" + key)
+          guard !Task.isCancelled, let image else { return }
+          // Keep camera pixels under a separate bounded bitmap-cache key so
+          // the final authored thumbnail can replace them.
+          decoded = image
+        }
+        guard !Task.isCancelled else { return nil }
+        return await ThumbnailDecoder.image(for: bytes, key: key)
       }
-      guard !Task.isCancelled else { return }
-      let image = await ThumbnailDecoder.image(for: bytes, key: key)
       guard !Task.isCancelled else { return }
       if let image {
         decoded = image

@@ -93,7 +93,8 @@ extension EditSession {
         // A failed Cloud read is not an absent sidecar (#3357). Nothing is
         // persisted until a later load succeeds (#4708) — unless an
         // overlapping load already did, in which case this failure is stale.
-        guard !hasLoadedSidecar else { return }
+        // A cancelled read is neither: the next load simply retries it.
+        guard !hasLoadedSidecar, !error.isCancellation, !Task.isCancelled else { return }
         sidecarError = error
         sidecarLoadFailed = true
         return

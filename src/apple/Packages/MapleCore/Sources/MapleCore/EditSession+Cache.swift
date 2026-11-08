@@ -29,7 +29,7 @@ extension EditSession {
       try await localStore.requireObservedRevisionCurrent()
       return !sidecarWritesDisabled
     } catch {
-      sidecarError = error
+      recordSidecarError(error)
       if let conflict = error as? XMPStoreError, case .externalConflict = conflict {
         sidecarWritesDisabled = true
       }

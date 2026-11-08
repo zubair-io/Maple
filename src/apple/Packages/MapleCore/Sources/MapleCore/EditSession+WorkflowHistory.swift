@@ -18,7 +18,7 @@ extension EditSession {
       let stream = await store.errors()
       for await error in stream {
         guard let self, !Task.isCancelled, self.sidecarStore === store else { return }
-        self.sidecarError = error
+        self.recordSidecarError(error)
       }
     }
   }
@@ -47,7 +47,7 @@ extension EditSession {
         }
       } catch {
         self.sidecarDirtyWhileDisabled = true
-        self.sidecarError = error
+        self.recordSidecarError(error)
       }
     }
   }
