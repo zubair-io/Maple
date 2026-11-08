@@ -8,6 +8,9 @@
 // PARITY-CRITICAL: `coverage` and the fold in `fs_main` mirror
 // `raw_core::canvas::overlay::{coverage, overlay_pixel}` expression for
 // expression. The `raw-gpu` parity test holds the two within one 8-bit step.
+//
+// `generated/canvas_overlay.wgsl` (OVERLAY_CAPACITY, OVERLAY_KIND_*) is
+// prepended at pipeline creation; WGSL has no `#include`.
 
 struct Primitive {
     rect: vec4<f32>,
@@ -18,14 +21,10 @@ struct Primitive {
 
 struct Overlay {
     count: vec4<u32>,
-    primitives: array<Primitive, 16>,
+    primitives: array<Primitive, OVERLAY_CAPACITY>,
 };
 
 @group(0) @binding(0) var<uniform> overlay: Overlay;
-
-const KIND_FILL: u32 = 1u;
-const KIND_FILL_OUTSIDE: u32 = 2u;
-const KIND_DISC: u32 = 3u;
 
 struct VsOut {
     @builtin(position) pos: vec4<f32>,
@@ -50,13 +49,13 @@ fn rect_coverage(px: f32, py: f32, r: vec4<f32>) -> f32 {
 
 fn coverage(p: Primitive, px: f32, py: f32) -> f32 {
     switch p.kind.x {
-        case KIND_FILL: {
+        case OVERLAY_KIND_FILL: {
             return rect_coverage(px, py, p.rect);
         }
-        case KIND_FILL_OUTSIDE: {
+        case OVERLAY_KIND_FILL_OUTSIDE: {
             return max(rect_coverage(px, py, p.clip) - rect_coverage(px, py, p.rect), 0.0);
         }
-        case KIND_DISC: {
+        case OVERLAY_KIND_DISC: {
             let dx = px + 0.5 - p.rect.x;
             let dy = py + 0.5 - p.rect.y;
             return clamp(p.rect.z - sqrt(dx * dx + dy * dy) + 0.5, 0.0, 1.0);
@@ -71,7 +70,7 @@ fn coverage(p: Primitive, px: f32, py: f32) -> f32 {
 fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     let px = floor(in.pos.x);
     let py = floor(in.pos.y);
-    let count = min(overlay.count.x, 16u);
+    let count = min(overlay.count.x, OVERLAY_CAPACITY);
     var acc = vec4<f32>(0.0);
     for (var i = 0u; i < count; i = i + 1u) {
         let p = overlay.primitives[i];
