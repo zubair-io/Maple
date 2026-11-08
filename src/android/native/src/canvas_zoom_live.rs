@@ -37,8 +37,10 @@ pub(super) fn continued(model: CanvasZoomModel, context: &CanvasZoomContext) -> 
 }
 
 /// `model` re-resolved and re-captured for `geometry` when it differs from the
-/// geometry of the previous call (`stored`, `None` before the first). Adoption
-/// carries its own previous extent, and a drag release uses no geometry.
+/// geometry of the previous call (`stored`, `None` before the first): a new
+/// viewport keeps the image point at its centre (`reframe`). Adoption and a
+/// reframe carry their own previous extent, and a drag release uses no
+/// geometry.
 pub(super) fn rebased_for_geometry(
     model: CanvasZoomModel,
     op: u32,
@@ -46,8 +48,22 @@ pub(super) fn rebased_for_geometry(
     geometry: Geometry,
 ) -> CanvasZoomModel {
     match stored {
-        Some(previous) if previous != geometry && !matches!(op, OP_ADOPT_IMAGE | OP_DRAG_ENDED) => {
-            continued(model, &geometry.context())
+        Some(previous)
+            if previous != geometry
+                && !matches!(op, OP_ADOPT_IMAGE | OP_REFRAME_IMAGE | OP_DRAG_ENDED) =>
+        {
+            let context = geometry.context();
+            let carried = if previous.image == geometry.image {
+                reframe(
+                    model,
+                    Rect::from_size(previous.image),
+                    &previous.context(),
+                    &context,
+                )
+            } else {
+                model
+            };
+            continued(carried, &context)
         }
         _ => model,
     }

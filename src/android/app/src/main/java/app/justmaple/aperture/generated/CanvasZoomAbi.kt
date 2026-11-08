@@ -13,6 +13,8 @@ object CanvasZoomAbi {
     const val OP_RECLAMP = 7
     const val OP_ADOPT_IMAGE = 8
     const val OP_REBASE_PINCH = 9
+    const val OP_REFRAME_IMAGE = 10
+    const val OP_SETTLE = 11
     const val QUERY_EFFECTIVE_SCALE = 0
     const val QUERY_FIT_SCALE = 1
     const val QUERY_NEXT_STOP = 2

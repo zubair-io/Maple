@@ -238,6 +238,10 @@ fun XmpDocument.forCropPreview(): XmpDocument =
         doc.withAttribute(key, value)
     }
 
+/** The crop the canvas presents: the whole frame while the crop tool is open. */
+internal fun MapleState.presentedCropRect(): CropRect =
+    (if (cropToolActive) document.forCropPreview() else document).cropRect()
+
 internal fun MapleState.uncroppedAspect(): Float =
     values["_uncropped_aspect"]?.takeIf { it.isFinite() && it > 0f }
         ?: values["_aspect"]?.takeIf { it.isFinite() && it > 0f } ?: 1.5f

@@ -5,17 +5,20 @@
 //! viewport and image extents go in as pixels with a display scale of 1.
 
 use raw_core::canvas::{
-    anchored_pan, next_stop, CanvasZoomContext, CanvasZoomModel, DoubleTapBehavior, Point, Size,
-    ZoomStop, MAX_PIXEL_SCALE,
+    anchored_pan, next_stop, CanvasZoomContext, CanvasZoomModel, DoubleTapBehavior, Point, Rect,
+    Size, ZoomStop, MAX_PIXEL_SCALE,
 };
 
 #[path = "canvas_zoom_abi.rs"]
 mod abi;
 #[path = "canvas_zoom_live.rs"]
 mod live;
+#[path = "canvas_zoom_reframe.rs"]
+mod reframe;
 
 use abi::*;
 use live::{adopt_image_size, continued, rebase_pinch, rebased_for_geometry};
+use reframe::{reframe, settle};
 
 /// Slots holding the shared model, including the live gesture's latest input
 /// the model re-captures from; the layout is `encode`'s.
@@ -123,11 +126,12 @@ fn decode<const N: usize>(state: &[f64; N]) -> CanvasZoomModel {
 
 /// One transition; returns the next model and the op's boolean result
 /// (drag consumed / pan committed; `true` for ops without one), or `None` for
-/// an unknown op.
+/// an unknown op. `stored` is the previous call's geometry.
 fn apply(
     model: CanvasZoomModel,
     op: u32,
     args: [f64; 4],
+    stored: Option<Geometry>,
     geometry: Geometry,
 ) -> Option<(CanvasZoomModel, bool)> {
     let context = geometry.context();
@@ -154,6 +158,16 @@ fn apply(
             let adopted = adopt_image_size(model, Point::new(c, d), &previous.context(), &context);
             continued(adopted, &context)
         }
+        OP_REFRAME_IMAGE => {
+            let reframed = match stored {
+                Some(previous) => {
+                    reframe(model, Rect::new(a, b, c, d), &previous.context(), &context)
+                }
+                None => model.reclamp_pan(&context),
+            };
+            continued(reframed, &context)
+        }
+        OP_SETTLE => settle(model, &context),
         _ => return None,
     };
     Some((transitioned, true))
@@ -215,8 +229,9 @@ pub unsafe extern "C" fn maple_android_canvas_zoom(
     let slots = unsafe { &mut *state.cast::<[f64; STATE_LEN]>() };
     let geometry = Geometry::new(viewport_width, viewport_height, image_width, image_height);
     crate::guarded(REJECTED, || {
-        let model = rebased_for_geometry(decode(slots), op, Geometry::read(slots), geometry);
-        Ok(match apply(model, op, [a, b, c, d], geometry) {
+        let stored = Geometry::read(slots);
+        let model = rebased_for_geometry(decode(slots), op, stored, geometry);
+        Ok(match apply(model, op, [a, b, c, d], stored, geometry) {
             Some((next, result)) => {
                 slots[..MODEL_SLOTS].copy_from_slice(&encode(&next));
                 if op != OP_DRAG_ENDED {
@@ -268,3 +283,7 @@ mod live_tests;
 #[cfg(test)]
 #[path = "canvas_zoom_rebase_tests.rs"]
 mod rebase_tests;
+
+#[cfg(test)]
+#[path = "canvas_zoom_reframe_tests.rs"]
+mod reframe_tests;
