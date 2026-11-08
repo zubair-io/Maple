@@ -1,10 +1,11 @@
 //! Canvas overlay surface (#5715): the GPU half of the shared overlay
 //! renderer. `raw_core::canvas` describes an overlay as up to
 //! [`OVERLAY_CAPACITY`] coverage primitives; this module draws them with
-//! `overlay.wgsl` into an upright, viewport-sized surface that the platform
-//! composites above the image, so an overlay redraw never touches the develop
-//! chain. The CPU fallback is `raw_core::canvas::rasterize_overlay`, held at
-//! parity with this pass by `overlay/tests.rs`.
+//! `overlay.wgsl` into an upright surface, the viewport plus an overscan
+//! margin, that the platform composites above the image, so an overlay redraw
+//! never touches the develop chain. The CPU fallback is
+//! `raw_core::canvas::rasterize_overlay`, held at parity with this pass by
+//! `overlay/tests.rs`.
 //!
 //! The output is premultiplied RGBA at SDR reference white in an 8-bit
 //! non-sRGB format, so a white primitive stores `255` and the compositor

@@ -1,13 +1,14 @@
 // CropOverlaySurface.swift — the crop tool's overlay, drawn by the shared Rust
 // overlay renderer (#5715) instead of SwiftUI shapes.
 //
-// The overlay lives on its own upright, viewport-sized layer above the
-// (straighten-rotated) image. On the GPU path wgpu draws it into a dedicated
-// `CAMetalLayer` (`maple_gpu_present_crop_overlay`); on the CPU fallback the
-// same primitives are rasterized by `raw_core::canvas::rasterize_overlay`
-// into a bitmap the layer shows as its contents. Neither path touches the
-// develop chain, so a crop drag redraws only this layer. Handle positions for
-// accessibility come from the same Rust geometry.
+// The overlay lives on its own upright layer, the viewport plus an overscan
+// margin, above the (straighten-rotated) image. On the GPU path wgpu draws it
+// into a dedicated `CAMetalLayer` (`maple_gpu_present_crop_overlay`); on the
+// CPU fallback the same primitives are rasterized by
+// `raw_core::canvas::rasterize_overlay` into a bitmap the layer shows as its
+// contents. Neither path touches the develop chain, so a crop drag redraws
+// only this layer. Handle positions for accessibility come from the same Rust
+// geometry.
 
 import CoreGraphics
 import Foundation
@@ -17,7 +18,7 @@ import RawPipeline
 /// Everything the crop overlay is drawn from.
 public struct CropOverlayInput: Equatable, Sendable {
   public var crop: Crop
-  /// Viewport (overlay layer) size in points.
+  /// Viewport size in points; the overlay layer overscans it by `overscan`.
   public var viewport: CGSize
   /// Display-oriented image size in pixels.
   public var imageSize: CGSize
@@ -37,13 +38,19 @@ public struct CropOverlayInput: Equatable, Sendable {
     self.activeHandle = activeHandle
   }
 
-  /// The overlay surface's size in pixels; zero on an axis with no extent
-  /// or past the 16384 px texture limit, which draws nothing.
+  /// Points the overlay surface extends past the viewport on every side, so
+  /// corner dots and frame strokes on a viewport edge are drawn whole.
+  public static var overscan: CGFloat { CGFloat(maple_canvas_crop_overlay_overscan()) }
+
+  /// The overlay surface's size in pixels, the viewport plus `overscan` on
+  /// every side; zero on an axis with no extent or past the 16384 px
+  /// texture limit, which draws nothing.
   public var pixelSize: (width: Int, height: Int) {
     let scale = pixelScale.isFinite && pixelScale > 0 ? pixelScale : 1
     let pixels = { (points: CGFloat) -> Int in
-      let value = (Double(points) * scale).rounded()
-      return value.isFinite && value >= 1 && value <= 16384 ? Int(value) : 0
+      guard (Double(points) * scale).rounded() >= 1 else { return 0 }
+      let value = (Double(points + 2 * Self.overscan) * scale).rounded()
+      return value.isFinite && value <= 16384 ? Int(value) : 0
     }
     return (pixels(viewport.width), pixels(viewport.height))
   }
@@ -135,7 +142,7 @@ public final class CropOverlayRasterPool: @unchecked Sendable {
   public init() {}
 
   deinit {
-    free.forEach { $0.deallocate() }
+    for buffer in free { buffer.deallocate() }
   }
 
   /// The overlay as a premultiplied RGBA image, or `nil` for an empty surface.
@@ -186,7 +193,7 @@ public final class CropOverlayRasterPool: @unchecked Sendable {
     lock.lock()
     defer { lock.unlock() }
     if length != bufferLength {
-      free.forEach { $0.deallocate() }
+      for buffer in free { buffer.deallocate() }
       free.removeAll()
       bufferLength = length
     }
