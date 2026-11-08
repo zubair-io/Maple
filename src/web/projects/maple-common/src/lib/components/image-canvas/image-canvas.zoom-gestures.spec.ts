@@ -306,6 +306,21 @@ describe('CanvasZoomGestures over the shared model', () => {
     expect(pan).toEqual({ x: 200, y: 0 });
   });
 
+  it('a fresh primary pen press leaves a live touch pinch alone', () => {
+    const touch = { pointerType: 'touch' };
+    g.onPointerDown({ pointerId: 1, clientX: 400, clientY: 363, isPrimary: true, ...touch });
+    g.onPointerDown({ pointerId: 2, clientX: 600, clientY: 363, isPrimary: false, ...touch });
+    g.onPointerDown({
+      pointerId: 9,
+      clientX: 50,
+      clientY: 50,
+      isPrimary: true,
+      pointerType: 'pen',
+    });
+    g.onPointerMove({ pointerId: 2, clientX: 800, clientY: 363, ...touch });
+    expect(pixelScale).toBeCloseTo(FIT * 2, 9);
+  });
+
   it('a press a descendant already took (a crop or mask handle) stays with it', () => {
     const el = document.createElement('div');
     const handle = document.createElement('div');
