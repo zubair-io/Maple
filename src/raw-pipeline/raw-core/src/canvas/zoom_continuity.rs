@@ -61,17 +61,24 @@ impl CanvasZoomModel {
         }
     }
 
-    /// A gesture was cancelled instead of ending (its view went away, the
-    /// app left the foreground): a live pinch ends at its last input and
-    /// settles, a live drag commits where it is.
+    /// The drag was cancelled instead of ending (a system gesture took over,
+    /// the view went away): it commits where it is, as `drag_began` does for
+    /// the next drag. A live pinch is not the drag's and stays live.
     #[must_use]
-    pub fn gestures_cancelled(self, context: &CanvasZoomContext) -> Self {
-        let released = if self.pinch_start_scale.is_some() {
-            self.pinch_ended(self.last_magnification(), context)
-        } else {
-            self
-        };
-        released.drag_ended().0
+    pub fn drag_cancelled(self) -> Self {
+        self.drag_began()
+    }
+
+    /// The pinch was cancelled instead of ending: it ends at its last input
+    /// and settles as a release there would, and a drag still live continues
+    /// from the result. Not pinching: unchanged.
+    #[must_use]
+    pub fn pinch_cancelled(self, context: &CanvasZoomContext) -> Self {
+        if self.pinch_start_scale.is_none() {
+            return self;
+        }
+        self.pinch_ended(self.last_magnification(), context)
+            .continuing(context)
     }
 
     /// The frame on screen as (resolved scale, pan): during a pinch, the
@@ -87,34 +94,74 @@ impl CanvasZoomModel {
     }
 
     /// The geometry changed from `previous` to `context`: a viewport resize
-    /// or rotation, chrome insets, the display density (#5740), or the image
-    /// extent (a placeholder size replaced by the original's). Fit re-fits,
-    /// fill re-resolves and 100% stays 1:1; a free scale keeps the picture's
-    /// size on screen when the extent changes. The image point at the
-    /// viewport centre stays there (so a resize or an inset change keeps the
-    /// pan), as far as the pan range allows. A live pinch continues from the
-    /// frame it was showing, carried the same way (#5736).
+    /// or rotation, chrome insets, the display density (#5740), or a
+    /// different extent of the picture (a crop applied or cleared). Fit
+    /// re-fits, fill re-resolves, and 100% or a free scale keeps its pixel
+    /// scale. The pan scales with the points per image pixel, so across a
+    /// resize, an inset or a density change the image point at the viewport
+    /// centre stays there, as far as the pan range allows; across a crop the
+    /// pan is kept, measured from the new extent's centre. A live pinch continues
+    /// from the frame it was showing, carried the same way (#5736). Use
+    /// `image_extent_resolved` when the new extent is the same picture's real
+    /// size replacing a provisional one.
     #[must_use]
     pub fn geometry_changed(
         self,
         previous: &CanvasZoomContext,
         context: &CanvasZoomContext,
     ) -> Self {
+        self.carried_across(previous, context, Extent::Reframed)
+    }
+
+    /// The picture's real extent replaced the provisional one the host gave
+    /// while it was unknown (a seed thumbnail's aspect at a nominal size):
+    /// the photo keeps its rect on screen exactly, so only the pixels
+    /// change. Fit re-fits and fill re-resolves (the same rect when the
+    /// aspect matches); 100% or a free scale becomes the scale that keeps the
+    /// displayed size. A live pinch or drag continues from the frame on
+    /// screen. Any other geometry change in the same step is carried as by
+    /// `geometry_changed`.
+    #[must_use]
+    pub fn image_extent_resolved(
+        self,
+        previous: &CanvasZoomContext,
+        context: &CanvasZoomContext,
+    ) -> Self {
+        self.carried_across(previous, context, Extent::Resolved)
+    }
+
+    fn carried_across(
+        self,
+        previous: &CanvasZoomContext,
+        context: &CanvasZoomContext,
+        extent: Extent,
+    ) -> Self {
+        // Without an extent the zoom was measured against a stand-in fit of
+        // 1, so nothing it holds is a real scale: open at fit, with a live
+        // pinch continuing from there.
+        if !has_extent(previous) && has_extent(context) {
+            return self.reset_to_fit(context);
+        }
         let live = self.pinch_start_scale.map(|_| self.shown_frame(previous));
-        let committed = self.carried(previous, context).resolved_at_rest(context);
+        let committed = self
+            .carried(previous, context, extent)
+            .resolved_at_rest(context);
         match live {
             Some((scale, pan)) => {
-                let carried_scale = carried_free_scale(scale, previous, context);
-                let carried_pan = carried_pan(pan, scale, carried_scale, previous, context);
+                let carried_scale = carried_scale(scale, previous, context, extent);
+                let carried_pan = carried_pan(pan, scale, carried_scale, previous, context, extent);
                 // A host that draws the committed frame during a pinch (it
                 // feeds every frame through `pinch_changed`) keeps drawing the
                 // carried live frame; a host that froze the committed frame
                 // keeps it frozen and draws the live one from the capture.
-                let draws_committed =
-                    previous.effective_scale(self.pixel_scale) == scale && self.pan_offset == pan;
+                let draws_committed = nearly(previous.effective_scale(self.pixel_scale), scale)
+                    && nearly(self.pan_offset.width, pan.width)
+                    && nearly(self.pan_offset.height, pan.height);
                 let committed = if draws_committed {
                     Self {
-                        pixel_scale: carried_scale,
+                        // The capture holds the scale to the pinch's floor and
+                        // cap; the drawn frame matches what the next frame shows.
+                        pixel_scale: pinch_scale(carried_scale, 1.0, context.fit_scale()),
                         pan_offset: carried_pan,
                         fills_viewport: false,
                         ..committed
@@ -134,15 +181,20 @@ impl CanvasZoomModel {
 
     /// The committed zoom carried from `previous` to `context`, before the
     /// resting clamp.
-    fn carried(self, previous: &CanvasZoomContext, context: &CanvasZoomContext) -> Self {
+    fn carried(
+        self,
+        previous: &CanvasZoomContext,
+        context: &CanvasZoomContext,
+        extent: Extent,
+    ) -> Self {
         if !self.is_zoomed_in() {
             return self;
         }
         let start = previous.effective_scale(self.pixel_scale);
-        let scale = match self.current_stop() {
-            Some(ZoomStop::Fill) => context.fill_scale(),
-            Some(ZoomStop::Fit | ZoomStop::ActualSize) => self.pixel_scale,
-            None => carried_free_scale(start, previous, context),
+        let scale = match (self.current_stop(), extent) {
+            (Some(ZoomStop::Fill), _) => context.fill_scale(),
+            (Some(ZoomStop::Fit | ZoomStop::ActualSize), Extent::Reframed) => self.pixel_scale,
+            _ => carried_scale(start, previous, context, extent),
         };
         let pan = carried_pan(
             self.pan_offset,
@@ -150,6 +202,7 @@ impl CanvasZoomModel {
             context.effective_scale(scale),
             previous,
             context,
+            extent,
         );
         Self {
             pixel_scale: scale,
@@ -234,46 +287,77 @@ impl CanvasZoomModel {
     }
 }
 
-/// A free scale across an extent change keeps the picture's size on screen
-/// (the extent is the same picture at another resolution), held to the new
-/// zoom range. Unchanged when either extent is unknown.
-fn carried_free_scale(
+/// What an extent change within a geometry change means.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Extent {
+    /// A different extent of the picture (a crop): scales stay in pixels.
+    Reframed,
+    /// The same picture's real size replacing a provisional one: the
+    /// displayed size stays.
+    Resolved,
+}
+
+/// Equal up to rounding: a frame recomputed from a capture can differ from
+/// the one it was captured at in the last bits.
+fn nearly(a: f64, b: f64) -> bool {
+    (a - b).abs() <= 1e-9 * a.abs().max(b.abs()).max(1.0)
+}
+
+fn has_extent(context: &CanvasZoomContext) -> bool {
+    let size = context.native_image_size();
+    size.width > 0.0 && size.height > 0.0
+}
+
+/// A scale carried into `context`. Reframed: unchanged. Resolved: the scale
+/// that keeps the picture's displayed width, held to the new zoom range.
+fn carried_scale(
     scale: f64,
     previous: &CanvasZoomContext,
     context: &CanvasZoomContext,
+    extent: Extent,
 ) -> f64 {
-    let old = previous.native_image_size();
-    let new = context.native_image_size();
-    let known = old.width > 0.0 && old.height > 0.0 && new.width > 0.0 && new.height > 0.0;
-    if !known || old == new {
+    if extent == Extent::Reframed || !has_extent(previous) || !has_extent(context) {
         return scale;
     }
-    (scale * old.width / new.width)
-        .min(MAX_PIXEL_SCALE)
-        .max(context.min_scale())
+    let width_in_points = |c: &CanvasZoomContext| c.native_image_size().width / c.display_scale();
+    let kept = scale * width_in_points(previous) / width_in_points(context);
+    if !kept.is_finite() || kept <= 0.0 {
+        return scale;
+    }
+    kept.min(MAX_PIXEL_SCALE).max(context.min_scale())
 }
 
-/// The pan that keeps the image point at the viewport centre there: the pan
-/// scales with the picture's on-screen size per axis. Unchanged while either
-/// frame is unknown.
+/// The pan that keeps the image point at the viewport centre there.
+/// Reframed: the pan scales with the points per image pixel. Resolved: with
+/// the picture's displayed size per axis (1 when the rect is kept).
 fn carried_pan(
     pan: Size,
     scale: f64,
     carried_scale: f64,
     previous: &CanvasZoomContext,
     context: &CanvasZoomContext,
+    extent: Extent,
 ) -> Size {
-    let frames = previous
-        .display_frame_in_points(scale)
-        .zip(context.display_frame_in_points(carried_scale));
-    let Some((old, new)) = frames else {
-        return pan;
-    };
     let ratio = |new: f64, old: f64| if old > 0.0 { new / old } else { 1.0 };
-    let carried = Size::new(
-        pan.width * ratio(new.width, old.width),
-        pan.height * ratio(new.height, old.height),
-    );
+    let (x, y) = match extent {
+        Extent::Reframed => {
+            let per_pixel = ratio(
+                carried_scale / context.display_scale(),
+                scale / previous.display_scale(),
+            );
+            (per_pixel, per_pixel)
+        }
+        Extent::Resolved => {
+            let frames = previous
+                .display_frame_in_points(scale)
+                .zip(context.display_frame_in_points(carried_scale));
+            let Some((old, new)) = frames else {
+                return pan;
+            };
+            (ratio(new.width, old.width), ratio(new.height, old.height))
+        }
+    };
+    let carried = Size::new(pan.width * x, pan.height * y);
     if carried.is_finite() {
         carried
     } else {
@@ -284,3 +368,7 @@ fn carried_pan(
 #[cfg(test)]
 #[path = "zoom_continuity_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "zoom_extent_tests.rs"]
+mod extent_tests;

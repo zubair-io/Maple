@@ -78,7 +78,7 @@ struct CanvasZoomHost<CanvasLeaf: View, Fallback: View>: View {
   @State var pendingInsets: CanvasViewportInsets?
   /// True from a drag's first frame to its end. SwiftUI never calls
   /// `onEnded` for a cancelled drag; `dragGestureLive` resetting does.
-  @State private var dragInProgress = false
+  @State var dragInProgress = false
   @GestureState private var dragGestureLive = false
   #if os(macOS)
     @State private var nudgeAccumulator = CanvasWheelNudgeAccumulator()
@@ -205,15 +205,18 @@ struct CanvasZoomHost<CanvasLeaf: View, Fallback: View>: View {
           guard !live, magnifyInProgress else { return }
           magnifyInProgress = false
           let shown = controller.restingFrame
-          settleRelease(from: shown) { controller.gesturesCancelled() }
+          settleRelease(from: shown) { controller.pinchCancelled() }
         }
       #endif
       .onChange(of: dragGestureLive) { _, live in
         // The drag was cancelled (a system gesture took over, the view
-        // changed): commit it where it is, as its release would have.
+        // changed): commit it where it is, as its release would have. A
+        // live pinch is not the drag's and carries on.
         guard !live, dragInProgress else { return }
         dragInProgress = false
-        controller.gesturesCancelled()
+        let shown = controller.restingFrame
+        controller.dragCancelled()
+        if settle == nil, !isPinching { beginSettle(from: shown) }
       }
       .onChange(of: ObjectIdentifier(controller)) { _, _ in
         // The host kept its identity but was handed a different controller
@@ -242,7 +245,12 @@ struct CanvasZoomHost<CanvasLeaf: View, Fallback: View>: View {
         // crop — which changes the displayed extent without touching
         // the sensor dims — re-resolves fit and re-frames the canvas
         // onto the cropped image.
-        controller.nativeImageSizeChanged()
+        // A provisional extent resolving keeps the photo's rect, so a
+        // running settle carries into the new extent's scale.
+        let rescale = controller.nativeImageSizeChanged()
+        if rescale != 1, let running = settle {
+          startSettle(running.rescaled(by: rescale, to: controller.restingFrame))
+        }
         refreshLivePinch()
       }
       .onChange(of: controller.session.asset.id) { _, _ in
@@ -265,7 +273,7 @@ struct CanvasZoomHost<CanvasLeaf: View, Fallback: View>: View {
           if !magnifyInProgress {
             magnifyInProgress = true
             // A pinch whose end never arrived must not carry into this one.
-            if controller.model.pinchStartScale != nil { controller.gesturesCancelled() }
+            if controller.model.pinchStartScale != nil { controller.pinchCancelled() }
           }
           // The controller captures the start scale/pan/anchor on
           // the first frame — `magnification` is cumulative, so

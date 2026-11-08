@@ -80,7 +80,7 @@ fn the_pinch_continues_from_the_resized_frame() {
 }
 
 #[test]
-fn an_extent_change_mid_pinch_keeps_the_photo_size_on_screen() {
+fn a_resolved_extent_mid_pinch_keeps_the_photo_size_on_screen() {
     let preview = ctx((1000.0, 800.0), (2000.0, 1000.0), 1.0);
     let native = ctx((1000.0, 800.0), (4000.0, 2000.0), 1.0);
     let pinching = CanvasZoomModel::default()
@@ -92,7 +92,7 @@ fn an_extent_change_mid_pinch_keeps_the_photo_size_on_screen() {
         .unwrap()
         .width;
 
-    let carried = pinching.geometry_changed(&preview, &native);
+    let carried = pinching.image_extent_resolved(&preview, &native);
     let next = carried.pinch_changed(1.5, Point::new(450.0, 400.0), &native);
     let next_width = native
         .display_frame_in_points(next.pixel_scale)
@@ -239,11 +239,64 @@ fn a_cancelled_pinch_ends_at_its_last_frame() {
         .zoom_to_scale(1.0, &context)
         .pinch_changed(1.0, AT, &context)
         .pinch_changed(1.5, AT, &context);
-    let cancelled = pinching.gestures_cancelled(&context);
+    let cancelled = pinching.pinch_cancelled(&context);
     assert_eq!(cancelled.pinch_start_scale, None);
     assert_close(scale_of(cancelled, &context), 1.5);
     let next = cancelled.pinch_changed(1.3, AT, &context);
     assert_close(scale_of(next, &context), 1.5);
+}
+
+#[test]
+fn a_cancelled_drag_leaves_a_live_pinch_live() {
+    let context = audit();
+    let fingers = Point::new(600.0, 400.0);
+    let pinching = CanvasZoomModel::default()
+        .zoom_to_scale(1.0, &context)
+        .pinch_changed(1.0, fingers, &context)
+        .pinch_changed(1.5, fingers, &context);
+    let dragging = drag(pinching, 30.0, &context);
+    let cancelled = dragging.drag_cancelled();
+    assert_eq!(cancelled.pinch_start_scale, pinching.pinch_start_scale);
+    assert_eq!(
+        cancelled.pinch_changed(1.5, fingers, &context),
+        dragging
+            .pinch_changed(1.5, fingers, &context)
+            .drag_cancelled()
+    );
+    assert_close(
+        cancelled
+            .pinch_changed(1.5, fingers, &context)
+            .pan_offset
+            .width,
+        pinching.pan_offset.width,
+    );
+}
+
+#[test]
+fn a_drag_outliving_a_cancelled_pinch_moves_by_new_motion_only() {
+    let context = audit();
+    let dragging = drag(
+        CanvasZoomModel::default()
+            .zoom_to_scale(1.0, &context)
+            .pinch_changed(1.0, AT, &context)
+            .pinch_changed(1.5, AT, &context),
+        40.0,
+        &context,
+    );
+    let cancelled = dragging.pinch_cancelled(&context);
+    let next = drag(cancelled, 41.0, &context);
+    assert_close(next.pan_offset.width, cancelled.pan_offset.width + 1.0);
+}
+
+#[test]
+fn a_capture_that_cannot_be_made_changes_nothing() {
+    let broken = CanvasZoomModel {
+        pan_offset: Size::new(f64::NAN, 0.0),
+        ..CanvasZoomModel::default().zoom_to_scale(1.0, &audit())
+    };
+    let captured = broken.pinch_changed(1.0, AT, &audit());
+    assert_eq!(captured.pinch_start_scale, None);
+    assert_eq!(captured.pixel_scale, broken.pixel_scale);
 }
 
 // #5740 — a display-density change while zoomed.
@@ -293,25 +346,13 @@ fn a_resize_while_zoomed_keeps_the_pan() {
 }
 
 #[test]
-fn an_extent_change_keeps_100_percent_and_the_centred_point() {
-    let preview = ctx((1000.0, 800.0), (2000.0, 1000.0), 1.0);
-    let native = ctx((1000.0, 800.0), (4000.0, 2000.0), 1.0);
-    let panned = CanvasZoomModel::default()
-        .zoom_to_scale(1.0, &preview)
-        .wheel_pan(Size::new(200.0, 0.0), &preview);
-    let carried = panned.geometry_changed(&preview, &native);
-    assert_close(carried.pixel_scale, 1.0);
-    assert_close(carried.pan_offset.width, 400.0);
-}
-
-#[test]
-fn an_unknown_previous_extent_only_reclamps() {
+fn an_unknown_previous_extent_opens_at_fit() {
     let unknown = ctx((1000.0, 800.0), (0.0, 0.0), 1.0);
     let native = audit();
     let model = CanvasZoomModel::default().zoom_to_scale(0.5, &unknown);
     assert_eq!(
         model.geometry_changed(&unknown, &native),
-        model.reclamp_pan(&native)
+        CanvasZoomModel::default().reset_to_fit(&native)
     );
 }
 
@@ -383,4 +424,19 @@ fn a_drag_after_a_command_moves_by_new_motion_only() {
     assert_eq!(reset.pan_offset, Size::ZERO);
     let zoomed = reset.zoom_to_scale(1.0, &context);
     assert_close(drag(zoomed, -130.0, &context).pan_offset.width, -30.0);
+}
+
+#[test]
+fn a_viewport_growth_past_a_below_fit_pinch_draws_the_frame_the_next_one_shows() {
+    let before = audit();
+    let grown = ctx((2000.0, 1600.0), (4000.0, 2000.0), 1.0);
+    let pinching = CanvasZoomModel::default()
+        .reset_to_fit(&before)
+        .pinch_changed(1.0, AT, &before)
+        .pinch_changed(0.55, AT, &before);
+    let carried = pinching.geometry_changed(&before, &grown);
+    let next = carried.pinch_changed(0.55, AT, &grown);
+    assert_close(carried.pixel_scale, next.pixel_scale);
+    assert_close(carried.pan_offset.width, next.pan_offset.width);
+    assert_close(carried.pan_offset.height, next.pan_offset.height);
 }

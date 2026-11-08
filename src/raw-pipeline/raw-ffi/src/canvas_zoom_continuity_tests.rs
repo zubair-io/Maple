@@ -37,6 +37,20 @@ fn a_density_change_rescales_the_pan() {
 }
 
 #[test]
+fn a_resolved_extent_keeps_the_displayed_size() {
+    let provisional = MapleCanvasZoomContext {
+        native_image_size: MapleCanvasSize {
+            width: 1500.0,
+            height: 1000.0,
+        },
+        ..context(1.0)
+    };
+    let zoomed = maple_canvas_zoom_to_scale(MapleCanvasZoomState::default(), 1.0, provisional);
+    let resolved = maple_canvas_zoom_image_extent_resolved(zoomed, provisional, context(1.0));
+    assert!((resolved.pixel_scale - 0.25).abs() < 1e-12);
+}
+
+#[test]
 fn a_reset_mid_pinch_keeps_the_pinch_live_from_fit() {
     let ctx = context(1.0);
     let captured = maple_canvas_zoom_pinch_changed(MapleCanvasZoomState::default(), 1.0, AT, ctx);
@@ -67,12 +81,14 @@ fn tracking_then_cancelling_ends_the_pinch_at_its_last_input() {
     let captured = maple_canvas_zoom_pinch_changed(zoomed, 1.0, AT, ctx);
     let tracked = maple_canvas_zoom_pinch_tracked(captured, 1.5, AT);
     assert_eq!(tracked.pixel_scale, 1.0);
-    let cancelled = maple_canvas_zoom_gestures_cancelled(tracked, ctx);
+    let drag_cancelled = maple_canvas_zoom_drag_cancelled(tracked);
+    assert_eq!(drag_cancelled.has_pinch_start_scale, 1);
+    let cancelled = maple_canvas_zoom_pinch_cancelled(drag_cancelled, ctx);
     assert_eq!(cancelled.has_pinch_start_scale, 0);
     assert!((cancelled.pixel_scale - 1.5).abs() < 1e-12);
 }
 
-/// Hosts mirror this layout by hand (the Windows C# struct, Android slots).
+/// The layout every host's FFI binding passes by value.
 #[test]
 fn the_state_layout_hosts_mirror() {
     assert_eq!(std::mem::size_of::<MapleCanvasZoomState>(), 176);
