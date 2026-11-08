@@ -232,8 +232,8 @@ mod local_adjustments;
 mod local_spatial;
 mod noise_reduction;
 mod p3_auto;
-// Canvas overlay surface (#5715): the crop overlay drawn into an upright,
-// viewport-sized surface above the image.
+// Canvas overlay surface (#5715): the crop overlay drawn into an upright
+// surface, the viewport plus an overscan margin, above the image.
 mod overlay;
 // Passthrough display proof (P1b / #988): wgpu → CAMetalLayer present. Apple-
 // only — `SurfaceTargetUnsafe::CoreAnimationLayer` is wgpu-gated on
