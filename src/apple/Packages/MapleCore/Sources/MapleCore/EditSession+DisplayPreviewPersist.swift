@@ -83,7 +83,7 @@ extension EditSession {
     } catch {
       // A changed external sidecar must not acquire a new preview/thumbnail
       // stamped as if the stale editor model had been saved (#5348).
-      sidecarError = error
+      recordSidecarError(error)
       if let conflict = error as? XMPStoreError, case .externalConflict = conflict {
         sidecarWritesDisabled = true
       }

@@ -35,9 +35,20 @@ extension ThumbnailLoader {
     return task
   }
 
+  /// Serialized against `finishWaiting` by the actor: a producer is either
+  /// marked active (and kept) or abandoned before its work begins.
   private func beginActiveProducer(_ id: UUID) async throws {
     try await acquireDecodeSlot()
+    guard !Task.isCancelled else {
+      await releaseDecodeSlot()
+      throw CancellationError()
+    }
     activeProducers.insert(id)
+  }
+
+  /// Number of callers currently waiting on `key`'s producer.
+  func waiterCount(forKey key: String) -> Int {
+    inFlight[key].map { thumbnailWaiters[$0]?.count ?? 0 } ?? 0
   }
 
   private func cleanupLocalProducer(_ id: UUID, key: String) {

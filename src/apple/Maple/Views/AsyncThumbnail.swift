@@ -59,15 +59,15 @@ struct AsyncThumbnail<Content: View>: View {
       decoded = cameraImage
     }
     guard !Task.isCancelled else { return }
-    let bytes = await ThumbnailLoader.shared.load(
-      for: capturedAsset, from: capturedSource
-    )
-    guard !Task.isCancelled else { return }
     // Decode off the main actor before touching view state — never in
     // `body`. Keyed on the asset id plus its saved-image revision. No arrival
-    // fade: it hitches scroll the same way it does in the grid.
-    let image = await ThumbnailDecoder.image(
-      for: bytes, key: key)
+    // fade: it hitches scroll the same way it does in the grid. An empty
+    // answer is retried while the cell stays on screen (#5735).
+    let image = await ThumbnailRetry.load { () async -> CGImage? in
+      let bytes = await ThumbnailLoader.shared.load(for: capturedAsset, from: capturedSource)
+      guard !Task.isCancelled else { return nil }
+      return await ThumbnailDecoder.image(for: bytes, key: key)
+    }
     guard !Task.isCancelled else { return }
     if let image {
       decoded = image

@@ -308,7 +308,8 @@ public final class BatchMetadataViewModel: Identifiable {
     // A live session's state is only trusted once its sidecar has loaded (#4708).
     await session.loadSidecar()
     guard session.hasLoadedSidecar else {
-      throw session.sidecarError ?? CancellationError()
+      try Task.checkCancellation()
+      throw session.sidecarNotLoadedError
     }
     // Batch metadata targets Primary even when another variant is selected.
     guard session.workflow.selectedVariantId == WorkflowContract.primaryVariantID,
@@ -351,7 +352,8 @@ public final class BatchMetadataViewModel: Identifiable {
     }
     await session.loadSidecar()
     guard session.hasLoadedSidecar else {
-      throw session.sidecarError ?? CancellationError()
+      try Task.checkCancellation()
+      throw session.sidecarNotLoadedError
     }
     let livePhotoKitStore = session.sidecarStore as? PhotoKitSidecarStore
     let reboundPrimaryStore = session.sidecarStore as? XMPSidecarStore

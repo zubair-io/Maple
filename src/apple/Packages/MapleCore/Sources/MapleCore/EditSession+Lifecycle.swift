@@ -37,7 +37,7 @@ extension EditSession {
       _ = await previous?.value
       await loadSidecar()
       if Task.isCancelled { return CancellationError() }
-      guard hasLoadedSidecar else { return sidecarError ?? CancellationError() }
+      guard hasLoadedSidecar else { return sidecarNotLoadedError }
       edit(&culling)
       return nil
     }
@@ -98,10 +98,12 @@ extension EditSession {
     if !hasLoadedSidecar, queuedCullingPatch != nil { await loadSidecar() }
     // An unloaded session holds defaults, not the photo's edits: never write
     // them, even when the store would accept it. A queued rating that cannot
-    // be merged is an unpersisted edit, so it fails the confirmed flush.
+    // be merged is an unpersisted edit, so it fails the confirmed flush —
+    // as a cancellation when this flush was cancelled, never as a save error.
     guard hasLoadedSidecar else {
-      if queuedCullingPatch != nil { throw sidecarError ?? CancellationError() }
-      return
+      guard queuedCullingPatch != nil else { return }
+      try Task.checkCancellation()
+      throw sidecarNotLoadedError
     }
     while true {
       await workflow.waitForIdle()
@@ -126,7 +128,7 @@ extension EditSession {
           }
         } catch {
           sidecarDirtyWhileDisabled = true
-          sidecarError = error
+          recordSidecarError(error)
           throw error
         }
       } else {

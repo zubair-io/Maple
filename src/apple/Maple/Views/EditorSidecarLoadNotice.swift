@@ -21,7 +21,7 @@ struct EditorSidecarLoadNotice: View {
       .background(.ultraThinMaterial, in: Capsule())
       .accessibilityElement(children: .contain)
       .accessibilityIdentifier("editor-sidecar-load-failed")
-    } else if let error = session.sidecarError {
+    } else if let error = session.sidecarError, !error.isCancellation {
       MuiStatusText(state: .error, text: error.localizedDescription)
         .padding(.horizontal, MuiTokens.spacingMd)
         .padding(.vertical, MuiTokens.spacingSm)
