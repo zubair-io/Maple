@@ -79,9 +79,6 @@ struct PreviewView: View {
   /// parent updates its selection + navigation state and re-renders Preview
   /// with the new `asset`.
   let onSelectAsset: (AssetRef) -> Void
-  #if os(iOS)
-    @Environment(\.verticalSizeClass) private var verticalSizeClass
-  #endif
 
   /// Info presentation on every iPhone/Duo width and on compact iPad.
   /// A new Preview starts closed so the photo is never covered on entry.
@@ -116,13 +113,9 @@ struct PreviewView: View {
     #endif
   }
 
-  private var isFullBleedAllowed: Bool {
-    #if os(iOS)
-      FullBleedCanvas.isAllowed(
-        idiom: MapleShellKind.currentIdiom, hasCompactHeight: verticalSizeClass == .compact)
-    #else
-      true
-    #endif
+  private func isFullBleedAllowed(in geometry: GeometryProxy) -> Bool {
+    FullBleedCanvas.isAllowed(
+      idiom: MapleShellKind.currentIdiom, screen: FullBleedCanvas.screen(of: geometry))
   }
 
   private func usesInfoInspector(_ width: CGFloat) -> Bool {
@@ -150,13 +143,16 @@ struct PreviewView: View {
     GeometryReader { geometry in
       previewContent(
         isWide: usesWideLayout(geometry.size.width),
-        hasInspector: usesInfoInspector(geometry.size.width)
+        hasInspector: usesInfoInspector(geometry.size.width),
+        isFullBleedAllowed: isFullBleedAllowed(in: geometry)
       )
       .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
   }
 
-  private func previewContent(isWide: Bool, hasInspector: Bool) -> some View {
+  private func previewContent(
+    isWide: Bool, hasInspector: Bool, isFullBleedAllowed: Bool
+  ) -> some View {
     ZStack {
       MapleTokens.bg
         .opacity(PreviewViewVM.plainPullBackdropOpacity(translationY: plainPullTranslation.height))
