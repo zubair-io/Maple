@@ -59,6 +59,33 @@ class CanvasZoomGestureTest {
     }
 
     @Test
+    fun aSymmetricPinchWhoseSecondFingerLandsLaterDoesNotPan() {
+        val zoom = CanvasZoomState()
+        compose.setContent {
+            Box(Modifier.size(300.dp).testTag("centroid-box").pointerInput(Unit) {
+                detectCanvasZoomPanAndSwipe(zoom, { 4000 to 4000 }, false, {})
+            })
+        }
+        compose.onNodeWithTag("centroid-box").performTouchInput {
+            val y = centerY
+            down(0, Offset(width * 0.3f, y))
+            advanceEventTime(16)
+            down(1, Offset(width * 0.7f, y))
+            advanceEventTime(16)
+            updatePointerTo(0, Offset(width * 0.2f, y))
+            updatePointerTo(1, Offset(width * 0.8f, y))
+            move()
+            up(1)
+            up(0)
+        }
+        compose.runOnIdle {
+            assertTrue(zoom.isZoomed)
+            assertEquals(0f, zoom.panX, 1f)
+            assertEquals(0f, zoom.panY, 1f)
+        }
+    }
+
+    @Test
     fun doubleTapSelects100PercentEvenWhenFitAlreadyEnlargesTheImage() {
         val zoom = CanvasZoomState()
         zoom.doubleTap(600f, 450f, 1000, 750, 1200f, 900f)

@@ -4,7 +4,6 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.foundation.gestures.calculateCentroid
 import androidx.compose.foundation.gestures.calculatePan
 import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.layout.Box
@@ -371,11 +370,14 @@ internal suspend fun PointerInputScope.detectCanvasZoomPanAndSwipe(
                 gestureWasMultiTouch = true
                 val zoomChange = event.calculateZoom()
                 if (zoomChange.isFinite() && zoomChange > 0f) pinchMagnification *= zoomChange
-                val centroid = event.calculateCentroid(useCurrent = true)
+                // Compose's calculateCentroid() skips pointers pressed this frame, which
+                // would capture the pinch's start centroid at the first finger alone.
+                val centroidX = pressed.sumOf { it.position.x.toDouble() }.toFloat() / pressed.size
+                val centroidY = pressed.sumOf { it.position.y.toDouble() }.toFloat() / pressed.size
                 zoomState.pinchChanged(
                     magnification = pinchMagnification,
-                    centroidX = if (centroid != Offset.Unspecified) centroid.x else viewportW / 2f,
-                    centroidY = if (centroid != Offset.Unspecified) centroid.y else viewportH / 2f,
+                    centroidX = centroidX,
+                    centroidY = centroidY,
                     imageWidth = imgW,
                     imageHeight = imgH,
                     viewportWidth = viewportW,
