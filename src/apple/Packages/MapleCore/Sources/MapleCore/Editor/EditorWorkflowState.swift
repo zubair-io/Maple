@@ -88,7 +88,7 @@ public final class EditorWorkflowState {
         self.pendingRestoreLabel = nil
         self.errorText = nil
       } catch {
-        if current == self.generation { self.errorText = error.localizedDescription }
+        if current == self.generation { self.showFailure(error) }
       }
     }
   }
@@ -134,7 +134,7 @@ public final class EditorWorkflowState {
         session.sidecarError = nil
         session.announcer.announce("Saved snapshot \(trimmed)")
       } catch {
-        if current == self.generation { self.errorText = error.localizedDescription }
+        if current == self.generation { self.showFailure(error) }
       }
     }
   }
@@ -159,7 +159,7 @@ public final class EditorWorkflowState {
           action: snapshot ? "snapshot-restore" : "history-restore",
           label: "Restore \(selected.0)", adjustmentXmp: selected.1))
       errorText = nil
-    } catch { errorText = error.localizedDescription }
+    } catch { showFailure(error) }
   }
 
   public func cancelRestore() {
@@ -214,7 +214,7 @@ public final class EditorWorkflowState {
         self.errorText = nil
         session.sidecarError = nil
       } catch {
-        if current == self.generation { self.errorText = error.localizedDescription }
+        if current == self.generation { self.showFailure(error) }
       }
     }
   }
@@ -293,7 +293,7 @@ public final class EditorWorkflowState {
       errorText = nil
       session.sidecarError = nil
     } catch {
-      if current == generation { errorText = error.localizedDescription }
+      if current == generation { showFailure(error) }
     }
   }
 
@@ -331,5 +331,11 @@ public final class EditorWorkflowState {
   private func timestamp() -> UInt64 { UInt64(Date().timeIntervalSince1970 * 1000) }
   private func failure(_ message: String) -> WorkflowSidecarError {
     WorkflowSidecarError(message: message)
+  }
+
+  /// Cancelled work was abandoned, not refused, so it never reaches the panel.
+  func showFailure(_ error: Error) {
+    guard !error.isCancellation else { return }
+    errorText = error.localizedDescription
   }
 }

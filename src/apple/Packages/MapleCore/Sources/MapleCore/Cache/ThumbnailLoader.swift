@@ -405,13 +405,14 @@ public actor ThumbnailLoader {
     // instead of being cancelled into the RAW-download fallback (#5735).
     let task = startLocalProducer(key: coalescingKey) {
       await self.produceSourcelessThumbnail(
-        source: source, ref: ref, key: key, provider: provider, hint: hint)
+        source: source, ref: ref, key: key, coalescingKey: coalescingKey,
+        provider: provider, hint: hint)
     }
     return await awaitThumbnail(task)
   }
 
   private nonisolated func produceSourcelessThumbnail(
-    source: (any ImageSource)?, ref: ImageRef?, key: String,
+    source: (any ImageSource)?, ref: ImageRef?, key: String, coalescingKey: String,
     provider: (@Sendable () async throws -> Data)?, hint: String
   ) async -> Data? {
     // Source-provided thumbnail (server-rendered / PhotoKit fast
@@ -428,8 +429,10 @@ public actor ThumbnailLoader {
     // Fallback: pull RAW bytes through the asset's provider, render
     // via the Rust pipeline, encode AVIF, persist — under the
     // decode-slot gate (acquired INSIDE the task; see the URL-keyed
-    // overload for why).
-    guard let provider else { return nil }
+    // overload for why). A full RAW download is only worth starting while
+    // a cell still wants this thumbnail; one that scrolled away must not
+    // hold a decode slot and the network for nobody.
+    guard let provider, await waiterCount(forKey: coalescingKey) > 0 else { return nil }
     let result: Data? = await {
       do {
         let bytes = try await provider()

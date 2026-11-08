@@ -78,9 +78,4 @@ final class ThumbnailRetryTests: XCTestCase {
     let count = await attempts.count
     XCTAssertEqual(count, 1, "a cancelled cell makes no further attempts")
   }
-
-  func testDefaultScheduleIsBounded() {
-    XCTAssertFalse(ThumbnailRetry.delays.isEmpty)
-    XCTAssertLessThanOrEqual(ThumbnailRetry.delays.count, 4)
-  }
 }

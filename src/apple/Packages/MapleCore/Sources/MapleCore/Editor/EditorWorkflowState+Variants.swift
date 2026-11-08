@@ -72,7 +72,7 @@ extension EditorWorkflowState {
           session: session, variantId: command.record.variantId, generation: current)
         self.pendingVariant = nil
         self.errorText = nil
-      } catch { if self.generation == current { self.errorText = error.localizedDescription } }
+      } catch { if self.generation == current { self.showFailure(error) } }
     }
   }
 
@@ -86,7 +86,7 @@ extension EditorWorkflowState {
       do {
         try await self.select(session: session, variantId: variantId, generation: current)
         self.errorText = nil
-      } catch { if self.generation == current { self.errorText = error.localizedDescription } }
+      } catch { if self.generation == current { self.showFailure(error) } }
     }
   }
 
