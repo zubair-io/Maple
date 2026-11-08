@@ -56,6 +56,7 @@ impl CanvasZoomModel {
             ),
             pinch_start_centroid: location,
             pinch_last_centroid: location,
+            pinch_last_magnification: magnification,
             ..self
         }
     }

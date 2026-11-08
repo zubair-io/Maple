@@ -1,4 +1,5 @@
 use super::*;
+use crate::canvas::CanvasMath;
 
 fn close(actual: f64, expected: f64, tolerance: f64) {
     assert!(
@@ -31,15 +32,25 @@ fn fit_footprint_centers_wide_viewport() {
 }
 
 #[test]
-fn fit_footprint_never_upscales() {
-    let footprint = fit_footprint(Size::new(4000.0, 4000.0), Size::new(600.0, 400.0));
-    assert_eq!((footprint.width, footprint.height), (600.0, 400.0));
+fn fit_footprint_upscales_a_small_image_like_the_canvas_fit() {
+    let wrap = Size::new(4000.0, 4000.0);
+    let image = Size::new(600.0, 400.0);
+    let footprint = fit_footprint(wrap, image);
+    close(footprint.x, 0.0, 1e-9);
+    close(footprint.y, 2000.0 / 3.0, 1e-9);
+    close(footprint.width, 4000.0, 1e-9);
+    close(footprint.height, 8000.0 / 3.0, 1e-9);
+    let canvas_fit = CanvasMath::new(wrap, image, 0.0, Size::ZERO, 1.0)
+        .display_frame_in_points()
+        .unwrap();
+    close(footprint.width, canvas_fit.width, 1e-9);
+    close(footprint.height, canvas_fit.height, 1e-9);
 }
 
 #[test]
 fn fit_footprint_reads_a_missing_image_as_one_pixel() {
     let footprint = fit_footprint(Size::new(100.0, 100.0), Size::ZERO);
-    assert_eq!(footprint, Rect::new(49.5, 49.5, 1.0, 1.0));
+    assert_eq!(footprint, Rect::new(0.0, 0.0, 100.0, 100.0));
 }
 
 #[test]
