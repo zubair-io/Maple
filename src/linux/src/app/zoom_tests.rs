@@ -45,6 +45,30 @@ fn pixel_scale_anchor_and_pan_clamp_follow_native_dimensions() {
 }
 
 #[test]
+fn drag_frames_with_layout_between_them_pan_cumulatively() {
+    let geometry = canvas_geometry(egui::vec2(4000.0, 3000.0));
+    let mut zoom = zoom::ZoomCanvas::default();
+    zoom.zoom_to(1.0);
+    zoom.image_rect(&geometry);
+    zoom.drag_started();
+    for (delta, expected) in [(10.0, 10.0), (10.0, 20.0), (0.0, 20.0), (5.0, 25.0)] {
+        zoom.drag(egui::vec2(delta, 0.0), &geometry);
+        zoom.image_rect(&geometry);
+        assert_eq!(zoom.pan(), egui::vec2(expected, 0.0));
+    }
+    zoom.drag_ended();
+    zoom.image_rect(&geometry);
+    zoom.drag_started();
+    zoom.drag(egui::vec2(-5.0, 0.0), &geometry);
+    zoom.image_rect(&geometry);
+    assert_eq!(
+        zoom.pan(),
+        egui::vec2(20.0, 0.0),
+        "the next drag starts from the release"
+    );
+}
+
+#[test]
 fn shared_model_stops_floor_and_double_click_anchor() {
     let geometry = canvas_geometry(egui::vec2(4000.0, 2000.0));
     let mut zoom = zoom::ZoomCanvas::default();
