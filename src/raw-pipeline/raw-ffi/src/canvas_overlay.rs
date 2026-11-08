@@ -87,7 +87,11 @@ pub unsafe extern "C" fn maple_canvas_crop_overlay_rasterize(
 /// places it this far above and left of the viewport.
 #[no_mangle]
 pub extern "C" fn maple_canvas_crop_overlay_overscan() -> f64 {
-    CROP_OVERLAY_OVERSCAN
+    catch_panic(
+        "maple_canvas_crop_overlay_overscan",
+        CROP_OVERLAY_OVERSCAN,
+        || CROP_OVERLAY_OVERSCAN,
+    )
 }
 
 /// The centre, in viewport points, of the corner or edge handle `handle`
