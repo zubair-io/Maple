@@ -27,29 +27,33 @@ struct RetouchOverlay: View {
     private var retouch: RetouchSession { state.retouch }
 
     var body: some View {
-        GeometryReader { geo in
-            if let frame = state.zoom.displayFrameInPoints,
-                let full = MaskOverlayGeometry.fullFrameRect(
-                    containerSize: geo.size, displayFrame: frame,
-                    panOffset: state.zoom.panOffset, crop: state.session.model.crop)
-            {
-                ZStack {
-                    // The straighten angle rotates the frame about its
-                    // centre before the crop is cut; the spots are
-                    // full-frame, so `screenPoint` rotates each one the same
-                    // way. Rotating the placed positions rather than the
-                    // container keeps the rotation anchored on the FRAME's
-                    // centre, which is not the container's whenever the
-                    // canvas is panned or zoomed off fit.
-                    discs(in: full)
-                    Color.clear
-                        .contentShape(Rectangle())
-                        .gesture(dragGesture(full: full))
+        // Placed from the photo as shown, so a settle or a live pinch moves
+        // the discs with it in the same frame (#5744).
+        CanvasPresentedReader(controller: state.zoom) { presented in
+            GeometryReader { geo in
+                if let presented,
+                    let full = MaskOverlayGeometry.fullFrameRect(
+                        containerSize: geo.size, displayFrame: presented.displayFrame,
+                        panOffset: presented.panOffset, crop: state.session.model.crop)
+                {
+                    ZStack {
+                        // The straighten angle rotates the frame about its
+                        // centre before the crop is cut; the spots are
+                        // full-frame, so `screenPoint` rotates each one the same
+                        // way. Rotating the placed positions rather than the
+                        // container keeps the rotation anchored on the FRAME's
+                        // centre, which is not the container's whenever the
+                        // canvas is panned or zoomed off fit.
+                        discs(in: full)
+                        Color.clear
+                            .contentShape(Rectangle())
+                            .gesture(dragGesture(full: full))
+                    }
+                    .accessibilityElement(children: .contain)
+                    .accessibilityLabel("Heal overlay")
+                    .accessibilityValue(overlayDescription)
+                    .accessibilityIdentifier("editor-retouch-overlay")
                 }
-                .accessibilityElement(children: .contain)
-                .accessibilityLabel("Heal overlay")
-                .accessibilityValue(overlayDescription)
-                .accessibilityIdentifier("editor-retouch-overlay")
             }
         }
     }

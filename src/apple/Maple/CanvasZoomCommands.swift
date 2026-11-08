@@ -35,7 +35,7 @@ struct CanvasZoomCommands: Commands {
         Button("Zoom Out") { run(.zoomOut) { controller?.stepZoomOut() } }
           .keyboardShortcut("-", modifiers: .command)
       }
-      .disabled(router == nil && controller == nil)
+      .disabled((router == nil && controller == nil) || controller?.isZoomLocked == true)
       Button("Before / After") { run(.compareToggle) {} }
         .disabled(router == nil)
       Button("Reset Visible Group") { run(.resetGroup) {} }

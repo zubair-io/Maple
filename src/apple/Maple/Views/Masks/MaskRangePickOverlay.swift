@@ -2,7 +2,7 @@
 // panel's colour-range eyedropper (#362). Mounted in the canvas viewport
 // while `MaskRangePicker` is armed, exactly like `WhiteBalancePickOverlay`:
 // it owns pointer gestures for the duration of the pick so a tap cannot
-// also pan, zoom or crop, and inverts the same committed frame/offset and
+// also pan, zoom or crop, and inverts the same presented frame/offset and
 // crop geometry (`WhiteBalancePickGeometry`) to the uncropped image point
 // the sampler takes.
 
@@ -18,17 +18,17 @@ struct MaskRangePickOverlay: View {
 
   var body: some View {
     GeometryReader { geometry in
-      let frame = state.zoom.displayFrameInPoints ?? .zero
-      let pan = state.zoom.panOffset
       let nativeSize = state.session.nativeImageSize
       let crop = state.session.model.crop
       Color.clear
         .contentShape(Rectangle())
         .onTapGesture { location in
           guard !state.session.isRendering, !picker.isSampling else { return }
+          // Where the photo is drawn at the tap, mid-settle included.
+          let shown = state.zoom.presentedGeometry(at: Date())
           let point = WhiteBalancePickGeometry.imagePoint(
-            at: location, viewport: geometry.size, displayFrame: frame,
-            pan: pan, nativeSize: nativeSize, crop: crop)
+            at: location, viewport: geometry.size, displayFrame: shown?.displayFrame ?? .zero,
+            pan: shown?.panOffset ?? .zero, nativeSize: nativeSize, crop: crop)
           sampleTask = Task { await picker.pick(at: point) }
         }
         .accessibilityLabel("Colour range sampling canvas")
