@@ -1,8 +1,9 @@
 // EditSessionCancellationErrorTests — a cancellation is never a save error
 // (#5735). The editor showed "The operation couldn't be completed.
 // (Swift.CancellationError error 1.)" in its red banner because cancelled
-// work was stored as the session's sidecar error. Every case round-trips a
-// real .xmp beside the committed synthetic DNG in a temp directory.
+// work was stored as the session's sidecar error. Local cases round-trip a
+// real .xmp beside the committed synthetic DNG in a temp directory; cloud
+// cases fake only the HTTP transport, as CloudSidecarStoreTests does.
 
 import XCTest
 
@@ -68,17 +69,45 @@ final class EditSessionCancellationErrorTests: EditorTestCase {
     XCTAssertNil(session.sidecarError)
   }
 
-  func testCancelledSidecarReadDoesNotPauseEditing() async throws {
-    let session = EditSession(asset: AssetRef(url: try makeRaw()))
+  private func cloudSession(cancelledReads: Int) -> EditSession {
+    let server = URL(string: "https://cloud.example.test")!
+    let remaining = LockedCounter(cancelledReads)
+    let notFound: (URLRequest) -> (Data, HTTPURLResponse) = { request in
+      let response = HTTPURLResponse(
+        url: request.url!, statusCode: 404, httpVersion: "HTTP/1.1", headerFields: nil)!
+      return (Data(), response)
+    }
+    let urlSession = URLSession.stubbedSequence(
+      errorProvider: { _ in remaining.takeOne() ? URLError(.cancelled) : nil }, notFound)
+    let store = CloudSidecarStore(
+      server: server, assetID: "a-5735",
+      httpClient: .unauthenticated(server: server, urlSession: urlSession))
+    let asset = AssetRef(
+      displayName: "IMG_5735", hintExtension: "dng", stableID: "a-5735",
+      bytesProvider: { throw URLError(.notConnectedToInternet) })
+    return EditSession(asset: asset, remoteSidecarStore: store)
+  }
 
-    let load = Task { await session.loadSidecar() }
-    load.cancel()
-    await load.value
+  func testSidecarReadCancelledElsewhereStillHydrates() async {
+    let session = cloudSession(cancelledReads: 1)
 
+    await session.loadSidecar()
+
+    XCTAssertTrue(session.hasLoadedSidecar, "one dropped read is retried, not treated as failed")
     XCTAssertFalse(session.sidecarLoadFailed)
     XCTAssertNil(session.sidecarError)
+  }
+
+  func testRepeatedlyCancelledSidecarReadPausesEditingWithRetry() async {
+    let session = cloudSession(cancelledReads: 2)
+
     await session.loadSidecar()
-    XCTAssertTrue(session.hasLoadedSidecar, "a later load still hydrates the session")
+
+    XCTAssertFalse(session.hasLoadedSidecar)
+    XCTAssertTrue(
+      session.sidecarLoadFailed, "a read the editor did not cancel must offer the Retry notice")
+    await session.loadSidecar()
+    XCTAssertTrue(session.hasLoadedSidecar, "Retry hydrates once the connection recovers")
   }
 
   func testCancellationIsClassifiedAcrossItsForms() {
@@ -87,5 +116,20 @@ final class EditSessionCancellationErrorTests: EditorTestCase {
     XCTAssertTrue(NSError(domain: NSURLErrorDomain, code: NSURLErrorCancelled).isCancellation)
     XCTAssertFalse(URLError(.timedOut).isCancellation)
     XCTAssertFalse(XMPStoreError.externalConflict(URL(fileURLWithPath: "/x.xmp")).isCancellation)
+  }
+}
+
+private final class LockedCounter: @unchecked Sendable {
+  private let lock = NSLock()
+  private var remaining: Int
+
+  init(_ remaining: Int) { self.remaining = remaining }
+
+  func takeOne() -> Bool {
+    lock.lock()
+    defer { lock.unlock() }
+    guard remaining > 0 else { return false }
+    remaining -= 1
+    return true
   }
 }

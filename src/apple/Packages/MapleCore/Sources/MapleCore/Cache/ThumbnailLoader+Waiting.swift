@@ -46,7 +46,8 @@ extension ThumbnailLoader {
     activeProducers.insert(id)
   }
 
-  /// Number of callers currently waiting on `key`'s producer.
+  /// Number of callers currently waiting on `key`'s producer: whether a
+  /// running producer's expensive fallback is still wanted.
   func waiterCount(forKey key: String) -> Int {
     inFlight[key].map { thumbnailWaiters[$0]?.count ?? 0 } ?? 0
   }

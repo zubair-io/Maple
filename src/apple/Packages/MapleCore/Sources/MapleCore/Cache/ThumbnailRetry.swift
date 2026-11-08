@@ -2,18 +2,16 @@
 // thumbnail (#5735).
 //
 // Grid and filmstrip cells load inside their own `.task`, which SwiftUI
-// cancels when the cell leaves the screen. An empty answer (a cancelled
-// shared fetch, a server still indexing, a dropped connection) used to
-// leave the cell grey until scrolling re-created it. The retry runs inside
-// that same task, so it costs nothing per scroll frame and stops the moment
-// the cell disappears; the schedule bounds it for a thumbnail that never
-// exists.
+// cancels when the cell leaves the screen. The retry runs inside that same
+// task, so it costs nothing per scroll frame and stops the moment the cell
+// disappears; the schedule bounds it for a thumbnail that never exists.
 
 import Foundation
 
 public enum ThumbnailRetry {
-  /// Waits before each retry: three more attempts over about 13 seconds.
-  public static let delays: [Duration] = [.seconds(1), .seconds(3), .seconds(9)]
+  /// Waits before each retry: two more attempts over about 8 seconds. Few,
+  /// because an asset that cannot be rendered repeats its whole render.
+  public static let delays: [Duration] = [.seconds(2), .seconds(6)]
 
   /// `attempt`'s result, retried after each delay while it comes back empty
   /// and the calling task has not been cancelled.

@@ -13,10 +13,4 @@ extension SearchViewModel {
       .first { $0 * ladder.stepQuotaPercent / 100 >= need || $0 >= ladder.max }
     return min(reaching ?? ladder.max, ladder.max)
   }
-
-  /// True when `error` is a request/task cancellation (debounce superseded
-  /// this search) rather than a genuine network/decode failure.
-  nonisolated static func isCancellation(_ error: Error) -> Bool {
-    error.isCancellation
-  }
 }

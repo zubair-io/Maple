@@ -77,17 +77,19 @@ final class ThumbnailLoaderSourcelessProducerTests: XCTestCase {
     _ loader: ThumbnailLoader, key: String, count: Int,
     file: StaticString = #filePath, line: UInt = #line
   ) async {
-    for _ in 0..<10_000 {
+    let deadline = ContinuousClock.now + .seconds(5)
+    while ContinuousClock.now < deadline {
       if await loader.waiterCount(forKey: key) == count { return }
-      await Task.yield()
+      try? await Task.sleep(for: .milliseconds(5))
     }
     XCTFail("waiter count never reached \(count)", file: file, line: line)
   }
 
   private func waitForCache(key: String) async -> Data? {
-    for _ in 0..<10_000 {
+    let deadline = ContinuousClock.now + .seconds(5)
+    while ContinuousClock.now < deadline {
       if let data = await ThumbnailDiskCache.shared.thumbnailData(forKey: key) { return data }
-      await Task.yield()
+      try? await Task.sleep(for: .milliseconds(5))
     }
     return nil
   }

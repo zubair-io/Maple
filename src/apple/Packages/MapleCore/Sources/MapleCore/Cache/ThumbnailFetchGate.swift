@@ -52,11 +52,12 @@ public actor ThumbnailFetchGate {
   /// semaphore acquire happens inside the detached task (not here) for the
   /// same reason: an `await` before registration would reopen that race.
   ///
-  /// A cancelled caller returns `nil` and stops waiting for its share. The
-  /// fetch itself is cancelled only when no caller is left waiting AND it
-  /// has not started yet — so a fetch still queued behind the cap never
-  /// holds a slot for nobody (jules review, PR #3159), while one already on
-  /// the wire finishes for the cells that remain or for the cache.
+  /// A cancelled caller gives up only its own share and gets `nil` back
+  /// once the shared fetch settles. The fetch itself is cancelled only when
+  /// no caller is left waiting AND it has not started yet — so a fetch still
+  /// queued behind the cap never holds a slot for nobody (jules review,
+  /// PR #3159), while one already on the wire finishes for the cells that
+  /// remain or for the backend's cache.
   public func fetch(key: String, _ work: @escaping @Sendable () async -> Data?) async -> Data? {
     if let existing = inFlight[key] {
       return await wait(on: existing, key: key)
@@ -87,7 +88,7 @@ public actor ThumbnailFetchGate {
     return await wait(on: producer, key: key)
   }
 
-  /// Number of callers currently waiting on `key`'s fetch.
+  /// Number of callers currently waiting on `key`'s fetch (test seam).
   func waiterCount(forKey key: String) -> Int {
     inFlight[key].map { waiters[$0.id]?.count ?? 0 } ?? 0
   }

@@ -1,7 +1,5 @@
 // EditSession+SidecarErrors.swift — what the editor reports as a failed
-// save. Cancelled work is not a failure: the editor showed "The operation
-// couldn't be completed. (Swift.CancellationError error 1.)" because
-// cancellations were stored as the session's sidecar error (#5735).
+// save. Cancelled work is not a failure and never reaches the banner (#5735).
 
 import Foundation
 

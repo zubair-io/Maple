@@ -271,7 +271,7 @@ public final class SearchViewModel {
       // A debounced keystroke cancels the prior in-flight request — swallow
       // silently and leave the current results in place; the newer search is
       // already on its way. Showing a "cancelled" banner would be wrong.
-      if Self.isCancellation(error) { return }
+      if error.isCancellation { return }
       guard g == generation else { return }
       loadError = error
       results = []
@@ -437,7 +437,7 @@ public final class SearchViewModel {
         moreBeyondTotal = !more.results.isEmpty && more.more
         cappedAtTotal = more.capped
       } catch {
-        if Self.isCancellation(error) { return }
+        if error.isCancellation { return }
         guard g == generation else { return }
         loadError = error
       }
@@ -484,7 +484,7 @@ public final class SearchViewModel {
         Task { [weak self] in await self?.refreshFacetsForWindow(page: next, generation: g) }
       }
     } catch {
-      if Self.isCancellation(error) { return }
+      if error.isCancellation { return }
       guard g == generation else { return }
       // The engine that ranked the pages held is gone: another engine's next
       // page would repeat and skip rows, so start the search over (#4542).

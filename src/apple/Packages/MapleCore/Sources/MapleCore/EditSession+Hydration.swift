@@ -85,7 +85,7 @@ extension EditSession {
     var loadedCulling: CullingState? = nil
     if let store = sidecarStore {
       do {
-        if let (m, c) = try await store.loadIfPresent() {
+        if let (m, c) = try await Self.readSidecar(from: store) {
           loadedModel = m
           loadedCulling = c
         }
@@ -93,8 +93,9 @@ extension EditSession {
         // A failed Cloud read is not an absent sidecar (#3357). Nothing is
         // persisted until a later load succeeds (#4708) — unless an
         // overlapping load already did, in which case this failure is stale.
-        // A cancelled read is neither: the next load simply retries it.
-        guard !hasLoadedSidecar, !error.isCancellation, !Task.isCancelled else { return }
+        // A load abandoned by its own caller is not a failure either; the
+        // next load retries it.
+        guard !hasLoadedSidecar, !Task.isCancelled else { return }
         sidecarError = error
         sidecarLoadFailed = true
         return
@@ -174,6 +175,18 @@ extension EditSession {
 
     if renderRequested, model != previousModel {
       _scheduleRender(phase: .fast)
+    }
+  }
+
+  /// A read cancelled by something other than this caller (a request
+  /// cancelled under it) is retried once before it pauses editing.
+  private static func readSidecar(from store: any SidecarStoreProtocol) async throws
+    -> (AdjustmentModel, CullingState)?
+  {
+    do {
+      return try await store.loadIfPresent()
+    } catch let error where error.isCancellation && !Task.isCancelled {
+      return try await store.loadIfPresent()
     }
   }
 

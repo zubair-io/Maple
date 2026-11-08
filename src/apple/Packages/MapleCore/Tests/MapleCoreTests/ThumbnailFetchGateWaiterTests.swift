@@ -91,9 +91,10 @@ final class ThumbnailFetchGateWaiterTests: XCTestCase {
     _ gate: ThumbnailFetchGate, key: String, count: Int,
     file: StaticString = #filePath, line: UInt = #line
   ) async {
-    for _ in 0..<10_000 {
+    let deadline = ContinuousClock.now + .seconds(5)
+    while ContinuousClock.now < deadline {
       if await gate.waiterCount(forKey: key) == count { return }
-      await Task.yield()
+      try? await Task.sleep(for: .milliseconds(5))
     }
     XCTFail("waiter count never reached \(count)", file: file, line: line)
   }
