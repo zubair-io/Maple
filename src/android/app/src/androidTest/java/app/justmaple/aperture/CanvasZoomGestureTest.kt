@@ -86,6 +86,61 @@ class CanvasZoomGestureTest {
     }
 
     @Test
+    fun aFingerLandingOrLiftingMidPinchNeitherZoomsNorPans() {
+        val zoom = CanvasZoomState()
+        compose.setContent {
+            Box(Modifier.size(300.dp).testTag("membership-box").pointerInput(Unit) {
+                detectCanvasZoomPanAndSwipe(zoom, { 4000 to 4000 }, false, {})
+            })
+        }
+        val box = compose.onNodeWithTag("membership-box")
+        box.performTouchInput {
+            down(0, Offset(width * 0.3f, centerY))
+            advanceEventTime(16)
+            down(1, Offset(width * 0.7f, centerY))
+            advanceEventTime(16)
+            updatePointerTo(0, Offset(width * 0.2f, centerY))
+            updatePointerTo(1, Offset(width * 0.8f, centerY))
+            move()
+        }
+        val (scale, panX, panY) = compose.runOnIdle { Triple(zoom.pixelScale, zoom.panX, zoom.panY) }
+        box.performTouchInput {
+            advanceEventTime(16)
+            down(2, Offset(width * 0.9f, centerY))
+            advanceEventTime(16)
+            move()
+        }
+        compose.runOnIdle {
+            assertEquals("a third finger landing", scale, zoom.pixelScale, 1e-6f)
+            assertEquals(panX, zoom.panX, 1f)
+            assertEquals(panY, zoom.panY, 1f)
+        }
+        box.performTouchInput {
+            advanceEventTime(16)
+            up(0)
+            advanceEventTime(16)
+            move()
+        }
+        compose.runOnIdle {
+            assertEquals("one of three fingers lifting", scale, zoom.pixelScale, 1e-6f)
+            assertEquals(panX, zoom.panX, 1f)
+            assertEquals(panY, zoom.panY, 1f)
+        }
+        box.performTouchInput {
+            advanceEventTime(16)
+            up(1)
+            advanceEventTime(16)
+            moveBy(2, Offset(-30f, 0f))
+            up(2)
+        }
+        compose.runOnIdle {
+            assertEquals("the last finger hands off to a pan", scale, zoom.pixelScale, 1e-6f)
+            assertTrue("pan ${zoom.panX} stays within the hand-off move", zoom.panX in panX - 31f..panX + 1f)
+            assertEquals(panY, zoom.panY, 1f)
+        }
+    }
+
+    @Test
     fun doubleTapSelects100PercentEvenWhenFitAlreadyEnlargesTheImage() {
         val zoom = CanvasZoomState()
         zoom.doubleTap(600f, 450f, 1000, 750, 1200f, 900f)
