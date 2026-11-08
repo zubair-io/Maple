@@ -206,15 +206,20 @@ describe('resolveCanvasImageExtent', () => {
     expect(resolveCanvasImageExtent(base)).toBeNull();
   });
 
-  it('keeps the painted shape when the extent disagrees with it, so nothing stretches', () => {
+  it('turns an unoriented stored size a quarter to match what was painted', () => {
     const unoriented = { ...base, assetW: 4000, assetH: 6000, painted: { w: 1600, h: 1067 } };
-    expect(resolveCanvasImageExtent(unoriented)).toEqual({ w: 1600, h: 1067 });
+    expect(resolveCanvasImageExtent(unoriented)).toEqual({ w: 6000, h: 4000 });
+  });
+
+  it('keeps only the painted shape while a crop render is pending, at the image scale', () => {
     const cropPending = {
       ...base,
       native: { w: 6000, h: 4000 },
       crop,
       painted: { w: 1600, h: 1067 },
     };
-    expect(resolveCanvasImageExtent(cropPending)).toEqual({ w: 1600, h: 1067 });
+    const extent = resolveCanvasImageExtent(cropPending);
+    expect(extent?.w).toBe(4000);
+    expect(extent?.h).toBeCloseTo(4000 / (1600 / 1067), 9);
   });
 });

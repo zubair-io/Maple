@@ -44,16 +44,26 @@ function croppedExtent(frame: Extent, crop: Crop | undefined): Extent {
   return w > 0 && h > 0 ? { w, h } : frame;
 }
 
+/** `painted`'s shape at `extent`'s long edge: no stretch, and the scale the
+ *  photo is shown at stays that of the image, not of the bitmap's pixels. */
+function paintedShapeAt(extent: Extent, painted: Extent): Extent {
+  const longEdge = Math.max(extent.w, extent.h);
+  const aspect = painted.w / painted.h;
+  return aspect >= 1
+    ? { w: longEdge, h: longEdge / aspect }
+    : { w: longEdge * aspect, h: longEdge };
+}
+
 /**
  * The one image extent the zoom model and the draw both size the photo by
  * (#5746): the display-oriented native size, cropped by an applied crop
  * (the crop tool renders the full frame). Before the decode publishes the
- * native size the asset's stored size stands in, so a bitmap landing never
- * changes the photo's on-screen size. The painted bitmap is only the pixels
- * stretched into this extent; its own size is used only before any size is
- * known, or while its shape disagrees with the extent (an unoriented stored
- * size, or a crop change whose render has not landed yet), which would
- * otherwise stretch the photo.
+ * native size the asset's stored size stands in (turned a quarter when the
+ * record is unoriented), so a bitmap landing never changes the photo's
+ * on-screen size. The painted bitmap is only the pixels stretched into this
+ * extent: its own size is used only before any size is known, and while its
+ * shape disagrees with the extent (a crop change whose render has not
+ * landed) only its shape is kept, so nothing stretches.
  */
 export function resolveCanvasImageExtent(args: {
   painted: Extent | null;
@@ -63,9 +73,13 @@ export function resolveCanvasImageExtent(args: {
   crop: Crop | undefined;
   cropToolActive: boolean;
 }): Extent | null {
+  const { painted } = args;
   const stored = args.assetW && args.assetH ? { w: args.assetW, h: args.assetH } : null;
   const frame = args.native ?? stored;
-  if (!frame) return args.painted;
-  const extent = croppedExtent(frame, args.cropToolActive ? undefined : args.crop);
-  return !args.painted || aspectMatches(extent, args.painted) ? extent : args.painted;
+  if (!frame) return painted;
+  const crop = args.cropToolActive ? undefined : args.crop;
+  const extent = croppedExtent(frame, crop);
+  if (!painted || aspectMatches(extent, painted)) return extent;
+  const turned = args.native ? null : croppedExtent({ w: frame.h, h: frame.w }, crop);
+  return turned && aspectMatches(turned, painted) ? turned : paintedShapeAt(extent, painted);
 }
