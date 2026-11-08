@@ -61,6 +61,7 @@
   // clean maple-syrup production build. False positive, not a real gap.
   "ignoreUnresolvedImports": [
     "**/pkg/raw_wasm",
+    "**/pkg/canvas/raw_wasm_canvas",
     "tailwindcss",
     "**/tailwindcss",
     "**/generated/ui-tokens"
