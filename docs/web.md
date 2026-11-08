@@ -73,7 +73,7 @@ Styling is **Tailwind v4** through PostCSS (`src/web/postcss.config.json` regist
 
 ## The render worker
 
-`projects/maple-common/src/lib/raw-pipeline/raw-pipeline.worker.ts` is a module Web Worker that owns the WASM instance. `RawPipelineService` (same directory) lazily creates it, assigns each request a numeric id, and resolves the matching promise when the reply arrives. Every decode is off the main thread. The worker handles these request kinds: `decode`, `develop-non-raw`, `decode-scene-linear`, `open-session`, `render-session`, `close-session`, `set-film-lut`, `auto-adjust`, `sample-wb`, `export`, `native-detail` / `close-native-detail`, and `register-mask-raster` / `release-mask-raster`.
+`projects/maple-common/src/lib/raw-pipeline/raw-pipeline.worker.ts` is a module Web Worker that owns the WASM instance. `RawPipelineService` (same directory) lazily creates it, assigns each request a numeric id, and resolves the matching promise when the reply arrives. Every decode is off the main thread. The one WebAssembly module the main thread loads is the canvas zoom model (`pkg/canvas/`, about 60 KB, unthreaded), because a gesture needs its answer inside the same event; see [zoom](zoom.md#web). The worker handles these request kinds: `decode`, `develop-non-raw`, `decode-scene-linear`, `open-session`, `render-session`, `close-session`, `set-film-lut`, `auto-adjust`, `sample-wb`, `export`, `native-detail` / `close-native-detail`, and `register-mask-raster` / `release-mask-raster`.
 
 ### Two render paths
 

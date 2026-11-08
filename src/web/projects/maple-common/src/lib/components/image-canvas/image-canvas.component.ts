@@ -200,6 +200,7 @@ export class ImageCanvasComponent
   private readonly zoomHost = new ImageCanvasZoomHost(this);
   protected readonly gestures = this.zoomHost.gestures;
   readonly zoomLabel = this.zoomHost.zoomLabel;
+  readonly zoomBadgeAction = this.zoomHost.zoomBadgeAction;
 
   readonly downloadProgress = computed(() =>
     canvasDownloadProgress(this.state.openDownloadProgress(), this.state.focusedAsset()),
