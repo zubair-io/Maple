@@ -31,7 +31,7 @@ const LIFTED_AT: Point = Point { x: 420.0, y: 210.0 };
 /// host's model mid-pinch, which sees no frame after the capture.
 fn captured(ctx: &CanvasZoomContext) -> CanvasZoomModel {
     CanvasZoomModel::default()
-        .zoom_to_scale(1.0)
+        .zoom_to_scale(1.0, &CanvasZoomContext::default())
         .wheel_pan(Size::new(-120.0, 60.0), ctx)
         .pinch_changed(1.0, Point::new(300.0, 200.0), ctx)
 }
@@ -146,7 +146,7 @@ fn a_finger_landing_again_rebases_without_a_jump() {
 fn a_pan_clamped_at_the_edge_stays_put_and_then_moves_from_the_edge() {
     let ctx = square();
     let at_edge = CanvasZoomModel::default()
-        .zoom_to_scale(1.0)
+        .zoom_to_scale(1.0, &CanvasZoomContext::default())
         .wheel_pan(Size::new(5000.0, 0.0), &ctx);
     let limit = ctx.max_pan_offset(1.0).width;
     assert_close(at_edge.pan_offset.width, limit);
@@ -162,7 +162,7 @@ fn a_pan_clamped_at_the_edge_stays_put_and_then_moves_from_the_edge() {
 }
 
 #[test]
-fn rebasing_a_pinch_held_on_the_floor_keeps_the_floor() {
+fn rebasing_a_pinch_held_on_the_floor_keeps_the_floor_then_springs_to_fit() {
     let ctx = square();
     let floor = ctx.min_scale();
     let centre = Point::new(500.0, 400.0);
@@ -174,20 +174,20 @@ fn rebasing_a_pinch_held_on_the_floor_keeps_the_floor() {
         .pinch_rebased(0.1, centre, 0.1, lifted, &ctx)
         .pinch_changed(0.1, lifted, &ctx);
     assert_same_view(next, shown, &ctx);
-    assert_close(next.pinch_ended(0.1, &ctx).pixel_scale, floor);
+    assert_eq!(next.pinch_ended(0.1, &ctx).pixel_scale, 0.0);
 }
 
 #[test]
-fn rebasing_a_pinch_settled_on_fit_releases_at_fit() {
+fn rebasing_a_pinch_in_the_fit_band_releases_at_fit() {
     let ctx = square();
     let centre = Point::new(500.0, 400.0);
     let into_fit_band = ctx.fit_scale() / 0.5 * 1.02;
     let model = CanvasZoomModel::default()
-        .zoom_to_scale(0.5)
+        .zoom_to_scale(0.5, &CanvasZoomContext::default())
         .pinch_changed(1.0, centre, &ctx);
     assert_close(
         model.pinch_changed(into_fit_band, centre, &ctx).pixel_scale,
-        ctx.fit_scale(),
+        ctx.fit_scale() * 1.02,
     );
     let lifted = Point::new(600.0, 400.0);
     let released = model
@@ -214,7 +214,7 @@ fn the_rebase_keeps_the_frozen_frame_and_restarts_at_the_shown_scale() {
 #[test]
 fn rebasing_outside_a_pinch_or_with_bad_input_changes_nothing() {
     let ctx = square();
-    let idle = CanvasZoomModel::default().zoom_to_scale(1.0);
+    let idle = CanvasZoomModel::default().zoom_to_scale(1.0, &CanvasZoomContext::default());
     assert_eq!(
         idle.pinch_rebased(1.0, SHOWN_AT, 1.0, LIFTED_AT, &ctx),
         idle

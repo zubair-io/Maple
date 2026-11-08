@@ -5,13 +5,16 @@
 //!
 //! Double-tap behaviour travels as `MAPLE_CANVAS_DOUBLE_TAP_*` (an unknown
 //! code resets to fit) and intents as `MAPLE_CANVAS_*_INTENT_*`. The
-//! stateless rules and the stop codes are in `canvas_zoom_rules.rs`.
+//! stateless rules and the stop codes are in `canvas_zoom_rules.rs`, the
+//! visible-area queries in `canvas_zoom_insets.rs`.
 
 use crate::canvas_math::{MapleCanvasPoint, MapleCanvasSize};
 use crate::canvas_zoom_rules::{stop_code, MAPLE_CANVAS_ZOOM_STOP_NONE};
 use raw_core::canvas::{
     self, CanvasZoomContext, CanvasZoomModel, DoubleTapBehavior, DragIntent, WheelIntent,
 };
+
+pub use crate::canvas_zoom_insets::MapleCanvasInsets;
 
 pub const MAPLE_CANVAS_DOUBLE_TAP_RESET_TO_FIT: u32 = 0;
 pub const MAPLE_CANVAS_DOUBLE_TAP_TOGGLE_FIT_AND_100: u32 = 1;
@@ -37,13 +40,15 @@ pub struct MapleCanvasConstants {
 }
 
 /// Viewport (points), image extent (oriented source pixels, zero until
-/// known) and points→pixels factor. Sanitized on every call.
+/// known), points→pixels factor and the chrome insets that fit, fill and the
+/// centred position resolve inside. Sanitized on every call.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct MapleCanvasZoomContext {
     pub viewport_points: MapleCanvasSize,
     pub native_image_size: MapleCanvasSize,
     pub display_scale: f64,
+    pub insets: MapleCanvasInsets,
 }
 
 /// `raw_core::canvas::CanvasZoomModel` flattened: each `has_*` flag marks
@@ -80,6 +85,7 @@ impl From<MapleCanvasZoomContext> for CanvasZoomContext {
             context.native_image_size.into(),
             context.display_scale,
         )
+        .with_insets(context.insets.into())
     }
 }
 
@@ -89,6 +95,7 @@ impl From<CanvasZoomContext> for MapleCanvasZoomContext {
             viewport_points: context.viewport_points().into(),
             native_image_size: context.native_image_size().into(),
             display_scale: context.display_scale(),
+            insets: context.insets().into(),
         }
     }
 }
@@ -135,7 +142,7 @@ impl From<CanvasZoomModel> for MapleCanvasZoomState {
 
 /// Run `transition` on the decoded state and context; on a panic the host
 /// gets its input state back unchanged.
-fn zoom_transition(
+pub(crate) fn zoom_transition(
     entry: &str,
     state: MapleCanvasZoomState,
     context: MapleCanvasZoomContext,
@@ -397,20 +404,28 @@ pub extern "C" fn maple_canvas_zoom_double_tap(
 #[no_mangle]
 pub extern "C" fn maple_canvas_zoom_reset_to_fit(
     state: MapleCanvasZoomState,
+    context: MapleCanvasZoomContext,
 ) -> MapleCanvasZoomState {
-    crate::error::catch_panic("maple_canvas_zoom_reset_to_fit", state, || {
-        CanvasZoomModel::from(state).reset_to_fit().into()
-    })
+    zoom_transition(
+        "maple_canvas_zoom_reset_to_fit",
+        state,
+        context,
+        |model, ctx| model.reset_to_fit(ctx),
+    )
 }
 
 #[no_mangle]
 pub extern "C" fn maple_canvas_zoom_to_scale(
     state: MapleCanvasZoomState,
     scale: f64,
+    context: MapleCanvasZoomContext,
 ) -> MapleCanvasZoomState {
-    crate::error::catch_panic("maple_canvas_zoom_to_scale", state, || {
-        CanvasZoomModel::from(state).zoom_to_scale(scale).into()
-    })
+    zoom_transition(
+        "maple_canvas_zoom_to_scale",
+        state,
+        context,
+        |model, ctx| model.zoom_to_scale(scale, ctx),
+    )
 }
 
 #[no_mangle]

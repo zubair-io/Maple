@@ -3,18 +3,19 @@
 //! `pixel_scale` is real screen pixels per image pixel: `0` = fit (resolved
 //! at read time), `fit × MIN_FIT_FRACTION` the floor, fill = the image covers
 //! the viewport (tracked across resizes), `1` = 100%, `MAX_PIXEL_SCALE` the
-//! cap. A pinch derives every frame from start-captured values (its
-//! magnification is cumulative), and settles on fit or fill inside their
-//! detent bands. Pan is clamped so the image never detaches from the
-//! viewport, and stays centred on an axis where it does not overflow.
+//! cap. Fit, fill and the centred "home" pan resolve against the visible part
+//! of the viewport (`CanvasZoomContext` insets). The pinch transitions live in
+//! `zoom_pinch.rs`. At rest the pan is clamped so the image never detaches
+//! from the visible area, and stays centred in it on an axis where it does not
+//! overflow.
 //!
 //! Each transition consumes the model and returns the next one.
 
 use super::geometry::{Point, Size};
 use super::zoom_context::CanvasZoomContext;
 use super::zoom_rules::{
-    anchored_pan, clamped_explicit_zoom, crosses_fit, detent, live_pinch_pan, next_stop,
-    pinch_scale, zoom_in_target, zoom_out_target, ZoomOutResult, ZoomStop,
+    anchored_pan, clamped_explicit_zoom, crosses_fit, next_stop, zoom_in_target, zoom_out_target,
+    ZoomOutResult, ZoomStop,
 };
 
 /// Upper clamp on `pixel_scale` (800%).
@@ -71,117 +72,6 @@ impl CanvasZoomModel {
     #[must_use]
     pub fn is_zoomed_in(&self) -> bool {
         self.pixel_scale > 0.0
-    }
-
-    /// One pinch frame. The first frame captures the start scale, pan and
-    /// centroid; a capture frame at magnification 1 changes nothing else,
-    /// because the iOS compositor freezes that frame and scales it by the
-    /// ratio to the start — snapping it to a detent would count the detent
-    /// twice (#5710). Non-finite inputs are ignored.
-    #[must_use]
-    pub fn pinch_changed(
-        self,
-        magnification: f64,
-        location: Point,
-        context: &CanvasZoomContext,
-    ) -> Self {
-        if !magnification.is_finite() || !location.is_finite() {
-            return self;
-        }
-        let is_capture_frame = self.pinch_start_scale.is_none();
-        let start = self
-            .pinch_start_scale
-            .unwrap_or_else(|| context.effective_scale(self.pixel_scale));
-        let captured = if is_capture_frame {
-            Self {
-                pinch_start_scale: Some(start),
-                pinch_start_pan: self.pan_offset,
-                pinch_start_centroid: location,
-                ..self
-            }
-        } else {
-            self
-        };
-        if is_capture_frame && magnification == 1.0 {
-            return Self {
-                pinch_last_centroid: location,
-                ..captured
-            };
-        }
-        let next = pinch_scale(
-            start,
-            magnification,
-            context.fit_scale(),
-            context.fill_scale(),
-        );
-        let pan = live_pinch_pan(
-            location,
-            captured.pinch_start_centroid,
-            captured.pinch_start_pan,
-            start,
-            next,
-            context.viewport_points(),
-        );
-        Self {
-            pixel_scale: next,
-            fills_viewport: false,
-            pan_offset: context.clamped_pan(pan, next),
-            pinch_last_centroid: location,
-            ..captured
-        }
-    }
-
-    /// Pinch release: commit the final scale at the last focal point, clear
-    /// the start capture, and settle on fit or fill inside its band. Without a
-    /// prior change frame (or with a non-finite magnification) the scale is
-    /// left as is, but the detent still applies.
-    #[must_use]
-    pub fn pinch_ended(self, magnification: f64, context: &CanvasZoomContext) -> Self {
-        let fit = context.fit_scale();
-        let fill = context.fill_scale();
-        let committed = match self.pinch_start_scale {
-            Some(start) if magnification.is_finite() => {
-                let scale = pinch_scale(start, magnification, fit, fill);
-                let pan = live_pinch_pan(
-                    self.pinch_last_centroid,
-                    self.pinch_start_centroid,
-                    self.pinch_start_pan,
-                    start,
-                    scale,
-                    context.viewport_points(),
-                );
-                Self {
-                    pixel_scale: scale,
-                    pan_offset: context.clamped_pan(pan, scale),
-                    ..self
-                }
-            }
-            _ => self,
-        };
-        let released = Self {
-            pinch_start_scale: None,
-            pinch_start_pan: Size::ZERO,
-            pinch_start_centroid: Point::ZERO,
-            pinch_last_centroid: Point::ZERO,
-            ..committed
-        };
-        match detent(context.effective_scale(released.pixel_scale), fit, fill) {
-            Some(ZoomStop::Fit) => released.reset_to_fit(),
-            Some(ZoomStop::Fill) => {
-                let pan = context.clamped_pan(released.pan_offset, fill);
-                Self {
-                    pixel_scale: fill,
-                    fills_viewport: true,
-                    pan_offset: pan,
-                    base_pan: pan,
-                    ..released
-                }
-            }
-            Some(ZoomStop::ActualSize) | None => Self {
-                base_pan: released.pan_offset,
-                ..released
-            },
-        }
     }
 
     /// One drag frame. Returns whether the drag was consumed as a pan. While a
@@ -291,7 +181,7 @@ impl CanvasZoomModel {
             .min(MAX_PIXEL_SCALE)
             .max(context.min_scale());
         if crosses_fit(current, next, context.fit_scale()) {
-            return self.reset_to_fit();
+            return self.reset_to_fit(context);
         }
         let pan = context.clamped_pan(
             anchored_pan(
@@ -313,7 +203,7 @@ impl CanvasZoomModel {
     }
 
     /// Double-tap per `behavior`. The editor zooms fit → 100% anchored at the
-    /// tap (the viewport centre when the tap location is not finite) and any
+    /// tap (the visible centre when the tap location is not finite) and any
     /// zoomed state back to fit.
     #[must_use]
     pub fn double_tap(
@@ -323,13 +213,13 @@ impl CanvasZoomModel {
         context: &CanvasZoomContext,
     ) -> Self {
         if behavior == DoubleTapBehavior::ResetToFit || self.is_zoomed_in() {
-            return self.reset_to_fit();
+            return self.reset_to_fit(context);
         }
         let viewport = context.viewport_points();
         let anchor = if location.is_finite() {
             location
         } else {
-            Point::new(viewport.width / 2.0, viewport.height / 2.0)
+            context.visible_centre()
         };
         let target = 1.0;
         let pan = context.clamped_pan(
@@ -351,32 +241,42 @@ impl CanvasZoomModel {
         }
     }
 
-    /// Fit mode with every pan and gesture capture cleared.
+    /// Fit mode, centred in the visible area, with every gesture capture
+    /// cleared.
     #[must_use]
-    pub fn reset_to_fit(self) -> Self {
-        Self::default()
+    pub fn reset_to_fit(self, context: &CanvasZoomContext) -> Self {
+        let home = context.home_pan();
+        Self {
+            pan_offset: home,
+            base_pan: home,
+            ..Self::default()
+        }
     }
 
-    /// Explicit zoom target (toolbar "100%", ⌘1), clamped, re-centred.
+    /// Explicit zoom target (toolbar "100%", ⌘1), clamped, re-centred in the
+    /// visible area.
     #[must_use]
-    pub fn zoom_to_scale(self, scale: f64) -> Self {
+    pub fn zoom_to_scale(self, scale: f64, context: &CanvasZoomContext) -> Self {
+        let home = context.home_pan();
         Self {
             pixel_scale: clamped_explicit_zoom(scale),
             fills_viewport: false,
-            pan_offset: Size::ZERO,
-            base_pan: Size::ZERO,
+            pan_offset: home,
+            base_pan: home,
             ..self
         }
     }
 
-    /// The fill stop, centred; the overflowing axis can then be panned.
+    /// The fill stop, centred in the visible area; the overflowing axis can
+    /// then be panned.
     #[must_use]
     pub fn zoom_to_fill(self, context: &CanvasZoomContext) -> Self {
+        let home = context.home_pan();
         Self {
             pixel_scale: context.fill_scale(),
             fills_viewport: true,
-            pan_offset: Size::ZERO,
-            base_pan: Size::ZERO,
+            pan_offset: home,
+            base_pan: home,
             ..self
         }
     }
@@ -386,45 +286,56 @@ impl CanvasZoomModel {
     #[must_use]
     pub fn advance_stop(self, context: &CanvasZoomContext) -> Self {
         match next_stop(self.current_stop(), Self::badge_stops(context).as_slice()) {
-            ZoomStop::Fit => self.reset_to_fit(),
+            ZoomStop::Fit => self.reset_to_fit(context),
             ZoomStop::Fill => self.zoom_to_fill(context),
-            ZoomStop::ActualSize => self.zoom_to_scale(1.0),
+            ZoomStop::ActualSize => self.zoom_to_scale(1.0, context),
         }
     }
 
-    /// Zoom-in step anchored at the viewport centre; reaching fit from below
+    /// Zoom-in step anchored at the visible centre; reaching fit from below
     /// settles on it.
     #[must_use]
     pub fn step_zoom_in(self, context: &CanvasZoomContext) -> Self {
         let current = context.effective_scale(self.pixel_scale);
         let next = zoom_in_target(current);
         if crosses_fit(current, next, context.fit_scale()) {
-            return self.reset_to_fit();
+            return self.reset_to_fit(context);
         }
         self.rescaled_pan(current, next, context)
             .at_free_scale(next)
     }
 
-    /// Zoom-out step anchored at the viewport centre; reaching fit from above
+    /// Zoom-out step anchored at the visible centre; reaching fit from above
     /// settles on it.
     #[must_use]
     pub fn step_zoom_out(self, context: &CanvasZoomContext) -> Self {
         let current = context.effective_scale(self.pixel_scale);
         match zoom_out_target(current, context.fit_scale()) {
-            ZoomOutResult::SnapToFit => self.reset_to_fit(),
+            ZoomOutResult::SnapToFit => self.reset_to_fit(context),
             ZoomOutResult::Scale(next) => self
                 .rescaled_pan(current, next, context)
                 .at_free_scale(next),
         }
     }
 
-    /// Re-resolve against fresh geometry (viewport resize, rotation, image
-    /// size landing): fill follows the new viewport — or becomes fit when the
-    /// two now coincide — and the pan is pulled back inside the legal range.
+    /// Re-resolve against fresh geometry (viewport resize, rotation, chrome
+    /// insets changing, image size landing): fit re-centres in the new
+    /// visible area, fill follows it — or becomes fit when the two now
+    /// coincide — and any other pan is pulled back inside the legal range,
+    /// so a pan already inside it does not move.
     #[must_use]
     pub fn reclamp_pan(self, context: &CanvasZoomContext) -> Self {
         if !self.is_zoomed_in() {
-            return self;
+            let home = context.home_pan();
+            return if self.pan_offset == home && self.base_pan == home {
+                self
+            } else {
+                Self {
+                    pan_offset: home,
+                    base_pan: home,
+                    ..self
+                }
+            };
         }
         let resolved = if !self.fills_viewport {
             self
@@ -434,7 +345,7 @@ impl CanvasZoomModel {
                 ..self
             }
         } else {
-            return self.reset_to_fit();
+            return self.reset_to_fit(context);
         };
         let clamped = context.clamped_pan(resolved.pan_offset, resolved.pixel_scale);
         if clamped == resolved.pan_offset {
@@ -456,16 +367,18 @@ impl CanvasZoomModel {
         }
     }
 
-    /// Centre-anchored pan rescale shared by the zoom steps.
+    /// Pan rescale anchored at the visible centre, shared by the zoom steps.
     fn rescaled_pan(self, current: f64, next: f64, context: &CanvasZoomContext) -> Self {
         if current.is_nan() || current <= 0.0 {
             return self;
         }
-        let ratio = next / current;
         let pan = context.clamped_pan(
-            Size::new(
-                self.pan_offset.width * ratio,
-                self.pan_offset.height * ratio,
+            anchored_pan(
+                context.visible_centre(),
+                context.viewport_points(),
+                self.pan_offset,
+                current,
+                next,
             ),
             next,
         );

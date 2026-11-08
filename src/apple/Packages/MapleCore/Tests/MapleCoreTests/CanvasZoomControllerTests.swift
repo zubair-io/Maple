@@ -210,9 +210,9 @@ final class CanvasZoomControllerTests: XCTestCase {
     XCTAssertEqual(controller.displayFrameInPoints, CGSize(width: 800, height: 600))
   }
 
-  /// #5710: the live iOS pinch transform settles on the same fill detent
-  /// the release commits, so the release does not pop.
-  func testGestureTransformSettlesOnTheFillDetent() {
+  /// #5749: the live iOS pinch transform follows the fingers through the
+  /// fill band; only the release settles on fill (the host animates it).
+  func testGestureTransformFollowsTheFingersAndTheReleaseSettlesOnFill() {
     let controller = makeController()
     controller.viewportChanged(points: CGSize(width: 1000, height: 1000), displayScale: 2)
     controller.pinchChanged(magnification: 1, location: CGPoint(x: 500, y: 500))
@@ -220,7 +220,7 @@ final class CanvasZoomControllerTests: XCTestCase {
     let fill = controller.context.fillScale
     let transform = controller.gestureTransform(
       magnification: fill / fit * 1.03, liveCentroid: CGPoint(x: 500, y: 500))
-    XCTAssertEqual(transform.zoom, fill / fit, accuracy: 1e-9)
+    XCTAssertEqual(transform.zoom, fill / fit * 1.03, accuracy: 1e-9)
     controller.pinchEnded(magnification: fill / fit * 1.03)
     XCTAssertEqual(controller.session.pixelScale, fill, accuracy: 1e-9)
     XCTAssertEqual(controller.model.currentStop, .fill)

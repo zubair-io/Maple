@@ -98,6 +98,7 @@ BatchRenameViewModelTests
 BoundedAsyncSemaphoreTests
 CameraSupportRegistryTests
 CanvasColorSpaceTests
+CanvasVisibleAreaTests
 CanvasZoomControllerTests
 CanvasZoomModelTests
 CanvasZoomPinchRebaseTests

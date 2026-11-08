@@ -1,6 +1,8 @@
-// CanvasZoomHost+Input.swift — wheel exclusion, UIKit pinch bridge, and macOS
+// CanvasZoomHost+Input.swift — wheel exclusion, the chrome cover frames that
+// define the visible canvas area (#5749), UIKit pinch bridge, and macOS
 // scroll-wheel catcher extracted from `CanvasZoomHost.swift` (#1099, #2683).
 
+import MapleCore
 import SwiftUI
 
 #if os(iOS)
@@ -44,6 +46,44 @@ extension View {
         )
       }
     )
+  }
+}
+
+// MARK: - Canvas cover frames (chrome → visible area)
+
+/// Global frames of the chrome floating over the editor canvas. The canvas
+/// host turns them into the visible area its fit and centring use.
+struct CanvasCoverFramesKey: PreferenceKey {
+  static let defaultValue: [CGRect] = []
+  static func reduce(value: inout [CGRect], nextValue: () -> [CGRect]) {
+    value.append(contentsOf: nextValue())
+  }
+}
+
+extension View {
+  /// Reports this view's global frame as chrome covering the canvas.
+  func coversCanvas() -> some View {
+    background(
+      GeometryReader { proxy in
+        Color.clear.preference(key: CanvasCoverFramesKey.self, value: [proxy.frame(in: .global)])
+      }
+    )
+  }
+
+  /// Pads this view into the canvas's visible area — the same area the zoom
+  /// host fits the photo in — so a seed thumbnail or placeholder sits where
+  /// the photo will land.
+  func paddedToVisibleCanvas(safeArea: CGRect?, coverFrames: [CGRect]) -> some View {
+    GeometryReader { proxy in
+      let insets = CanvasViewportInsets.covering(
+        viewport: proxy.frame(in: .global), safeArea: safeArea, frames: coverFrames)
+      self
+        .padding(
+          EdgeInsets(
+            top: insets.top, leading: insets.left, bottom: insets.bottom, trailing: insets.right)
+        )
+        .frame(width: proxy.size.width, height: proxy.size.height)
+    }
   }
 }
 
