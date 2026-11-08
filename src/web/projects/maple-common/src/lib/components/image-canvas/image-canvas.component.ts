@@ -65,7 +65,7 @@ import { ImageCanvasRawOpen } from './image-canvas.raw-open';
 import { ImageCanvasFilmSync } from './image-canvas.film';
 import { FilmLutService } from '../../film/film-lut.service';
 import { ImageCanvasZoomHost } from './image-canvas.zoom-host';
-import { canvasDisplayDims, createNativeDetail } from './image-canvas.native-detail-host';
+import { canvasImageExtent, createNativeDetail } from './image-canvas.native-detail-host';
 import { ImageCanvasNativeDetail } from './image-canvas.native-detail';
 import { HOST_CLASS, beforeAfterBtnClass as beforeAfterBtnClassFn } from './image-canvas.classes';
 
@@ -105,7 +105,7 @@ export class ImageCanvasComponent
   readonly gpuFallback = inject(GpuFallbackNoticeService);
   private readonly embeddedPreview = inject(EmbeddedPreviewService);
   private readonly injector = inject(Injector);
-  protected readonly cropSession = inject(CropSessionService);
+  readonly cropSession = inject(CropSessionService);
   protected readonly guidedGeometry = inject(GuidedGeometrySessionService);
   readonly filmLut = inject(FilmLutService); // #2683, read by ImageCanvasFilmSync
 
@@ -207,10 +207,19 @@ export class ImageCanvasComponent
   );
   readonly deepDenoiseProgress = computed(() => canvasDeepDenoiseProgress(this.pipeline));
 
-  // Source extent makes 100% pixel-perfect; applied crops keep the painted aspect.
+  /** One extent for the zoom model and the draw, so neither jumps (#5746). */
+  readonly imageExtent = computed(() => canvasImageExtent(this), {
+    equal: (a, b) => a?.w === b?.w && a?.h === b?.h,
+  });
   private effectivePx = computed(() => {
-    const { w, h } = canvasDisplayDims(this);
-    return computeEffectivePx(this.zoomHost.cssZoom(), w, h, this.wrapW(), this.wrapH());
+    const extent = this.imageExtent();
+    return computeEffectivePx(
+      this.zoomHost.cssZoom(),
+      extent?.w,
+      extent?.h,
+      this.wrapW(),
+      this.wrapH(),
+    );
   });
 
   // Crop shows the full frame + live straighten under its interactive rect.

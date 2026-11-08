@@ -2,7 +2,7 @@
 
 import { normalisedImagePoint } from './image-canvas.wb-pick';
 import { CanvasPickService, RANGE_PICK_PROMPT, WB_PICK_PROMPT } from './canvas-pick.service';
-import { resolveCanvasDisplayDims } from './image-canvas.crop';
+import { resolveCanvasImageExtent } from './image-canvas.crop';
 import { computeEffectivePx } from './image-canvas.draw2d';
 import { CROP_IDENTITY } from '../../models/adjustment-model';
 
@@ -54,9 +54,16 @@ describe('zoomed pick geometry (#4677)', () => {
   it('agrees with the canvas at pixelScale=1 when the painted buffer is smaller than native', () => {
     const painted = { w: 1200, h: 800 };
     const native = { w: 6000, h: 4000 };
-    const dims = resolveCanvasDisplayDims(painted, native, 6000, 4000, CROP_IDENTITY);
+    const dims = resolveCanvasImageExtent({
+      painted,
+      native,
+      assetW: 6000,
+      assetH: 4000,
+      crop: CROP_IDENTITY,
+      cropToolActive: false,
+    });
     expect(dims).toEqual(native);
-    const canvas = computeEffectivePx(1, dims.w, dims.h, 800, 600);
+    const canvas = computeEffectivePx(1, dims?.w, dims?.h, 800, 600);
     expect(canvas).toMatchObject({ canvasW: 6000, canvasH: 4000 });
     const geom = {
       wrapW: 800,
@@ -69,11 +76,18 @@ describe('zoomed pick geometry (#4677)', () => {
     expect(normalisedImagePoint(1000, 300, geom)?.nx).toBeCloseTo(0.6, 6);
   });
 
-  it('keeps the painted aspect for an applied crop', () => {
+  it('sizes an applied crop by the cropped native extent, not the painted bitmap', () => {
     const crop = { ...CROP_IDENTITY, right: 0.6 };
     expect(
-      resolveCanvasDisplayDims({ w: 720, h: 800 }, { w: 6000, h: 4000 }, 6000, 4000, crop),
-    ).toEqual({ w: 720, h: 800 });
+      resolveCanvasImageExtent({
+        painted: { w: 720, h: 800 },
+        native: { w: 6000, h: 4000 },
+        assetW: 6000,
+        assetH: 4000,
+        crop,
+        cropToolActive: false,
+      }),
+    ).toEqual({ w: 3600, h: 4000 });
   });
 });
 

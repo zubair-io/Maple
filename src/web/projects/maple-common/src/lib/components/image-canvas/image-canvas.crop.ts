@@ -28,28 +28,44 @@ export function cropStraightenTransform(cropActive: boolean, angle: number): str
   return cropActive && angle ? `rotate(${angle}deg)` : 'none';
 }
 
-/** Displayed image dimensions for the fit/draw geometry. The renderer returns a
- *  buffer whose aspect already reflects the crop (a cropped render is a different
- *  aspect than the source), so the painted bitmap's own dims — not the asset's
- *  stored full-frame dims — drive `computeEffectivePx`; otherwise a cropped
- *  result would be stretched into the full-frame destination rect (#638 review).
- *  Falls back to the asset dims before the first paint. */
-function displayDims(
-  painted: { w: number; h: number } | null,
-  assetW: number | undefined,
-  assetH: number | undefined,
-): { w: number | undefined; h: number | undefined } {
-  if (painted) return { w: painted.w, h: painted.h };
-  return { w: assetW, h: assetH };
+type Extent = { w: number; h: number };
+
+/** Painted bitmaps are resampled, so their aspect drifts by a pixel's rounding. */
+const ASPECT_TOLERANCE = 0.02;
+
+function aspectMatches(a: Extent, b: Extent): boolean {
+  return Math.abs(a.w / a.h / (b.w / b.h) - 1) <= ASPECT_TOLERANCE;
 }
 
-export function resolveCanvasDisplayDims(
-  painted: { w: number; h: number } | null,
-  native: { w: number; h: number } | null,
-  assetW: number | undefined,
-  assetH: number | undefined,
-  crop: Crop | undefined,
-): { w: number | undefined; h: number | undefined } {
-  if (native && crop && isIdentityCrop(crop)) return native;
-  return displayDims(painted, assetW, assetH);
+function croppedExtent(frame: Extent, crop: Crop | undefined): Extent {
+  if (!crop || isIdentityCrop(crop)) return frame;
+  const w = (crop.right - crop.left) * frame.w;
+  const h = (crop.bottom - crop.top) * frame.h;
+  return w > 0 && h > 0 ? { w, h } : frame;
+}
+
+/**
+ * The one image extent the zoom model and the draw both size the photo by
+ * (#5746): the display-oriented native size, cropped by an applied crop
+ * (the crop tool renders the full frame). Before the decode publishes the
+ * native size the asset's stored size stands in, so a bitmap landing never
+ * changes the photo's on-screen size. The painted bitmap is only the pixels
+ * stretched into this extent; its own size is used only before any size is
+ * known, or while its shape disagrees with the extent (an unoriented stored
+ * size, or a crop change whose render has not landed yet), which would
+ * otherwise stretch the photo.
+ */
+export function resolveCanvasImageExtent(args: {
+  painted: Extent | null;
+  native: Extent | null;
+  assetW: number | undefined;
+  assetH: number | undefined;
+  crop: Crop | undefined;
+  cropToolActive: boolean;
+}): Extent | null {
+  const stored = args.assetW && args.assetH ? { w: args.assetW, h: args.assetH } : null;
+  const frame = args.native ?? stored;
+  if (!frame) return args.painted;
+  const extent = croppedExtent(frame, args.cropToolActive ? undefined : args.crop);
+  return !args.painted || aspectMatches(extent, args.painted) ? extent : args.painted;
 }

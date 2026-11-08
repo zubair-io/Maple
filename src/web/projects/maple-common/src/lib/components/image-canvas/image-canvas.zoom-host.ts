@@ -17,6 +17,8 @@ export interface ZoomHostHost {
   readonly wrapRef: ElementRef<HTMLElement>;
   readonly wrapW: Signal<number>;
   readonly wrapH: Signal<number>;
+  /** The extent the draw sizes the photo by; the model must size by the same one. */
+  readonly imageExtent: Signal<{ w: number; h: number } | null>;
 }
 
 export class ImageCanvasZoomHost {
@@ -38,15 +40,7 @@ export class ImageCanvasZoomHost {
   /** The badge's accessible name: the stop a click moves to. */
   readonly zoomBadgeAction: Signal<string>;
 
-  private readonly nativeSize = computed(
-    () => {
-      const n = this.host.canvasSvc.nativeDimensions();
-      if (n) return { w: n.w, h: n.h };
-      const a = this.host.state.focusedAsset();
-      return a?.width && a?.height ? { w: a.width, h: a.height } : null;
-    },
-    { equal: (a, b) => a?.w === b?.w && a?.h === b?.h },
-  );
+  private readonly nativeSize = (): { w: number; h: number } | null => this.host.imageExtent();
 
   constructor(private readonly host: ZoomHostHost) {
     void loadCanvasZoomWasm();
