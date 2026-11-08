@@ -5,8 +5,8 @@
 //! viewport and image extents go in as pixels with a display scale of 1.
 
 use raw_core::canvas::{
-    anchored_pan, next_stop, CanvasZoomContext, CanvasZoomModel, DoubleTapBehavior, Point, Rect,
-    Size, ZoomStop, MAX_PIXEL_SCALE,
+    anchored_pan, held_pinch_scale, next_stop, CanvasZoomContext, CanvasZoomModel,
+    DoubleTapBehavior, Point, Rect, Size, ZoomStop,
 };
 
 #[path = "canvas_zoom_abi.rs"]

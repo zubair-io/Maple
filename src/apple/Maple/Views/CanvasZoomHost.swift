@@ -1,7 +1,7 @@
 // CanvasZoomHost.swift — reusable zoom/pan/gesture canvas host (#1099).
 //
 // The shared canvas capability extracted from the legacy `FullImageView` (spec §5.0): pixelScale
-// zoom (0 = fit … 8.0 cap), clamped pan, pinch via `MagnifyGesture` with a start-captured scale,
+// zoom (0 = fit … 8.0 cap, or fit/fill if larger), clamped pan, pinch via `MagnifyGesture` with a start-captured scale,
 // double-tap, Cmd+scroll-wheel zoom, wheel pan, and the always-visible zoom badge. Both the legacy
 // full-image surface and the S5 `EditorView` embed this host; the S4 loupe adopts it under #577.
 //

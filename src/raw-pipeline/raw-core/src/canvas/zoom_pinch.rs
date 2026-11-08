@@ -13,7 +13,7 @@ use super::geometry::{Point, Size};
 use super::zoom::CanvasZoomModel;
 use super::zoom_context::CanvasZoomContext;
 use super::zoom_continuity::is_magnification;
-use super::zoom_rules::{detent, live_pinch_pan, pinch_scale, ZoomStop};
+use super::zoom_rules::{detent, held_pinch_scale, live_pinch_pan, pinch_scale, ZoomStop};
 
 impl CanvasZoomModel {
     /// One pinch frame. The first frame captures the gesture so that it
@@ -38,11 +38,8 @@ impl CanvasZoomModel {
                 pinch_last_centroid: location,
                 ..self
             };
-            let captured = tracked.recaptured_pinch(
-                context.effective_scale(self.pixel_scale),
-                self.pan_offset,
-                context,
-            );
+            let captured =
+                tracked.begun_pinch(context.effective_scale(self.pixel_scale), self.pan_offset);
             return if captured.pinch_start_scale.is_some() {
                 captured
             } else {
@@ -53,6 +50,7 @@ impl CanvasZoomModel {
             start,
             magnification / self.start_magnification(),
             context.fit_scale(),
+            context.fill_scale(),
         );
         let pan = live_pinch_pan(
             location,
@@ -84,7 +82,8 @@ impl CanvasZoomModel {
         let fill = context.fill_scale();
         let committed = match self.pinch_start_scale {
             Some(start) if is_magnification(magnification) => {
-                let scale = pinch_scale(start, magnification / self.start_magnification(), fit);
+                let scale =
+                    pinch_scale(start, magnification / self.start_magnification(), fit, fill);
                 let pan = live_pinch_pan(
                     self.pinch_last_centroid,
                     self.pinch_start_centroid,
@@ -158,7 +157,7 @@ impl CanvasZoomModel {
             return self;
         }
         Self {
-            pixel_scale: pinch_scale(scale, 1.0, context.fit_scale()),
+            pixel_scale: held_pinch_scale(scale, context.fit_scale(), context.fill_scale()),
             pan_offset: pan,
             base_pan: pan,
             fills_viewport: false,

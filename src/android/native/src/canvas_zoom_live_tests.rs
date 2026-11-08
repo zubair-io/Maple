@@ -190,7 +190,7 @@ fn adopting_a_pinch_held_at_the_cap_does_not_jump_on_the_next_frame() {
     let (adopted, next_frame) = adopt_mid_pinch(true, 10.0);
     let fit_ratio = (1000.0 / 6000.0) / (1000.0 / 2048.0);
     assert!(
-        (adopted - MAX_PIXEL_SCALE * fit_ratio).abs() < 1e-9,
+        (adopted - raw_core::canvas::MAX_PIXEL_SCALE * fit_ratio).abs() < 1e-9,
         "{adopted}"
     );
     assert!(

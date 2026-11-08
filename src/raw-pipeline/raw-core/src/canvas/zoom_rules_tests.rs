@@ -35,22 +35,22 @@ fn detent_ignores_non_positive_stops_and_nan() {
 #[test]
 fn pinch_scale_follows_the_fingers_through_the_fit_and_fill_bands() {
     let (fit, fill, start) = (SQUARE_FIT, SQUARE_FILL, SQUARE_FIT);
-    assert_close(pinch_scale(start, 1.03, fit), fit * 1.03, 1e-12);
-    assert_close(pinch_scale(start, 0.97, fit), fit * 0.97, 1e-12);
+    assert_close(pinch_scale(start, 1.03, fit, fill), fit * 1.03, 1e-12);
+    assert_close(pinch_scale(start, 0.97, fit, fill), fit * 0.97, 1e-12);
     assert_close(
-        pinch_scale(start, fill / fit * 0.97, fit),
+        pinch_scale(start, fill / fit * 0.97, fit, fill),
         fill * 0.97,
         1e-12,
     );
-    assert_close(pinch_scale(start, 1.12, fit), fit * 1.12, 1e-9);
-    assert_close(pinch_scale(start, 0.8, fit), fit * 0.8, 1e-9);
+    assert_close(pinch_scale(start, 1.12, fit, fill), fit * 1.12, 1e-9);
+    assert_close(pinch_scale(start, 0.8, fit, fill), fit * 0.8, 1e-9);
 }
 
 #[test]
 fn pinch_scale_clamps_to_the_floor_and_the_cap() {
-    assert_eq!(pinch_scale(0.25, 1000.0, 0.25), MAX_PIXEL_SCALE);
-    assert_close(pinch_scale(0.25, 0.01, 0.25), 0.125, 1e-12);
-    assert_eq!(pinch_scale(0.25, f64::NAN, 0.25), 0.25);
+    assert_eq!(pinch_scale(0.25, 1000.0, 0.25, 0.25), MAX_PIXEL_SCALE);
+    assert_close(pinch_scale(0.25, 0.01, 0.25, 0.25), 0.125, 1e-12);
+    assert_eq!(pinch_scale(0.25, f64::NAN, 0.25, 0.25), 0.25);
 }
 
 #[test]
@@ -78,8 +78,8 @@ fn explicit_zoom_is_clamped() {
 
 #[test]
 fn zoom_in_target_steps_and_caps() {
-    assert_close(zoom_in_target(0.25), 0.3125, 1e-12);
-    assert_eq!(zoom_in_target(7.0), MAX_PIXEL_SCALE);
+    assert_close(zoom_in_target(0.25, MAX_PIXEL_SCALE), 0.3125, 1e-12);
+    assert_eq!(zoom_in_target(7.0, MAX_PIXEL_SCALE), MAX_PIXEL_SCALE);
 }
 
 #[test]
@@ -97,6 +97,11 @@ fn zoom_out_target_floors_at_half_fit() {
         "the floor is half of fit"
     );
     assert_eq!(zoom_out_target(0.255, 0.25), ZoomOutResult::SnapToFit);
+    assert_eq!(
+        zoom_out_target(1.0, 25.0),
+        ZoomOutResult::Scale(1.0),
+        "a step out from below the floor never grows the image"
+    );
 }
 
 #[test]

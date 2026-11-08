@@ -80,20 +80,54 @@ pub fn detent(scale: f64, fit: f64, fill: f64) -> Option<ZoomStop> {
     (distance <= DETENT_TOLERANCE).then_some(stop)
 }
 
+/// The zoom-in cap for this geometry: `MAX_PIXEL_SCALE`, raised to fit or
+/// fill when either already exceeds it (a tiny image or crop), so zooming in
+/// never shrinks the image and both stops stay reachable. Always ≥ fit, so
+/// always above the `fit × MIN_FIT_FRACTION` floor.
+#[must_use]
+pub fn max_zoom(fit: f64, fill: f64) -> f64 {
+    MAX_PIXEL_SCALE.max(fit).max(fill)
+}
+
 /// Live pinch scale: `start × magnification` (magnification is cumulative
 /// since the gesture began) clamped to `fit × MIN_FIT_FRACTION …
-/// MAX_PIXEL_SCALE`. No detent applies while the fingers are down — snapping
-/// onto fit or fill mid-gesture jumped the image — so the scale follows the
-/// fingers continuously and the release settles it (`pinch_ended`). A NaN
-/// product resolves to fit. The floor is applied last, so on an image so small
-/// that half of fit exceeds the cap, the floor wins.
+/// max_zoom(fit, fill)`. No detent applies while the fingers are down —
+/// snapping onto fit or fill mid-gesture jumped the image — so the scale
+/// follows the fingers continuously and the release settles it
+/// (`pinch_ended`). A NaN product resolves to fit. A pinch that starts
+/// outside that range (100% on an image that fits far above 100%) widens it
+/// to the start, so pinching never moves the scale against the fingers.
 #[must_use]
-pub fn pinch_scale(start: f64, magnification: f64, fit: f64) -> f64 {
+pub fn pinch_scale(start: f64, magnification: f64, fit: f64, fill: f64) -> f64 {
     let product = start * magnification;
     if product.is_nan() {
         return fit;
     }
-    product.min(MAX_PIXEL_SCALE).max(fit * MIN_FIT_FRACTION)
+    let (floor, cap) = live_pinch_range(start, fit, fill);
+    product.min(cap).max(floor)
+}
+
+/// The floor and cap of a live pinch that started at `start`: the plain
+/// range, widened to include a start outside it.
+#[must_use]
+pub fn live_pinch_range(start: f64, fit: f64, fill: f64) -> (f64, f64) {
+    (
+        (fit * MIN_FIT_FRACTION).min(start),
+        max_zoom(fit, fill).max(start),
+    )
+}
+
+/// A scale a pinch is re-captured at, held to the pinch's own range
+/// `fit × MIN_FIT_FRACTION … max_zoom(fit, fill)`. Unlike `pinch_scale` the
+/// range is not widened to the scale: a capture carried into new geometry
+/// must come inside it. A NaN scale resolves to fit; the floor is applied
+/// last.
+#[must_use]
+pub fn held_pinch_scale(scale: f64, fit: f64, fill: f64) -> f64 {
+    if scale.is_nan() {
+        return fit;
+    }
+    scale.min(max_zoom(fit, fill)).max(fit * MIN_FIT_FRACTION)
 }
 
 /// True when a discrete zoom `current → next` reaches fit's detent band from
@@ -119,22 +153,24 @@ pub fn clamped_explicit_zoom(scale: f64) -> f64 {
     scale.max(MIN_EXPLICIT_ZOOM).min(MAX_PIXEL_SCALE)
 }
 
-/// The scale after one zoom-in step.
+/// The scale after one zoom-in step, capped at `cap` — but never below
+/// `current`, so a step in can stall at the cap and never shrinks the image.
 #[must_use]
-pub fn zoom_in_target(current: f64) -> f64 {
-    (current * ZOOM_STEP).min(MAX_PIXEL_SCALE)
+pub fn zoom_in_target(current: f64, cap: f64) -> f64 {
+    (current * ZOOM_STEP).min(cap).max(current)
 }
 
 /// One zoom-out step from `current`: a step from above fit that lands in (or
 /// past) fit's band settles on fit; otherwise it divides by `ZOOM_STEP`, down
-/// to `fit × MIN_FIT_FRACTION`.
+/// to `fit × MIN_FIT_FRACTION` — but never above `current`, so a step out from
+/// below the floor (100% on an image that fits far above 100%) stays put.
 #[must_use]
 pub fn zoom_out_target(current: f64, fit: f64) -> ZoomOutResult {
     let next = current / ZOOM_STEP;
     if crosses_fit(current, next, fit) {
         ZoomOutResult::SnapToFit
     } else {
-        ZoomOutResult::Scale(next.max(fit * MIN_FIT_FRACTION))
+        ZoomOutResult::Scale(next.max(fit * MIN_FIT_FRACTION).min(current))
     }
 }
 

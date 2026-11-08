@@ -9,7 +9,7 @@ export class ImageCanvasService {
    * Continuous zoom as REAL screen pixels per image pixel (#1100,
    * docs/zoom.md): `0` = fit (auto-computed from viewport/native),
    * `1.0` = true 100% (1 image px = 1 device px — dpr-aware, pixel-perfect
-   * on retina), capped at 8.0. Written by the shared Rust zoom model through
+   * on retina), capped at 8.0 or the larger of fit and fill. Written by the shared Rust zoom model through
    * `image-canvas.zoom-gestures.ts`; `zoomToFit` / `zoomTo100` below set
    * exactly the model's fit and centred-100% states.
    */

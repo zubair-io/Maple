@@ -29,7 +29,7 @@ pub(super) fn reframe(
     let old_image = previous.native_image_size();
     let new_image = next.native_image_size();
     let start = previous.effective_scale(model.pixel_scale);
-    let kept_size = (start * extent.width / new_image.width).min(MAX_PIXEL_SCALE);
+    let kept_size = (start * extent.width / new_image.width).min(next.max_scale());
     let scale = if model.pinch_start_scale.is_some() {
         kept_size
     } else {

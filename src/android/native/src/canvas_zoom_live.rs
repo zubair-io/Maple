@@ -24,9 +24,17 @@ pub(super) fn continued(model: CanvasZoomModel, context: &CanvasZoomContext) -> 
     let magnification = model.pinch_last_magnification;
     let centroid = model.pinch_last_centroid;
     // A pinch frame with no start captures the frame as it stands (#5737);
-    // repeating the input then commits the frame that capture draws.
+    // repeating the input then commits the frame that capture draws. Every
+    // caller is a geometry change, so the frame is first held to the new
+    // geometry's floor and cap: a pinch beginning at rest would otherwise
+    // keep a scale outside them.
     let recaptured = CanvasZoomModel {
         pinch_start_scale: None,
+        pixel_scale: held_pinch_scale(
+            context.effective_scale(model.pixel_scale),
+            context.fit_scale(),
+            context.fill_scale(),
+        ),
         ..model
     }
     .pinch_changed(magnification, centroid, context);
@@ -105,7 +113,7 @@ pub(super) fn adopt_image_size(
     let scale = match model.current_stop() {
         Some(ZoomStop::Fill) => next.fill_scale(),
         Some(ZoomStop::Fit | ZoomStop::ActualSize) => model.pixel_scale,
-        None => (start_scale * next.fit_scale() / previous.fit_scale()).min(MAX_PIXEL_SCALE),
+        None => (start_scale * next.fit_scale() / previous.fit_scale()).min(next.max_scale()),
     };
     let pan = anchored_pan(
         anchor,

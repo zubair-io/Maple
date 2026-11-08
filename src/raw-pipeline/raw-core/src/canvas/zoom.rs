@@ -2,8 +2,9 @@
 //!
 //! `pixel_scale` is real screen pixels per image pixel: `0` = fit (resolved
 //! at read time), `fit × MIN_FIT_FRACTION` the floor, fill = the image covers
-//! the viewport (tracked across resizes), `1` = 100%, `MAX_PIXEL_SCALE` the
-//! cap. Fit, fill and the centred "home" pan resolve against the visible part
+//! the viewport (tracked across resizes), `1` = 100%, and the cap
+//! `max_zoom(fit, fill)` — `MAX_PIXEL_SCALE`, raised to fit or fill when
+//! either exceeds it. Fit, fill and the centred "home" pan resolve against the visible part
 //! of the viewport (`CanvasZoomContext` insets). The pinch transitions live in
 //! `zoom_pinch.rs`. At rest the pan is clamped so the image never detaches
 //! from the visible area, and stays centred in it on an axis where it does not
@@ -18,7 +19,9 @@ use super::zoom_rules::{
     ZoomOutResult, ZoomStop,
 };
 
-/// Upper clamp on `pixel_scale` (800%).
+/// Upper clamp on `pixel_scale` (800%) for gestures and steps, raised to fit
+/// or fill when either exceeds it (`max_zoom`); always the clamp for an
+/// explicit `zoom_to_scale` target.
 pub const MAX_PIXEL_SCALE: f64 = 8.0;
 /// Floor for explicit zoom targets so a programmatic 0 cannot re-enter fit.
 pub const MIN_EXPLICIT_ZOOM: f64 = 0.05;
@@ -44,7 +47,8 @@ pub enum DoubleTapBehavior {
 /// plain value; only the transitions below keep it consistent.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct CanvasZoomModel {
-    /// User-intent scale: 0 = fit, 1 = 100%, at most `MAX_PIXEL_SCALE`.
+    /// User-intent scale: 0 = fit, 1 = 100%, at most the context's
+    /// `max_scale`.
     pub pixel_scale: f64,
     /// Points; positive = image dragged right/down.
     pub pan_offset: Size,
@@ -184,7 +188,8 @@ impl CanvasZoomModel {
     }
 
     /// Command-scroll zoom anchored at the cursor; positive deltas zoom in.
-    /// Crossing fit settles there at once (a wheel has no gesture end).
+    /// Crossing fit settles there at once (a wheel has no gesture end); a
+    /// wheel against the cap or the floor changes nothing.
     #[must_use]
     pub fn wheel_zoom(
         self,
@@ -198,8 +203,11 @@ impl CanvasZoomModel {
         let current = context.effective_scale(self.pixel_scale);
         let factor = (normalized_delta_y * WHEEL_ZOOM_SENSITIVITY).exp2();
         let next = (current * factor)
-            .min(MAX_PIXEL_SCALE)
-            .max(context.min_scale());
+            .min(context.max_scale().max(current))
+            .max(context.min_scale().min(current));
+        if next == current {
+            return self;
+        }
         if crosses_fit(current, next, context.fit_scale()) {
             return self.reset_to_fit(context);
         }
@@ -225,7 +233,9 @@ impl CanvasZoomModel {
 
     /// Double-tap per `behavior`. The editor zooms fit → 100% anchored at the
     /// tap (the visible centre when the tap location is not finite) and any
-    /// zoomed state back to fit.
+    /// zoomed state back to fit. An image that fits at or above 100% zooms to
+    /// `max_scale` instead, since 100% would shrink it, and stays at fit when
+    /// that is inside fit's detent band.
     #[must_use]
     pub fn double_tap(
         self,
@@ -242,7 +252,18 @@ impl CanvasZoomModel {
         } else {
             context.visible_centre()
         };
-        let target = 1.0;
+        let fit = context.fit_scale();
+        // Fit reads 1 while the image or viewport is unknown; that is not
+        // an image that fits at 100%.
+        let shrinks_at_100 = context.geometry_known() && fit >= 1.0;
+        let target = if shrinks_at_100 {
+            context.max_scale()
+        } else {
+            1.0
+        };
+        if shrinks_at_100 && target <= fit * (1.0 + DETENT_TOLERANCE) {
+            return self;
+        }
         let pan = context.clamped_pan(
             anchored_pan(
                 anchor,
@@ -320,11 +341,14 @@ impl CanvasZoomModel {
     }
 
     /// Zoom-in step anchored at the visible centre; reaching fit from below
-    /// settles on it.
+    /// settles on it, and a step at the cap changes nothing.
     #[must_use]
     pub fn step_zoom_in(self, context: &CanvasZoomContext) -> Self {
         let current = context.effective_scale(self.pixel_scale);
-        let next = zoom_in_target(current);
+        let next = zoom_in_target(current, context.max_scale());
+        if next <= current {
+            return self;
+        }
         if crosses_fit(current, next, context.fit_scale()) {
             return self.reset_to_fit(context);
         }
@@ -334,12 +358,13 @@ impl CanvasZoomModel {
     }
 
     /// Zoom-out step anchored at the visible centre; reaching fit from above
-    /// settles on it.
+    /// settles on it, and a step at (or below) the floor changes nothing.
     #[must_use]
     pub fn step_zoom_out(self, context: &CanvasZoomContext) -> Self {
         let current = context.effective_scale(self.pixel_scale);
         match zoom_out_target(current, context.fit_scale()) {
             ZoomOutResult::SnapToFit => self.reset_to_fit(context),
+            ZoomOutResult::Scale(next) if next >= current => self,
             ZoomOutResult::Scale(next) => self
                 .rescaled_pan(current, next, context)
                 .at_free_scale(next)
@@ -355,7 +380,8 @@ impl CanvasZoomModel {
     /// continues from the result (#5736).
     #[must_use]
     pub fn reclamp_pan(self, context: &CanvasZoomContext) -> Self {
-        self.resolved_at_rest(context).continuing(context)
+        self.resolved_at_rest(context)
+            .continuing_in_new_geometry(context)
     }
 
     /// `reclamp_pan` without re-capturing a live gesture.

@@ -10,9 +10,9 @@
 //! `continuing`, which re-captures the live gestures on its result.
 
 use super::geometry::{Point, Size};
-use super::zoom::{CanvasZoomModel, MAX_PIXEL_SCALE};
+use super::zoom::CanvasZoomModel;
 use super::zoom_context::CanvasZoomContext;
-use super::zoom_rules::{pinch_scale, ZoomStop};
+use super::zoom_rules::{held_pinch_scale, live_pinch_range, ZoomStop};
 
 /// A cumulative pinch magnification a frame can be derived from.
 pub(super) fn is_magnification(magnification: f64) -> bool {
@@ -157,11 +157,17 @@ impl CanvasZoomModel {
                 let draws_committed = nearly(previous.effective_scale(self.pixel_scale), scale)
                     && nearly(self.pan_offset.width, pan.width)
                     && nearly(self.pan_offset.height, pan.height);
+                // A host may report geometry that did not change (one that
+                // syncs on every frame): the pinch then keeps its own range.
+                let held_scale = if previous == context {
+                    self.held_in_unchanged_geometry(carried_scale, context)
+                } else {
+                    held_pinch_scale(carried_scale, context.fit_scale(), context.fill_scale())
+                };
                 let committed = if draws_committed {
                     Self {
-                        // The capture holds the scale to the pinch's floor and
-                        // cap; the drawn frame matches what the next frame shows.
-                        pixel_scale: pinch_scale(carried_scale, 1.0, context.fit_scale()),
+                        // The drawn frame matches what the next frame shows.
+                        pixel_scale: held_scale,
                         pan_offset: carried_pan,
                         fills_viewport: false,
                         ..committed
@@ -169,13 +175,11 @@ impl CanvasZoomModel {
                 } else {
                     committed
                 };
-                committed.with_live_drag_rebased().recaptured_pinch(
-                    carried_scale,
-                    carried_pan,
-                    context,
-                )
+                committed
+                    .with_live_drag_rebased()
+                    .captured_pinch(held_scale, carried_pan)
             }
-            None => committed.continuing(context),
+            None => committed.continuing_in_new_geometry(context),
         }
     }
 
@@ -226,6 +230,20 @@ impl CanvasZoomModel {
         )
     }
 
+    /// `continuing` after the geometry changed: a live pinch's range is the
+    /// new geometry's, so its frame is held to that floor and cap.
+    pub(super) fn continuing_in_new_geometry(self, context: &CanvasZoomContext) -> Self {
+        let dragged = self.with_live_drag_rebased();
+        if dragged.pinch_start_scale.is_none() {
+            return dragged;
+        }
+        dragged.recaptured_pinch_in_new_geometry(
+            context.effective_scale(dragged.pixel_scale),
+            dragged.pan_offset,
+            context,
+        )
+    }
+
     /// A live drag (outside a pinch, which owns the gesture) measures its
     /// next frame from the committed pan: the pan becomes the drag's base and
     /// the latest translation its baseline, so the next frame moves the
@@ -254,12 +272,57 @@ impl CanvasZoomModel {
         pan: Size,
         context: &CanvasZoomContext,
     ) -> Self {
-        let held_scale = pinch_scale(scale, 1.0, context.fit_scale());
-        if !held_scale.is_finite() || held_scale <= 0.0 || !pan.is_finite() {
+        // In unchanged geometry, a pinch that began outside the range
+        // (`begun_pinch`) keeps the range it widened: holding its frame to
+        // the plain range would move the photo on the first re-capture.
+        self.captured_pinch(self.held_in_unchanged_geometry(scale, context), pan)
+    }
+
+    /// `scale` as a live pinch's frame in unchanged geometry: kept when the
+    /// pinch could itself have reached it from its start, else held to the
+    /// plain floor and cap.
+    fn held_in_unchanged_geometry(&self, scale: f64, context: &CanvasZoomContext) -> f64 {
+        let (fit, fill) = (context.fit_scale(), context.fill_scale());
+        let reachable = self.pinch_start_scale.is_some_and(|start| {
+            let (floor, cap) = live_pinch_range(start, fit, fill);
+            (floor..=cap).contains(&scale)
+        });
+        if reachable {
+            scale
+        } else {
+            held_pinch_scale(scale, fit, fill)
+        }
+    }
+
+    /// `recaptured_pinch` after the geometry changed: the start captured in
+    /// the old geometry no longer widens the range, so `scale` is held to the
+    /// new floor and cap.
+    pub(super) fn recaptured_pinch_in_new_geometry(
+        self,
+        scale: f64,
+        pan: Size,
+        context: &CanvasZoomContext,
+    ) -> Self {
+        self.captured_pinch(
+            held_pinch_scale(scale, context.fit_scale(), context.fill_scale()),
+            pan,
+        )
+    }
+
+    /// A pinch beginning from the frame at rest: the capture keeps `scale`
+    /// even outside the pinch's range (100% on an image that fits far above
+    /// it sits below the floor), and the live range widens to include it, so
+    /// the first frames never move the photo against the fingers.
+    pub(super) fn begun_pinch(self, scale: f64, pan: Size) -> Self {
+        self.captured_pinch(scale, pan)
+    }
+
+    fn captured_pinch(self, scale: f64, pan: Size) -> Self {
+        if !scale.is_finite() || scale <= 0.0 || !pan.is_finite() {
             return self;
         }
         Self {
-            pinch_start_scale: Some(held_scale),
+            pinch_start_scale: Some(scale),
             pinch_start_pan: pan,
             pinch_start_centroid: self.pinch_last_centroid,
             pinch_start_magnification: self.last_magnification(),
@@ -324,7 +387,7 @@ fn carried_scale(
     if !kept.is_finite() || kept <= 0.0 {
         return scale;
     }
-    kept.min(MAX_PIXEL_SCALE).max(context.min_scale())
+    kept.min(context.max_scale()).max(context.min_scale())
 }
 
 /// The pan that keeps the image point at the viewport centre there.

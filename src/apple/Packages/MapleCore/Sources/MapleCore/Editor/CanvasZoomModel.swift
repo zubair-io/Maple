@@ -106,7 +106,8 @@ public struct CanvasZoomContext: Equatable, Sendable {
   public var fitScale: CGFloat { CGFloat(maple_canvas_zoom_fit_scale(ffi)) }
 
   /// Scale at which the image covers the visible area, capped at
-  /// `CanvasZoomModel.maxPixelScale`.
+  /// `max(maxPixelScale, 8 × fit)`: a sliver image cannot ask for an unbounded
+  /// zoom, and a tiny one still fills the visible area.
   public var fillScale: CGFloat { CGFloat(maple_canvas_zoom_fill_scale(ffi)) }
 
   /// Smallest legal scale: `fit × minFitFraction`.
@@ -142,7 +143,7 @@ public struct CanvasZoomContext: Equatable, Sendable {
 public struct CanvasZoomModel: Equatable, Sendable {
   // MARK: State (mirrors `raw_core::canvas::CanvasZoomModel`)
 
-  /// User-intent pixel scale: 0 = fit, 1 = 100%, ≤ `maxPixelScale`.
+  /// User-intent pixel scale: 0 = fit, 1 = 100%, ≤ `max(maxPixelScale, fit, fill)`.
   public internal(set) var pixelScale: CGFloat = 0
   /// Pan offset in points. Positive = image dragged right/down.
   public internal(set) var panOffset: CGSize = .zero
@@ -170,7 +171,8 @@ public struct CanvasZoomModel: Equatable, Sendable {
 
   // MARK: Constants (single-sourced from raw-core)
 
-  /// Upper clamp on `pixelScale` — 8× (800%).
+  /// Upper clamp on `pixelScale` — 8× (800%), raised to fit or fill when
+  /// either exceeds it (#5714).
   public static let maxPixelScale = CGFloat(maple_canvas_constants().max_pixel_scale)
   /// Floor for explicit zoom targets so a programmatic 0 can't re-enter fit.
   public static let minExplicitZoom = CGFloat(maple_canvas_constants().min_explicit_zoom)

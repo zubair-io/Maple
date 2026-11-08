@@ -179,7 +179,7 @@ fn pinch_capture_inside_a_detent_band_shows_what_it_commits() {
         .pinch_start_scale
         .expect("the capture frame records the start");
     let frozen = wide.effective_scale(captured.pixel_scale);
-    let shown = frozen * pinch_scale(start, 2.0, wide.fit_scale()) / start;
+    let shown = frozen * pinch_scale(start, 2.0, wide.fit_scale(), wide.fill_scale()) / start;
     let committed = captured
         .pinch_changed(2.0, centroid, &wide)
         .pinch_ended(2.0, &wide);
