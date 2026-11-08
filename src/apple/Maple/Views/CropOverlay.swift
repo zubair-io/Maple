@@ -89,11 +89,11 @@ struct CropOverlay: View {
     private func handleElement(_ handle: CropGeometry.Handle, input: CropOverlayInput) -> some View {
         Color.clear
             .frame(width: handleTolerance * 2, height: handleTolerance * 2)
-            .position(CropOverlaySurface.handleCenter(handle, input))
             .allowsHitTesting(false)
             .accessibilityElement()
             .accessibilityLabel(Self.handleLabel(handle))
             .accessibilityIdentifier("editor-crop-handle-\(handle.rawValue)")
+            .position(CropOverlaySurface.handleCenter(handle, input))
     }
 
     private static func handleLabel(_ handle: CropGeometry.Handle) -> String {

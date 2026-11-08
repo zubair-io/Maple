@@ -1,12 +1,17 @@
 //! The Apple overlay surface: a `CAMetalLayer` of its own, above the image
 //! layer, configured once per `(layer, generation, dims)` like
 //! [`crate::PersistentPresentSurface`] and redrawn on every overlay change.
+//!
+//! One surface is cached per process: two overlay layers presenting at once
+//! (two editor windows in crop) would each recreate it. wgpu retains the
+//! layer, so the host releases the cache when its overlay layer goes away.
 
 use super::{pick_overlay_alpha_mode, pick_overlay_format, OverlayParams, OverlayPipeline};
 use crate::context::GpuContext;
 use std::ffi::c_void;
 
-/// A cached overlay surface. `layer` is an address token, never dereferenced.
+/// A cached overlay surface. `layer` is the layer's address, kept only to
+/// detect a different layer; the `wgpu::Surface` holds its own reference.
 pub struct PersistentOverlaySurface {
     surface: wgpu::Surface<'static>,
     pipeline: OverlayPipeline,
@@ -112,27 +117,23 @@ pub unsafe fn present_overlay_to_surface(
             "present_overlay: surface {width}x{height} outside 1..={max_dim}"
         ));
     }
-    let stale = cache
-        .as_ref()
-        .is_none_or(|existing| existing.layer != layer as usize || existing.generation != generation);
-    let just_configured = if stale {
-        *cache = None;
-        *cache = Some(PersistentOverlaySurface::create(
-            ctx, layer, width, height, generation,
-        )?);
-        true
-    } else if let Some(existing) = cache
-        .as_mut()
-        .filter(|existing| (existing.width, existing.height) != (width, height))
-    {
-        existing.width = width;
-        existing.height = height;
-        existing.configure(ctx);
-        true
-    } else {
-        false
+    let reusable = cache
+        .take()
+        .filter(|existing| existing.layer == layer as usize && existing.generation == generation);
+    let (surface, just_configured) = match reusable {
+        Some(mut existing) if (existing.width, existing.height) != (width, height) => {
+            existing.width = width;
+            existing.height = height;
+            existing.configure(ctx);
+            (existing, true)
+        }
+        Some(existing) => (existing, false),
+        None => (
+            PersistentOverlaySurface::create(ctx, layer, width, height, generation)?,
+            true,
+        ),
     };
-    let surface = cache.as_ref().expect("populated above");
+    let surface = cache.insert(surface);
     let result = surface.draw(ctx, params).and_then(|()| {
         if just_configured {
             surface.draw(ctx, params)
@@ -144,4 +145,15 @@ pub unsafe fn present_overlay_to_surface(
         *cache = None;
     }
     result
+}
+
+/// Drop the cached surface if it belongs to `generation`, releasing wgpu's
+/// reference to that overlay layer and its drawables.
+pub fn release_overlay_surface(cache: &mut Option<PersistentOverlaySurface>, generation: u64) {
+    if cache
+        .as_ref()
+        .is_some_and(|existing| existing.generation == generation)
+    {
+        *cache = None;
+    }
 }

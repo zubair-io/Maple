@@ -232,8 +232,8 @@ mod local_adjustments;
 mod local_spatial;
 mod noise_reduction;
 mod p3_auto;
-// Canvas overlay surface (#5715): crop/mask/heal overlays drawn into an
-// upright, viewport-sized surface above the image.
+// Canvas overlay surface (#5715): the crop overlay drawn into an upright,
+// viewport-sized surface above the image.
 mod overlay;
 // Passthrough display proof (P1b / #988): wgpu → CAMetalLayer present. Apple-
 // only — `SurfaceTargetUnsafe::CoreAnimationLayer` is wgpu-gated on
@@ -378,12 +378,12 @@ pub use present::present_test_pattern;
 // Chain-output present (P4b-apple / #1028). The offscreen entry is the host
 // parity path (any native target); the surface entry is Apple-only.
 #[cfg(not(target_arch = "wasm32"))]
-pub use present_chain::present_chain_to_offscreen;
-#[cfg(not(target_arch = "wasm32"))]
 pub use overlay::render_overlay_offscreen;
-pub use overlay::{OverlayParams, OverlayPrimitive, OVERLAY_CAPACITY};
 #[cfg(target_vendor = "apple")]
-pub use overlay::{present_overlay_to_surface, PersistentOverlaySurface};
+pub use overlay::{present_overlay_to_surface, release_overlay_surface, PersistentOverlaySurface};
+pub use overlay::{OverlayParams, OverlayPrimitive, OVERLAY_CAPACITY};
+#[cfg(not(target_arch = "wasm32"))]
+pub use present_chain::present_chain_to_offscreen;
 #[cfg(target_vendor = "apple")]
 pub use present_chain::{present_chain_to_surface, PersistentPresentSurface};
 /// Manual geometry for the present shader (#3410) — see [`PresentGeometry`].

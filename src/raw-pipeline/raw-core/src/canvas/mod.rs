@@ -29,13 +29,6 @@ pub use crop::{
     MIN_CROP_FRACTION,
 };
 pub use geometry::{Point, Rect, Size};
-pub use overlay::{
-    crop_handle_centers, crop_overlay, overlay_pixel, rasterize_overlay, unorm8, CanvasOverlay,
-    CropOverlayInput, OverlayPrimitive, RasterizeError, CROP_ACTIVE_FRAME_WIDTH,
-    CROP_CORNER_DOT_DIAMETER, CROP_FRAME_ALPHA, CROP_FRAME_WIDTH, CROP_GRID_ALPHA,
-    CROP_GRID_WIDTH, CROP_MASK_ALPHA, OVERLAY_CAPACITY, OVERLAY_KIND_DISC, OVERLAY_KIND_FILL,
-    OVERLAY_KIND_FILL_OUTSIDE, OVERLAY_KIND_NONE,
-};
 pub use mapping::{CanvasMath, MAX_TEXTURE_EDGE};
 pub use native_detail::{
     decode_rect, detail_rect, detail_rect_in_decode_bottom_up, native_detail_should_render,
@@ -43,6 +36,13 @@ pub use native_detail::{
     VisibleRegionUpdate, NATIVE_DETAIL_FILTER_HALO, NATIVE_DETAIL_MIN_PIXEL_SCALE,
     NATIVE_DETAIL_PAN_MARGIN_CEILING, NATIVE_DETAIL_PAN_MARGIN_FRACTION,
     NATIVE_DETAIL_ZOOM_CHANGE_EPSILON,
+};
+pub use overlay::{
+    crop_handle_centers, crop_overlay, overlay_pixel, rasterize_overlay, unorm8, CanvasOverlay,
+    CropOverlayInput, OverlayPrimitive, RasterizeError, CROP_ACTIVE_FRAME_WIDTH,
+    CROP_CORNER_DOT_DIAMETER, CROP_FRAME_ALPHA, CROP_FRAME_WIDTH, CROP_GRID_ALPHA, CROP_GRID_WIDTH,
+    CROP_MASK_ALPHA, OVERLAY_CAPACITY, OVERLAY_KIND_DISC, OVERLAY_KIND_FILL,
+    OVERLAY_KIND_FILL_OUTSIDE, OVERLAY_KIND_NONE,
 };
 pub use render_schedule::{
     refine_matches_fast_target, refine_tries_native_detail, RefineContext, RenderSchedule,
