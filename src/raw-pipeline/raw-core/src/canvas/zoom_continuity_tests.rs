@@ -335,3 +335,52 @@ fn tracking_outside_a_pinch_or_with_bad_input_changes_nothing() {
         pinching
     );
 }
+
+// The handoff never moves what the screen shows.
+
+#[test]
+fn a_viewport_growing_mid_pinch_keeps_the_shown_pan_even_outside_the_new_range() {
+    let before = audit();
+    let wide = ctx((3800.0, 800.0), (4000.0, 2000.0), 1.0);
+    let fingers = Point::new(200.0, 400.0);
+    let pinching = CanvasZoomModel::default()
+        .zoom_to_scale(1.0, &before)
+        .pinch_changed(1.0, fingers, &before)
+        .pinch_changed(1.0, Point::new(1200.0, 400.0), &before);
+    let shown = pinching.pan_offset.width;
+    assert!(shown.abs() > wide.pinch_clamped_pan(pinching.pan_offset, 1.0).width.abs());
+
+    let carried = pinching.geometry_changed(&before, &wide);
+    assert_close(carried.pan_offset.width, shown);
+    let next = carried.pinch_changed(1.0, Point::new(1200.0, 400.0), &wide);
+    assert_close(next.pan_offset.width, shown);
+    let back = carried.pinch_changed(1.0, Point::new(1100.0, 400.0), &wide);
+    assert_close(back.pan_offset.width, shown - 100.0);
+}
+
+#[test]
+fn a_pinch_after_holding_an_out_of_range_frame_starts_from_it() {
+    let context = audit();
+    let held = CanvasZoomModel::default()
+        .zoom_to_scale(1.0, &context)
+        .hold_shown(1.0, Size::new(1700.0, 0.0), &context);
+    assert_close(held.pan_offset.width, 1700.0);
+    let captured = held.pinch_changed(1.3, AT, &context);
+    let next = captured.pinch_changed(1.3, AT, &context);
+    assert_close(next.pan_offset.width, 1700.0);
+    assert_close(scale_of(next, &context), 1.0);
+}
+
+#[test]
+fn a_drag_after_a_command_moves_by_new_motion_only() {
+    let context = audit();
+    let dragging = drag(
+        CanvasZoomModel::default().zoom_to_scale(1.0, &context),
+        -100.0,
+        &context,
+    );
+    let reset = dragging.reset_to_fit(&context);
+    assert_eq!(reset.pan_offset, Size::ZERO);
+    let zoomed = reset.zoom_to_scale(1.0, &context);
+    assert_close(drag(zoomed, -130.0, &context).pan_offset.width, -30.0);
+}

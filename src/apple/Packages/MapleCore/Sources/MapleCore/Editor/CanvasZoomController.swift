@@ -223,11 +223,13 @@ public final class CanvasZoomController {
     model.dragChanged(translation: translation, context: context)
   }
 
-  /// Drag release — pushes the new visible rect when a pan committed.
+  /// Drag release — pushes the new visible rect when a pan committed. A
+  /// drag that began from a held, out-of-range frame settles into range
+  /// here; the host animates that move.
   public func dragEnded() {
-    if model.dragEnded() {
-      commitToSession()
-    }
+    guard model.dragEnded() else { return }
+    model.reclampPan(context: context)
+    commitToSession()
   }
 
   /// Absorb a drag's running translation into the baseline without panning —

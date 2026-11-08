@@ -62,6 +62,10 @@ pub struct CanvasZoomModel {
     pub pinch_start_centroid: Point,
     /// Latest live centroid, so the release commits at the same focal point.
     pub pinch_last_centroid: Point,
+    /// Cumulative magnification at the capture: the pinch scales by
+    /// `magnification / pinch_start_magnification` (1 when unset), so a
+    /// capture at any magnification reproduces the frame on screen.
+    pub pinch_start_magnification: f64,
     /// Cumulative magnification of the latest pinch input (with
     /// `pinch_last_centroid`, the live pinch input). A transition that is not
     /// finger motion re-captures the pinch on what it produced, so the next
@@ -115,7 +119,7 @@ impl CanvasZoomModel {
         );
         (
             Self {
-                pan_offset: context.clamped_pan(raw, tracked.pixel_scale),
+                pan_offset: context.clamped_pan_from(raw, tracked.pixel_scale, tracked.base_pan),
                 ..tracked
             },
             true,

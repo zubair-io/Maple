@@ -45,7 +45,11 @@ impl CanvasZoomModel {
                 context,
             );
         };
-        let next = pinch_scale(start, magnification, context.fit_scale());
+        let next = pinch_scale(
+            start,
+            magnification / self.start_magnification(),
+            context.fit_scale(),
+        );
         let pan = live_pinch_pan(
             location,
             self.pinch_start_centroid,
@@ -57,7 +61,7 @@ impl CanvasZoomModel {
         Self {
             pixel_scale: next,
             fills_viewport: false,
-            pan_offset: context.pinch_clamped_pan(pan, next),
+            pan_offset: context.pinch_clamped_pan_from(pan, next, self.pinch_start_pan, start),
             pinch_last_centroid: location,
             pinch_last_magnification: magnification,
             ..self
@@ -75,8 +79,8 @@ impl CanvasZoomModel {
         let fit = context.fit_scale();
         let fill = context.fill_scale();
         let committed = match self.pinch_start_scale {
-            Some(start) if magnification.is_finite() => {
-                let scale = pinch_scale(start, magnification, fit);
+            Some(start) if is_magnification(magnification) => {
+                let scale = pinch_scale(start, magnification / self.start_magnification(), fit);
                 let pan = live_pinch_pan(
                     self.pinch_last_centroid,
                     self.pinch_start_centroid,
@@ -87,7 +91,12 @@ impl CanvasZoomModel {
                 );
                 Self {
                     pixel_scale: scale,
-                    pan_offset: context.pinch_clamped_pan(pan, scale),
+                    pan_offset: context.pinch_clamped_pan_from(
+                        pan,
+                        scale,
+                        self.pinch_start_pan,
+                        start,
+                    ),
                     ..self
                 }
             }
@@ -99,6 +108,7 @@ impl CanvasZoomModel {
             pinch_start_centroid: Point::ZERO,
             pinch_last_centroid: Point::ZERO,
             pinch_last_magnification: 0.0,
+            pinch_start_magnification: 0.0,
             ..committed
         };
         let scale = context.effective_scale(released.pixel_scale);
@@ -130,10 +140,12 @@ impl CanvasZoomModel {
 
     /// Rest at the frame an interrupted settle animation was showing, so the
     /// gesture that takes over starts from what is on screen (#5742). The
-    /// scale is held to the zoom range and the pan to the live pinch range,
-    /// which every frame of a settle already lies in. Ignored while a pinch
-    /// is live, before the image size is known, or for a frame that cannot
-    /// be drawn.
+    /// pan is kept exactly, even outside the new geometry's range (a settle
+    /// after a chrome change interpolates from the old geometry): the
+    /// gesture's clamp widens to include it, and its release settles into
+    /// range. The scale is held to the zoom range. Ignored while a pinch is
+    /// live, before the image size is known, or for a frame that cannot be
+    /// drawn.
     #[must_use]
     pub fn hold_shown(self, scale: f64, pan: Size, context: &CanvasZoomContext) -> Self {
         let drawable = scale.is_finite() && scale > 0.0 && pan.is_finite();
@@ -141,12 +153,10 @@ impl CanvasZoomModel {
         if self.pinch_start_scale.is_some() || !drawable || !image_known {
             return self;
         }
-        let held = pinch_scale(scale, 1.0, context.fit_scale());
-        let held_pan = context.pinch_clamped_pan(pan, held);
         Self {
-            pixel_scale: held,
-            pan_offset: held_pan,
-            base_pan: held_pan,
+            pixel_scale: pinch_scale(scale, 1.0, context.fit_scale()),
+            pan_offset: pan,
+            base_pan: pan,
             fills_viewport: false,
             ..self
         }

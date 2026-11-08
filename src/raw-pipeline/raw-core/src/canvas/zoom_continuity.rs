@@ -106,6 +106,22 @@ impl CanvasZoomModel {
             Some((scale, pan)) => {
                 let carried_scale = carried_free_scale(scale, previous, context);
                 let carried_pan = carried_pan(pan, scale, carried_scale, previous, context);
+                // A host that draws the committed frame during a pinch (it
+                // feeds every frame through `pinch_changed`) keeps drawing the
+                // carried live frame; a host that froze the committed frame
+                // keeps it frozen and draws the live one from the capture.
+                let draws_committed =
+                    previous.effective_scale(self.pixel_scale) == scale && self.pan_offset == pan;
+                let committed = if draws_committed {
+                    Self {
+                        pixel_scale: carried_scale,
+                        pan_offset: carried_pan,
+                        fills_viewport: false,
+                        ..committed
+                    }
+                } else {
+                    committed
+                };
                 committed.with_live_drag_rebased().recaptured_pinch(
                     carried_scale,
                     carried_pan,
@@ -158,56 +174,53 @@ impl CanvasZoomModel {
     }
 
     /// A live drag (outside a pinch, which owns the gesture) measures its
-    /// next frame from the committed pan: `base + translation − baseline`
-    /// lands on the current pan at the latest translation.
+    /// next frame from the committed pan: the pan becomes the drag's base and
+    /// the latest translation its baseline, so the next frame moves the
+    /// photo by the new motion alone.
     fn with_live_drag_rebased(self) -> Self {
         match (self.pinch_start_scale, self.drag_last_translation) {
-            (None, Some(translation)) => {
-                let baseline = self.drag_translation_base.unwrap_or(Size::ZERO);
-                Self {
-                    base_pan: Size::new(
-                        self.pan_offset.width - (translation.width - baseline.width),
-                        self.pan_offset.height - (translation.height - baseline.height),
-                    ),
-                    ..self
-                }
-            }
+            (None, Some(translation)) => Self {
+                base_pan: self.pan_offset,
+                drag_translation_base: Some(translation),
+                ..self
+            },
             _ => self,
         }
     }
 
-    /// The pinch capture whose next frame at the latest input lands on
-    /// `scale` and `pan`, first held to the live pinch's own limits (the
-    /// floor, the cap and the pinch pan range) so that frame cannot jump to
-    /// them. The committed scale and pan are left untouched, so a host that
-    /// freezes the frame during a pinch keeps it frozen.
+    /// The pinch capture whose next frame at the latest input lands exactly
+    /// on `scale` and `pan`: the latest input becomes the baseline the pinch
+    /// measures from. The scale is first held to the pinch's floor and cap;
+    /// the pan is kept as given — the live pinch's clamp widens to include a
+    /// start outside its range — so nothing the screen shows moves. The
+    /// committed scale and pan are left untouched, so a host that freezes the
+    /// frame during a pinch keeps it frozen.
     pub(super) fn recaptured_pinch(
         self,
         scale: f64,
         pan: Size,
         context: &CanvasZoomContext,
     ) -> Self {
-        let magnification = self.last_magnification();
         let held_scale = pinch_scale(scale, 1.0, context.fit_scale());
-        let held_pan = context.pinch_clamped_pan(pan, held_scale);
-        if !held_scale.is_finite() || held_scale <= 0.0 {
+        if !held_scale.is_finite() || held_scale <= 0.0 || !pan.is_finite() {
             return self;
         }
-        let centroid = self.pinch_last_centroid;
-        let viewport = context.viewport_points();
-        let offset = Size::new(
-            centroid.x - viewport.width / 2.0,
-            centroid.y - viewport.height / 2.0,
-        );
         Self {
-            pinch_start_scale: Some(held_scale / magnification),
-            pinch_start_pan: Size::new(
-                offset.width - (offset.width - held_pan.width) / magnification,
-                offset.height - (offset.height - held_pan.height) / magnification,
-            ),
-            pinch_start_centroid: centroid,
-            pinch_last_magnification: magnification,
+            pinch_start_scale: Some(held_scale),
+            pinch_start_pan: pan,
+            pinch_start_centroid: self.pinch_last_centroid,
+            pinch_start_magnification: self.last_magnification(),
+            pinch_last_magnification: self.last_magnification(),
             ..self
+        }
+    }
+
+    /// The magnification the pinch measures from; 1 when unset.
+    pub(super) fn start_magnification(&self) -> f64 {
+        if is_magnification(self.pinch_start_magnification) {
+            self.pinch_start_magnification
+        } else {
+            1.0
         }
     }
 
