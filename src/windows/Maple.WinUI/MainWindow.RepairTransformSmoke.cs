@@ -42,8 +42,8 @@ public sealed partial class MainWindow
                 var view = _canvasZoom.View;
                 if (view.ScaleToFit == 1)
                     throw new InvalidOperationException("Repair zoom diagnostic did not leave fit");
-                if (ZoomPanTransform.ScaleX != view.ScaleToFit || ZoomPanTransform.ScaleY != view.ScaleToFit
-                    || ZoomPanTransform.TranslateX != view.PanX || ZoomPanTransform.TranslateY != view.PanY)
+                if (!TransformHolds(ZoomPanTransform.ScaleX, view.ScaleToFit) || !TransformHolds(ZoomPanTransform.ScaleY, view.ScaleToFit)
+                    || !TransformHolds(ZoomPanTransform.TranslateX, view.PanX) || !TransformHolds(ZoomPanTransform.TranslateY, view.PanY))
                     throw new InvalidOperationException("Repair zoom diagnostic was not applied to the viewer transform");
                 await Task.Yield();
                 ZoomHost.UpdateLayout();
