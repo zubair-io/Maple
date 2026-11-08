@@ -3,12 +3,23 @@ import XCTest
 
 @testable import Maple
 
-/// #5710: which editors use the ruler controls, and where the bar's top sits.
+/// #5710: which editors use the vertical bar or the bottom ruler, and where
+/// the vertical bar's top sits.
 final class EditorVerticalControlBarLayoutTests: XCTestCase {
-  func testOpenDuoUsesTheRulerControlsInBothOrientations() {
-    for size in [CGSize(width: 669, height: 835), CGSize(width: 951, height: 669)] {
-      XCTAssertTrue(
-        EditorVerticalControlBar.fits(in: size, idiom: .phone, isiOSAppOnMac: false), "\(size)")
+  func testOpenDuoUsesTheVerticalBarInLandscapeAndTheBottomRulerInPortrait() {
+    let landscape = CGSize(width: 951, height: 669)
+    let portrait = CGSize(width: 669, height: 835)
+    XCTAssertTrue(
+      EditorVerticalControlBar.fits(in: landscape, idiom: .phone, isiOSAppOnMac: false))
+    XCTAssertFalse(EditorControls.docksCompactBar(size: landscape, idiom: .phone))
+    XCTAssertFalse(
+      EditorVerticalControlBar.fits(in: portrait, idiom: .phone, isiOSAppOnMac: false))
+    XCTAssertTrue(EditorControls.docksCompactBar(size: portrait, idiom: .phone))
+  }
+
+  func testIPadNeverDocksTheCompactBar() {
+    for size in [CGSize(width: 1024, height: 1300), CGSize(width: 1366, height: 1000)] {
+      XCTAssertFalse(EditorControls.docksCompactBar(size: size, idiom: .pad), "\(size)")
     }
   }
 
