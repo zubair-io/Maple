@@ -19,6 +19,7 @@ mod render_schedule;
 mod zoom;
 mod zoom_context;
 mod zoom_queries;
+mod zoom_rebase;
 mod zoom_rules;
 
 pub use crop::{

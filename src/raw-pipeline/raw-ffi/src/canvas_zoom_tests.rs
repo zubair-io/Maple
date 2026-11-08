@@ -186,3 +186,26 @@ fn constants_and_context_come_from_the_core() {
         }
     );
 }
+
+#[test]
+fn pinch_rebased_threads_the_state_through() {
+    let context = landscape();
+    let centre = MapleCanvasPoint { x: 500.0, y: 400.0 };
+    let captured =
+        maple_canvas_zoom_pinch_changed(MapleCanvasZoomState::default(), 1.0, centre, context);
+    let shown_at = MapleCanvasPoint { x: 520.0, y: 410.0 };
+    let shown = maple_canvas_zoom_pinch_changed(captured, 2.0, shown_at, context);
+    let lifted = MapleCanvasPoint { x: 620.0, y: 410.0 };
+    let rebased = maple_canvas_zoom_pinch_rebased(captured, 2.0, shown_at, 2.0, lifted, context);
+    assert_eq!(rebased.pinch_last_centroid.x, 620.0);
+    let next = maple_canvas_zoom_pinch_changed(rebased, 2.0, lifted, context);
+    assert!((next.pixel_scale - shown.pixel_scale).abs() < 1e-9);
+    assert!((next.pan_offset.width - shown.pan_offset.width).abs() < 1e-9);
+    assert!((next.pan_offset.height - shown.pan_offset.height).abs() < 1e-9);
+    let idle = MapleCanvasZoomState::default();
+    assert_eq!(
+        maple_canvas_zoom_pinch_rebased(idle, 1.0, shown_at, 1.0, lifted, context)
+            .has_pinch_start_scale,
+        0
+    );
+}

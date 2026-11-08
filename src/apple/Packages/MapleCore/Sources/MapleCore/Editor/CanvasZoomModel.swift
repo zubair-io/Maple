@@ -195,6 +195,23 @@ public struct CanvasZoomModel: Equatable, Sendable {
         ffi, Double(magnification), MapleCanvasPoint(location), context.ffi))
   }
 
+  /// The fingers of a live pinch changed (one lifted or landed): re-anchor so
+  /// `magnification` at `location` reproduces the frame shown at
+  /// `shownMagnification` about `shownLocation`, instead of jumping to the
+  /// new centroid (#5732).
+  public mutating func pinchRebased(
+    shownMagnification: CGFloat,
+    shownLocation: CGPoint,
+    magnification: CGFloat,
+    location: CGPoint,
+    context: CanvasZoomContext
+  ) {
+    adopt(
+      maple_canvas_zoom_pinch_rebased(
+        ffi, Double(shownMagnification), MapleCanvasPoint(shownLocation),
+        Double(magnification), MapleCanvasPoint(location), context.ffi))
+  }
+
   /// Pinch release: commit the final scale, settle on the fit or fill detent
   /// inside its band, clear the start capture.
   public mutating func pinchEnded(magnification: CGFloat, context: CanvasZoomContext) {

@@ -77,8 +77,9 @@ public final class CanvasZoomController {
   }
 
   /// Live pinch transform for the iOS host's compositor `.scaleEffect(anchor:
-  /// .center)` + `.offset` (#1493): the scale factor relative to the
-  /// start-captured scale, and the would-be COMMITTED pan. Both use the SAME
+  /// .center)` + `.offset` (#1493): the scale factor relative to the frozen
+  /// frame's scale (`pixelScale` does not move mid-pinch), and the would-be
+  /// COMMITTED pan. Both use the SAME
   /// clamps the release will — `pinchScale` for the scale, `clampedPan` for the
   /// pan — so the live visual can't over-zoom or detach the image, and the pan
   /// (which carries the focal anchor via `livePinchPan`) makes the live visual
@@ -109,7 +110,9 @@ public final class CanvasZoomController {
       ),
       at: next
     )
-    return (next / start, committed)
+    let frozen = context.effectiveScale(for: model.pixelScale)
+    guard frozen > 0 else { return (1, .zero) }
+    return (next / frozen, committed)
   }
 
   /// On-screen image frame (points) at the current zoom. `nil` until
@@ -177,6 +180,19 @@ public final class CanvasZoomController {
   /// anchor in viewport points). Model-only — committed on end.
   public func pinchChanged(magnification: CGFloat, location: CGPoint) {
     model.pinchChanged(magnification: magnification, location: location, context: context)
+  }
+
+  /// The fingers of a live pinch changed: re-anchor so the next frame with
+  /// `magnification` at `location` reproduces the frame shown at
+  /// `shownMagnification` about `shownLocation` (#5732). Model-only, like
+  /// `pinchChanged`.
+  public func pinchRebased(
+    shownMagnification: CGFloat, shownLocation: CGPoint,
+    magnification: CGFloat, location: CGPoint
+  ) {
+    model.pinchRebased(
+      shownMagnification: shownMagnification, shownLocation: shownLocation,
+      magnification: magnification, location: location, context: context)
   }
 
   /// Pinch release — commits the resolved scale + visible rect.

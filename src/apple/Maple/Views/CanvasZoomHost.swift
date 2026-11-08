@@ -78,6 +78,11 @@ struct CanvasZoomHost<CanvasLeaf: View, Fallback: View>: View {
     // Magnification of the LAST rendered frame — the commit uses this (not the gesture-end
     // recognizer scale, which differs as fingers lift), so committed scale/pan exactly matches.
     @State private var pinchLastMag: CGFloat = 1
+    // Fingers in the last pinch frame. Two fingers rarely lift together: in
+    // between, the recognizer reports the remaining finger as the centroid
+    // (and its scale can step), so a change re-anchors the pinch rather than
+    // jumping the image by half the finger spread (#5732).
+    @State private var pinchTouchCount = 0
     // Live effective scale shown in the zoom badge during a pinch — `pixelScale` is frozen
     // mid-gesture (a compositor transform), so the badge would otherwise read the pre-pinch
     // value. nil → not pinching → badge reads the committed `effectivePixelScale`.
@@ -135,8 +140,8 @@ struct CanvasZoomHost<CanvasLeaf: View, Fallback: View>: View {
         // release — see `pinchChangedLive` / `pinchEndedLive`.
         .gesture(
           CanvasPinchGesture(
-            onChanged: { scale, location in
-              pinchChangedLive(scale: scale, location: location)
+            onChanged: { scale, location, touchCount in
+              pinchChangedLive(scale: scale, location: location, touchCount: touchCount)
             },
             onEnded: { scale in
               pinchEndedLive(scale: scale)
@@ -227,14 +232,19 @@ struct CanvasZoomHost<CanvasLeaf: View, Fallback: View>: View {
     /// this focal + the start scale/pan; subsequent frames only update the cheap
     /// `.scaleEffect` (no `pixelScale` write → no frame growth → no per-frame
     /// re-decode, which was the lag).
-    private func pinchChangedLive(scale: CGFloat, location: CGPoint) {
+    private func pinchChangedLive(scale: CGFloat, location: CGPoint, touchCount: Int) {
       if !pinchActive {
         pinchActive = true
         // Capture the start state in the model (magnification 1 → no change)
         // so the release commit + the live `gestureTransform` both anchor at
         // this focal + the start scale/pan.
         controller.pinchChanged(magnification: 1.0, location: location)
+      } else if touchCount != pinchTouchCount {
+        controller.pinchRebased(
+          shownMagnification: pinchLastMag, shownLocation: pinchLastCentroid,
+          magnification: scale, location: location)
       }
+      pinchTouchCount = touchCount
       pinchLastCentroid = location
       pinchLastMag = scale
       // The would-be committed scale + pan, clamped to the same legal region
@@ -244,8 +254,8 @@ struct CanvasZoomHost<CanvasLeaf: View, Fallback: View>: View {
       let transform = controller.gestureTransform(magnification: scale, liveCentroid: location)
       gestureZoom = transform.zoom
       gestureCommittedPan = transform.committedPan
-      // `effectivePixelScale` is frozen at the start scale mid-gesture, so
-      // `start × zoom` == the live (would-be-committed) scale for the badge.
+      // `effectivePixelScale` is frozen at the pre-pinch scale mid-gesture, and
+      // `zoom` is relative to it, so their product is the live scale for the badge.
       liveZoomScale = controller.effectivePixelScale * transform.zoom
     }
 
@@ -276,6 +286,7 @@ struct CanvasZoomHost<CanvasLeaf: View, Fallback: View>: View {
       gestureZoom = 1
       gestureCommittedPan = .zero
       pinchLastMag = 1
+      pinchTouchCount = 0
       liveZoomScale = nil
     }
   #endif

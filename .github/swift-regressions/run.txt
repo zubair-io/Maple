@@ -97,6 +97,7 @@ CameraSupportRegistryTests
 CanvasColorSpaceTests
 CanvasZoomControllerTests
 CanvasZoomModelTests
+CanvasZoomPinchRebaseTests
 CanvasZoomStopsTests
 CapabilityRegistryTests
 ChangeCursorStoreTests
