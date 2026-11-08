@@ -1,3 +1,4 @@
+import MapleCore
 import SwiftUI
 
 /// Shared dimensions keep the crop viewport clear of the complete filmstrip,
@@ -10,6 +11,13 @@ enum EditorCropGeometry {
   static let handleMargin: CGFloat = 32
   private static let sideControlsWidth: CGFloat = 396 + 24
   private static let minimumCropViewportWidth: CGFloat = 160
+
+  /// iPad and the open Duo, the only phone-idiom screen that reaches the
+  /// tablet controls, share one crop arrangement.
+  static var isTabletClass: Bool {
+    let idiom = MapleShellKind.currentIdiom
+    return idiom == .pad || idiom == .phone
+  }
 
   /// Keep an iPad crop image usable when the side inspector and filmstrip
   /// cannot both fit beside it.
