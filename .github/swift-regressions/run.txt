@@ -46,6 +46,8 @@ EditorCanvasSeedTests
 EditorCommandRouterTests
 EditorCommandWhiteBalanceTests
 EditorHSLTests
+EditorSeedCanvasGeometryTests
+EditorSeedStoreTests
 EditorStateAutoResetTests
 EditorStateBlackWhiteTests
 EditorStatePresetsTests

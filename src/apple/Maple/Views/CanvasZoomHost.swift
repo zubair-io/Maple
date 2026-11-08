@@ -483,7 +483,8 @@ struct CanvasZoomHost<CanvasLeaf: View, Fallback: View>: View {
       let scale = controller.effectivePixelScale
     #endif
     return CanvasZoomBadge(
-      scale: scale,
+      // A stand-in extent's percentage would change when the real size lands.
+      scale: controller.provisionalImageSize == nil ? scale : nil,
       canvasReady: canvasReady,
       nextStop: controller.nextZoomStop,
       onAdvance: { controller.advanceZoomStop() }

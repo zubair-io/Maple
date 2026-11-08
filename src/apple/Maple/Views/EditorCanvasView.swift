@@ -10,6 +10,8 @@ struct EditorCanvasView: View {
   /// Global frames of the chrome floating over the canvas (#5749 visible area).
   var coverFrames: [CGRect] = []
   var hasFilmstrip = false
+  /// The seed still drawn as the canvas until real pixels land (#5755).
+  @State var seedStore = EditorSeedStore()
   @Environment(\.mapleLayout) private var layout
   private var isRegular: Bool { layout != .phone }
 
@@ -25,7 +27,7 @@ struct EditorCanvasView: View {
             onWheelEditing: { steps, unit in
               state.wheelNudge(steps: steps, unit: unit)
             },
-            canvasReady: canvasIsReady,
+            canvasReady: canvasIsReady || hasSeed,
             wheelExcludedFrame: wheelExclusionFrame,
             badgeInsets: badgeInsets(in: geometry),
             safeAreaFrame: visibleSafeArea(in: geometry),
@@ -37,14 +39,13 @@ struct EditorCanvasView: View {
               .paddedToVisibleCanvas(
                 safeArea: visibleSafeArea(in: geometry), coverFrames: visibleCoverFrames)
           }
-          // Seed thumbnail until real pixels land, then the download
-          // progress above it (#2374), both in the area the photo fits.
-          Group {
-            seedThumbnail
-            downloadOverlay
-          }
-          .paddedToVisibleCanvas(
-            safeArea: visibleSafeArea(in: geometry), coverFrames: visibleCoverFrames)
+          // The seed is drawn in the canvas leaf (#5755); this loads it and
+          // lays the canvas out at its aspect until the real size lands.
+          seedLoader
+          // Download progress over the seed (#2374), in the visible area.
+          downloadOverlay
+            .paddedToVisibleCanvas(
+              safeArea: visibleSafeArea(in: geometry), coverFrames: visibleCoverFrames)
           // Crop overlay (#638): shown while the Crop tool is armed.
           // The canvas renders UNCROPPED under the overlay.
           if state.armedTool == .crop {
