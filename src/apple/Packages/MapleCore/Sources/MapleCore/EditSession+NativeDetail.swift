@@ -37,8 +37,8 @@ extension EditSession {
     // coalesced reschedule) after the viewport already settled inside
     // the published patch. If so there is nothing new to develop —
     // bail out before opening any RAW handle.
-    if nativeDetailPreview != nil,
-      nativeDetailSourceRect.contains(viewportDetailRect)
+    if NativeDetailLOD.publishedPatchCovers(
+      publishedNativeDetailPatch, detailRect: viewportDetailRect)
     {
       return true
     }

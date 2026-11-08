@@ -1,7 +1,8 @@
 //! Canvas geometry shared by every platform shell (#5714): the fit / fill /
-//! 100% zoom model with its gesture transitions, and the mapping between the
+//! 100% zoom model with its gesture transitions, the mapping between the
 //! viewport and the oriented image (fit scale, on-screen frame, render
-//! targets, visible source rect).
+//! targets, visible source rect), deep-zoom tile selection, the two-phase
+//! render scheduling rules, and the interactive crop geometry.
 //!
 //! Every type is a `Copy` value with no allocation, and every function is a
 //! total function of its inputs: non-finite or negative sizes, a zero
@@ -10,15 +11,34 @@
 //! image extents in oriented source pixels; a `pixel_scale` is real screen
 //! pixels per image pixel, with `0` meaning fit-to-viewport.
 
+mod crop;
 mod geometry;
 mod mapping;
+mod native_detail;
+mod render_schedule;
 mod zoom;
 mod zoom_context;
 mod zoom_queries;
 mod zoom_rules;
 
+pub use crop::{
+    centered_crop_for_aspect, crop_rect_in_view, fit_footprint, hit_test_handle, move_crop,
+    resize_crop, view_point_to_normalized, CropEdges, CropHandle, CropResizeOptions,
+    MIN_CROP_FRACTION,
+};
 pub use geometry::{Point, Rect, Size};
 pub use mapping::{CanvasMath, MAX_TEXTURE_EDGE};
+pub use native_detail::{
+    decode_rect, detail_rect, detail_rect_in_decode_bottom_up, native_detail_should_render,
+    pan_margin, patch_rect, published_patch_covers, visible_region_change, VisibleRegionChange,
+    VisibleRegionUpdate, NATIVE_DETAIL_FILTER_HALO, NATIVE_DETAIL_MIN_PIXEL_SCALE,
+    NATIVE_DETAIL_PAN_MARGIN_CEILING, NATIVE_DETAIL_PAN_MARGIN_FRACTION,
+    NATIVE_DETAIL_ZOOM_CHANGE_EPSILON,
+};
+pub use render_schedule::{
+    refine_matches_fast_target, refine_tries_native_detail, RefineContext, RenderSchedule,
+    REFINE_DEBOUNCE_MS,
+};
 pub use zoom::{
     CanvasZoomModel, DoubleTapBehavior, DETENT_TOLERANCE, MAX_PIXEL_SCALE, MIN_EXPLICIT_ZOOM,
     MIN_FIT_FRACTION, WHEEL_ZOOM_SENSITIVITY, ZOOM_STEP,

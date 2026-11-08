@@ -13,6 +13,7 @@
 
 import CoreImage
 import Foundation
+import RawPipeline
 
 @MainActor
 extension EditSession {
@@ -102,19 +103,18 @@ extension EditSession {
     // stripped-model RAW handle and sends the resulting small scene-linear
     // patch through the same Apple display chain as the CPU canvas. (The
     // legacy full-canvas `TileManager` compositor was retired in #3288.)
-    if !cropApplied,
-      asset.isRaw,
-      asset.primaryURL != nil,
-      // The capture tile renders through the whole-image decode's
-      // creative stage (#5377), exposure gain included, so every profile
-      // is parity-safe at 1:1.
-      NativeDetailLOD.shouldRender(
-        pixelScale: pixelScale,
-        visibleRect: viewportSourceRect,
-        imageSize: nativeImageSize
-      ),
-      await refineNativeDetail(gen: gen)
-    {
+    // The capture tile renders through the whole-image decode's creative
+    // stage (#5377), exposure gain included, so every profile is
+    // parity-safe at 1:1. The route rule is shared (#5714).
+    let triesNativeDetail = maple_canvas_refine_tries_native_detail(
+      MapleCanvasRefineContext(
+        crop_applied: cropApplied ? 1 : 0,
+        is_raw: asset.isRaw ? 1 : 0,
+        has_source_file: asset.primaryURL == nil ? 0 : 1,
+        pixel_scale: Double(pixelScale),
+        visible_rect: MapleCanvasRect(viewportSourceRect),
+        image_size: MapleCanvasSize(nativeImageSize)))
+    if triesNativeDetail != 0, await refineNativeDetail(gen: gen) {
       return
     }
     // A failed native-detail await may resume after a newer slider tick.
@@ -123,9 +123,12 @@ extension EditSession {
     guard gen == current, !Task.isCancelled else { return }
     // Short-circuit when refine would render at the same (or smaller)
     // target as the most recent fast pass.
-    if let fast = fastTargetSize, let refine = refinedTargetSize,
-      refine.width <= fast.width + 1 && refine.height <= fast.height + 1
-    {
+    let fast = fastTargetSize
+    let refine = refinedTargetSize
+    let refineMatchesFast = maple_canvas_refine_matches_fast_target(
+      fast == nil ? 0 : 1, MapleCanvasSize(fast ?? .zero),
+      refine == nil ? 0 : 1, MapleCanvasSize(refine ?? .zero))
+    if refineMatchesFast != 0 {
       if await canPublishDerivedPixels() {
         persistCurrentPreviewToCache()
       }
