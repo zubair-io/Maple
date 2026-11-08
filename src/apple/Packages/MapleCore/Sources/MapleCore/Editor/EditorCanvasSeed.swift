@@ -1,12 +1,13 @@
 // EditorCanvasSeed.swift — the image drawn as the editor canvas before the
-// first real frame of a Maple Cloud asset (#5731, #5755).
+// first real frame of a Maple Cloud asset (#5731, #5755, #5758).
 //
 // A Cloud asset's thumbnail lands in whichever cache its grid used: the
 // Timeline and Search grids write `CloudThumbCache`, while folder browse and
 // the filmstrip go through `ThumbnailLoader`, which keys the sourceless
 // `ThumbnailDiskCache` by the asset's stable id. Until real pixels land the
-// seed stands in for the photo inside the zoom host, laid out at its own
-// aspect, so a gesture on it survives the real size landing (#5755).
+// GPU canvas draws the seed as its placeholder, in the photo's frame and laid
+// out at the seed's aspect, so a gesture on it survives the real size
+// landing (#5755) and the first render changes only the pixels (#5758).
 
 import CoreGraphics
 import Foundation
@@ -49,8 +50,8 @@ public enum EditorCanvasSeed {
     (source as? CloudSource).flatMap { $0.identity == catalog.serverID ? $0 : nil }
   }
 
-  /// The seed is drawn inside the zoom host's leaf, at the photo's rect, so
-  /// it retires only once real pixels are on screen.
+  /// The canvas draws the seed at the photo's rect, so it is offered only
+  /// until real pixels are on screen.
   public static func isVisible(showingOriginal: Bool, hasOnscreenFrame: Bool) -> Bool {
     !showingOriginal && !hasOnscreenFrame
   }

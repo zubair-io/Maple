@@ -138,6 +138,11 @@ pub unsafe extern "C" fn maple_gpu_present_chain(
             params::present_geometry_from_params(p, session_w, session_h),
             &token,
         );
+        // The chain owns the drawable now; the placeholder still (#5758)
+        // would otherwise stay resident for the life of the process.
+        if matches!(present_result, Ok(true)) {
+            state.placeholder = None;
+        }
 
         // Vectorscope scope stats (#3272) — the PREVIOUS tick's sample, if its
         // async map has completed by now; see `LiveSession::take_scope_stats`.
@@ -169,7 +174,7 @@ pub unsafe extern "C" fn maple_gpu_present_chain(
 }
 
 /// Cancellation must be sampled after waiting as well as at FFI entry.
-fn lock_for_present(
+pub(super) fn lock_for_present(
     token: &CancelToken,
 ) -> Result<std::sync::MutexGuard<'static, Option<super::GpuShared>>, i32> {
     let shared = lock_shared();

@@ -88,12 +88,12 @@ public final class GpuLiveDriver {
 
   /// The canvas layer to present into. Weak — the SwiftUI view owns it; if the
   /// view goes away the driver simply has nothing to present to.
-  private weak var layer: CAMetalLayer?
+  weak var layer: CAMetalLayer?
 
   /// The `CanvasColorSpace` last tagged onto `layer.colorspace` (#1338) —
   /// tracked so `present()` only touches the layer when the user-facing
   /// setting actually changed, not on every tick.
-  private var taggedColorSpace: CanvasColorSpace?
+  var taggedColorSpace: CanvasColorSpace?
 
   /// The surface-cache generation token (#1769). Forwarded to every
   /// `maple_gpu_present_chain`; the Rust side keys its PROCESS-WIDE present
@@ -106,14 +106,14 @@ public final class GpuLiveDriver {
   ///     re-derivation wgpu cannot see — see `presentDivergenceCheck`).
   /// A bump forces a deterministic old-surface teardown + fresh configure +
   /// the settle double-present on the Rust side.
-  private var surfaceGeneration: UInt64 = 0
+  var surfaceGeneration: UInt64 = 0
 
   /// The `(generation, dims)` of the most recent SUCCESSFUL present — the
   /// state the Rust cache is known to be configured at. Drives the
   /// drawableSize-divergence check: only when the upcoming present would hit
   /// the no-configure fast path (same generation, same dims) does a
   /// drawableSize mismatch mean an external invalidation.
-  private var lastPresentedKey: (generation: UInt64, width: Int, height: Int)?
+  var lastPresentedKey: (generation: UInt64, width: Int, height: Int)?
 
   /// The RAW path + decode quality for the Auto Profile fit (set on open).
   private var autoProfileFit: Task<AutoFitStatus, Never>?
@@ -173,6 +173,10 @@ public final class GpuLiveDriver {
   /// flashing to nothing every tick scope stats didn't happen to update.
   public private(set) var lastScopeSample: ScopeSample?
 
+  /// The canvas placeholder (#5758, `GpuLiveDriver+Placeholder.swift`).
+  var placeholderGate = GpuPlaceholderGate()
+  weak var placeholderCancel: CancelFlag?
+
   /// Cancel flag of the most-recent present. The CPU path drops a stale
   /// render at the `renderedPreview =` generation gate; the GPU present has
   /// no such gate — once `present_chain_to_surface` runs, it's on screen. So
@@ -210,23 +214,8 @@ public final class GpuLiveDriver {
       // just because it matches the PREVIOUS layer's last-applied
       // value.
       taggedColorSpace = nil
+      placeholderLayerChanged()
     }
-  }
-
-  /// Keep `layer.colorspace` in lockstep with `target` (#1338) — the exact
-  /// `CanvasColorSpace` `present()` below is ABOUT to pass into
-  /// `GpuLiveParams`/`PipelineRenderer` for `target_primaries`. `present()`
-  /// reads `CanvasColorSpace.current` ONCE and hands the SAME value to
-  /// both this call and the params call — two independent `.current` reads
-  /// a moment apart could observe a mid-flight Settings change differently
-  /// and reproduce #1512 (CoreAnimation double- or non-converting the
-  /// primaries) for exactly one frame (Copilot review on #3192).
-  private func retagLayerIfNeeded(_ layer: CAMetalLayer, to target: CanvasColorSpace) {
-    guard target != taggedColorSpace else { return }
-    let name: CFString = target == .displayP3 ? CGColorSpace.displayP3 : CGColorSpace.sRGB
-    guard let space = CGColorSpace(name: name) else { return }
-    layer.colorspace = space
-    taggedColorSpace = target
   }
 
   /// Reuse a covering upload or replace it after the previous session closes.
@@ -249,7 +238,9 @@ public final class GpuLiveDriver {
     if try await replaceUploadedImage(
       width: width, height: height, inputShape: inputShape, identity: identity,
       exports: exports, wbFrame: wbFrame, pixels: pixels)
-    { return }
+    {
+      return
+    }
     sessionRevision &+= 1
     let revision = sessionRevision
     beginSessionTeardown()
@@ -405,6 +396,7 @@ public final class GpuLiveDriver {
     let interval = gpuDriverSignposter.beginInterval(
       "GpuPresentRequest", id: gpuDriverSignposter.makeSignpostID())
     defer { gpuDriverSignposter.endInterval("GpuPresentRequest", interval) }
+    placeholderChainWillPresent()
     inFlightCancel?.requestCancel()
     let cancel = CancelFlag()
     inFlightCancel = cancel
