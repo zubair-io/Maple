@@ -2,18 +2,19 @@ import type { ImageCanvasComponent } from './image-canvas.component';
 import { ImageCanvasNativeDetail } from './image-canvas.native-detail';
 import { isNonRawExtension } from '../../state/raw-extensions';
 import { isIdentityCrop } from '../../models/adjustment-model';
-import { resolveCanvasDisplayDims } from './image-canvas.crop';
+import { resolveCanvasImageExtent } from './image-canvas.crop';
 
-/** A sized bitmap preserves aspect, but 100% zoom needs the source extent. */
-export function canvasDisplayDims(host: ImageCanvasComponent) {
+/** The extent the zoom model and the draw share (`resolveCanvasImageExtent`). */
+export function canvasImageExtent(host: ImageCanvasComponent): { w: number; h: number } | null {
   const asset = host.state.focusedAsset();
-  return resolveCanvasDisplayDims(
-    host.canvasSvc.paintedAspect(),
-    host.canvasSvc.nativeDimensions(),
-    asset?.width,
-    asset?.height,
-    asset ? host.state.adjustmentFor(asset.id)().crop : undefined,
-  );
+  return resolveCanvasImageExtent({
+    painted: host.canvasSvc.paintedAspect(),
+    native: host.canvasSvc.nativeDimensions(),
+    assetW: asset?.width,
+    assetH: asset?.height,
+    crop: asset ? host.state.adjustmentFor(asset.id)().crop : undefined,
+    cropToolActive: host.cropSession.active(),
+  });
 }
 
 /** The component owns signals; the patch controller owns retained resources. */
