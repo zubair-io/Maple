@@ -266,6 +266,34 @@ pub extern "C" fn maple_canvas_zoom_pinch_ended(
     )
 }
 
+/// The fingers of a live pinch changed (one lifted or landed): re-anchor so
+/// `magnification` at `location` reproduces the frame shown at
+/// `shown_magnification` about `shown_location` (#5732).
+#[no_mangle]
+pub extern "C" fn maple_canvas_zoom_pinch_rebased(
+    state: MapleCanvasZoomState,
+    shown_magnification: f64,
+    shown_location: MapleCanvasPoint,
+    magnification: f64,
+    location: MapleCanvasPoint,
+    context: MapleCanvasZoomContext,
+) -> MapleCanvasZoomState {
+    zoom_transition(
+        "maple_canvas_zoom_pinch_rebased",
+        state,
+        context,
+        |model, ctx| {
+            model.pinch_rebased(
+                shown_magnification,
+                shown_location.into(),
+                magnification,
+                location.into(),
+                ctx,
+            )
+        },
+    )
+}
+
 /// `handled` = the drag was consumed as a pan.
 #[no_mangle]
 pub extern "C" fn maple_canvas_zoom_drag_changed(

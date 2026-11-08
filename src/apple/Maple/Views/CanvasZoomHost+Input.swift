@@ -55,9 +55,12 @@ extension View {
   /// the cumulative magnification since the gesture began (matching what the
   /// `CanvasZoomController` expects); `recognizer.location(in:)` is the centroid
   /// in the gesture view's local space — the reliable focal point SwiftUI's
-  /// `MagnifyGesture` (startAnchor / startLocation) failed to provide.
+  /// `MagnifyGesture` (startAnchor / startLocation) failed to provide. The
+  /// touch count lets the host re-anchor when a finger lifts or lands: the
+  /// recognizer keeps reporting with one finger, its centroid then under that
+  /// finger (#5732).
   struct CanvasPinchGesture: UIGestureRecognizerRepresentable {
-    let onChanged: (CGFloat, CGPoint) -> Void
+    let onChanged: (_ scale: CGFloat, _ centroid: CGPoint, _ touchCount: Int) -> Void
     let onEnded: (CGFloat) -> Void
 
     func makeUIGestureRecognizer(context: Context) -> UIPinchGestureRecognizer {
@@ -73,7 +76,7 @@ extension View {
       let centroid = context.converter.localLocation
       switch recognizer.state {
       case .began, .changed:
-        onChanged(recognizer.scale, centroid)
+        onChanged(recognizer.scale, centroid, recognizer.numberOfTouches)
       case .ended, .cancelled, .failed:
         onEnded(recognizer.scale)
       default:
