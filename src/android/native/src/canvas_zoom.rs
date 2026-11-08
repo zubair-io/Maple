@@ -9,8 +9,14 @@ use raw_core::canvas::{
     ZoomStop, MAX_PIXEL_SCALE,
 };
 
-/// Slots in the Kotlin state array; the layout is `encode`'s.
-const STATE_LEN: usize = 17;
+/// Slots holding the shared model; the layout is `encode`'s.
+const MODEL_SLOTS: usize = 17;
+/// The live pinch's last cumulative magnification as Kotlin sent it (0 when
+/// no pinch is in progress). The model only keeps the clamped scale, which
+/// cannot recover the magnification once the pinch has hit the cap or floor.
+const PINCH_MAGNIFICATION_SLOT: usize = MODEL_SLOTS;
+/// Slots in the Kotlin state array.
+const STATE_LEN: usize = MODEL_SLOTS + 1;
 
 const OP_PINCH_CHANGED: u32 = 0;
 const OP_PINCH_ENDED: u32 = 1;
@@ -58,7 +64,7 @@ fn flag(value: bool) -> f64 {
     }
 }
 
-fn encode(model: &CanvasZoomModel) -> [f64; STATE_LEN] {
+fn encode(model: &CanvasZoomModel) -> [f64; MODEL_SLOTS] {
     let drag_base = model.drag_translation_base.unwrap_or(Size::ZERO);
     [
         model.pixel_scale,
@@ -81,7 +87,8 @@ fn encode(model: &CanvasZoomModel) -> [f64; STATE_LEN] {
     ]
 }
 
-fn decode(state: &[f64; STATE_LEN]) -> CanvasZoomModel {
+fn decode<const N: usize>(state: &[f64; N]) -> CanvasZoomModel {
+    const { assert!(N >= MODEL_SLOTS) };
     CanvasZoomModel {
         pixel_scale: state[0],
         pan_offset: Size::new(state[1], state[2]),
@@ -105,6 +112,7 @@ fn decode(state: &[f64; STATE_LEN]) -> CanvasZoomModel {
 fn adopt_image_size(
     model: CanvasZoomModel,
     anchor: Point,
+    pinch_magnification: f64,
     previous: &CanvasZoomContext,
     next: &CanvasZoomContext,
 ) -> CanvasZoomModel {
@@ -137,23 +145,19 @@ fn adopt_image_size(
         model
     };
     let adopted_scale = next.effective_scale(adopted.pixel_scale);
-    recapture_pinch(adopted, start_scale, adopted_scale, next)
+    recapture_pinch(adopted, pinch_magnification, adopted_scale, next)
 }
 
-/// Rewrites a live pinch's start capture so its next frame reproduces the
-/// adopted zoom: the pinch keeps its magnification so far (`live / start`)
-/// and anchors at its last centroid, as if it had begun on the adopted image.
+/// Rewrites a live pinch's start capture so the pinch's next frame at the
+/// same cumulative `magnification` reproduces the adopted zoom, anchored at
+/// its last centroid, as if it had begun on the adopted image.
 fn recapture_pinch(
     model: CanvasZoomModel,
-    live_scale: f64,
+    magnification: f64,
     adopted_scale: f64,
     next: &CanvasZoomContext,
 ) -> CanvasZoomModel {
-    let Some(start) = model.pinch_start_scale else {
-        return model;
-    };
-    let magnification = live_scale / start;
-    if !magnification.is_finite() || magnification <= 0.0 {
+    if model.pinch_start_scale.is_none() || !magnification.is_finite() || magnification <= 0.0 {
         return model;
     }
     let centroid = model.pinch_last_centroid;
@@ -180,6 +184,7 @@ fn apply(
     model: CanvasZoomModel,
     op: u32,
     args: [f64; 4],
+    pinch_magnification: f64,
     geometry: Geometry,
 ) -> Option<(CanvasZoomModel, bool)> {
     let context = geometry.context();
@@ -202,11 +207,28 @@ fn apply(
                 image: Size::new(a, b),
                 ..geometry
             };
-            adopt_image_size(model, Point::new(c, d), &previous.context(), &context)
+            adopt_image_size(
+                model,
+                Point::new(c, d),
+                pinch_magnification,
+                &previous.context(),
+                &context,
+            )
         }
         _ => return None,
     };
     Some((transitioned, true))
+}
+
+/// The live pinch magnification to keep after `op` (with first argument
+/// `magnification`) produced `next`: the latest value Kotlin sent while a
+/// pinch is in progress, and 0 once none is.
+fn next_pinch_magnification(op: u32, magnification: f64, kept: f64, next: &CanvasZoomModel) -> f64 {
+    match (next.pinch_start_scale, op) {
+        (None, _) => 0.0,
+        (Some(_), OP_PINCH_CHANGED) if magnification.is_finite() => magnification,
+        (Some(_), _) => kept,
+    }
 }
 
 fn stop_code(stop: ZoomStop) -> f64 {
@@ -265,13 +287,17 @@ pub unsafe extern "C" fn maple_android_canvas_zoom(
     let slots = unsafe { &mut *state.cast::<[f64; STATE_LEN]>() };
     let geometry = Geometry::new(viewport_width, viewport_height, image_width, image_height);
     crate::guarded(REJECTED, || {
-        Ok(match apply(decode(slots), op, [a, b, c, d], geometry) {
-            Some((next, result)) => {
-                *slots = encode(&next);
-                i32::from(result)
-            }
-            None => REJECTED,
-        })
+        let kept = slots[PINCH_MAGNIFICATION_SLOT];
+        Ok(
+            match apply(decode(slots), op, [a, b, c, d], kept, geometry) {
+                Some((next, result)) => {
+                    slots[..MODEL_SLOTS].copy_from_slice(&encode(&next));
+                    slots[PINCH_MAGNIFICATION_SLOT] = next_pinch_magnification(op, a, kept, &next);
+                    i32::from(result)
+                }
+                None => REJECTED,
+            },
+        )
     })
 }
 
