@@ -29,7 +29,6 @@ namespace Maple.WinUI.Services
 
         private MapleCanvasZoomState _state;
         private MapleCanvasZoomContext _context = new() { display_scale = 1 };
-        private bool _extentIsSource;
 
         public MapleCanvasZoomState State => _state;
 
@@ -66,14 +65,14 @@ namespace Maple.WinUI.Services
 
         /// <summary>
         /// Feed the current viewport (points), the displayed image's extent and
-        /// the points→pixels factor. <paramref name="extentIsSource"/> says
-        /// whether the extent is in source pixels or in stand-in preview
-        /// pixels (before the source size is read): when that unit changes
-        /// while zoomed to a free scale, the scale is converted so the image
-        /// keeps its on-screen size. Fill re-resolves and the pan re-clamps.
+        /// the points→pixels factor. The extent's pixels change meaning when one
+        /// stand-in replaces another (thumbnail → preview → source size), so
+        /// when the extent changes a free scale (and a pinch in progress) is
+        /// converted to keep the image's on-screen size; a viewport-only
+        /// change keeps the pixel scale. Fill re-resolves and the pan re-clamps.
         /// </summary>
         public void UpdateGeometry(double viewportWidth, double viewportHeight,
-            double extentWidth, double extentHeight, double displayScale, bool extentIsSource)
+            double extentWidth, double extentHeight, double displayScale)
         {
             var next = RawFfi.maple_canvas_zoom_context_sanitize(new MapleCanvasZoomContext
             {
@@ -81,11 +80,11 @@ namespace Maple.WinUI.Services
                 native_image_size = new MapleCanvasSize(extentWidth, extentHeight),
                 display_scale = displayScale,
             });
-            var unitChanged = extentIsSource != _extentIsSource;
             var previous = _context;
             _context = next;
-            _extentIsSource = extentIsSource;
-            if (unitChanged && HasExtent(previous) && HasExtent(next))
+            var extentChanged = previous.native_image_size.width != next.native_image_size.width
+                || previous.native_image_size.height != next.native_image_size.height;
+            if (extentChanged && HasExtent(previous) && HasExtent(next))
             {
                 var sameViewport = previous with { native_image_size = next.native_image_size };
                 var ratio = RawFfi.maple_canvas_zoom_fit_scale(sameViewport)

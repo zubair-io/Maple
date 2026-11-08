@@ -31,7 +31,7 @@ public sealed class CanvasZoomControllerNativeTests(ITestOutputHelper output)
     private static CanvasZoomController Controller()
     {
         var zoom = new CanvasZoomController();
-        zoom.UpdateGeometry(1000, 800, 4000, 2000, 1, extentIsSource: true);
+        zoom.UpdateGeometry(1000, 800, 4000, 2000, 1);
         return zoom;
     }
 
@@ -143,7 +143,7 @@ public sealed class CanvasZoomControllerNativeTests(ITestOutputHelper output)
         Assert.Equal(RawFfi.MAPLE_CANVAS_ZOOM_STOP_FILL, zoom.CurrentStop);
         Assert.Equal(Fill / Fit, zoom.View.ScaleToFit, 12);
 
-        zoom.UpdateGeometry(800, 800, 4000, 2000, 1, extentIsSource: true);
+        zoom.UpdateGeometry(800, 800, 4000, 2000, 1);
         Assert.Equal(RawFfi.MAPLE_CANVAS_ZOOM_STOP_FILL, zoom.CurrentStop);
         Assert.Equal(2, zoom.View.ScaleToFit, 12);
     }
@@ -165,17 +165,17 @@ public sealed class CanvasZoomControllerNativeTests(ITestOutputHelper output)
     {
         if (!Armed()) return;
         var zoom = new CanvasZoomController();
-        zoom.UpdateGeometry(1000, 800, 2000, 1000, 1, extentIsSource: false);
+        zoom.UpdateGeometry(1000, 800, 2000, 1000, 1);
         zoom.StepIn();
         zoom.StepIn();
         var before = zoom.View;
         var previewScale = zoom.EffectiveScale;
 
-        zoom.UpdateGeometry(1000, 800, 4000, 2000, 1, extentIsSource: true);
+        zoom.UpdateGeometry(1000, 800, 4000, 2000, 1);
         Assert.Equal(before.ScaleToFit, zoom.View.ScaleToFit, 12);
         Assert.Equal(previewScale / 2, zoom.EffectiveScale, 12);
 
-        zoom.UpdateGeometry(1000, 800, 4000, 2000, 1, extentIsSource: true);
+        zoom.UpdateGeometry(1000, 800, 4000, 2000, 1);
         Assert.Equal(before.ScaleToFit, zoom.View.ScaleToFit, 12);
     }
 
@@ -186,7 +186,7 @@ public sealed class CanvasZoomControllerNativeTests(ITestOutputHelper output)
         var zoom = Controller();
         zoom.ZoomToActualSize();
         zoom.PanBy(0, -600);
-        zoom.UpdateGeometry(1000, 1600, 4000, 2000, 1, extentIsSource: true);
+        zoom.UpdateGeometry(1000, 1600, 4000, 2000, 1);
         Assert.Equal(1, zoom.EffectiveScale, 12);
         Assert.Equal(-200, zoom.View.PanY, 12);
     }
@@ -212,14 +212,33 @@ public sealed class CanvasZoomControllerNativeTests(ITestOutputHelper output)
     {
         if (!Armed()) return;
         var zoom = new CanvasZoomController();
-        zoom.UpdateGeometry(1000, 800, 2000, 1000, 1, extentIsSource: false);
+        zoom.UpdateGeometry(1000, 800, 2000, 1000, 1);
         zoom.PinchChanged(1, 500, 400);
         zoom.PinchChanged(2, 500, 400);
         var before = zoom.View.ScaleToFit;
 
-        zoom.UpdateGeometry(1000, 800, 4000, 2000, 1, extentIsSource: true);
+        zoom.UpdateGeometry(1000, 800, 4000, 2000, 1);
         zoom.PinchChanged(2, 500, 400);
         Assert.Equal(before, zoom.View.ScaleToFit, 9);
         Assert.Equal(2 * Fit, zoom.EffectiveScale, 9);
+    }
+
+    [Fact]
+    public void One_stand_in_preview_replacing_another_keeps_a_free_zoom_s_on_screen_size()
+    {
+        if (!Armed()) return;
+        var zoom = new CanvasZoomController();
+        zoom.UpdateGeometry(1000, 800, 512, 256, 1);
+        zoom.StepIn();
+        Assert.Equal(1.25, zoom.View.ScaleToFit, 12);
+
+        zoom.UpdateGeometry(1000, 800, 2048, 1024, 1);
+        Assert.Equal(1.25, zoom.View.ScaleToFit, 12);
+        zoom.PanBy(0, 0);
+        Assert.Equal(1.25, zoom.View.ScaleToFit, 12);
+
+        zoom.UpdateGeometry(1000, 800, 4000, 2000, 1);
+        Assert.Equal(1.25, zoom.View.ScaleToFit, 12);
+        Assert.Equal(1.25 * Fit, zoom.EffectiveScale, 12);
     }
 }

@@ -98,10 +98,10 @@ namespace Maple.WinUI
         private Windows.Foundation.Point? _mouseDragStart;
 
         /// <summary>The displayed image's extent for the zoom model: source
-        /// pixels once the source size is read, the preview's pixels until
-        /// then, narrowed to a committed crop (the crop display scales the
-        /// crop itself to fit).</summary>
-        private (double Width, double Height, bool IsSource) CanvasZoomExtent()
+        /// pixels once the source size is read, the current stand-in frame's
+        /// pixels until then, narrowed to a committed crop (the crop display
+        /// scales the crop itself to fit).</summary>
+        private (double Width, double Height) CanvasZoomExtent()
         {
             var source = ReferenceEquals(_nativeGeometryPhoto, ViewModel.SelectedPhoto) ? _nativeGeometry : null;
             var (width, height) = source is { } geometry
@@ -109,8 +109,8 @@ namespace Maple.WinUI
                 : DisplayedFrameDims();
             var crop = ViewModel.Adjustments.Crop;
             return !_cropArmed && !crop.IsIdentity && crop.RectIsValid
-                ? (width * (crop.Right - crop.Left), height * (crop.Bottom - crop.Top), source != null)
-                : (width, height, source != null);
+                ? (width * (crop.Right - crop.Left), height * (crop.Bottom - crop.Top))
+                : (width, height);
         }
 
         /// <summary>Feed the live viewport and extent to the zoom model and
@@ -118,9 +118,9 @@ namespace Maple.WinUI
         private void SyncCanvasZoom(bool refreshDetail = true)
         {
             if (ViewerViewport == null) return;
-            var (width, height, isSource) = CanvasZoomExtent();
+            var (width, height) = CanvasZoomExtent();
             _canvasZoom.UpdateGeometry(ViewerViewport.ActualWidth, ViewerViewport.ActualHeight,
-                width, height, DisplayScale, isSource);
+                width, height, DisplayScale);
             ApplyCanvasZoom(refreshDetail);
         }
 
