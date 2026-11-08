@@ -38,6 +38,39 @@ fn has_fill_stop(context: &CanvasZoomContext) -> bool {
     CanvasZoomModel::badge_stops(context).contains(ZoomStop::Fill)
 }
 
+/// egui's `zoom_delta()` smooths a Ctrl+wheel notch over several frames, and a
+/// smoothed tail starting at the fit stop carries the photo past it; the raw
+/// events keep one notch as one model step.
+pub(super) fn zoom_steps(context: &egui::Context) -> Vec<f32> {
+    let (line_scroll_speed, scroll_zoom_speed) =
+        context.options(|o| (o.line_scroll_speed, o.scroll_zoom_speed));
+    context.input(|input| {
+        let touch_zoom = input.multi_touch().map(|touch| touch.zoom_delta);
+        let steps = input.events.iter().filter_map(|event| match event {
+            egui::Event::Zoom(factor) if touch_zoom.is_none() => Some(*factor),
+            egui::Event::MouseWheel {
+                unit,
+                delta,
+                modifiers,
+                // egui reads Shift+wheel as horizontal scroll, never zoom
+            } if (modifiers.ctrl || modifiers.command || modifiers.mac_cmd) && !modifiers.shift => {
+                let points = match unit {
+                    egui::MouseWheelUnit::Point => delta.y,
+                    egui::MouseWheelUnit::Line => line_scroll_speed * delta.y,
+                    egui::MouseWheelUnit::Page => input.screen_rect().height() * delta.y,
+                };
+                Some((scroll_zoom_speed * points).exp())
+            }
+            _ => None,
+        });
+        touch_zoom
+            .into_iter()
+            .chain(steps)
+            .filter(|factor| *factor != 1.0 && factor.is_finite())
+            .collect()
+    })
+}
+
 #[derive(Default)]
 pub(super) struct ZoomCanvas {
     pub native: Option<(u32, u32)>,
@@ -157,8 +190,8 @@ impl ZoomCanvas {
         self.model = next;
     }
 
-    /// Ctrl+wheel or trackpad pinch: egui's multiplicative `zoom_delta`
-    /// becomes the model's wheel delta, so the zoom anchors at `position`.
+    /// One Ctrl+wheel or pinch step: the multiplicative `factor` becomes the
+    /// model's wheel delta, so the zoom anchors at `position`.
     pub fn zoom_at(&mut self, factor: f32, position: egui::Pos2, geometry: &CanvasGeometry) {
         let normalized_delta_y = f64::from(factor).log2() / WHEEL_ZOOM_SENSITIVITY;
         let next = self.model.wheel_zoom(

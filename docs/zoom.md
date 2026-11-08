@@ -324,10 +324,13 @@ pixel. Focused text fields retain their keyboard input.
 The rules are the shared `raw_core::canvas::CanvasZoomModel` (#5714), called
 natively from `src/linux/src/app/zoom.rs`. Each frame builds a
 `CanvasZoomContext` from the viewport in egui points, the cropped source extent
-and egui's points-to-pixels factor. egui reports a per-frame zoom factor and
-per-frame drag deltas; the canvas turns the factor into the model's wheel zoom
-(so it has no fill detent) and sums the deltas into the drag translation the
-model measures from the drag start. Below both fit and 100% the fit preview
+and egui's points-to-pixels factor. egui smooths a Ctrl+wheel notch over
+several frames in `zoom_delta()`, and the tail of a smoothed notch would carry
+the photo past the fit stop, so the canvas reads the raw wheel and pinch events
+and applies one model step per wheel or pinch event (#5747). Each step becomes
+the model's wheel zoom (so it has no fill detent). egui reports per-frame drag
+deltas, which the canvas sums into the drag translation the model measures from
+the drag start. Below both fit and 100% the fit preview
 already holds more pixels than the screen shows, so no native detail is
 requested there.
 
