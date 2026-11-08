@@ -65,7 +65,7 @@ namespace Maple.WinUI
         {
             ViewerViewport.Clip = new RectangleGeometry
             {
-                Rect = new Windows.Foundation.Rect(0, 0, e.NewSize.Width, e.NewSize.Height),
+                Rect = new Windows.Foundation.Rect(0, 0, ViewerViewport.ActualWidth, ViewerViewport.ActualHeight),
             };
             UpdateViewerChromeSize();
             UpdatePanelFit();
@@ -173,18 +173,25 @@ namespace Maple.WinUI
         {
             ViewerViewport.PointerPressed += OnViewerPointerPressed;
             ViewerViewport.PointerMoved += OnViewerPointerMoved;
-            ViewerViewport.PointerReleased += OnViewerPointerEnded;
+            ViewerViewport.PointerReleased += OnViewerPointerReleased;
             ViewerViewport.PointerCanceled += OnViewerPointerEnded;
             ViewerViewport.PointerCaptureLost += OnViewerPointerEnded;
             ViewerViewport.PointerExited += OnViewerPointerExited;
             ViewerViewport.PointerWheelChanged += OnViewerPointerWheelChanged;
         }
 
-        /// <summary>An uncaptured touch that leaves the viewer never reports
-        /// its lift here; drop it so the next touch is not read as a pinch.</summary>
+        /// <summary>The white-balance and colour-curve pickers read the
+        /// press/release pair on ZoomHost, which a capture on the viewer would
+        /// swallow, so an armed picker keeps the pointer uncaptured.</summary>
+        private bool CanvasPickArmed => _wbPickArmed || _colorCurvePickArmed;
+
+        /// <summary>An uncaptured touch (armed picker) that leaves the viewer
+        /// never reports its lift here; drop it so the next touch is not read
+        /// as a pinch. Exits bubbling up from children are not the viewer's.</summary>
         private void OnViewerPointerExited(object sender, PointerRoutedEventArgs e)
         {
-            if (e.Pointer.PointerDeviceType != PointerDeviceType.Touch) return;
+            if (e.Pointer.PointerDeviceType != PointerDeviceType.Touch
+                || !ReferenceEquals(e.OriginalSource, ViewerViewport)) return;
             foreach (var captured in ViewerViewport.PointerCaptures ?? [])
                 if (captured.PointerId == e.Pointer.PointerId) return;
             ApplyTouch(_canvasTouches.Release(e.Pointer.PointerId));
@@ -197,11 +204,11 @@ namespace Maple.WinUI
             if (e.Pointer.PointerDeviceType == PointerDeviceType.Touch)
             {
                 ApplyTouch(_canvasTouches.Press(e.Pointer.PointerId, point.Position.X, point.Position.Y));
-                if (_canvasTouches.IsPinching || _canvasZoom.CanPan)
-                    ViewerViewport.CapturePointer(e.Pointer);
+                if (!CanvasPickArmed) ViewerViewport.CapturePointer(e.Pointer);
                 return;
             }
-            if (_activeGroup == "Heal" || !point.Properties.IsLeftButtonPressed || !_canvasZoom.CanPan)
+            if (_mouseDragStart != null || _activeGroup == "Heal" || CanvasPickArmed
+                || !point.Properties.IsLeftButtonPressed || !_canvasZoom.CanPan)
                 return;
             _mouseDragStart = point.Position;
             ViewerViewport.CapturePointer(e.Pointer);
@@ -218,6 +225,16 @@ namespace Maple.WinUI
             if (_mouseDragStart is not { } start) return;
             _canvasZoom.DragChanged(position.X - start.X, position.Y - start.Y);
             ApplyCanvasZoom();
+        }
+
+        /// <summary>A mouse drag ends when its left button lifts, not when
+        /// another button does.</summary>
+        private void OnViewerPointerReleased(object sender, PointerRoutedEventArgs e)
+        {
+            if (e.Pointer.PointerDeviceType != PointerDeviceType.Touch
+                && e.GetCurrentPoint(ViewerViewport).Properties.IsLeftButtonPressed)
+                return;
+            OnViewerPointerEnded(sender, e);
         }
 
         private void OnViewerPointerEnded(object sender, PointerRoutedEventArgs e)
@@ -240,7 +257,7 @@ namespace Maple.WinUI
                 _canvasZoom.PinchEnded(magnification);
             if (update.Pinch is { } pinch)
                 _canvasZoom.PinchChanged(pinch.Magnification, pinch.X, pinch.Y);
-            if (update.DragTranslation is { } translation && _activeGroup != "Heal")
+            if (update.DragTranslation is { } translation && _activeGroup != "Heal" && !CanvasPickArmed)
                 _canvasZoom.DragChanged(translation.X, translation.Y);
             if (update.DragEnded)
                 _canvasZoom.DragEnded();

@@ -190,4 +190,36 @@ public sealed class CanvasZoomControllerNativeTests(ITestOutputHelper output)
         Assert.Equal(1, zoom.EffectiveScale, 12);
         Assert.Equal(-200, zoom.View.PanY, 12);
     }
+
+    [Fact]
+    public void Zoom_input_before_the_first_frame_is_ignored()
+    {
+        if (!Armed()) return;
+        var zoom = new CanvasZoomController();
+        Assert.False(zoom.HasGeometry);
+        Assert.False(zoom.Wheel(120, false, true, false, 10, 10));
+        zoom.StepIn();
+        zoom.ZoomToFill();
+        zoom.DoubleTap(10, 10);
+        zoom.PinchChanged(1, 10, 10);
+        zoom.PinchChanged(2, 10, 10);
+        Assert.True(zoom.IsFit);
+        Assert.False(zoom.IsPinching);
+    }
+
+    [Fact]
+    public void A_pinch_in_progress_when_the_source_size_lands_keeps_its_on_screen_scale()
+    {
+        if (!Armed()) return;
+        var zoom = new CanvasZoomController();
+        zoom.UpdateGeometry(1000, 800, 2000, 1000, 1, extentIsSource: false);
+        zoom.PinchChanged(1, 500, 400);
+        zoom.PinchChanged(2, 500, 400);
+        var before = zoom.View.ScaleToFit;
+
+        zoom.UpdateGeometry(1000, 800, 4000, 2000, 1, extentIsSource: true);
+        zoom.PinchChanged(2, 500, 400);
+        Assert.Equal(before, zoom.View.ScaleToFit, 9);
+        Assert.Equal(2 * Fit, zoom.EffectiveScale, 9);
+    }
 }
