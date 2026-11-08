@@ -2,7 +2,7 @@ use super::*;
 
 impl MapleApp {
     pub(super) fn poll(&mut self, context: &egui::Context) {
-        if self.zoom.scale <= 0.0 || self.comparing || self.browse {
+        if !self.zoom.is_zoomed() || self.comparing || self.browse {
             self.cancel_detail();
         }
         self.cloud.poll(context);

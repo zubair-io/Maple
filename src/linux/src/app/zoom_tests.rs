@@ -1,37 +1,85 @@
 use super::film_tests::{click, frame};
 use super::*;
 
+fn canvas_geometry(source: egui::Vec2) -> zoom::CanvasGeometry {
+    zoom::CanvasGeometry {
+        viewport: egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(800.0, 600.0)),
+        source,
+        pixels_per_point: 2.0,
+    }
+}
+
 #[test]
 fn pixel_scale_anchor_and_pan_clamp_follow_native_dimensions() {
-    let viewport = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(800.0, 600.0));
-    let size = egui::vec2(4000.0, 3000.0);
+    let geometry = canvas_geometry(egui::vec2(4000.0, 3000.0));
+    let viewport = geometry.viewport;
+    let size = geometry.source;
     let mut zoom = zoom::ZoomCanvas::default();
-    assert_eq!(zoom.image_rect(viewport, size, 2.0).size(), viewport.size());
-    zoom.scale = 1.0;
+    assert_eq!(zoom.image_rect(&geometry).size(), viewport.size());
+    zoom.zoom_to(1.0);
     assert_eq!(
-        zoom.image_rect(viewport, size, 2.0).size(),
+        zoom.image_rect(&geometry).size(),
         size / 2.0,
         "100% is one physical pixel per source pixel"
     );
     let anchor = egui::pos2(250.0, 200.0);
-    let old = zoom.image_rect(viewport, size, 2.0);
+    let old = zoom.image_rect(&geometry);
     let source_point = (anchor - old.min) / old.size();
-    zoom.zoom_at(1.5, anchor, viewport, size, 2.0);
-    let new = zoom.image_rect(viewport, size, 2.0);
+    zoom.zoom_at(1.5, anchor, &geometry);
+    let new = zoom.image_rect(&geometry);
     assert!(((anchor - new.min) / new.size() - source_point).length() < 0.00001);
-    zoom.pan = egui::vec2(99999.0, -99999.0);
-    let clamped = zoom.image_rect(viewport, size, 2.0);
+    zoom.drag(egui::vec2(99999.0, -99999.0), &geometry);
+    let clamped = zoom.image_rect(&geometry);
     assert!(clamped.contains_rect(viewport), "pan cannot expose a gap");
+    zoom.drag_ended();
     zoom.fit();
-    assert_eq!(zoom.pan, egui::Vec2::ZERO);
-    assert_eq!(zoom.scale, 0.0);
+    assert_eq!(zoom.pan(), egui::Vec2::ZERO);
+    assert_eq!(zoom.scale(), 0.0);
     // A small source still has an actual 100% view, even when Fit enlarges it.
-    zoom.scale = 1.0;
+    zoom.zoom_to(1.0);
     assert_eq!(
-        zoom.image_rect(viewport, egui::vec2(96.0, 64.0), 2.0)
+        zoom.image_rect(&canvas_geometry(egui::vec2(96.0, 64.0)))
             .size(),
         egui::vec2(48.0, 32.0)
     );
+}
+
+#[test]
+fn shared_model_stops_floor_and_double_click_anchor() {
+    let geometry = canvas_geometry(egui::vec2(4000.0, 2000.0));
+    let mut zoom = zoom::ZoomCanvas::default();
+    let fit = zoom.image_rect(&geometry);
+    assert_eq!(fit.width(), 800.0, "fit letterboxes the wide image");
+
+    zoom.zoom_at(0.01, geometry.viewport.center(), &geometry);
+    assert_eq!(
+        zoom.image_rect(&geometry).width(),
+        400.0,
+        "zoom-out stops at half of fit"
+    );
+    zoom.zoom_at(100.0, geometry.viewport.center(), &geometry);
+    assert_eq!(
+        zoom.scale(),
+        0.0,
+        "zooming in from below fit settles on fit"
+    );
+
+    zoom.fill();
+    let fill = zoom.image_rect(&geometry);
+    assert_eq!(fill.height(), 600.0, "fill covers the viewport height");
+    assert!(fill.contains_rect(geometry.viewport));
+
+    zoom.fit();
+    let tap = egui::pos2(600.0, 250.0);
+    let before = zoom.image_rect(&geometry);
+    let source_point = (tap - before.min) / before.size();
+    zoom.double_click(tap, &geometry);
+    assert_eq!(zoom.scale(), 1.0, "editor double-click toggles to 100%");
+    let after = zoom.image_rect(&geometry);
+    assert!(((tap - after.min) / after.size() - source_point).length() < 0.00001);
+    zoom.double_click(tap, &geometry);
+    assert_eq!(zoom.scale(), 0.0);
+    assert_eq!(zoom.pan(), egui::Vec2::ZERO);
 }
 
 #[test]
@@ -70,7 +118,7 @@ fn accessible_actual_size_develops_native_patch_and_fit_releases_it() {
         }
         std::thread::sleep(Duration::from_millis(5));
     }
-    assert_eq!(app.zoom.scale, 1.0);
+    assert_eq!(app.zoom.scale(), 1.0);
     let (rect, texture) = app
         .zoom
         .patch
@@ -92,7 +140,7 @@ fn accessible_actual_size_develops_native_patch_and_fit_releases_it() {
     assert!(app.dirty.is_none());
     let generation = app.zoom.generation;
     click(&mut app, &context, "Fit");
-    assert_eq!(app.zoom.scale, 0.0);
+    assert_eq!(app.zoom.scale(), 0.0);
     assert!(app.zoom.patch.is_none() && app.zoom.base.is_none());
     assert!(
         app.zoom.generation > generation,
@@ -110,7 +158,8 @@ fn accessible_actual_size_develops_native_patch_and_fit_releases_it() {
         }],
     );
     assert_eq!(
-        app.zoom.scale, 1.0,
+        app.zoom.scale(),
+        1.0,
         "a focused Fit button must not block the Z shortcut"
     );
     assert_eq!(std::fs::read(path).unwrap(), bytes);
@@ -145,7 +194,7 @@ fn raster_actual_size_control_uses_source_dimensions_without_editing_sidecar() {
     assert_eq!(app.zoom.native, Some((80, 60)));
     let model = app.document.as_ref().unwrap().model.clone();
     click(&mut app, &context, "100%");
-    assert_eq!(app.zoom.scale, 1.0);
+    assert_eq!(app.zoom.scale(), 1.0);
     for _ in 0..300 {
         frame(&mut app, &context, Vec::new());
         if app.zoom.patch.is_some() {
@@ -159,7 +208,7 @@ fn raster_actual_size_control_uses_source_dimensions_without_editing_sidecar() {
     assert!(!app.zoom.refining());
     assert!(app.zoom.error.is_none(), "{:?}", app.zoom.error);
     click(&mut app, &context, "Fit");
-    assert_eq!(app.zoom.scale, 0.0);
+    assert_eq!(app.zoom.scale(), 0.0);
     assert_eq!(app.document.as_ref().unwrap().model, model);
     assert_eq!(std::fs::read(&path).unwrap(), bytes);
     assert!(!path.with_extension("xmp").exists());
@@ -193,7 +242,7 @@ fn below_native_zoom_refines_above_initial_preview_and_native_zoom_replaces_it()
     }
     assert_eq!(app.texture.as_ref().unwrap().size()[0], 1600);
     let model = app.document.as_ref().unwrap().model.clone();
-    app.zoom.scale = 0.9;
+    app.zoom.zoom_to(0.9);
     for _ in 0..400 {
         frame(&mut app, &context, Vec::new());
         if app.zoom.patch.is_some() {
@@ -214,7 +263,7 @@ fn below_native_zoom_refines_above_initial_preview_and_native_zoom_replaces_it()
     );
     assert!(!app.zoom.refining());
     let generation = app.zoom.generation;
-    app.zoom.scale = 1.0;
+    app.zoom.zoom_to(1.0);
     for _ in 0..400 {
         frame(&mut app, &context, Vec::new());
         if app

@@ -398,7 +398,8 @@ impl MapleApp {
                 }
                 if !self.browse && self.document.is_some() {
                     if ui.button("Fit").clicked() { self.zoom.fit(); }
-                    if ui.add_enabled(self.zoom.native.is_some(),egui::Button::new("100%")).clicked() { self.zoom.scale=1.0; self.zoom.pan=egui::Vec2::ZERO; }
+                    if ui.add_enabled(self.zoom.native.is_some() && self.zoom.can_fill(), egui::Button::new("Fill")).clicked() { self.zoom.fill(); }
+                    if ui.add_enabled(self.zoom.native.is_some(),egui::Button::new("100%")).clicked() { self.zoom.zoom_to(1.0); }
                 }
                 if self.comparing {
                     ui.add(egui::Slider::new(&mut self.comparison_split, 0.0..=1.0)
