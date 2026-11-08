@@ -3,9 +3,10 @@
 //! crop tool's overlay built from [`super::crop`]'s geometry, and the CPU
 //! rasterizer the fallback path uses.
 //!
-//! The overlay surface is upright and viewport-sized, composited by the
-//! platform above the (possibly straighten-rotated) image, so every
-//! primitive is axis-aligned in view space. Pixels are premultiplied RGBA at
+//! The overlay surface is upright, the viewport grown by
+//! [`CROP_OVERLAY_OVERSCAN`] on every side, and composited by the platform
+//! above the (possibly straighten-rotated) image, so every primitive is
+//! axis-aligned in view space. Pixels are premultiplied RGBA at
 //! SDR reference white: white is `1.0`, never boosted into EDR headroom.
 //!
 //! [`overlay_pixel`] is the per-pixel reference. `raw-gpu`'s `overlay.wgsl`
@@ -105,10 +106,16 @@ pub const CROP_ACTIVE_FRAME_WIDTH: f64 = 2.0;
 pub const CROP_GRID_ALPHA: f32 = 0.35;
 pub const CROP_GRID_WIDTH: f64 = 0.5;
 pub const CROP_CORNER_DOT_DIAMETER: f64 = 12.0;
+/// Points the crop overlay surface extends past the viewport on every side,
+/// so a corner dot or frame stroke centred on a viewport edge (a full-frame
+/// fit) is drawn whole: the dot radius plus its antialiased fringe.
+pub const CROP_OVERLAY_OVERSCAN: f64 = CROP_CORNER_DOT_DIAMETER / 2.0 + 1.0;
 
 /// The crop tool's overlay: the dimmed photo outside the crop, the frame
 /// (dragged edges emphasised), the rule-of-thirds grid and the corner dots.
-/// A non-finite or non-positive `pixel_scale` reads as `1`.
+/// Coordinates are surface pixels, whose origin sits [`CROP_OVERLAY_OVERSCAN`]
+/// points above and left of the viewport's. A non-finite or non-positive
+/// `pixel_scale` reads as `1`.
 #[must_use]
 pub fn crop_overlay(input: CropOverlayInput) -> CanvasOverlay {
     let scale = if input.pixel_scale.is_finite() && input.pixel_scale > 0.0 {
@@ -116,7 +123,13 @@ pub fn crop_overlay(input: CropOverlayInput) -> CanvasOverlay {
     } else {
         1.0
     };
-    let footprint_points = fit_footprint(input.viewport, input.image);
+    let fitted = fit_footprint(input.viewport, input.image);
+    let footprint_points = Rect::new(
+        fitted.x + CROP_OVERLAY_OVERSCAN,
+        fitted.y + CROP_OVERLAY_OVERSCAN,
+        fitted.width,
+        fitted.height,
+    );
     let footprint = scaled(footprint_points, scale);
     let crop = scaled(crop_rect_in_view(input.crop, footprint_points), scale);
     let edge_width = |moved: bool| {
