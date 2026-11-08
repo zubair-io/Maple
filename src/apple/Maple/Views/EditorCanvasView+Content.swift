@@ -54,21 +54,9 @@ extension EditorCanvasView {
     return state.session.model.crop.angle
   }
 
-  /// The seed sits over the leaf's content, at the photo's frame, so it
-  /// moves with every zoom and pan exactly as the final image will (#5755).
-  @ViewBuilder
   var canvasLeaf: some View {
-    ZStack {
-      canvasLeafContent
-      EditorSeedImage(
-        assetID: state.session.asset.id, visible: seedVisible, store: seedStore)
-    }
-    .rotationEffect(.degrees(straightenAngle))
-  }
-
-  /// A seed alone mounts the leaf: the photo's frame is laid out from it.
-  var hasSeed: Bool {
-    seedVisible && seedStore.image(for: state.session.asset.id) != nil
+    canvasLeafContent
+      .rotationEffect(.degrees(straightenAngle))
   }
 
   var seedVisible: Bool {
@@ -185,15 +173,17 @@ extension EditorCanvasView {
       .accessibilityIdentifier("editor-canvas-placeholder")
   }
 
-  /// Loads the seed for the open asset (#2374, #5731) and feeds its aspect
-  /// to the zoom while the photo's real size is unknown (#5755).
+  /// Loads the seed for the open asset (#2374, #5731), hands it to the GPU
+  /// canvas as its placeholder (#5758) and feeds its aspect to the zoom
+  /// while the photo's real size is unknown (#5755).
   var seedLoader: some View {
     EditorSeedLoader(
       asset: state.session.asset,
       source: filmstripSource,
       visible: seedVisible,
       store: seedStore,
-      zoom: state.zoom
+      zoom: state.zoom,
+      session: state.session
     )
   }
 

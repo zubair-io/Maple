@@ -260,8 +260,9 @@ pub(crate) struct PresentDispatch {
 /// this is the ONLY place in the present path that does. A caller driving this
 /// every render-loop tick (the live present path) MUST cache the result via
 /// [`PresentDispatchCache`] instead of calling this per tick; only the true
-/// one-shot host oracle ([`crate::present_chain::present_chain_to_offscreen`])
-/// calls it directly.
+/// one-shot test oracles call it directly (the offscreen present uses the
+/// scaled sibling).
+#[cfg(test)]
 pub(crate) fn build_present_dispatch(
     ctx: &GpuContext,
     bind_group_layout: &wgpu::BindGroupLayout,
@@ -272,7 +273,7 @@ pub(crate) fn build_present_dispatch(
     build_present_dispatch_scaled(ctx, bind_group_layout, chain_buf, dims, (0, 0), geometry)
 }
 
-/// [`build_present_dispatch`] with an explicit chain-buffer size differing
+/// Build a present dispatch, with an explicit chain-buffer size differing
 /// from the surface (#2587 half-res fast pass). `src_dims = (0, 0)` is the
 /// 1:1 path — identical uniform bytes to the pre-#2587 build.
 pub(crate) fn build_present_dispatch_scaled(
@@ -335,7 +336,7 @@ fn present_params(
 
 /// Record the chain-present render pass into `encoder`: bind `bind_group`, draw
 /// the fullscreen triangle into `target`. Takes an ALREADY-BUILT bind group (see
-/// [`build_present_dispatch`] / [`PresentDispatchCache`]) — this function itself
+/// [`build_present_dispatch_scaled`] / [`PresentDispatchCache`]) — this function itself
 /// allocates NOTHING, so a caller driving it every render-loop tick with a
 /// cached bind group stays zero-alloc (#1930). Shared by the surface (Apple
 /// `CAMetalLayer`, web `OffscreenCanvas`) and offscreen entry points so the

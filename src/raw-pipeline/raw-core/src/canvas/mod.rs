@@ -15,6 +15,7 @@ mod crop;
 mod geometry;
 mod mapping;
 mod native_detail;
+mod placeholder;
 mod render_schedule;
 mod zoom;
 mod zoom_context;
@@ -37,6 +38,12 @@ pub use native_detail::{
     VisibleRegionUpdate, NATIVE_DETAIL_FILTER_HALO, NATIVE_DETAIL_MIN_PIXEL_SCALE,
     NATIVE_DETAIL_PAN_MARGIN_CEILING, NATIVE_DETAIL_PAN_MARGIN_FRACTION,
     NATIVE_DETAIL_ZOOM_CHANGE_EPSILON,
+};
+#[cfg(any(test, feature = "test-support"))]
+pub use placeholder::reference_present_rgb8;
+pub use placeholder::{
+    encode_placeholder, placeholder_surface_dims, PlaceholderColorSpace, PlaceholderError,
+    PLACEHOLDER_MAX_EDGE,
 };
 pub use render_schedule::{
     refine_matches_fast_target, refine_tries_native_detail, RefineContext, RenderSchedule,

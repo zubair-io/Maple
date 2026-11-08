@@ -52,6 +52,14 @@ use std::sync::atomic::{AtomicU64, Ordering};
 /// about session identity.
 static NEXT_LIVE_SESSION_ID: AtomicU64 = AtomicU64::new(1);
 
+/// An identity for another present source (the canvas placeholder, #5758),
+/// from the same counter, so a present dispatch cached for one can never be
+/// reused for a session's buffers.
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) fn mint_present_source_identity() -> u64 {
+    NEXT_LIVE_SESSION_ID.fetch_add(1, Ordering::Relaxed)
+}
+
 /// A persistent live-render session bound to one uploaded image at one set of
 /// dims. Owns the GPU-resident image, the ping-pong scratch pair, the readback
 /// buffer, and the packed-u8 dither-output buffer — all created once, reused
