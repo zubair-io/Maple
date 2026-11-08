@@ -167,6 +167,32 @@ final class CanvasVisibleAreaTests: XCTestCase {
     XCTAssertFalse(controller.model.fillsViewport)
   }
 
+  /// Codex on #5754: a pinch that interrupts the settle after the chrome
+  /// appears starts from the frame drawn halfway, though that frame lies
+  /// outside the new geometry's range.
+  func testAPinchInterruptingAChromeSettleStartsWhereThePhotoIs() throws {
+    let controller = makeController(insets: .zero)
+    let before = controller.restingFrame
+    controller.viewportInsetsChanged(chrome)
+    let start = Date()
+    let settle = try XCTUnwrap(
+      CanvasSettleAnimation(from: before, to: controller.restingFrame, start: start))
+    let halfway = try XCTUnwrap(
+      stride(from: 0.0, through: CanvasSettleAnimation.duration, by: 0.0005)
+        .map { start + $0 }
+        .first { settle.progress(at: $0) >= 0.5 })
+    let shown = settle.shown(at: halfway)
+
+    controller.holdShownFrame(shown)
+    XCTAssertEqual(controller.restingFrame, shown)
+    let fingers = CGPoint(x: 400, y: 300)
+    controller.pinchChanged(magnification: 1, location: fingers)
+    let live = controller.gestureTransform(magnification: 1, liveCentroid: fingers)
+    XCTAssertEqual(live.zoom, 1, accuracy: 1e-12)
+    XCTAssertEqual(live.committedPan.width, shown.pan.width, accuracy: 1e-9)
+    XCTAssertEqual(live.committedPan.height, shown.pan.height, accuracy: 1e-9)
+  }
+
   func testHoldingRefusesFramesItCannotDrawOrBeforeTheImageIsKnown() {
     let controller = makeController(insets: chrome)
     let atFit = controller.restingFrame

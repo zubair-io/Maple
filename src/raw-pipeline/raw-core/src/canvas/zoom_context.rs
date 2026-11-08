@@ -219,19 +219,57 @@ impl CanvasZoomContext {
             })
     }
 
+    /// `clamped_pan`, widened toward a drag's `base` pan where that lies
+    /// outside the range (the frame an interrupted settle was showing): the
+    /// drag starts exactly there and can move the photo back in, never
+    /// further out.
+    #[must_use]
+    pub fn clamped_pan_from(&self, pan: Size, pixel_scale: f64, base: Size) -> Size {
+        let excess = difference(base, self.clamped_pan(base, pixel_scale));
+        self.pan_within_widened(pan, self.max_pan_offset(pixel_scale), excess)
+    }
+
+    /// `pinch_clamped_pan`, widened the same way toward the pinch's start
+    /// pan where that lies outside its own range at the start scale.
+    #[must_use]
+    pub fn pinch_clamped_pan_from(
+        &self,
+        pan: Size,
+        pixel_scale: f64,
+        start_pan: Size,
+        start_scale: f64,
+    ) -> Size {
+        let excess = difference(start_pan, self.pinch_clamped_pan(start_pan, start_scale));
+        let overflow = self.visible_overflow(pixel_scale);
+        let limit = Size::new(overflow.width.abs(), overflow.height.abs());
+        self.pan_within_widened(pan, limit, excess)
+    }
+
     fn pan_within(&self, pan: Size, limit: Size) -> Size {
+        self.pan_within_widened(pan, limit, Size::ZERO)
+    }
+
+    fn pan_within_widened(&self, pan: Size, limit: Size, excess: Size) -> Size {
         let home = self.home_pan();
         Size::new(
-            home.width + clamp_symmetric(pan.width - home.width, limit.width),
-            home.height + clamp_symmetric(pan.height - home.height, limit.height),
+            home.width + clamp_widened(pan.width - home.width, limit.width, excess.width),
+            home.height + clamp_widened(pan.height - home.height, limit.height, excess.height),
         )
     }
 }
 
-fn clamp_symmetric(value: f64, limit: f64) -> f64 {
+fn difference(a: Size, b: Size) -> Size {
+    Size::new(a.width - b.width, a.height - b.height)
+}
+
+/// `value` within `±limit`, the bound on `excess`'s side pushed out by it.
+fn clamp_widened(value: f64, limit: f64, excess: f64) -> f64 {
     if value.is_nan() {
         0.0
     } else {
-        value.max(-limit).min(limit)
+        let excess = if excess.is_finite() { excess } else { 0.0 };
+        value
+            .max(-limit + excess.min(0.0))
+            .min(limit + excess.max(0.0))
     }
 }
