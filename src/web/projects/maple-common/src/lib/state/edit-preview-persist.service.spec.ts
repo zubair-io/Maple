@@ -453,7 +453,7 @@ describe('EditPreviewPersistService — Hosted (File System Access folder handle
 
     svc.schedule('lib:2026/a.dng' as AssetId);
     await vi.advanceTimersByTimeAsync(PAST_DEBOUNCE_MS);
-    await settle();
+    await svc.whenIdle();
 
     expect(writePreview).toHaveBeenCalledWith(
       expect.anything(),
