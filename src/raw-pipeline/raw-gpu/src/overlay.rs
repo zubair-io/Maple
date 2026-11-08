@@ -15,8 +15,10 @@
 
 use crate::context::GpuContext;
 
-/// Most primitives one overlay carries; matches `raw_core::canvas`.
-pub const OVERLAY_CAPACITY: usize = 16;
+#[path = "generated/canvas_overlay.rs"]
+mod generated;
+/// Most primitives one overlay carries, generated from `raw_core::canvas`.
+pub use generated::OVERLAY_CAPACITY;
 
 /// One coverage primitive, laid out as `overlay.wgsl`'s `Primitive`.
 #[repr(C)]
@@ -72,7 +74,14 @@ impl OverlayPipeline {
             .device
             .create_shader_module(wgpu::ShaderModuleDescriptor {
                 label: Some("canvas-overlay"),
-                source: wgpu::ShaderSource::Wgsl(include_str!("overlay.wgsl").into()),
+                source: wgpu::ShaderSource::Wgsl(
+                    concat!(
+                        include_str!("generated/canvas_overlay.wgsl"),
+                        "\n",
+                        include_str!("overlay.wgsl")
+                    )
+                    .into(),
+                ),
             });
         let layout = ctx
             .device

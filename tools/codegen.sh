@@ -60,6 +60,7 @@
 #   - src/raw-pipeline/raw-gpu/src/generated/color_matrices.wgsl
 #   - src/web/projects/maple-common/src/lib/generated/color-matrices.generated.ts
 #   - src/raw-pipeline/raw-gpu/src/generated/agx_coeffs.wgsl
+#   - src/raw-pipeline/raw-gpu/src/generated/canvas_overlay.{rs,wgsl}
 #   - src/apple/Packages/MapleCore/Sources/MapleCore/Generated/FilmCatalog+Generated.swift
 #   - src/web/projects/maple-common/src/lib/generated/film-catalog.generated.ts
 #   - src/apple/Packages/MapleCore/Sources/MapleCore/Generated/CapabilityRegistry+Generated.swift
@@ -157,6 +158,10 @@ for local_mask_out in \
 	"cs:src/windows/Maple.WinUI/Generated/LocalMaskWire.g.cs"; do
 	"$BIN" --schema local-mask-wire --target "${local_mask_out%%:*}" --out "${local_mask_out#*:}"
 done
+
+# --- Canvas overlay primitive tags + capacity (#5715) ----------------------
+"$BIN" --schema canvas-overlay --target rust --out "src/raw-pipeline/raw-gpu/src/generated/canvas_overlay.rs"
+"$BIN" --schema canvas-overlay --target wgsl --out "src/raw-pipeline/raw-gpu/src/generated/canvas_overlay.wgsl"
 
 "$BIN" --schema white-balance-presets --target swift --out "src/apple/Packages/MapleCore/Sources/MapleCore/Generated/WhiteBalancePresets+Generated.swift"
 "$BIN" --schema white-balance-presets --target ts --out "src/web/projects/maple-common/src/lib/generated/white-balance-presets.generated.ts"
