@@ -447,7 +447,9 @@ struct CanvasZoomHost<CanvasLeaf: View, Fallback: View>: View {
         #if os(iOS)
           lastPinchEnd = nil
         #endif
+        let shown = controller.restingFrame
         controller.dragEnded()
+        if settle == nil { beginSettle(from: shown) }
       }
   }
 

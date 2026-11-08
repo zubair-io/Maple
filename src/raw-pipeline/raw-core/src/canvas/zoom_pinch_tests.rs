@@ -307,14 +307,13 @@ fn holding_a_shown_frame_keeps_it_exactly() {
 }
 
 #[test]
-fn holding_keeps_the_frame_inside_the_zoom_range_and_the_visible_area() {
+fn holding_keeps_the_scale_in_the_zoom_range_and_the_pan_exactly() {
     let ctx = square_with_chrome();
     let floor = ctx.min_scale();
-    let held = CanvasZoomModel::default().hold_shown(floor * 0.5, Size::new(5000.0, 0.0), &ctx);
+    let pan = Size::new(5000.0, 0.0);
+    let held = CanvasZoomModel::default().hold_shown(floor * 0.5, pan, &ctx);
     assert_close(held.pixel_scale, floor, 1e-12);
-    let shown = ctx.display_frame_in_points(held.pixel_scale).unwrap();
-    let limit = (ctx.visible_points().width - shown.width) / 2.0;
-    assert_close(held.pan_offset.width, ctx.home_pan().width + limit, 1e-9);
+    assert_eq!(held.pan_offset, pan);
 }
 
 #[test]
@@ -364,4 +363,56 @@ fn fill_re_resolves_against_the_new_visible_area_when_chrome_changes() {
         .unwrap();
     assert!(frame.width >= chrome.visible_points().width - 1e-9);
     assert!(frame.height >= chrome.visible_points().height - 1e-9);
+}
+
+/// Codex on #5754: a chrome change from none to top 100 / right 300 settles
+/// from the old fit to the new one; halfway, the frame drawn lies outside the
+/// new context's pinch range. Interrupting there must not move the photo.
+fn half_settled_chrome_frame() -> (f64, Size) {
+    let before = square().fit_scale();
+    let after = square_with_chrome().fit_scale();
+    ((before * after).sqrt(), Size::new(-75.0, 25.0))
+}
+
+#[test]
+fn a_pinch_interrupting_a_chrome_settle_starts_exactly_where_the_photo_is() {
+    let ctx = square_with_chrome();
+    let (scale, pan) = half_settled_chrome_frame();
+    assert_close(scale, 0.24944, 1e-5);
+    let held = CanvasZoomModel::default()
+        .reset_to_fit(&ctx)
+        .hold_shown(scale, pan, &ctx);
+    assert_eq!(held.pixel_scale, scale);
+    assert_eq!(held.pan_offset, pan);
+
+    let fingers = Point::new(400.0, 300.0);
+    let captured = held.pinch_changed(1.0, fingers, &ctx);
+    let still = captured.pinch_changed(1.0, fingers, &ctx);
+    assert_eq!(still.pan_offset, pan, "still fingers never move the photo");
+    let nudged = captured.pinch_changed(1.001, fingers, &ctx);
+    assert!((nudged.pan_offset.width - pan.width).abs() < 0.5);
+    assert!((nudged.pan_offset.height - pan.height).abs() < 0.5);
+
+    let released = still.pinch_ended(1.0, &ctx);
+    assert_eq!(released.pixel_scale, scale);
+    assert_eq!(
+        released.pan_offset,
+        ctx.clamped_pan(pan, scale),
+        "the release settles into the resting range"
+    );
+}
+
+#[test]
+fn a_pan_interrupting_a_settle_starts_exactly_where_the_photo_is() {
+    let ctx = square_with_chrome();
+    let held = CanvasZoomModel::default()
+        .zoom_to_scale(1.0, &ctx)
+        .hold_shown(1.0, Size::new(2500.0, 25.0), &ctx);
+    assert_eq!(held.pan_offset, Size::new(2500.0, 25.0));
+    let (still, _) = held.drag_changed(Size::ZERO, &ctx);
+    assert_eq!(still.pan_offset, held.pan_offset);
+    let (inward, _) = held.drag_changed(Size::new(-10.0, 0.0), &ctx);
+    assert_eq!(inward.pan_offset.width, 2490.0, "moving it back in is 1:1");
+    let (outward, _) = held.drag_changed(Size::new(10.0, 0.0), &ctx);
+    assert_eq!(outward.pan_offset.width, 2500.0, "but never further out");
 }
