@@ -98,7 +98,7 @@ struct PreviewView: View {
   @State private var railListPosition: AssetRef.ID?
   /// Finger travel of the pull-down (iPhone) — the still follows it.
   @State private var plainPullTranslation: CGSize = .zero
-  /// The photo area at rest, in window space (`photoAreaReporter`).
+  /// The photo area at rest, in window space (`photoAreaAtRestReporter`).
   @State private var photoArea: CGRect = .zero
   @State private var isPlainPullDismissing = false
   /// Whether the server has an Android Motion Photo clip for this still, and
@@ -193,12 +193,13 @@ struct PreviewView: View {
             }
           }
           .background(photoAreaReporter)
-          .padding(.horizontal, isWide ? 0 : 8)
+          .padding(.horizontal, Self.photoAreaInset(isWide: isWide))
           // Wider layouts draw the photo edge to edge, beneath the status
           // bar, header and rail, so fit is the whole screen (#5710).
           .ignoresSafeArea(edges: isWide && isFullBleedAllowed ? .all : [])
           .scaleEffect(PreviewViewVM.plainPullScale(translationY: plainPullTranslation.height))
           .offset(plainPullTranslation)
+          .background(photoAreaAtRestReporter(inset: Self.photoAreaInset(isWide: isWide)))
 
         if isWide {
           PreviewNavigationRail(
@@ -463,14 +464,28 @@ struct PreviewView: View {
     onSelectAsset(prev)
   }
 
-  /// Publishes where the photo is laid out (window space) so the iPhone
-  /// hero can land its still exactly on Preview's own. Measured under the
-  /// pull's scale/offset, so it is the rest position.
+  private static func photoAreaInset(isWide: Bool) -> CGFloat { isWide ? 0 : 8 }
+
+  /// Publishes where the photo is drawn (window space) so the iPhone hero
+  /// can land its still exactly on Preview's own.
   @ViewBuilder private var photoAreaReporter: some View {
     #if os(iOS)
       GeometryReader { geometry in
         Color.clear.preference(key: PreviewPhotoAreaKey.self, value: geometry.frame(in: .global))
-          .onChange(of: geometry.frame(in: .global), initial: true) { photoArea = $1 }
+      }
+    #else
+      Color.clear
+    #endif
+  }
+
+  /// The photo area at rest: measured outside the pull's scale and offset,
+  /// so a pull, or its spring back, never moves it.
+  @ViewBuilder private func photoAreaAtRestReporter(inset: CGFloat) -> some View {
+    #if os(iOS)
+      GeometryReader { geometry in
+        Color.clear.onChange(of: geometry.frame(in: .global), initial: true) {
+          photoArea = $1.insetBy(dx: inset, dy: 0)
+        }
       }
     #else
       Color.clear
@@ -492,13 +507,12 @@ struct PreviewView: View {
       isPlainPullDismissing = true
       if let onPullDownCommitted {
         // Hand the hero the photo where the finger left it: the pager
-        // reports the photo's rect within the photo area at rest, so
-        // place it in the window and apply the pull's scale and offset
-        // here. The still itself stays where it is; the hero hides this
-        // whole view the moment the close begins.
-        let pulled = photoRect.map { rest in
+        // reports the photo's rect within the photo area, which is drawn
+        // scaled and offset by the pull. The hero hides this whole view the
+        // moment the close begins.
+        let pulled = photoRect.map { photo in
           PreviewViewVM.pulledRect(
-            rest.offsetBy(dx: photoArea.minX, dy: photoArea.minY),
+            photo, inRestArea: photoArea,
             scale: PreviewViewVM.plainPullScale(translationY: translation.height),
             offset: translation)
         }
