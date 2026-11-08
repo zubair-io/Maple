@@ -63,6 +63,8 @@ struct CanvasZoomHost<CanvasLeaf: View, Fallback: View>: View {
   /// inspector, dock, filmstrip). With `safeAreaFrame` they define the
   /// visible area that fit, fill and the centred position resolve inside.
   var coverFrames: [CGRect] = []
+  /// Preview's pager: hears every drag, with the part the pan left over.
+  var paging: CanvasPagingHooks? = nil
   /// The canvas leaf (CIImage raster / GPU layer). The host frames it to the resolved display frame.
   @ViewBuilder let canvasLeaf: () -> CanvasLeaf
   /// Shown while no frame can resolve (no preview yet / no native size). Gets the viewport's full size.
@@ -83,6 +85,8 @@ struct CanvasZoomHost<CanvasLeaf: View, Fallback: View>: View {
   /// True from a drag's first frame to its end. SwiftUI never calls
   /// `onEnded` for a cancelled drag; `dragGestureLive` resetting does.
   @State var dragInProgress = false
+  /// The live drag's travel the pan did not take, for `paging`.
+  @State private var dragOverflow = CanvasDragOverflow()
   @GestureState private var dragGestureLive = false
   #if os(macOS)
     @State private var nudgeAccumulator = CanvasWheelNudgeAccumulator()
@@ -171,7 +175,7 @@ struct CanvasZoomHost<CanvasLeaf: View, Fallback: View>: View {
       #else
         .gesture(magnifyGesture(viewport: geo.size))
       #endif
-      .simultaneousGesture(dragGesture)
+      .simultaneousGesture(dragGesture(viewport: geo.size))
       .onTapGesture(count: 2) { location in
         controller.doubleTap(at: location, behavior: doubleTapBehavior)
       }
@@ -226,6 +230,7 @@ struct CanvasZoomHost<CanvasLeaf: View, Fallback: View>: View {
         // live pinch is not the drag's and carries on.
         guard !live, dragInProgress else { return }
         dragInProgress = false
+        paging?.cancelled()
         let shown = controller.restingFrame
         controller.dragCancelled()
         if settle == nil, !isPinching { beginSettle(from: shown) }
@@ -397,42 +402,65 @@ struct CanvasZoomHost<CanvasLeaf: View, Fallback: View>: View {
     }
   #endif
 
-  private var dragGesture: some Gesture {
-    DragGesture(minimumDistance: 1)
-      .updating($dragGestureLive) { _, live, _ in live = true }
-      .onChanged { value in
-        if !dragInProgress {
-          dragInProgress = true
-          controller.dragBegan()
-        }
-        #if os(iOS)
-          // Within the post-pinch cooldown this is the lingering finger
-          // from the lift, not a deliberate pan — absorb it into the
-          // baseline (so a pan that continues past the window resumes with
-          // no jump) and don't move the canvas.
-          if let end = lastPinchEnd {
-            if Date().timeIntervalSince(end) < postPinchPanCooldown {
-              controller.rebaseDrag(translation: value.translation)
-              return
-            }
-            lastPinchEnd = nil  // window elapsed — resume normal panning
+  /// A pager's drags read in global space: Preview's pull-down moves and
+  /// scales the canvas under the finger, which would feed back into a local
+  /// translation.
+  private func dragGesture(viewport: CGSize) -> some Gesture {
+    DragGesture(
+      minimumDistance: 1, coordinateSpace: paging == nil ? CoordinateSpace.local : .global
+    )
+    .updating($dragGestureLive) { _, live, _ in live = true }
+    .onChanged { value in
+      if !dragInProgress {
+        dragInProgress = true
+        dragOverflow = CanvasDragOverflow()
+        controller.dragBegan()
+      }
+      #if os(iOS)
+        // Within the post-pinch cooldown this is the lingering finger
+        // from the lift, not a deliberate pan — absorb it into the
+        // baseline (so a pan that continues past the window resumes with
+        // no jump) and don't move the canvas.
+        if let end = lastPinchEnd {
+          if Date().timeIntervalSince(end) < postPinchPanCooldown {
+            controller.rebaseDrag(translation: value.translation)
+            dragOverflow.track(translation: value.translation.width, panMoved: 0, counts: false)
+            return
           }
-        #endif
-        // A pan that takes over a settle starts from what is on screen.
-        if settle != nil, controller.dragIntent == .pan { interruptSettle() }
-        controller.dragChanged(translation: value.translation)
-      }
-      .onEnded { _ in
-        dragInProgress = false
-        #if os(iOS)
-          lastPinchEnd = nil
-        #endif
-        let shown = controller.restingFrame
-        controller.dragEnded()
-        if settle == nil { beginSettle(from: shown) }
-      }
+          lastPinchEnd = nil  // window elapsed — resume normal panning
+        }
+      #endif
+      // A pan that takes over a settle starts from what is on screen.
+      if settle != nil, controller.dragIntent == .pan { interruptSettle() }
+      controller.dragChanged(translation: value.translation, tracking: &dragOverflow)
+      paging?.changed(pagingFrame(value.translation))
+    }
+    .onEnded { value in
+      dragInProgress = false
+      #if os(iOS)
+        lastPinchEnd = nil
+      #endif
+      let frame = pagingFrame(value.translation)
+      paging?.ended(
+        CanvasPagingHooks.Release(
+          frame: frame,
+          predictedUnabsorbed: frame.unabsorbed + value.predictedEndTranslation.width
+            - value.translation.width,
+          velocity: value.velocity,
+          shownRect: controller.shownRect(inViewport: CGRect(origin: .zero, size: viewport))))
+      let shown = controller.restingFrame
+      controller.dragEnded()
+      if settle == nil { beginSettle(from: shown) }
+    }
   }
 
+  private func pagingFrame(_ translation: CGSize) -> CanvasPagingHooks.Frame {
+    CanvasPagingHooks.Frame(
+      translation: translation,
+      unabsorbed: dragOverflow.horizontal,
+      isZoomedIn: controller.isZoomedIn,
+      isPinching: isPinching)
+  }
   // MARK: - Scroll wheel (macOS)
 
   /// Transparent wheel-event catcher behind the canvas. Compiles to

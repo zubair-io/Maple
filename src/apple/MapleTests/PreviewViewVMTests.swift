@@ -28,37 +28,6 @@ final class PreviewViewVMTests: XCTestCase {
     (0..<n).map { AssetRef.preview(displayName: "IMG_000\($0).dng") }
   }
 
-  // MARK: - Fill zoom (#5710)
-
-  func testFillZoomScaleCoversThePageOnBothAxes() {
-    let page = CGSize(width: 800, height: 1200)
-    let fitted = PreviewViewVM.fitRect(
-      imageSize: CGSize(width: 6000, height: 4000), in: CGRect(origin: .zero, size: page)
-    ).size
-    let fill = PreviewViewVM.fillZoomScale(fitted: fitted, page: page)
-    XCTAssertEqual(fill, 1200.0 / fitted.height, accuracy: 1e-9)
-    XCTAssertGreaterThanOrEqual(fitted.width * fill, page.width - 1e-9)
-    XCTAssertGreaterThanOrEqual(fitted.height * fill, page.height - 1e-9)
-  }
-
-  func testFillZoomScaleIsOneForAMatchingAspectOrDegenerateSizes() {
-    let page = CGSize(width: 800, height: 600)
-    XCTAssertEqual(PreviewViewVM.fillZoomScale(fitted: page, page: page), 1, accuracy: 1e-9)
-    XCTAssertEqual(PreviewViewVM.fillZoomScale(fitted: .zero, page: page), 1)
-    XCTAssertEqual(PreviewViewVM.fillZoomScale(fitted: page, page: .zero), 1)
-  }
-
-  func testFillZoomScaleForAPortraitPhotoOnALandscapePage() {
-    let page = CGSize(width: 1366, height: 1024)
-    let fitted = PreviewViewVM.fitRect(
-      imageSize: CGSize(width: 4000, height: 6000), in: CGRect(origin: .zero, size: page)
-    ).size
-    XCTAssertEqual(fitted.height, 1024, accuracy: 1e-9)
-    XCTAssertEqual(
-      PreviewViewVM.fillZoomScale(fitted: fitted, page: page), 1366.0 / fitted.width,
-      accuracy: 1e-9)
-  }
-
   // MARK: - nextID
 
   func testNextIDAdvancesToTheFollowingAsset() {
@@ -297,24 +266,6 @@ final class PreviewViewVMTests: XCTestCase {
     XCTAssertLessThanOrEqual(PreviewViewVM.filenameMaxWidth(isCompact: false), 200)
     XCTAssertLessThanOrEqual(PreviewViewVM.filenameMaxWidth(isCompact: true), 200)
   }
-
-  // MARK: - Pull-down dismissal
-
-  func testDismissDragBeginsOnlyForDownwardVerticalPans() {
-    XCTAssertTrue(PreviewViewVM.shouldBeginDismissDrag(translation: CGSize(width: 2, height: 12)))
-    XCTAssertTrue(PreviewViewVM.shouldBeginDismissDrag(translation: CGSize(width: -6, height: 10)))
-    // Page swipe (horizontal-dominant) — leave it to the pager.
-    XCTAssertFalse(PreviewViewVM.shouldBeginDismissDrag(translation: CGSize(width: 12, height: 4)))
-    // A real finger wobbles: a diagonal that is at least as vertical as it
-    // is horizontal is still a pull.
-    XCTAssertTrue(PreviewViewVM.shouldBeginDismissDrag(translation: CGSize(width: 10, height: 11)))
-    XCTAssertTrue(PreviewViewVM.shouldBeginDismissDrag(translation: CGSize(width: 10, height: 10)))
-    XCTAssertFalse(PreviewViewVM.shouldBeginDismissDrag(translation: CGSize(width: 11, height: 10)))
-    // Upward — nothing to dismiss into.
-    XCTAssertFalse(PreviewViewVM.shouldBeginDismissDrag(translation: CGSize(width: 0, height: -12)))
-    XCTAssertFalse(PreviewViewVM.shouldBeginDismissDrag(translation: .zero))
-  }
-
 }
 
 // MARK: - Test fixtures

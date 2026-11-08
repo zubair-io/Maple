@@ -740,11 +740,6 @@
       "use": "Image(systemName: systemName)"
     },
     {
-      "file": "src/apple/Maple/Views/PreviewImage.swift",
-      "line": 84,
-      "use": "Image(systemName: \"photo\")"
-    },
-    {
       "file": "src/apple/Maple/Views/PreviewNavigationRail.swift",
       "line": 26,
       "use": "showsList ? \"Filmstrip\" : \"Photo list\", systemImage: showsList ? \"film\" : \"list.bullet\""
@@ -763,11 +758,6 @@
       "file": "src/apple/Maple/Views/PreviewView.swift",
       "line": 238,
       "use": "Image(systemName: \"info.circle\")"
-    },
-    {
-      "file": "src/apple/Maple/Views/PreviewZoomController.swift",
-      "line": 25,
-      "use": "image: UIImage(systemName: \"photo\")?.withConfiguration("
     },
     {
       "file": "src/apple/Maple/Views/Retouch/RetouchPanel.swift",
@@ -1485,12 +1475,6 @@
         "line": 196,
         "source": "systemName: String,",
         "reason": "Apple-owned menu/navigation/toolbar metadata; SF symbols remain for the native menu renderer."
-      },
-      {
-        "file": "src/apple/Maple/Views/PreviewZoomController.swift",
-        "line": 25,
-        "source": "image: UIImage(systemName: \"photo\")?.withConfiguration(",
-        "reason": "Native Image/UIImage-producing placeholder API. The public image provider requires a platform image rather than a View."
       },
       {
         "file": "src/apple/Maple/Views/SMBFolderTreeRow.swift",

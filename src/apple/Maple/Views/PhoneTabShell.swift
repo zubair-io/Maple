@@ -349,6 +349,7 @@
               .opacity(presentsPreviewHero ? 1 : 0)
               .allowsHitTesting(presentsPreviewHero)
               .accessibilityHidden(!presentsPreviewHero)
+              .environment(\.previewCanvasIsCovered, !presentsPreviewHero)
               .zIndex(1)
             }
           }
