@@ -5,7 +5,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.calculatePan
-import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.padding
@@ -342,8 +341,7 @@ internal suspend fun PointerInputScope.detectCanvasZoomPanAndSwipe(
         var consumedByChild = down.isConsumed
         val downTimeMs = clockMs()
         val downPos = down.position
-        var pinching = false
-        var pinchMagnification = 1f
+        var pinch: PinchTracker? = null
         var gestureWasMultiTouch = false
         var dragX = 0f
         var dragY = 0f
@@ -362,22 +360,17 @@ internal suspend fun PointerInputScope.detectCanvasZoomPanAndSwipe(
             val (imgW, imgH) = imageDimensions()
 
             if (pressed.size >= 2) {
-                if (!pinching) {
+                val tracker = pinch ?: PinchTracker(pressed.map { it.position }).also {
                     zoomState.dragEnded()
-                    pinching = true
-                    pinchMagnification = 1f
+                    pinch = it
                 }
                 gestureWasMultiTouch = true
-                val zoomChange = event.calculateZoom()
-                if (zoomChange.isFinite() && zoomChange > 0f) pinchMagnification *= zoomChange
-                // Compose's calculateCentroid() skips pointers pressed this frame, which
-                // would capture the pinch's start centroid at the first finger alone.
-                val centroidX = pressed.sumOf { it.position.x.toDouble() }.toFloat() / pressed.size
-                val centroidY = pressed.sumOf { it.position.y.toDouble() }.toFloat() / pressed.size
+                val held = event.changes.filter { it.pressed && it.previousPressed }
+                tracker.advance(held.map { it.previousPosition }, held.map { it.position })
                 zoomState.pinchChanged(
-                    magnification = pinchMagnification,
-                    centroidX = centroidX,
-                    centroidY = centroidY,
+                    magnification = tracker.magnification,
+                    centroidX = tracker.centroid.x,
+                    centroidY = tracker.centroid.y,
                     imageWidth = imgW,
                     imageHeight = imgH,
                     viewportWidth = viewportW,
@@ -385,9 +378,9 @@ internal suspend fun PointerInputScope.detectCanvasZoomPanAndSwipe(
                 )
                 event.changes.forEach { if (it.positionChanged()) it.consume() }
             } else if (pressed.size == 1 && !consumedByChild) {
-                if (pinching) {
-                    pinching = false
-                    zoomState.pinchEnded(pinchMagnification, clockMs(), imgW, imgH, viewportW, viewportH)
+                pinch?.let {
+                    pinch = null
+                    zoomState.pinchEnded(it.magnification, clockMs(), imgW, imgH, viewportW, viewportH)
                     dragX = 0f
                     dragY = 0f
                 }
@@ -425,9 +418,9 @@ internal suspend fun PointerInputScope.detectCanvasZoomPanAndSwipe(
         } while (event.changes.any { it.pressed })
 
         val upTimeMs = clockMs()
-        if (pinching) {
+        pinch?.let {
             val (imgW, imgH) = imageDimensions()
-            zoomState.pinchEnded(pinchMagnification, upTimeMs, imgW, imgH,
+            zoomState.pinchEnded(it.magnification, upTimeMs, imgW, imgH,
                 size.width.toFloat().coerceAtLeast(1f), size.height.toFloat().coerceAtLeast(1f))
         }
         zoomState.dragEnded()
