@@ -16,10 +16,11 @@ struct EditorControls: View {
       let fitsVerticalBar = EditorVerticalControlBar.fits(in: geometry.size)
       let isBottom =
         layout == .phone
-        || (MapleShellKind.currentIdiom == .phone && geometry.size.height > geometry.size.width)
+        || (MapleShellKind.currentIdiom == .phone && geometry.size.height > geometry.size.width
+          && !fitsVerticalBar)
         || (state.armedTool == .crop
           && EditorCropGeometry.stacksControlsAtBottom(
-            size: geometry.size, isTablet: MapleShellKind.currentIdiom == .pad,
+            size: geometry.size, isTablet: EditorCropGeometry.isTabletClass,
             hasFilmstrip: hasFilmstrip, usesVerticalBar: fitsVerticalBar))
       let arrangement =
         isBottom
@@ -28,16 +29,17 @@ struct EditorControls: View {
       let bottomPanelHeight = shortCrop ? 96 : min(360, geometry.size.height * 0.40)
       let usesVerticalBar = fitsVerticalBar && !isBottom
       if usesVerticalBar {
+        let top = Self.verticalBarTop(in: geometry)
         EditorVerticalControlBar(
           state: state, onPresetsTap: onPresetsTap, showsScope: showsScope,
-          maximumHeight: max(geometry.size.height - 64 - 24, 1)
+          maximumHeight: max(geometry.size.height - top - 12, 1)
         )
         .reportsWheelExclusion(in: "editorCanvas", active: true)
-        .padding(.top, 64)
-        .padding([.top, .bottom, .leading], 12)
+        .padding(.top, top)
+        .padding([.bottom, .leading], 12)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
-        // Docked flush to the screen's trailing edge (#5710); its tabs and
-        // ruler sit below the status items a trailing system rail carries.
+        // Docked flush to the screen's trailing edge (#5710), starting below
+        // any status items a trailing system rail carries.
         .ignoresSafeArea(.container, edges: .trailing)
       } else {
         stackedControls(
@@ -45,6 +47,26 @@ struct EditorControls: View {
           bottomPanelHeight: bottomPanelHeight)
       }
     }
+  }
+
+  /// Clears the header and any screen area the system covers at the top
+  /// trailing corner, such as the open Duo's status cluster. The Mac never
+  /// shows the vertical bar.
+  private static func verticalBarTop(in geometry: GeometryProxy) -> CGFloat {
+    #if os(iOS)
+      let occlusions =
+        if #available(iOS 27.1, *) {
+          geometry.reservedRegions(kind: .occlusion).map(\.frame)
+        } else {
+          [CGRect]()
+        }
+      return EditorVerticalControlBar.topClearance(
+        occlusions: occlusions,
+        topTrailingCorner: geometry.containerCornerInsets.topTrailing.height,
+        trailingEdge: geometry.size.width + geometry.safeAreaInsets.trailing)
+    #else
+      return EditorVerticalControlBar.headerClearance
+    #endif
   }
 
   private func stackedControls(

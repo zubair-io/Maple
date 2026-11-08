@@ -1,4 +1,5 @@
-// EditorVerticalControlBar.swift — landscape iPad and open-Duo controls.
+// EditorVerticalControlBar.swift — landscape iPad and open-Duo controls
+// (both orientations on the open Duo).
 //
 // The compact bottom bar turned on end and docked flush to the trailing edge.
 // Left to right: group tabs, the armed group's tools, then the vertical
@@ -27,13 +28,39 @@ struct EditorVerticalControlBar: View {
   /// The widest trailing footprint, with the context panel open.
   static let footprintWidth: CGFloat = contextPanelWidth + 12 + barWidth
 
-  /// iPad and the open Duo, in a landscape editor tall enough for the
-  /// fixed-height tabs. The Mac, including the iPad app running on a Mac,
-  /// keeps the stacked inspector.
+  /// Landscape iPad, and the open Duo in either orientation, when the editor
+  /// is tall enough for the fixed-height tabs. Only the open Duo reaches
+  /// these controls with the phone idiom; the closed Duo and iPhone keep
+  /// their compact controls. The Mac, including the iPad app running on a
+  /// Mac, keeps the stacked inspector.
   static func fits(in size: CGSize) -> Bool {
-    let idiom = MapleShellKind.currentIdiom
-    return (idiom == .pad || idiom == .phone) && !ProcessInfo.processInfo.isiOSAppOnMac
-      && size.width > size.height && size.height - 88 >= minimumHeight
+    fits(
+      in: size, idiom: MapleShellKind.currentIdiom,
+      isiOSAppOnMac: ProcessInfo.processInfo.isiOSAppOnMac)
+  }
+
+  static func fits(in size: CGSize, idiom: MapleDeviceIdiom, isiOSAppOnMac: Bool) -> Bool {
+    let orientationFits = idiom == .phone || (idiom == .pad && size.width > size.height)
+    return orientationFits && !isiOSAppOnMac && size.height - 88 >= minimumHeight
+  }
+
+  /// The header row and its margin; the bar always starts below it.
+  static let headerClearance: CGFloat = 76
+  private static let statusSpacing: CGFloat = 12
+
+  /// The bar's top inset from the safe-area top: below the header, and below
+  /// any occluded area (the open Duo's clock and battery) or rounded corner
+  /// cut-out in the band the bar and its panel cover at the trailing edge.
+  static func topClearance(
+    occlusions: [CGRect], topTrailingCorner: CGFloat, trailingEdge: CGFloat
+  ) -> CGFloat {
+    let band = (trailingEdge - footprintWidth)...trailingEdge
+    let covered =
+      occlusions
+      .filter { $0.maxX > band.lowerBound && $0.minX < band.upperBound && $0.maxY > 0 }
+      .map(\.maxY)
+    let lowest = (covered + [topTrailingCorner]).max() ?? 0
+    return max(headerClearance, lowest > 0 ? lowest + statusSpacing : 0)
   }
 
   private var usesToolPanel: Bool { EditorToolPanel.replacesDragBar(state.armedTool) }

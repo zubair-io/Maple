@@ -124,7 +124,7 @@ struct EditorCanvasView: View {
   private func canvasInsets(size: CGSize) -> EdgeInsets {
     if state.armedTool == .crop {
       let controlsAtBottom = EditorCropGeometry.stacksControlsAtBottom(
-        size: size, isTablet: MapleShellKind.currentIdiom == .pad,
+        size: size, isTablet: EditorCropGeometry.isTabletClass,
         hasFilmstrip: hasFilmstrip, usesVerticalBar: EditorVerticalControlBar.fits(in: size))
       return EditorCropGeometry.insets(
         size: size, controlsFrame: wheelExclusionFrame,
