@@ -137,6 +137,10 @@ namespace Maple.WinUI
             if (refreshDetail) QueueDetailRefresh();
         }
 
+        // The XAML core stores transform values as float, so a read-back
+        // equals the applied double only after the same rounding.
+        private static bool TransformHolds(double applied, double value) => applied == (float)value;
+
         private void ResetZoom()
         {
             _canvasZoom.ResetToFit();

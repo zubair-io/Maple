@@ -66,7 +66,7 @@ public sealed partial class MainWindow
                     group != _activeGroup || EditPanel.Visibility != Visibility.Visible)
                     throw new InvalidOperationException("Native resize changed the selected document or active tool");
                 if (ViewModel.UndoCount != originalDepth + 1 || _canvasZoom.State.pixel_scale != zoomedScale ||
-                    ZoomPanTransform.ScaleX != _canvasZoom.View.ScaleToFit ||
+                    !TransformHolds(ZoomPanTransform.ScaleX, _canvasZoom.View.ScaleToFit) ||
                     editedState != Services.Xmp.XmpWriter.Serialize(
                         new Services.Xmp.XmpSidecarDocument { Adjustments = ViewModel.Adjustments }))
                     throw new InvalidOperationException("Native resize changed edits, undo history or zoom");
