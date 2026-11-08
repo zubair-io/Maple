@@ -72,6 +72,10 @@ struct GpuShared {
     /// dims)`, reused across presents AND across handle re-opens.
     #[cfg(target_vendor = "apple")]
     present_surface: Option<raw_gpu::PersistentPresentSurface>,
+    /// The canvas placeholder still (#5758), presented into `present_surface`
+    /// until the live chain's first frame; its buffer is reused per upload.
+    #[cfg(target_vendor = "apple")]
+    placeholder: Option<raw_gpu::PlaceholderSource>,
     /// The cached WinUI 3 `SwapChainPanel` present surface (#2561) — the
     /// Windows twin of `present_surface`, created on the first
     /// `maple_gpu_present_chain_winui` call with identical cache semantics.
@@ -103,6 +107,8 @@ fn ensure_context(shared: &mut Option<GpuShared>) -> Result<(), String> {
         ctx,
         #[cfg(target_vendor = "apple")]
         present_surface: None,
+        #[cfg(target_vendor = "apple")]
+        placeholder: None,
         #[cfg(target_os = "windows")]
         present_surface_winui: None,
     });
@@ -239,6 +245,9 @@ pub use entries::*;
 // inline; cbindgen still wraps the declaration in `#if defined(__APPLE__)`.
 #[cfg(target_vendor = "apple")]
 mod present;
+// The canvas placeholder present (`maple_gpu_present_placeholder`, #5758).
+#[cfg(target_vendor = "apple")]
+mod placeholder;
 
 // The Windows `SwapChainPanel` present entry (`maple_gpu_present_chain_winui`,
 // #2561) — the DX12 twin of `present`, same sibling-module split.
