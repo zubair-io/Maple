@@ -1,6 +1,7 @@
 //! Android native binding. Colour and geometry remain in raw-core/raw-gpu.
 mod auto_white_balance;
 mod cancellation;
+mod canvas_zoom;
 mod fields;
 mod film;
 mod native_detail;

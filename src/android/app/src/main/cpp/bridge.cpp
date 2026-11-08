@@ -22,6 +22,9 @@ void maple_android_detail_patch_free(DetailPatch *);
 uint8_t maple_android_platform_detail_fits(uint32_t, uint32_t, uint64_t);
 uint64_t maple_android_native_dimensions(const char *, const char *);
 uint64_t maple_android_presentation_dimensions(uint32_t, uint32_t, float, float, float, float, float);
+int32_t maple_android_canvas_zoom(double *, uint32_t, double, double, double, double, double, double, double, double);
+double maple_android_canvas_zoom_query(const double *, uint32_t, double, double, double, double);
+size_t maple_android_canvas_zoom_state_len();
 char *maple_android_parametric_curve(const char *);
 char *maple_android_scope(const uint32_t *, size_t, uint32_t, uint32_t);
 void *maple_android_auto_wb_new(void *, const char *);
@@ -100,6 +103,20 @@ void check(JNIEnv *env, int result) {
     if (result != 0 && !env->ExceptionCheck()) env->ThrowNew(env->FindClass("java/lang/IllegalStateException"), maple_android_error());
 }
 Editor *editor(jlong handle) { return reinterpret_cast<Editor *>(handle); }
+constexpr jsize CANVAS_ZOOM_STATE_LEN = 17;
+// The state crosses as a copy on the stack: no allocation and no pinned array.
+bool readCanvasZoom(JNIEnv *env, jdoubleArray state, double (&slots)[CANVAS_ZOOM_STATE_LEN]) {
+    if (maple_android_canvas_zoom_state_len() != static_cast<size_t>(CANVAS_ZOOM_STATE_LEN)) {
+        env->ThrowNew(env->FindClass("java/lang/IllegalStateException"), "Canvas zoom state layout differs from the native library");
+        return false;
+    }
+    if (!state || env->GetArrayLength(state) != CANVAS_ZOOM_STATE_LEN) {
+        env->ThrowNew(env->FindClass("java/lang/IllegalArgumentException"), "Invalid canvas zoom state");
+        return false;
+    }
+    env->GetDoubleArrayRegion(state, 0, CANVAS_ZOOM_STATE_LEN, slots);
+    return !env->ExceptionCheck();
+}
 }
 
 extern "C" JNIEXPORT jlong JNICALL Java_app_justmaple_aperture_data_NativeBridge_createRenderer(JNIEnv *env, jobject) {
@@ -156,6 +173,24 @@ extern "C" JNIEXPORT jlong JNICALL Java_app_justmaple_aperture_data_NativeBridge
 extern "C" JNIEXPORT jlong JNICALL Java_app_justmaple_aperture_data_NativeBridge_presentationDimensions(JNIEnv *, jobject, jint width, jint height, jfloat top, jfloat left, jfloat bottom, jfloat right, jfloat angle) {
     if (width <= 0 || height <= 0) return 0;
     return static_cast<jlong>(maple_android_presentation_dimensions(width, height, top, left, bottom, right, angle));
+}
+extern "C" JNIEXPORT jint JNICALL Java_app_justmaple_aperture_data_NativeBridge_canvasZoom(JNIEnv *env, jobject, jdoubleArray state, jint op, jdouble a, jdouble b, jdouble c, jdouble d, jdouble viewportWidth, jdouble viewportHeight, jdouble imageWidth, jdouble imageHeight) {
+    double slots[CANVAS_ZOOM_STATE_LEN];
+    if (!readCanvasZoom(env, state, slots)) return -1;
+    const int32_t result = maple_android_canvas_zoom(slots, static_cast<uint32_t>(op), a, b, c, d, viewportWidth, viewportHeight, imageWidth, imageHeight);
+    if (result < 0) {
+        env->ThrowNew(env->FindClass("java/lang/IllegalStateException"), "Canvas zoom transition failed");
+        return result;
+    }
+    env->SetDoubleArrayRegion(state, 0, CANVAS_ZOOM_STATE_LEN, slots);
+    return result;
+}
+extern "C" JNIEXPORT jdouble JNICALL Java_app_justmaple_aperture_data_NativeBridge_canvasZoomQuery(JNIEnv *env, jobject, jdoubleArray state, jint query, jdouble viewportWidth, jdouble viewportHeight, jdouble imageWidth, jdouble imageHeight) {
+    double slots[CANVAS_ZOOM_STATE_LEN];
+    if (!readCanvasZoom(env, state, slots)) return 0;
+    const double value = maple_android_canvas_zoom_query(slots, static_cast<uint32_t>(query), viewportWidth, viewportHeight, imageWidth, imageHeight);
+    if (value != value) env->ThrowNew(env->FindClass("java/lang/IllegalStateException"), "Canvas zoom query failed");
+    return value;
 }
 extern "C" JNIEXPORT jobject JNICALL Java_app_justmaple_aperture_data_NativeBridge_renderNativeDetail(JNIEnv *env, jobject, jlong source, jstring xml, jint x, jint y, jint width, jint height, jint target, jlong flag) {
     Utf8 document(env, xml);

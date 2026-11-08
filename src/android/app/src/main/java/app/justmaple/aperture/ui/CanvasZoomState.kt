@@ -35,63 +35,50 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import app.justmaple.aperture.data.NativeBridge
 import kotlin.math.abs
 import kotlin.math.max
-import kotlin.math.min
 import kotlin.math.roundToInt
 
 /**
- * Pure zoom & pan state for the Android Preview and Editor canvases (#5186),
- * mirroring Apple's `CanvasZoomModel`:
- * - [pixelScale] == 0f means Fit; 1.0f means 100% (1:1 image-to-viewport pixels); max is 8.0f.
- * - Snaps back to Fit when pinched below `fitScale * 1.02f`.
+ * Zoom & pan state for the Android Preview and Editor canvases. The rules are the shared
+ * `raw_core::canvas::CanvasZoomModel` (#5714), reached through [NativeBridge.canvasZoom]: this
+ * class owns the model as a plain `DoubleArray`, hands it to each transition, and mirrors the
+ * scale and pan into Compose state. Canvas units are Compose pixels.
+ * - [pixelScale] == 0f means Fit; 1.0f means 100% (one image pixel per screen pixel); max 8.0f.
+ * - Pinch settles on fit or fill within 4%, and zooms out to half of fit.
  * - Suppresses single-finger pan for [PINCH_COOLDOWN_MS] after a two-finger pinch ends
  *   so lifting one finger slightly before the other never jumps the canvas.
  */
 @Stable
-class CanvasZoomState(
-    initialPixelScale: Float = 0f,
-    initialPanX: Float = 0f,
-    initialPanY: Float = 0f,
-) {
-    var pixelScale by mutableFloatStateOf(initialPixelScale)
+class CanvasZoomState {
+    private val model = DoubleArray(STATE_LEN)
+
+    var pixelScale by mutableFloatStateOf(0f)
         private set
 
-    var panX by mutableFloatStateOf(initialPanX)
+    var panX by mutableFloatStateOf(0f)
         private set
 
-    var panY by mutableFloatStateOf(initialPanY)
+    var panY by mutableFloatStateOf(0f)
         private set
 
     private var pinchEndedAtMs: Long? = null
     private var anchorX = 0f
     private var anchorY = 0f
-    private var absoluteScale = initialPixelScale > 0f
 
     val isZoomed: Boolean
         get() = pixelScale > 0f
 
-    fun fitScale(
-        imageWidth: Int,
-        imageHeight: Int,
-        viewportWidth: Float,
-        viewportHeight: Float,
-    ): Float {
-        if (imageWidth <= 0 || imageHeight <= 0 || viewportWidth <= 0f || viewportHeight <= 0f) {
-            return 1f
-        }
-        return min(viewportWidth / imageWidth.toFloat(), viewportHeight / imageHeight.toFloat())
-    }
+    fun fitScale(imageWidth: Int, imageHeight: Int, viewportWidth: Float, viewportHeight: Float): Float =
+        query(QUERY_FIT_SCALE, imageWidth, imageHeight, viewportWidth, viewportHeight).toFloat()
 
     fun effectiveScale(
         imageWidth: Int,
         imageHeight: Int,
         viewportWidth: Float,
         viewportHeight: Float,
-    ): Float {
-        val fit = fitScale(imageWidth, imageHeight, viewportWidth, viewportHeight)
-        return if (pixelScale <= 0f) fit else pixelScale
-    }
+    ): Float = query(QUERY_EFFECTIVE_SCALE, imageWidth, imageHeight, viewportWidth, viewportHeight).toFloat()
 
     fun zoomFactorOverFit(
         imageWidth: Int,
@@ -99,9 +86,9 @@ class CanvasZoomState(
         viewportWidth: Float,
         viewportHeight: Float,
     ): Float {
+        if (!isZoomed) return 1f
         val fit = fitScale(imageWidth, imageHeight, viewportWidth, viewportHeight)
-        if (fit <= 0f) return 1f
-        return if (pixelScale <= 0f) 1f else (pixelScale / fit)
+        return effectiveScale(imageWidth, imageHeight, viewportWidth, viewportHeight) / fit
     }
 
     fun percentage(
@@ -121,45 +108,52 @@ class CanvasZoomState(
         viewportHeight: Float,
     ): String = "${percentage(imageWidth, imageHeight, viewportWidth, viewportHeight)}%"
 
+    /** What a badge tap does: the next stop in fit → fill → 100%. */
+    fun nextStopDescription(
+        imageWidth: Int,
+        imageHeight: Int,
+        viewportWidth: Float,
+        viewportHeight: Float,
+    ): String =
+        when (query(QUERY_NEXT_STOP, imageWidth, imageHeight, viewportWidth, viewportHeight).toInt()) {
+            STOP_FILL -> "Zoom to Fill"
+            STOP_ACTUAL_SIZE -> "Zoom to 100%"
+            else -> "Zoom to Fit"
+        }
+
+    /** Fit: the shared model's fit state is all zeros (`CanvasZoomModel::default`). */
     fun reset() {
-        pixelScale = 0f
-        panX = 0f
-        panY = 0f
+        model.fill(0.0)
         pinchEndedAtMs = null
+        publish()
     }
 
-    fun applyPinch(
-        zoomChange: Float,
+    /** One pinch frame; [magnification] is cumulative since the pinch began. */
+    fun pinchChanged(
+        magnification: Float,
         centroidX: Float,
         centroidY: Float,
         imageWidth: Int,
         imageHeight: Int,
         viewportWidth: Float,
         viewportHeight: Float,
-        panDeltaX: Float = 0f,
-        panDeltaY: Float = 0f,
     ) {
-        if (!zoomChange.isFinite() || zoomChange <= 0f) return
-        val fit = fitScale(imageWidth, imageHeight, viewportWidth, viewportHeight)
-        val oldScale = effectiveScale(imageWidth, imageHeight, viewportWidth, viewportHeight)
-        if (!isZoomed) absoluteScale = false
-        val proposed = (oldScale * zoomChange).coerceAtMost(MAX_PIXEL_SCALE)
-        if (oldScale >= fit && proposed <= fit * SNAP_TO_FIT_RATIO) {
-            reset()
-            return
-        }
-        val relX = centroidX - viewportWidth / 2f
-        val relY = centroidY - viewportHeight / 2f
-        anchorX = relX
-        anchorY = relY
-        val scaleRatio = proposed / oldScale
-        val rawPanX = relX - (relX - panX) * scaleRatio + panDeltaX
-        val rawPanY = relY - (relY - panY) * scaleRatio + panDeltaY
-        pixelScale = proposed
-        clampAndSetPan(rawPanX, rawPanY, proposed, imageWidth, imageHeight, viewportWidth, viewportHeight)
+        anchorX = centroidX
+        anchorY = centroidY
+        transition(OP_PINCH_CHANGED, imageWidth, imageHeight, viewportWidth, viewportHeight,
+            magnification.toDouble(), centroidX.toDouble(), centroidY.toDouble())
     }
 
-    fun endPinch(nowMs: Long) {
+    fun pinchEnded(
+        magnification: Float,
+        nowMs: Long,
+        imageWidth: Int,
+        imageHeight: Int,
+        viewportWidth: Float,
+        viewportHeight: Float,
+    ) {
+        transition(OP_PINCH_ENDED, imageWidth, imageHeight, viewportWidth, viewportHeight,
+            magnification.toDouble())
         pinchEndedAtMs = nowMs
     }
 
@@ -168,30 +162,31 @@ class CanvasZoomState(
         return nowMs - ended in 0 until PINCH_COOLDOWN_MS
     }
 
-    fun applyPan(
-        deltaX: Float,
-        deltaY: Float,
+    /**
+     * One drag frame; [translationX]/[translationY] are cumulative since the drag began. Returns
+     * whether the drag panned the image. During the post-pinch cooldown the translation only
+     * becomes the baseline, so the pan resumes without a jump.
+     */
+    fun dragChanged(
+        translationX: Float,
+        translationY: Float,
         imageWidth: Int,
         imageHeight: Int,
         viewportWidth: Float,
         viewportHeight: Float,
         nowMs: Long = Long.MAX_VALUE,
     ): Boolean {
-        if (!isZoomed) return false
-        if (isInPinchCooldown(nowMs)) return false
-        val scale = effectiveScale(imageWidth, imageHeight, viewportWidth, viewportHeight)
-        clampAndSetPan(
-            panX + deltaX,
-            panY + deltaY,
-            scale,
-            imageWidth,
-            imageHeight,
-            viewportWidth,
-            viewportHeight,
-        )
-        return true
+        val op = if (isInPinchCooldown(nowMs)) OP_REBASE_DRAG else OP_DRAG_CHANGED
+        val result = transition(op, imageWidth, imageHeight, viewportWidth, viewportHeight,
+            translationX.toDouble(), translationY.toDouble())
+        return op == OP_DRAG_CHANGED && result == 1
     }
 
+    fun dragEnded() {
+        transition(OP_DRAG_ENDED, 0, 0, 0f, 0f)
+    }
+
+    /** Fit ↔ 100%, zooming in anchored at the tap. */
     fun doubleTap(
         tapX: Float,
         tapY: Float,
@@ -200,70 +195,90 @@ class CanvasZoomState(
         viewportWidth: Float,
         viewportHeight: Float,
     ) {
-        if (isZoomed) {
-            reset()
-            return
-        }
-        val fit = fitScale(imageWidth, imageHeight, viewportWidth, viewportHeight)
-        val targetScale = ONE_TO_ONE_PIXEL_SCALE
-        val relX = tapX - viewportWidth / 2f
-        val relY = tapY - viewportHeight / 2f
-        anchorX = relX
-        anchorY = relY
-        absoluteScale = true
-        val scaleRatio = targetScale / fit
-        val rawPanX = -relX * (scaleRatio - 1f)
-        val rawPanY = -relY * (scaleRatio - 1f)
-        pixelScale = targetScale
+        anchorX = tapX
+        anchorY = tapY
         pinchEndedAtMs = null
-        clampAndSetPan(
-            rawPanX,
-            rawPanY,
-            targetScale,
-            imageWidth,
-            imageHeight,
-            viewportWidth,
-            viewportHeight,
-        )
+        transition(OP_DOUBLE_TAP, imageWidth, imageHeight, viewportWidth, viewportHeight,
+            tapX.toDouble(), tapY.toDouble())
     }
 
-    /** The initial gesture can arrive while a cloud original's dimensions are loading. */
+    /** Badge tap: the next stop in fit → fill → 100%; a free scale returns to fit. */
+    fun advanceStop(imageWidth: Int, imageHeight: Int, viewportWidth: Float, viewportHeight: Float) {
+        anchorX = viewportWidth / 2f
+        anchorY = viewportHeight / 2f
+        transition(OP_ADVANCE_STOP, imageWidth, imageHeight, viewportWidth, viewportHeight)
+    }
+
+    /** Re-resolves against a new viewport: fill keeps covering it and the pan stays legal. */
+    fun reclamp(imageWidth: Int, imageHeight: Int, viewportWidth: Float, viewportHeight: Float) {
+        if (isZoomed) transition(OP_RECLAMP, imageWidth, imageHeight, viewportWidth, viewportHeight)
+    }
+
+    /**
+     * The initial gesture can arrive while a cloud original's dimensions are loading: a free zoom
+     * keeps its size on screen, 100% stays 1:1, and the last gesture's focal point stays put.
+     */
     fun adoptNativeDimensions(oldWidth: Int, oldHeight: Int, width: Int, height: Int,
         viewportWidth: Float, viewportHeight: Float) {
-        if (!isZoomed) return
-        val oldFit = fitScale(oldWidth, oldHeight, viewportWidth, viewportHeight)
-        val newFit = fitScale(width, height, viewportWidth, viewportHeight)
-        if (!absoluteScale) pixelScale = (pixelScale * newFit / oldFit).coerceAtMost(MAX_PIXEL_SCALE)
-        val ratio = pixelScale / newFit
-        clampAndSetPan(anchorX * (1f - ratio), anchorY * (1f - ratio), pixelScale,
-            width, height, viewportWidth, viewportHeight)
+        transition(OP_ADOPT_IMAGE, width, height, viewportWidth, viewportHeight, oldWidth.toDouble(),
+            oldHeight.toDouble(), anchorX.toDouble(), anchorY.toDouble())
     }
 
-    private fun clampAndSetPan(
-        candidateX: Float,
-        candidateY: Float,
-        scale: Float,
+    private fun transition(
+        op: Int,
         imageWidth: Int,
         imageHeight: Int,
         viewportWidth: Float,
         viewportHeight: Float,
-    ) {
-        val scaledWidth = imageWidth.toFloat() * scale
-        val scaledHeight = imageHeight.toFloat() * scale
-        val maxX = max(0f, (scaledWidth - viewportWidth) / 2f)
-        val maxY = max(0f, (scaledHeight - viewportHeight) / 2f)
-        panX = candidateX.coerceIn(-maxX, maxX)
-        panY = candidateY.coerceIn(-maxY, maxY)
+        a: Double = 0.0,
+        b: Double = 0.0,
+        c: Double = 0.0,
+        d: Double = 0.0,
+    ): Int {
+        val result = NativeBridge.canvasZoom(model, op, a, b, c, d, viewportWidth.toDouble(),
+            viewportHeight.toDouble(), imageWidth.toDouble(), imageHeight.toDouble())
+        publish()
+        return result
+    }
+
+    private fun query(
+        which: Int,
+        imageWidth: Int,
+        imageHeight: Int,
+        viewportWidth: Float,
+        viewportHeight: Float,
+    ): Double =
+        NativeBridge.canvasZoomQuery(model, which, viewportWidth.toDouble(),
+            viewportHeight.toDouble(), imageWidth.toDouble(), imageHeight.toDouble())
+
+    private fun publish() {
+        pixelScale = model[0].toFloat()
+        panX = model[1].toFloat()
+        panY = model[2].toFloat()
     }
 
     companion object {
-        const val ONE_TO_ONE_PIXEL_SCALE = 1.0f
-        const val MAX_PIXEL_SCALE = 8.0f
-        const val SNAP_TO_FIT_RATIO = 1.02f
         const val PINCH_COOLDOWN_MS = 300L
         const val DOUBLE_TAP_TIMEOUT_MS = 280L
         const val DOUBLE_TAP_SLOP_PX = 48f
         const val SWIPE_PAGE_THRESHOLD_PX = 96f
+
+        // Mirrors of `src/android/native/src/canvas_zoom.rs`.
+        private const val STATE_LEN = 17
+        private const val OP_PINCH_CHANGED = 0
+        private const val OP_PINCH_ENDED = 1
+        private const val OP_DRAG_CHANGED = 2
+        private const val OP_DRAG_ENDED = 3
+        private const val OP_REBASE_DRAG = 4
+        private const val OP_DOUBLE_TAP = 5
+        private const val OP_ADVANCE_STOP = 6
+        private const val OP_RECLAMP = 7
+        private const val OP_ADOPT_IMAGE = 8
+        private const val QUERY_EFFECTIVE_SCALE = 0
+        private const val QUERY_FIT_SCALE = 1
+        private const val QUERY_NEXT_STOP = 2
+        private const val STOP_FILL = 1
+        private const val STOP_ACTUAL_SIZE = 2
     }
 }
 
@@ -274,16 +289,18 @@ fun rememberCanvasZoomState(): CanvasZoomState = remember { CanvasZoomState() }
 internal fun CanvasZoomBadge(
     label: String,
     isZoomed: Boolean,
-    onReset: () -> Unit,
+    actionDescription: String,
+    enabled: Boolean,
+    onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Box(
         modifier
             .defaultMinSize(minWidth = 44.dp, minHeight = 44.dp)
-            .clickable(enabled = isZoomed, role = Role.Button, onClick = onReset)
+            .clickable(enabled = enabled, role = Role.Button, onClick = onClick)
             .padding(8.dp)
             .semantics {
-                contentDescription = "Zoom to Fit"
+                contentDescription = actionDescription
                 stateDescription = label
                 role = Role.Button
             }
@@ -326,8 +343,11 @@ internal suspend fun PointerInputScope.detectCanvasZoomPanAndSwipe(
         var consumedByChild = down.isConsumed
         val downTimeMs = clockMs()
         val downPos = down.position
-        var hadMultiTouch = false
+        var pinching = false
+        var pinchMagnification = 1f
         var gestureWasMultiTouch = false
+        var dragX = 0f
+        var dragY = 0f
         var totalSingleDragX = 0f
         var totalSingleDragY = 0f
         var maxMovement = 0f
@@ -343,38 +363,42 @@ internal suspend fun PointerInputScope.detectCanvasZoomPanAndSwipe(
             val (imgW, imgH) = imageDimensions()
 
             if (pressed.size >= 2) {
-                hadMultiTouch = true
+                if (!pinching) {
+                    zoomState.dragEnded()
+                    pinching = true
+                    pinchMagnification = 1f
+                }
                 gestureWasMultiTouch = true
                 val zoomChange = event.calculateZoom()
-                val panChange = event.calculatePan()
+                if (zoomChange.isFinite() && zoomChange > 0f) pinchMagnification *= zoomChange
                 val centroid = event.calculateCentroid(useCurrent = true)
-                if (zoomChange != 1f || panChange != Offset.Zero) {
-                    zoomState.applyPinch(
-                        zoomChange = zoomChange,
-                        centroidX = if (centroid != Offset.Unspecified) centroid.x else viewportW / 2f,
-                        centroidY = if (centroid != Offset.Unspecified) centroid.y else viewportH / 2f,
-                        imageWidth = imgW,
-                        imageHeight = imgH,
-                        viewportWidth = viewportW,
-                        viewportHeight = viewportH,
-                        panDeltaX = panChange.x,
-                        panDeltaY = panChange.y,
-                    )
-                    event.changes.forEach { if (it.positionChanged()) it.consume() }
-                }
+                zoomState.pinchChanged(
+                    magnification = pinchMagnification,
+                    centroidX = if (centroid != Offset.Unspecified) centroid.x else viewportW / 2f,
+                    centroidY = if (centroid != Offset.Unspecified) centroid.y else viewportH / 2f,
+                    imageWidth = imgW,
+                    imageHeight = imgH,
+                    viewportWidth = viewportW,
+                    viewportHeight = viewportH,
+                )
+                event.changes.forEach { if (it.positionChanged()) it.consume() }
             } else if (pressed.size == 1 && !consumedByChild) {
-                if (hadMultiTouch) {
-                    hadMultiTouch = false
-                    zoomState.endPinch(clockMs())
+                if (pinching) {
+                    pinching = false
+                    zoomState.pinchEnded(pinchMagnification, clockMs(), imgW, imgH, viewportW, viewportH)
+                    dragX = 0f
+                    dragY = 0f
                 }
                 val panChange = event.calculatePan()
                 maxMovement = max(maxMovement, (pressed.first().position - downPos).getDistance())
                 if (panChange != Offset.Zero) {
                     if (zoomState.isZoomed) {
+                        dragX += panChange.x
+                        dragY += panChange.y
                         val panned =
-                            zoomState.applyPan(
-                                deltaX = panChange.x,
-                                deltaY = panChange.y,
+                            zoomState.dragChanged(
+                                translationX = dragX,
+                                translationY = dragY,
                                 imageWidth = imgW,
                                 imageHeight = imgH,
                                 viewportWidth = viewportW,
@@ -399,9 +423,14 @@ internal suspend fun PointerInputScope.detectCanvasZoomPanAndSwipe(
         } while (event.changes.any { it.pressed })
 
         val upTimeMs = clockMs()
+        if (pinching) {
+            val (imgW, imgH) = imageDimensions()
+            zoomState.pinchEnded(pinchMagnification, upTimeMs, imgW, imgH,
+                size.width.toFloat().coerceAtLeast(1f), size.height.toFloat().coerceAtLeast(1f))
+        }
+        zoomState.dragEnded()
         if (gestureWasMultiTouch) {
             lastTapTimeMs = -1L
-            zoomState.endPinch(upTimeMs)
         } else if (consumedByChild) {
             lastTapTimeMs = -1L
         } else if (

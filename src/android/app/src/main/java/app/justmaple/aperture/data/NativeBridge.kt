@@ -28,6 +28,14 @@ object NativeBridge {
     external fun nativeDimensions(path: String, extension: String): Long
     external fun presentationDimensions(width: Int, height: Int, top: Float, left: Float,
         bottom: Float, right: Float, angle: Float): Long
+
+    /** Applies a shared canvas zoom transition to [state] in place; see `canvas_zoom.rs`. */
+    external fun canvasZoom(state: DoubleArray, op: Int, a: Double, b: Double, c: Double,
+        d: Double, viewportWidth: Double, viewportHeight: Double, imageWidth: Double,
+        imageHeight: Double): Int
+
+    external fun canvasZoomQuery(state: DoubleArray, query: Int, viewportWidth: Double,
+        viewportHeight: Double, imageWidth: Double, imageHeight: Double): Double
     external fun renderNativeDetail(source: Long, xml: String, x: Int, y: Int, width: Int,
         height: Int, target: Int, flag: Long): Bitmap
 
