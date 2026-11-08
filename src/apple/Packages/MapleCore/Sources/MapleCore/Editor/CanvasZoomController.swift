@@ -50,6 +50,9 @@ public final class CanvasZoomController {
   /// Parts of the viewport the host's chrome covers. Fit, fill and the
   /// centred position resolve inside what is left.
   public private(set) var viewportInsets: CanvasViewportInsets = .zero
+  /// The extent the canvas lays the photo out with until the real one is
+  /// known (`setProvisionalImageSize`); `nil` once the real size lands.
+  public private(set) var provisionalImageSize: CGSize?
 
   /// The last commanded zoom (a menu or keyboard command, a double-tap,
   /// the badge, the wheel landing on fit) and the frame shown before it.
@@ -83,7 +86,8 @@ public final class CanvasZoomController {
   public var context: CanvasZoomContext {
     CanvasZoomContext(
       viewportPoints: viewportPoints,
-      nativeImageSize: session.effectiveImageSize,
+      nativeImageSize: realImageSize == .zero
+        ? (provisionalImageSize ?? .zero) : realImageSize,
       displayScale: displayScale,
       insets: viewportInsets
     )
@@ -184,24 +188,54 @@ public final class CanvasZoomController {
     commitToSession()
   }
 
-  /// The metadata seed published a real `nativeImageSize` — re-resolve
-  /// fit so the idle refine targets viewport resolution instead of the
-  /// pre-decode estimate (legacy `syncSessionToViewport` on the same
-  /// change), and re-push the visible rect, which depends on the image
-  /// extent (#1125 review).
-  public func nativeImageSizeChanged() {
+  /// Lay the photo out with `size` — a stand-in with the seed thumbnail's
+  /// aspect at a nominal size — until the session's real extent is known,
+  /// so gestures on the placeholder act on a real layout. When the real
+  /// size lands, `nativeImageSizeChanged` keeps the photo's rect on screen
+  /// exactly and only the pixels change (#5736). Ignored once the real size
+  /// is known; `nil` clears it. The seed placeholder feeds it in #5755.
+  public func setProvisionalImageSize(_ size: CGSize?) {
+    guard realImageSize == .zero else { return }
+    let usable = size.flatMap { $0.width > 0 && $0.height > 0 ? $0 : nil }
+    guard usable != provisionalImageSize else { return }
+    provisionalImageSize = usable
     guard viewportPoints != .zero else { return }
     carryIntoCurrentGeometry()
+  }
+
+  /// The session's extent changed: the real `nativeImageSize` landed or a
+  /// crop was applied or cleared (#638). Re-resolves fit so the idle refine
+  /// targets viewport resolution, and re-pushes the visible rect, which
+  /// depends on the extent (#1125 review). Replacing a provisional extent
+  /// keeps the photo's rect on screen; a crop keeps the pixel scale.
+  ///
+  /// Returns the factor that maps a scale drawn in the previous extent into
+  /// the new one, for an animation the host is running (1 for a crop).
+  @discardableResult
+  public func nativeImageSizeChanged() -> CGFloat {
+    let previous = carriedContext
+    let resolvesProvisional = provisionalImageSize != nil && realImageSize != .zero
+    if resolvesProvisional { provisionalImageSize = nil }
+    guard viewportPoints != .zero else { return 1 }
+    carryIntoCurrentGeometry(resolvingProvisional: resolvesProvisional)
     session.previewSize = context.viewportPx
     commitToSession()
+    guard resolvesProvisional, let old = previous?.nativeImageSize.width, old > 0 else {
+      return 1
+    }
+    return old / context.nativeImageSize.width
   }
+
+  private var realImageSize: CGSize { session.effectiveImageSize }
 
   /// The host's asset switched under a reused view — reset to fit so a
   /// stale zoom doesn't make the new image's refine pass target the
   /// full native extent.
   public func assetChanged() {
     trackedPinch = nil
-    model.gesturesCancelled(context: context)
+    provisionalImageSize = nil
+    model.pinchCancelled(context: context)
+    model.dragCancelled()
     model.resetToFit(context: context)
     carriedContext = context
     guard viewportPoints != .zero else { return }
@@ -245,9 +279,6 @@ public final class CanvasZoomController {
     model.dragChanged(translation: translation, context: context)
   }
 
-  /// Drag release — pushes the new visible rect when a pan committed. A
-  /// drag that began from a held, out-of-range frame settles into range
-  /// here; the host animates that move.
   /// A new drag gesture began. Commits what the previous drag left on
   /// screen, so a drag whose end SwiftUI never delivered (a cancelled
   /// gesture) cannot make this one jump back (#5739).
@@ -255,17 +286,31 @@ public final class CanvasZoomController {
     model.dragBegan()
   }
 
-  /// The gesture in progress was cancelled: a pinch ends at its last frame,
-  /// a drag commits where it is.
-  public func gesturesCancelled() {
+  /// The pinch was cancelled: it ends at its last frame and settles as its
+  /// release would; the host animates that move.
+  public func pinchCancelled() {
     recordTrackedPinch()
     trackedPinch = nil
     let before = model
-    model.gesturesCancelled(context: context)
+    model.pinchCancelled(context: context)
     guard model != before else { return }
     commitToSession()
   }
 
+  /// The drag was cancelled: it commits where it is and, outside a pinch,
+  /// settles into the resting range as its release would. A live pinch is
+  /// not the drag's and stays live.
+  public func dragCancelled() {
+    let before = model
+    model.dragCancelled()
+    if model.pinchStartScale == nil { model.reclampPan(context: context) }
+    guard model != before else { return }
+    commitToSession()
+  }
+
+  /// Drag release — pushes the new visible rect when a pan committed. A
+  /// drag that began from a held, out-of-range frame settles into range
+  /// here; the host animates that move.
   public func dragEnded() {
     guard model.dragEnded() else { return }
     model.reclampPan(context: context)
@@ -364,6 +409,12 @@ public final class CanvasZoomController {
   private func command(_ transition: (inout CanvasZoomModel) -> Void) {
     recordTrackedPinch()
     let shown = restingFrame
+    if let tracked = trackedPinch, model.pinchStartScale != nil {
+      // The iOS host shows the live pinch over a frozen frame: the command
+      // starts from the live frame, as on a host that draws it committed.
+      model.pinchChanged(
+        magnification: tracked.magnification, location: tracked.location, context: context)
+    }
     transition(&model)
     recordCommandedMove(from: shown)
     commitToSession()
@@ -376,10 +427,12 @@ public final class CanvasZoomController {
 
   /// Carry the zoom from the geometry it was last resolved against into the
   /// current one; the first geometry only re-resolves.
-  private func carryIntoCurrentGeometry() {
+  private func carryIntoCurrentGeometry(resolvingProvisional: Bool = false) {
     recordTrackedPinch()
     let next = context
-    if let previous = carriedContext {
+    if let previous = carriedContext, resolvingProvisional {
+      model.imageExtentResolved(from: previous, to: next)
+    } else if let previous = carriedContext {
       model.geometryChanged(from: previous, to: next)
     } else {
       model.reclampPan(context: next)
@@ -486,7 +539,8 @@ public final class CanvasZoomController {
     // and the CPU backdrop at full native and arming native-detail for an
     // image that should open at fit (#3540). The seed's
     // `nativeImageSizeChanged` commits the real fit the moment it lands.
-    guard context.nativeImageSize != .zero else { return }
+    // A provisional extent is a layout stand-in, never a source region.
+    guard realImageSize != .zero else { return }
     let math = context.canvasMath(
       pixelScale: model.pixelScale,
       panOffset: model.panOffset

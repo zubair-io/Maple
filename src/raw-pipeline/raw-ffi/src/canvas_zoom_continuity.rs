@@ -24,6 +24,23 @@ pub extern "C" fn maple_canvas_zoom_geometry_changed(
     )
 }
 
+/// The picture's real extent (`context`) replaced the provisional one the
+/// host gave while it was unknown (`previous`): the photo keeps its rect on
+/// screen exactly, at rest, mid-pinch and mid-drag.
+#[no_mangle]
+pub extern "C" fn maple_canvas_zoom_image_extent_resolved(
+    state: MapleCanvasZoomState,
+    previous: MapleCanvasZoomContext,
+    context: MapleCanvasZoomContext,
+) -> MapleCanvasZoomState {
+    zoom_transition(
+        "maple_canvas_zoom_image_extent_resolved",
+        state,
+        context,
+        |model, ctx| model.image_extent_resolved(&CanvasZoomContext::from(previous), ctx),
+    )
+}
+
 /// A new drag gesture began: commit what the previous drag left on screen.
 #[no_mangle]
 pub extern "C" fn maple_canvas_zoom_drag_began(
@@ -48,19 +65,29 @@ pub extern "C" fn maple_canvas_zoom_pinch_tracked(
     })
 }
 
-/// A gesture was cancelled: a live pinch ends at its last input, a live drag
-/// commits where it is.
+/// The pinch was cancelled: it ends at its last input and settles; a live
+/// drag continues from the result.
 #[no_mangle]
-pub extern "C" fn maple_canvas_zoom_gestures_cancelled(
+pub extern "C" fn maple_canvas_zoom_pinch_cancelled(
     state: MapleCanvasZoomState,
     context: MapleCanvasZoomContext,
 ) -> MapleCanvasZoomState {
     zoom_transition(
-        "maple_canvas_zoom_gestures_cancelled",
+        "maple_canvas_zoom_pinch_cancelled",
         state,
         context,
-        |model, ctx| model.gestures_cancelled(ctx),
+        |model, ctx| model.pinch_cancelled(ctx),
     )
+}
+
+/// The drag was cancelled: it commits where it is; a live pinch stays live.
+#[no_mangle]
+pub extern "C" fn maple_canvas_zoom_drag_cancelled(
+    state: MapleCanvasZoomState,
+) -> MapleCanvasZoomState {
+    crate::error::catch_panic("maple_canvas_zoom_drag_cancelled", state, || {
+        CanvasZoomModel::from(state).drag_cancelled().into()
+    })
 }
 
 #[cfg(test)]

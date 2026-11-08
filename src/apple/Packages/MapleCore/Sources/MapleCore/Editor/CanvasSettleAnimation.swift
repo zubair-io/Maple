@@ -84,6 +84,14 @@ public struct CanvasSettleAnimation: Equatable, Sendable {
         height: from.pan.height + (to.pan.height - from.pan.height) * t))
   }
 
+  /// The same settle, still running from `start`, after the image's extent
+  /// changed under it: scales drawn in the old extent are `factor` times
+  /// the new extent's, and it now heads for `settled`.
+  public func rescaled(by factor: CGFloat, to settled: CanvasShownFrame) -> CanvasSettleAnimation? {
+    CanvasSettleAnimation(
+      from: CanvasShownFrame(scale: from.scale * factor, pan: from.pan), to: settled, start: start)
+  }
+
   /// The compositor transform over the settled frame (drawn at `to.scale`
   /// and `to.pan`) that reproduces `shown(at:)`: a scale about the frame's
   /// centre and an extra offset. Identity once finished.
