@@ -8,7 +8,7 @@
 //! so the new input reproduces the view the last frame showed, and later
 //! frames continue from it.
 
-use super::geometry::{Point, Size};
+use super::geometry::Point;
 use super::zoom::CanvasZoomModel;
 use super::zoom_context::CanvasZoomContext;
 
@@ -39,25 +39,16 @@ impl CanvasZoomModel {
             return self;
         }
         let shown = self.pinch_changed(shown_magnification, shown_location, context);
-        let shown_scale = context.effective_scale(shown.pixel_scale);
-        if !is_valid(shown_scale) {
-            return self;
-        }
-        let viewport = context.viewport_points();
-        let offset = Size::new(
-            location.x - viewport.width / 2.0,
-            location.y - viewport.height / 2.0,
-        );
         Self {
-            pinch_start_scale: Some(shown_scale / magnification),
-            pinch_start_pan: Size::new(
-                offset.width - (offset.width - shown.pan_offset.width) / magnification,
-                offset.height - (offset.height - shown.pan_offset.height) / magnification,
-            ),
-            pinch_start_centroid: location,
+            pinch_last_magnification: magnification,
             pinch_last_centroid: location,
             ..self
         }
+        .recaptured_pinch(
+            context.effective_scale(shown.pixel_scale),
+            shown.pan_offset,
+            context,
+        )
     }
 }
 

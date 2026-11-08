@@ -18,6 +18,7 @@ mod native_detail;
 mod render_schedule;
 mod zoom;
 mod zoom_context;
+mod zoom_continuity;
 mod zoom_pinch;
 mod zoom_queries;
 mod zoom_rebase;

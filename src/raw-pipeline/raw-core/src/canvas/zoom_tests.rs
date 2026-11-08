@@ -40,6 +40,7 @@ fn drag(model: CanvasZoomModel, x: f64, y: f64, ctx: &CanvasZoomContext) -> Canv
 
 fn pinch(model: CanvasZoomModel, magnification: f64, ctx: &CanvasZoomContext) -> CanvasZoomModel {
     model
+        .pinch_changed(1.0, Point::new(500.0, 400.0), ctx)
         .pinch_changed(magnification, Point::new(500.0, 400.0), ctx)
         .pinch_ended(magnification, ctx)
 }
@@ -188,7 +189,9 @@ fn drag_ignores_non_finite_translation() {
 fn pinch_anchors_against_the_start_captured_scale() {
     let ctx = landscape();
     let centre = Point::new(500.0, 400.0);
-    let first = fit_model().pinch_changed(2.0, centre, &ctx);
+    let first = fit_model()
+        .pinch_changed(1.0, centre, &ctx)
+        .pinch_changed(2.0, centre, &ctx);
     assert_close(first.pixel_scale, 0.5, 1e-9);
     let second = first.pinch_changed(3.0, centre, &ctx);
     assert_close(second.pixel_scale, 0.75, 1e-9);
@@ -197,9 +200,13 @@ fn pinch_anchors_against_the_start_captured_scale() {
 #[test]
 fn pinch_clamps_at_max_and_at_half_fit() {
     let ctx = landscape();
-    let model = fit_model().pinch_changed(1000.0, Point::ZERO, &ctx);
+    let model = fit_model()
+        .pinch_changed(1.0, Point::ZERO, &ctx)
+        .pinch_changed(1000.0, Point::ZERO, &ctx);
     assert_close(model.pixel_scale, MAX_PIXEL_SCALE, 1e-9);
-    let out = fit_model().pinch_changed(0.01, Point::ZERO, &ctx);
+    let out = fit_model()
+        .pinch_changed(1.0, Point::ZERO, &ctx)
+        .pinch_changed(0.01, Point::ZERO, &ctx);
     assert_close(out.pixel_scale, ctx.fit_scale() * 0.5, 1e-9);
 }
 
@@ -207,6 +214,7 @@ fn pinch_clamps_at_max_and_at_half_fit() {
 fn pinch_end_within_tolerance_snaps_to_fit() {
     let ctx = landscape();
     let model = fit_model()
+        .pinch_changed(1.0, Point::ZERO, &ctx)
         .pinch_changed(1.01, Point::ZERO, &ctx)
         .pinch_ended(1.01, &ctx);
     assert_eq!(model.pixel_scale, 0.0);
@@ -218,6 +226,7 @@ fn pinch_end_within_tolerance_snaps_to_fit() {
 fn pinch_end_above_tolerance_keeps_the_scale() {
     let ctx = landscape();
     let model = fit_model()
+        .pinch_changed(1.0, Point::ZERO, &ctx)
         .pinch_changed(2.0, Point::ZERO, &ctx)
         .pinch_ended(2.0, &ctx);
     assert_close(model.pixel_scale, 0.5, 1e-9);
@@ -227,7 +236,9 @@ fn pinch_end_above_tolerance_keeps_the_scale() {
 #[test]
 fn pinch_ignores_non_finite_frames() {
     let ctx = landscape();
-    let live = fit_model().pinch_changed(2.0, Point::ZERO, &ctx);
+    let live = fit_model()
+        .pinch_changed(1.0, Point::ZERO, &ctx)
+        .pinch_changed(2.0, Point::ZERO, &ctx);
     assert_eq!(live.pinch_changed(f64::NAN, Point::ZERO, &ctx), live);
     assert_eq!(
         live.pinch_changed(3.0, Point::new(f64::INFINITY, 0.0), &ctx),
@@ -333,7 +344,9 @@ fn step_zoom_rescales_the_pan_about_the_centre() {
         100.0,
         -40.0,
         &ctx,
-    );
+    )
+    .drag_ended()
+    .0;
     let stepped = panned.step_zoom_in(&ctx);
     assert_close(stepped.pan_offset.width, 125.0, 1e-9);
     assert_close(stepped.pan_offset.height, -50.0, 1e-9);
@@ -390,6 +403,7 @@ fn transitions_are_safe_without_a_native_size() {
     let empty = context((1000.0, 800.0), (0.0, 0.0));
     let model = drag(
         fit_model()
+            .pinch_changed(1.0, Point::ZERO, &empty)
             .pinch_changed(2.0, Point::ZERO, &empty)
             .pinch_ended(2.0, &empty),
         50.0,
@@ -402,14 +416,18 @@ fn transitions_are_safe_without_a_native_size() {
 
 #[test]
 fn drag_ended_while_a_pinch_is_active_does_not_commit() {
-    let model = fit_model().pinch_changed(2.0, Point::new(500.0, 400.0), &landscape());
+    let model = fit_model()
+        .pinch_changed(1.0, Point::new(500.0, 400.0), &landscape())
+        .pinch_changed(2.0, Point::new(500.0, 400.0), &landscape());
     assert!(!model.drag_ended().1);
 }
 
 #[test]
 fn drag_resuming_after_a_pinch_does_not_jump_by_the_pinch_travel() {
     let ctx = landscape();
-    let pinching = fit_model().pinch_changed(2.0, Point::new(500.0, 400.0), &ctx);
+    let pinching = fit_model()
+        .pinch_changed(1.0, Point::new(500.0, 400.0), &ctx)
+        .pinch_changed(2.0, Point::new(500.0, 400.0), &ctx);
     let (suppressed, consumed) = pinching.drag_changed(Size::new(100.0, 0.0), &ctx);
     assert!(
         !consumed,
