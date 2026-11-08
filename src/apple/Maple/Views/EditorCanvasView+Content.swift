@@ -177,7 +177,9 @@ extension EditorCanvasView {
     EditorSeedThumbnail(
       asset: state.session.asset,
       source: filmstripSource,
-      visible: !state.session.showingOriginal && !canvasHasOnscreenFrame
+      showingOriginal: state.session.showingOriginal,
+      hasOnscreenFrame: canvasHasOnscreenFrame,
+      zoom: state.zoom
     )
   }
 
