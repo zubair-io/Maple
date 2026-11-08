@@ -305,11 +305,29 @@ The state length, op codes, query codes and stop codes have one definition, `src
 
 ## Linux native canvas (#4317)
 
-The Rust shell resolves Fit from native DefaultCrop/EXIF-oriented dimensions
-and uses physical pixel scale for 100%, anchored pinch/ctrl-wheel zoom and
-clamped pan. F/Z and the Fit/100% controls select the corresponding views;
-focused text fields retain their keyboard input. At 100% and above a 150ms
-idle interval requests one source-coordinate native patch through the shared
+Linux follows the same zoom rules as Apple's editor. Zoom runs from half of
+fit to 800%, with stops at fit, fill and 100%: the Fit, Fill and 100% controls
+and the F / Z keys select them, and double-click toggles fit and 100% anchored
+at the click. Ctrl-wheel and trackpad pinch zoom around the pointer. Zooming
+out continues below fit, where the photo stays centred and cannot be panned;
+zooming back in stops once at fit, and any zoom toward fit that lands within
+4% of it settles there. Fill covers the viewport, only the overflowing axis
+pans, and a window resize re-resolves it. Fit is resolved from the native
+DefaultCrop/EXIF-oriented dimensions, and 100% is one source pixel per physical
+pixel. Focused text fields retain their keyboard input.
+
+The rules are the shared `raw_core::canvas::CanvasZoomModel` (#5714), called
+natively from `src/linux/src/app/zoom.rs`. Each frame builds a
+`CanvasZoomContext` from the viewport in egui points, the cropped source extent
+and egui's points-to-pixels factor. egui reports a per-frame zoom factor and
+per-frame drag deltas; the canvas turns the factor into the model's wheel zoom
+(so it has no fill detent) and sums the deltas into the drag translation the
+model measures from the drag start. Below both fit and 100% the fit preview
+already holds more pixels than the screen shows, so no native detail is
+requested there.
+
+At 100% and above a 150ms idle interval requests one source-coordinate native
+patch through the shared
 `render_detail_base` / `render_detail_tile` API. The matching bounded CPU base
 stays beneath that patch, sharing its exposure and Auto-profile anchors and film
 resource. A 25% total pan margin (512 source-pixel total cap) avoids repeated
