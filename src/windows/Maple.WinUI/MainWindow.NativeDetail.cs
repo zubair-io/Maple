@@ -21,14 +21,12 @@ public sealed partial class MainWindow
     private long _detailVersion;
     private MapleRawGeometry? _nativeGeometry;
     private PhotoItem? _nativeGeometryPhoto;
-    private bool _nativeZoomLayout;
     private string? _sourceGeometryError;
     private string? _nativeDetailError;
 
     private void HookNativeDetail()
     {
         ViewModel.Renderer.DetailInvalidated += OnDetailInvalidated;
-        ViewerScroll.ViewChanged += (_, _) => QueueDetailRefresh();
         var lastScale = DisplayScale;
         ((FrameworkElement)Content).Loaded += (_, _) =>
         {
@@ -37,7 +35,7 @@ public sealed partial class MainWindow
             {
                 if (Math.Abs(lastScale - DisplayScale) < .001) return;
                 lastScale = DisplayScale;
-                SizeZoomHost();
+                SyncCanvasZoom();
                 QueueDetailRefresh();
             };
         };
@@ -67,9 +65,11 @@ public sealed partial class MainWindow
         _geometryCancellation = new CancellationTokenSource();
         _geometryAttemptedPhoto = null;
         _nativeGeometry = null;
-        _nativeZoomLayout = false;
         _nativeGeometryPhoto = null;
         _sourceGeometryError = null;
+        // Zoom resets on navigation and on every mode change.
+        _canvasZoom.ResetToFit();
+        ApplyCanvasZoom(refreshDetail: false);
         if (NativeDetailOverlay != null) NativeDetailOverlay.Visibility = Visibility.Collapsed;
         if (ZoomReadout != null) ZoomReadout.Text = "Fit";
         _ = _detailDecoder.ResetAsync();
@@ -78,7 +78,10 @@ public sealed partial class MainWindow
 
     private double DisplayScale => ZoomHost.XamlRoot?.RasterizationScale ?? 1.0;
 
-    private async Task SetActualSizeAsync(Windows.Foundation.Point? focus = null)
+    /// <summary>100% needs the source size: wait for it, then zoom to
+    /// 100% re-centred, or — from a double-click at fit — anchored at
+    /// <paramref name="anchor"/> (viewport points).</summary>
+    private async Task SetActualSizeAsync(Windows.Foundation.Point? anchor = null)
     {
         var photo = ViewModel.SelectedPhoto;
         if (_closing || photo == null || _mode == ShellMode.Browse) return;
@@ -94,23 +97,10 @@ public sealed partial class MainWindow
         if (_closing || !ReferenceEquals(photo, ViewModel.SelectedPhoto)
             || sourceCancellation.IsCancellationRequested || ContentFitRect() == null
             || !ReferenceEquals(photo, _nativeGeometryPhoto)) return;
-        // WinUI enforces a 0.1 minimum zoom. Give Actual Size a native-sized
-        // layout so even tiny originals and very large sensors resolve exactly.
-        var oldFit = ContentFitRect()!.Value;
-        var oldFocus = focus ?? new Windows.Foundation.Point(
-            (ViewerScroll.HorizontalOffset + ViewerScroll.ViewportWidth / 2) / ViewerScroll.ZoomFactor,
-            (ViewerScroll.VerticalOffset + ViewerScroll.ViewportHeight / 2) / ViewerScroll.ZoomFactor);
-        _nativeZoomLayout = true;
-        SizeZoomHost();
-        ZoomHost.UpdateLayout();
-        var newFit = ContentFitRect()!.Value;
-        var newFocus = new Windows.Foundation.Point(
-            newFit.X + (oldFocus.X - oldFit.X) / oldFit.W * newFit.W,
-            newFit.Y + (oldFocus.Y - oldFit.Y) / oldFit.H * newFit.H);
-        ViewerScroll.MinZoomFactor = 0.1f;
-        ViewerScroll.MaxZoomFactor = 8f;
-        SetZoom(OneToOneZoomFactor(), newFocus);
-        QueueDetailRefresh();
+        SyncCanvasZoom(refreshDetail: false);
+        if (anchor is not { } point) _canvasZoom.ZoomToActualSize();
+        else if (_canvasZoom.IsFit) _canvasZoom.DoubleTap(point.X, point.Y);
+        ApplyCanvasZoom();
     }
 
     private void EnsureSourceGeometry()
@@ -132,6 +122,7 @@ public sealed partial class MainWindow
                 || !ReferenceEquals(photo, ViewModel.SelectedPhoto)) return;
             _nativeGeometry = geometry;
             _nativeGeometryPhoto = photo;
+            SyncCanvasZoom();
             QueueDetailRefresh();
         }
         catch (OperationCanceledException) { }
@@ -153,17 +144,18 @@ public sealed partial class MainWindow
         if (_closing || NativeDetailOverlay == null) return;
         var cancellation = BeginDetailRequest();
         NativeDetailOverlay.Visibility = Visibility.Collapsed;
+        SyncCanvasZoom(refreshDetail: false);
         if (_nativeGeometry is not { } geometry || !ReferenceEquals(_nativeGeometryPhoto, ViewModel.SelectedPhoto)
-            || ContentFitRect() is not { } fit)
+            || ContentFitRect() == null)
         {
             // #4154: refreshes must retain the current source's explicit
             // unsupported-detail fallback until retry or photo change.
             ZoomReadout.Text = _sourceGeometryError ??
-                (Math.Abs(ViewerScroll.ZoomFactor - 1) < .001 ? "Fit" : "Preview zoom");
+                (_canvasZoom.IsFit ? "Fit" : "Preview zoom");
             if (_mode == ShellMode.Edit && ViewModel.Renderer.DetailSource != null) EnsureSourceGeometry();
             return;
         }
-        var scale = fit.W * ViewerScroll.ZoomFactor * DisplayScale / geometry.CropWidth;
+        var scale = _canvasZoom.EffectiveScale;
         var percent = $"{scale * 100:0}%";
         if (scale < .999 || _mode != ShellMode.Edit)
         {
@@ -185,11 +177,9 @@ public sealed partial class MainWindow
             ZoomReadout.Text = $"{percent} · waiting for image";
             return;
         }
-        var zoom = ViewerScroll.ZoomFactor;
-        var x = Math.Max(0, (ViewerScroll.HorizontalOffset / zoom - fit.X) * geometry.CropWidth / fit.W);
-        var y = Math.Max(0, (ViewerScroll.VerticalOffset / zoom - fit.Y) * geometry.CropHeight / fit.H);
-        var right = Math.Min(geometry.CropWidth, ((ViewerScroll.HorizontalOffset + ViewerScroll.ViewportWidth) / zoom - fit.X) * geometry.CropWidth / fit.W);
-        var bottom = Math.Min(geometry.CropHeight, ((ViewerScroll.VerticalOffset + ViewerScroll.ViewportHeight) / zoom - fit.Y) * geometry.CropHeight / fit.H);
+        var visible = _canvasZoom.VisibleSourceRect;
+        var (x, y) = (visible.x, visible.y);
+        var (right, bottom) = (visible.x + visible.width, visible.y + visible.height);
         if (right <= x || bottom <= y) return;
         var margin = Math.Min(512, Math.Max(right - x, bottom - y) * .125);
         if (NativeDetailPatch.Fit(x, y, right, bottom, margin, NativeDetailPatch.Border(model, anchor, geometry), geometry)

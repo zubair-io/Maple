@@ -33,6 +33,14 @@ fn exported_layouts_are_ordered_and_bounded() {
         "MapleCaptureBufferF32",
         "MapleAutoAdjustments",
         "MapleWbSample",
+        "MapleCanvasSize",
+        "MapleCanvasPoint",
+        "MapleCanvasRect",
+        "MapleCanvasZoomContext",
+        "MapleCanvasZoomState",
+        "MapleCanvasZoomTransition",
+        "MapleCanvasMathInput",
+        "MapleCanvasMathResult",
         #[cfg(feature = "gpu")]
         "MapleGpuLiveParams",
         #[cfg(feature = "gpu")]
@@ -113,4 +121,23 @@ fn extern_entry_writes_text_and_reports_errors() {
 
     let rc = unsafe { maple_abi_layout(std::ptr::null(), buf.as_mut_ptr(), buf.len(), &mut len) };
     assert_eq!(rc, -1);
+}
+
+/// The canvas zoom mirrors (#5714) cross by value; `RawFfi.VerifyAbi` pins
+/// these sizes, and each `u8`/`bool` flag pads to the next `f64`.
+#[test]
+fn canvas_layouts_match_the_winui_size_guard() {
+    for (name, expected) in [
+        ("MapleCanvasSize", 16),
+        ("MapleCanvasPoint", 16),
+        ("MapleCanvasRect", 32),
+        ("MapleCanvasZoomContext", 40),
+        ("MapleCanvasZoomState", 136),
+        ("MapleCanvasZoomTransition", 144),
+        ("MapleCanvasMathInput", 64),
+        ("MapleCanvasMathResult", 152),
+    ] {
+        let (size, _) = parse(&describe(name).unwrap_or_else(|| panic!("{name} exported")));
+        assert_eq!(size, expected, "{name}");
+    }
 }

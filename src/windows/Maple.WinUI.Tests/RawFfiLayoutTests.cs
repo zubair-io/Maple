@@ -72,6 +72,14 @@ namespace Maple.WinUI.Tests
             new object[] { typeof(MapleGpuLiveParams) },
             new object[] { typeof(MapleGpuLiveSession) },
             new object[] { typeof(MapleScopeStats) },
+            new object[] { typeof(MapleCanvasSize) },
+            new object[] { typeof(MapleCanvasPoint) },
+            new object[] { typeof(MapleCanvasRect) },
+            new object[] { typeof(MapleCanvasZoomContext) },
+            new object[] { typeof(MapleCanvasZoomState) },
+            new object[] { typeof(MapleCanvasZoomTransition) },
+            new object[] { typeof(MapleCanvasMathInput) },
+            new object[] { typeof(MapleCanvasMathResult) },
         };
 
         [Theory]

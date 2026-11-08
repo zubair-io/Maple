@@ -285,6 +285,12 @@
          its set/free are injected so it is testable without RawFfi. -->
     <Compile Include="..\Maple.WinUI\Services\CancelFlagSlot.cs" LinkBase="Services" />
     <Compile Include="..\Maple.WinUI\Native\*.cs" LinkBase="Native" />
+    <!-- The viewer's zoom state over the shared Rust model (#5714) and its
+         touch-contact tracker: plain System + the RawFfi.Canvas.cs externs,
+         no WinUI. The controller's native calls run when MAPLE_RAW_FFI_DLL
+         arms them (CanvasZoomControllerNativeTests). -->
+    <Compile Include="..\Maple.WinUI\Services\CanvasZoomController.cs" LinkBase="Services" />
+    <Compile Include="..\Maple.WinUI\Services\CanvasTouchTracker.cs" LinkBase="Services" />
     <Compile Include="..\Maple.WinUI\Services\Export\*.cs" LinkBase="Services\Export" />
     <Compile Include="..\Maple.WinUI\Generated\FilenameVocabulary.g.cs" LinkBase="Generated" />
     <Compile Include="..\Maple.WinUI\Generated\ExportRecipe.g.cs" LinkBase="Generated" />

@@ -1,0 +1,186 @@
+using System;
+using Maple.WinUI.Native;
+
+namespace Maple.WinUI.Services
+{
+    /// <summary>How the viewer presents the zoom over its fit layout: the
+    /// image scales by <see cref="ScaleToFit"/> about the viewport centre,
+    /// then moves by the pan (points; positive = right/down).</summary>
+    public readonly record struct CanvasZoomView(double ScaleToFit, double PanX, double PanY);
+
+    /// <summary>
+    /// The viewer's zoom state over the shared Rust model (#5714): every rule
+    /// — fit / fill / 100% stops, the 0.5×fit … 8 range, detents, steps,
+    /// anchored wheel and pinch zoom, the pan clamp — runs in raw-core through
+    /// raw_ffi.dll. This class only holds the state value between calls and
+    /// translates Windows input units into the model's.
+    /// </summary>
+    public sealed class CanvasZoomController
+    {
+        /// <summary>One mouse-wheel detent, in `MouseWheelDelta` units.</summary>
+        public const double WheelDetent = 120;
+
+        /// <summary>A detent is 8 normalized units, Apple's factor for one
+        /// line-scroll: `2^(8 × 0.015)` ≈ 1.09× per detent.</summary>
+        public const double ZoomUnitsPerDetent = 8;
+
+        /// <summary>Points panned per detent: Windows' default three lines.</summary>
+        public const double PanPointsPerDetent = 48;
+
+        private MapleCanvasZoomState _state;
+        private MapleCanvasZoomContext _context = new() { display_scale = 1 };
+        private bool _extentIsSource;
+
+        public MapleCanvasZoomState State => _state;
+
+        public MapleCanvasZoomContext Context => _context;
+
+        public bool IsFit => RawFfi.maple_canvas_zoom_current_stop(_state) == RawFfi.MAPLE_CANVAS_ZOOM_STOP_FIT;
+
+        public uint CurrentStop => RawFfi.maple_canvas_zoom_current_stop(_state);
+
+        public bool IsPinching => _state.has_pinch_start_scale != 0;
+
+        public bool CanPan =>
+            RawFfi.maple_canvas_zoom_drag_intent(_state, _context) == RawFfi.MAPLE_CANVAS_DRAG_INTENT_PAN;
+
+        public double FitScale => RawFfi.maple_canvas_zoom_fit_scale(_context);
+
+        /// <summary>Real screen pixels per image pixel, fit resolved.</summary>
+        public double EffectiveScale => Resolve().effective_pixel_scale;
+
+        public CanvasZoomView View
+        {
+            get
+            {
+                var resolved = Resolve();
+                var scaleToFit = resolved.fit_pixel_scale > 0
+                    ? resolved.effective_pixel_scale / resolved.fit_pixel_scale
+                    : 1;
+                return new CanvasZoomView(scaleToFit, _state.pan_offset.width, _state.pan_offset.height);
+            }
+        }
+
+        /// <summary>The source-pixel rectangle the viewport shows.</summary>
+        public MapleCanvasRect VisibleSourceRect => Resolve().visible_source_rect;
+
+        /// <summary>
+        /// Feed the current viewport (points), the displayed image's extent and
+        /// the points→pixels factor. <paramref name="extentIsSource"/> says
+        /// whether the extent is in source pixels or in stand-in preview
+        /// pixels (before the source size is read): when that unit changes
+        /// while zoomed to a free scale, the scale is converted so the image
+        /// keeps its on-screen size. Fill re-resolves and the pan re-clamps.
+        /// </summary>
+        public void UpdateGeometry(double viewportWidth, double viewportHeight,
+            double extentWidth, double extentHeight, double displayScale, bool extentIsSource)
+        {
+            var next = RawFfi.maple_canvas_zoom_context_sanitize(new MapleCanvasZoomContext
+            {
+                viewport_points = new MapleCanvasSize(viewportWidth, viewportHeight),
+                native_image_size = new MapleCanvasSize(extentWidth, extentHeight),
+                display_scale = displayScale,
+            });
+            var unitChanged = extentIsSource != _extentIsSource;
+            var previous = _context;
+            _context = next;
+            _extentIsSource = extentIsSource;
+            if (unitChanged && HasExtent(previous) && HasExtent(next)
+                && CurrentStop == RawFfi.MAPLE_CANVAS_ZOOM_STOP_NONE && _state.pixel_scale > 0)
+            {
+                var sameViewport = previous with { native_image_size = next.native_image_size };
+                var ratio = RawFfi.maple_canvas_zoom_fit_scale(sameViewport)
+                    / RawFfi.maple_canvas_zoom_fit_scale(previous);
+                if (double.IsFinite(ratio) && ratio > 0)
+                    _state.pixel_scale *= ratio;
+            }
+            _state = RawFfi.maple_canvas_zoom_reclamp_pan(_state, _context);
+        }
+
+        public void ResetToFit() => _state = RawFfi.maple_canvas_zoom_reset_to_fit(_state);
+
+        /// <summary>Ctrl+1: 100%, re-centred.</summary>
+        public void ZoomToActualSize() => _state = RawFfi.maple_canvas_zoom_to_scale(_state, 1);
+
+        public void ZoomToFill() => _state = RawFfi.maple_canvas_zoom_to_fill(_state, _context);
+
+        public void StepIn() => _state = RawFfi.maple_canvas_zoom_step_in(_state, _context);
+
+        public void StepOut() => _state = RawFfi.maple_canvas_zoom_step_out(_state, _context);
+
+        /// <summary>Editor double-click / double-tap: fit → 100% anchored at
+        /// the point (viewport points), anything else → fit.</summary>
+        public void DoubleTap(double x, double y) =>
+            _state = RawFfi.maple_canvas_zoom_double_tap(_state, new MapleCanvasPoint(x, y),
+                RawFfi.MAPLE_CANVAS_DOUBLE_TAP_TOGGLE_FIT_AND_100, _context);
+
+        public void PanBy(double dx, double dy) =>
+            _state = RawFfi.maple_canvas_zoom_wheel_pan(_state, new MapleCanvasSize(dx, dy), _context);
+
+        /// <summary>
+        /// One wheel event at (x, y) in viewport points. Ctrl zooms anchored at
+        /// the cursor (a precision-touchpad pinch arrives this way too);
+        /// otherwise the wheel pans when the image overflows — Shift or a
+        /// tilt wheel horizontally. Returns false when the event is not the
+        /// canvas's (nothing to pan, or a Ctrl+tilt).
+        /// </summary>
+        public bool Wheel(int delta, bool horizontal, bool ctrl, bool shift, double x, double y)
+        {
+            if (delta == 0) return false;
+            var detents = delta / WheelDetent;
+            var intent = RawFfi.maple_canvas_zoom_wheel_intent(_state, (byte)(ctrl ? 1 : 0), _context);
+            if (intent == RawFfi.MAPLE_CANVAS_WHEEL_INTENT_ZOOM)
+            {
+                if (horizontal) return false;
+                _state = RawFfi.maple_canvas_zoom_wheel_zoom(_state, detents * ZoomUnitsPerDetent,
+                    new MapleCanvasPoint(x, y), _context);
+                return true;
+            }
+            if (intent != RawFfi.MAPLE_CANVAS_WHEEL_INTENT_PAN) return false;
+            var points = detents * PanPointsPerDetent;
+            if (horizontal) PanBy(-points, 0);
+            else if (shift) PanBy(points, 0);
+            else PanBy(0, points);
+            return true;
+        }
+
+        /// <summary>One drag frame; translation is cumulative from the press.
+        /// Returns whether the drag panned.</summary>
+        public bool DragChanged(double translationX, double translationY)
+        {
+            var transition = RawFfi.maple_canvas_zoom_drag_changed(_state,
+                new MapleCanvasSize(translationX, translationY), _context);
+            _state = transition.state;
+            return transition.handled != 0;
+        }
+
+        public bool DragEnded()
+        {
+            var transition = RawFfi.maple_canvas_zoom_drag_ended(_state);
+            _state = transition.state;
+            return transition.handled != 0;
+        }
+
+        /// <summary>One pinch frame: cumulative magnification since the
+        /// pinch began, centroid in viewport points.</summary>
+        public void PinchChanged(double magnification, double x, double y) =>
+            _state = RawFfi.maple_canvas_zoom_pinch_changed(_state, magnification,
+                new MapleCanvasPoint(x, y), _context);
+
+        public void PinchEnded(double magnification) =>
+            _state = RawFfi.maple_canvas_zoom_pinch_ended(_state, magnification, _context);
+
+        private MapleCanvasMathResult Resolve() => RawFfi.maple_canvas_math_resolve(new MapleCanvasMathInput
+        {
+            viewport_px = RawFfi.maple_canvas_zoom_viewport_px(_context),
+            native_image_size = _context.native_image_size,
+            pixel_scale = _state.pixel_scale,
+            pan_offset = _state.pan_offset,
+            display_scale = _context.display_scale,
+        });
+
+        private static bool HasExtent(MapleCanvasZoomContext context) =>
+            context.native_image_size.width > 0 && context.native_image_size.height > 0
+            && context.viewport_points.width > 0 && context.viewport_points.height > 0;
+    }
+}
