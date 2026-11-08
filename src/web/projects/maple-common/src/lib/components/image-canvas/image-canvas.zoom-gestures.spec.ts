@@ -275,6 +275,67 @@ describe('CanvasZoomGestures over the shared model', () => {
     expect(g.zoomPercent()).toBe('100%');
   });
 
+  // #5745: an outer layer that took the capture kept the canvas from ever
+  // seeing pointer 1's release; a later finger then pinched against it.
+  it('a pointer whose capture was lost stops counting, so a later one-finger drag pans', () => {
+    g.onPointerDown({ pointerId: 1, clientX: 100, clientY: 100 });
+    g.onLostPointerCapture({ pointerId: 1, clientX: 100, clientY: 100 });
+    pixelScale = 2;
+    touched();
+    g.onPointerDown({ pointerId: 2, clientX: 300, clientY: 100 });
+    g.onPointerMove({ pointerId: 2, clientX: 500, clientY: 100 });
+    expect(pixelScale).toBe(2);
+    expect(pan).toEqual({ x: 200, y: 0 });
+  });
+
+  it('losing the capture mid-pinch ends the pinch', () => {
+    pinch(200, 400, false);
+    const reached = pixelScale;
+    g.onLostPointerCapture({ pointerId: 1, clientX: 400, clientY: 363 });
+    g.onPointerMove({ pointerId: 2, clientX: 900, clientY: 363 });
+    expect(pixelScale).toBeCloseTo(reached, 9);
+  });
+
+  it('a fresh primary press drops pointers whose release never arrived', () => {
+    g.onPointerDown({ pointerId: 1, clientX: 100, clientY: 100, isPrimary: true });
+    pixelScale = 2;
+    touched();
+    g.onPointerDown({ pointerId: 2, clientX: 300, clientY: 100, isPrimary: true });
+    g.onPointerMove({ pointerId: 2, clientX: 500, clientY: 100, isPrimary: true });
+    expect(pixelScale).toBe(2);
+    expect(pan).toEqual({ x: 200, y: 0 });
+  });
+
+  it('a press a descendant already took (a crop or mask handle) stays with it', () => {
+    const el = document.createElement('div');
+    const handle = document.createElement('div');
+    el.append(handle);
+    const capture = vi.fn();
+    el.setPointerCapture = capture;
+    handle.addEventListener('pointerdown', (e) => e.preventDefault());
+    const pointerDown = vi.spyOn(g, 'onPointerDown');
+    const detach = g.attach(el);
+
+    handle.dispatchEvent(
+      new MouseEvent('pointerdown', { bubbles: true, cancelable: true, button: 0 }),
+    );
+
+    expect(capture).not.toHaveBeenCalled();
+    expect(pointerDown).not.toHaveBeenCalled();
+    detach();
+  });
+
+  it('a lostpointercapture event on the wrap releases that pointer', () => {
+    const el = document.createElement('div');
+    const detach = g.attach(el);
+    const lost = vi.spyOn(g, 'onLostPointerCapture');
+    const event = new MouseEvent('lostpointercapture', { bubbles: true });
+    Object.defineProperty(event, 'pointerId', { value: 4 });
+    el.dispatchEvent(event);
+    expect(lost).toHaveBeenCalledOnce();
+    detach();
+  });
+
   it('leaves interactive descendants in control of their pointer stream', () => {
     const el = document.createElement('div');
     const button = document.createElement('button');

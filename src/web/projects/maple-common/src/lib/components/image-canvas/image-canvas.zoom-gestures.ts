@@ -134,6 +134,10 @@ export class CanvasZoomGestures {
   attach(el: HTMLElement): () => void {
     const down = (e: PointerEvent) => {
       if (this.dividerDrag) return;
+      // A canvas overlay that took the press (a crop, mask or retouch handle
+      // calls preventDefault as it captures) owns that pointer; capturing it
+      // here too would steal its moves.
+      if (e.defaultPrevented) return;
       // Overlay controls (for example the byte-load Retry button) live inside
       // the canvas wrap. Capturing their pointer on the wrap retargets the
       // eventual click away from the control, making it look enabled while
@@ -160,6 +164,7 @@ export class CanvasZoomGestures {
       }
       this.onPointerUp(e);
     };
+    const lost = (e: PointerEvent) => this.onLostPointerCapture(e);
     const wheel = (e: WheelEvent) => {
       if (this.onWheel(e)) e.preventDefault();
     };
@@ -169,6 +174,7 @@ export class CanvasZoomGestures {
     el.addEventListener('pointermove', move);
     el.addEventListener('pointerup', up);
     el.addEventListener('pointercancel', up);
+    el.addEventListener('lostpointercapture', lost);
     el.addEventListener('wheel', wheel, { passive: false });
     el.addEventListener('dblclick', dblclick);
     return () => {
@@ -176,6 +182,7 @@ export class CanvasZoomGestures {
       el.removeEventListener('pointermove', move);
       el.removeEventListener('pointerup', up);
       el.removeEventListener('pointercancel', up);
+      el.removeEventListener('lostpointercapture', lost);
       el.removeEventListener('wheel', wheel);
       el.removeEventListener('dblclick', dblclick);
     };
@@ -245,6 +252,9 @@ export class CanvasZoomGestures {
   // ── Pointer events (touch pinch + drag-pan) ────────────────────────────
 
   onPointerDown(e: PointerLike): void {
+    // A primary press starts a new contact sequence: any pointer still
+    // tracked lost its release somewhere and must not pinch against it.
+    if (e.isPrimary && this.pointers.size > 0) this.dropAllPointers();
     this.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
     if (this.pointers.size === 2) {
       const engine = this.engine();
@@ -303,6 +313,22 @@ export class CanvasZoomGestures {
     else if (this.pointers.size === 0 && this.dragOrigin) {
       this.dragOrigin = null;
       if (engine?.dragEnded()) this.commit(engine);
+    }
+  }
+
+  /**
+   * The wrap lost a pointer's capture without a release reaching it (another
+   * element took the capture, or the browser dropped it): the stream ends
+   * there, exactly as if the pointer had lifted. The `lostpointercapture`
+   * that follows an ordinary release finds the pointer already gone.
+   */
+  onLostPointerCapture(e: PointerLike): void {
+    if (this.pointers.has(e.pointerId) || this.dividerDrag) this.onPointerUp(e);
+  }
+
+  private dropAllPointers(): void {
+    for (const [pointerId, at] of [...this.pointers]) {
+      this.onPointerUp({ pointerId, clientX: at.x, clientY: at.y });
     }
   }
 
