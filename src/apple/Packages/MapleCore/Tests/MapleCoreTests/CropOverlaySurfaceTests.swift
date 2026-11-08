@@ -31,33 +31,54 @@ final class CropOverlaySurfaceTests: XCTestCase {
   }
 
   func testPixelSizeScalesAndRejectsDegenerateInput() {
-    XCTAssertTrue(input().pixelSize == (600, 400))
-    XCTAssertTrue(input(scale: 0).pixelSize == (300, 200))
+    let margin = Int(CropOverlayInput.overscan * 2)
+    XCTAssertTrue(input().pixelSize == (600 + 2 * margin, 400 + 2 * margin))
+    XCTAssertTrue(input(scale: 0).pixelSize == (300 + margin, 200 + margin))
     var empty = input()
     empty.viewport = .zero
     XCTAssertTrue(empty.pixelSize == (0, 0))
     XCTAssertNil(CropOverlayRasterPool().rasterize(empty))
     var huge = input()
     huge.viewport = CGSize(width: 9000, height: 100)
-    XCTAssertTrue(huge.pixelSize == (0, 200))
+    XCTAssertTrue(huge.pixelSize == (0, 200 + 2 * margin))
   }
 
   func testRasterizeDrawsMaskFrameAndDots() throws {
     let image = try XCTUnwrap(CropOverlayRasterPool().rasterize(input()))
-    XCTAssertEqual(image.width, 600)
+    let margin = Int(CropOverlayInput.overscan * 2)
+    XCTAssertEqual(image.width, 600 + 2 * margin)
     XCTAssertEqual(image.bytesPerRow % 64, 0)
-    XCTAssertEqual(image.height, 400)
+    XCTAssertEqual(image.height, 400 + 2 * margin)
     let bytes = try XCTUnwrap(image.dataProvider?.data as Data?)
     let pixel = { (x: Int, y: Int) -> [UInt8] in
-      let at = y * image.bytesPerRow + x * 4
+      let at = (y + margin) * image.bytesPerRow + (x + margin) * 4
       return Array(bytes[at..<at + 4])
     }
-    // Outside the crop (y 0..80 at 2 px/pt): dimmed black.
+    // Outside the crop (y 0..80 viewport px at 2 px/pt): dimmed black.
     XCTAssertEqual(pixel(300, 20), [0, 0, 0, 140])
     // Inside, away from the grid lines: untouched.
     XCTAssertEqual(pixel(100, 100), [0, 0, 0, 0])
     // A corner dot centre (60, 80): opaque white.
     XCTAssertEqual(pixel(60, 80), [255, 255, 255, 255])
+  }
+
+  func testFullFrameFitKeepsEveryDotInsideTheDrawable() throws {
+    let full = input(crop: Crop(top: 0, left: 0, bottom: 1, right: 1, angle: 0))
+    let image = try XCTUnwrap(CropOverlayRasterPool().rasterize(full))
+    let bytes = try XCTUnwrap(image.dataProvider?.data as Data?)
+    let alpha = { (x: Int, y: Int) -> UInt8 in bytes[y * image.bytesPerRow + x * 4 + 3] }
+    let (width, height) = (image.width, image.height)
+    let border =
+      (0..<width).flatMap { [($0, 0), ($0, height - 1)] }
+      + (0..<height).flatMap { [(0, $0), (width - 1, $0)] }
+    XCTAssertTrue(border.allSatisfy { alpha($0.0, $0.1) == 0 }, "nothing reaches the edge")
+    let margin = Int(CropOverlayInput.overscan * 2)
+    for handle in [CropGeometry.Handle.tl, .tr, .bl, .br] {
+      let centre = CropOverlaySurface.handleCenter(handle, full)
+      let x = Int(centre.x * 2) + margin
+      let y = Int(centre.y * 2) + margin
+      XCTAssertEqual(alpha(x, y), 255, "\(handle) dot drawn")
+    }
   }
 
   func testActiveHandleChangesTheRaster() throws {

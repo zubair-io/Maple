@@ -44,7 +44,7 @@ pub use overlay::{
     crop_handle_centers, crop_overlay, overlay_pixel, rasterize_overlay, unorm8, CanvasOverlay,
     CropOverlayInput, OverlayPrimitive, RasterizeError, CROP_ACTIVE_FRAME_WIDTH,
     CROP_CORNER_DOT_DIAMETER, CROP_FRAME_ALPHA, CROP_FRAME_WIDTH, CROP_GRID_ALPHA, CROP_GRID_WIDTH,
-    CROP_MASK_ALPHA, OVERLAY_CAPACITY, OVERLAY_KIND_DISC, OVERLAY_KIND_FILL,
+    CROP_MASK_ALPHA, CROP_OVERLAY_OVERSCAN, OVERLAY_CAPACITY, OVERLAY_KIND_DISC, OVERLAY_KIND_FILL,
     OVERLAY_KIND_FILL_OUTSIDE, OVERLAY_KIND_NONE,
 };
 pub use render_schedule::{
