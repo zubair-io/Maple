@@ -173,21 +173,28 @@ namespace Maple.WinUI
         {
             ViewerViewport.PointerPressed += OnViewerPointerPressed;
             ViewerViewport.PointerMoved += OnViewerPointerMoved;
-            ViewerViewport.PointerReleased += OnViewerPointerReleased;
-            ViewerViewport.PointerCanceled += OnViewerPointerEnded;
-            ViewerViewport.PointerCaptureLost += OnViewerPointerEnded;
+            // The pickers and the repair canvas mark their releases handled;
+            // a contact the viewer tracks must still be dropped on every end.
+            ViewerViewport.AddHandler(UIElement.PointerReleasedEvent,
+                new PointerEventHandler(OnViewerPointerReleased), handledEventsToo: true);
+            ViewerViewport.AddHandler(UIElement.PointerCanceledEvent,
+                new PointerEventHandler(OnViewerPointerEnded), handledEventsToo: true);
+            ViewerViewport.AddHandler(UIElement.PointerCaptureLostEvent,
+                new PointerEventHandler(OnViewerPointerEnded), handledEventsToo: true);
             ViewerViewport.PointerExited += OnViewerPointerExited;
             ViewerViewport.PointerWheelChanged += OnViewerPointerWheelChanged;
         }
 
         /// <summary>The white-balance and colour-curve pickers read the
         /// press/release pair on ZoomHost, which a capture on the viewer would
-        /// swallow, so an armed picker keeps the pointer uncaptured.</summary>
+        /// swallow, so a touch made while a picker is armed is left to the
+        /// picker: neither captured nor tracked.</summary>
         private bool CanvasPickArmed => _wbPickArmed || _colorCurvePickArmed;
 
-        /// <summary>An uncaptured touch (armed picker) that leaves the viewer
-        /// never reports its lift here; drop it so the next touch is not read
-        /// as a pinch. Exits bubbling up from children are not the viewer's.</summary>
+        /// <summary>A tracked touch whose capture did not take never reports
+        /// its lift here once it leaves the viewer; drop it so the next touch
+        /// is not read as a pinch. Exits bubbling up from children are not
+        /// the viewer's.</summary>
         private void OnViewerPointerExited(object sender, PointerRoutedEventArgs e)
         {
             if (e.Pointer.PointerDeviceType != PointerDeviceType.Touch
@@ -203,8 +210,9 @@ namespace Maple.WinUI
             SyncCanvasZoom(refreshDetail: false);
             if (e.Pointer.PointerDeviceType == PointerDeviceType.Touch)
             {
+                if (CanvasPickArmed) return;
                 ApplyTouch(_canvasTouches.Press(e.Pointer.PointerId, point.Position.X, point.Position.Y));
-                if (!CanvasPickArmed) ViewerViewport.CapturePointer(e.Pointer);
+                ViewerViewport.CapturePointer(e.Pointer);
                 return;
             }
             if (_mouseDragStart != null || _activeGroup == "Heal" || CanvasPickArmed
