@@ -54,10 +54,26 @@ extension EditorCanvasView {
     return state.session.model.crop.angle
   }
 
+  /// The seed sits over the leaf's content, at the photo's frame, so it
+  /// moves with every zoom and pan exactly as the final image will (#5755).
   @ViewBuilder
   var canvasLeaf: some View {
-    canvasLeafContent
-      .rotationEffect(.degrees(straightenAngle))
+    ZStack {
+      canvasLeafContent
+      EditorSeedImage(
+        assetID: state.session.asset.id, visible: seedVisible, store: seedStore)
+    }
+    .rotationEffect(.degrees(straightenAngle))
+  }
+
+  /// A seed alone mounts the leaf: the photo's frame is laid out from it.
+  var hasSeed: Bool {
+    seedVisible && seedStore.image(for: state.session.asset.id) != nil
+  }
+
+  var seedVisible: Bool {
+    EditorCanvasSeed.isVisible(
+      showingOriginal: state.session.showingOriginal, hasOnscreenFrame: canvasHasOnscreenFrame)
   }
 
   @ViewBuilder
@@ -169,24 +185,22 @@ extension EditorCanvasView {
       .accessibilityIdentifier("editor-canvas-placeholder")
   }
 
-  /// The grid thumbnail painted above the canvas leaf / placeholder until
-  /// the canvas has real pixels (#2374). Composed in `canvasLayer` so it
-  /// sits over the GPU leaf — which mounts opaque before its first frame —
-  /// and under the download overlay.
-  var seedThumbnail: some View {
-    EditorSeedThumbnail(
+  /// Loads the seed for the open asset (#2374, #5731) and feeds its aspect
+  /// to the zoom while the photo's real size is unknown (#5755).
+  var seedLoader: some View {
+    EditorSeedLoader(
       asset: state.session.asset,
       source: filmstripSource,
-      showingOriginal: state.session.showingOriginal,
-      hasOnscreenFrame: canvasHasOnscreenFrame,
+      visible: seedVisible,
+      store: seedStore,
       zoom: state.zoom
     )
   }
 
   /// Byte-download progress for a cloud open (#822). Composed in
-  /// `canvasLayer` above the seed thumbnail rather than inside the
-  /// placeholder, so it is visible on the GPU path too — there the leaf
-  /// mounts immediately and the placeholder never shows (#2374).
+  /// `canvasLayer` above the canvas rather than inside the placeholder, so
+  /// it is visible over the seed and on the GPU path, where the leaf mounts
+  /// immediately and the placeholder never shows (#2374).
   @ViewBuilder
   var downloadOverlay: some View {
     if let progress = state.session.downloadProgress, progress.isDownloading {

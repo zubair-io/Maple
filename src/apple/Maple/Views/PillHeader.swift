@@ -132,7 +132,9 @@ struct PillHeader: View {
         }
         .disabled(state.zoom.displayFrameInPoints == nil)
         .accessibilityValue(
-          FullImageViewVM.zoomAccessibilityLabel(for: state.zoom.effectivePixelScale)
+          state.zoom.provisionalImageSize == nil
+            ? FullImageViewVM.zoomAccessibilityLabel(for: state.zoom.effectivePixelScale)
+            : CanvasZoomBadge.unknownZoomAccessibilityValue
         )
         .accessibilityIdentifier("editor-pill-zoom")
 

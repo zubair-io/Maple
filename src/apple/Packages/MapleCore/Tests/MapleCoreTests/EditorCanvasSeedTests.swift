@@ -139,22 +139,9 @@ final class EditorCanvasSeedTests: XCTestCase {
       httpClient: AuthenticatedHTTPClient.unauthenticated(server: lan, urlSession: .shared))
   }
 
-  func testSeedStaysUpUntilTheCanvasCanDrawAFrame() {
-    XCTAssertTrue(
-      EditorCanvasSeed.isVisible(
-        showingOriginal: false, hasOnscreenFrame: false, hasDisplayFrame: false))
-    XCTAssertTrue(
-      EditorCanvasSeed.isVisible(
-        showingOriginal: false, hasOnscreenFrame: true, hasDisplayFrame: false),
-      "a published thumbnail preview with no frame to draw it in paints nothing")
-    XCTAssertTrue(
-      EditorCanvasSeed.isVisible(
-        showingOriginal: false, hasOnscreenFrame: false, hasDisplayFrame: true))
-    XCTAssertFalse(
-      EditorCanvasSeed.isVisible(
-        showingOriginal: false, hasOnscreenFrame: true, hasDisplayFrame: true))
-    XCTAssertFalse(
-      EditorCanvasSeed.isVisible(
-        showingOriginal: true, hasOnscreenFrame: false, hasDisplayFrame: false))
+  func testSeedStaysUpUntilRealPixelsAreOnScreen() {
+    XCTAssertTrue(EditorCanvasSeed.isVisible(showingOriginal: false, hasOnscreenFrame: false))
+    XCTAssertFalse(EditorCanvasSeed.isVisible(showingOriginal: false, hasOnscreenFrame: true))
+    XCTAssertFalse(EditorCanvasSeed.isVisible(showingOriginal: true, hasOnscreenFrame: false))
   }
 }
