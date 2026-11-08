@@ -15,7 +15,13 @@ function fakeShell() {
   Object.defineProperty(wrap, 'clientWidth', { value: 1000 });
   wrap.setPointerCapture = vi.fn();
   let internal = 0;
+  const startModel = { exposure: 0, wbMode: 'asShot' };
+  const library = { updateAdjustment: vi.fn() };
   const editorState = {
+    library,
+    imageId: () => 'a',
+    currentAdjustment: () => startModel,
+    cancelEdit: vi.fn(),
     armedToolAcceptsValueEdits: () => true,
     armedInternalValue: () => internal,
     setArmedInternalValue: vi.fn((v: number) => (internal = v)),
@@ -40,6 +46,8 @@ function fakeShell() {
     shell: shell as unknown as EditorShellComponent,
     wrap,
     editorState,
+    library,
+    startModel,
     internal: () => internal,
   };
 }
@@ -86,8 +94,8 @@ describe('canvas scrub start', () => {
     cleanupScrub(s, scrub);
   });
 
-  it('a second pointer turns the scrub into a pinch: the value goes back and nothing leaks', () => {
-    const { shell: s, wrap, editorState, internal } = fakeShell();
+  it('a second pointer turns the scrub into a pinch: the model goes back and nothing leaks', () => {
+    const { shell: s, wrap, editorState, library, startModel, internal } = fakeShell();
     onCanvasPointerDown(s, scrub, pointer('pointerdown', wrap, { pointerId: 1, clientX: 500 }));
     window.dispatchEvent(pointer('pointermove', wrap, { pointerId: 1, clientX: 540 }));
     expect(internal()).toBeCloseTo(2, 9);
@@ -97,9 +105,10 @@ describe('canvas scrub start', () => {
       scrub,
       pointer('pointerdown', wrap, { pointerId: 2, clientX: 700, isPrimary: false }),
     );
-    expect(internal()).toBe(0);
+    expect(library.updateAdjustment).toHaveBeenCalledExactlyOnceWith('a', startModel);
     expect(editorState.cancelGesture).toHaveBeenCalledOnce();
-    expect(editorState.endEdit).toHaveBeenCalledOnce();
+    expect(editorState.cancelEdit).toHaveBeenCalledOnce();
+    expect(editorState.endEdit).not.toHaveBeenCalled();
 
     editorState.setArmedInternalValue.mockClear();
     window.dispatchEvent(pointer('pointermove', wrap, { pointerId: 1, clientX: 900 }));
@@ -117,6 +126,26 @@ describe('canvas scrub start', () => {
     window.dispatchEvent(pointer('pointermove', wrap, { pointerId: 1, clientX: 900 }));
     window.dispatchEvent(pointer('pointermove', wrap, { pointerId: 3, clientX: 900 }));
     expect(editorState.setArmedInternalValue).not.toHaveBeenCalled();
+  });
+
+  it('a primary press while a scrub never saw its release abandons it and starts afresh', () => {
+    const { shell: s, wrap, editorState } = fakeShell();
+    onCanvasPointerDown(s, scrub, pointer('pointerdown', wrap, { pointerId: 1, clientX: 500 }));
+    onCanvasPointerDown(s, scrub, pointer('pointerdown', wrap, { pointerId: 1, clientX: 100 }));
+    expect(editorState.cancelGesture).toHaveBeenCalledOnce();
+    expect(editorState.commit).toHaveBeenCalledTimes(2);
+    editorState.setArmedInternalValue.mockClear();
+    window.dispatchEvent(pointer('pointermove', wrap, { pointerId: 1, clientX: 140 }));
+    expect(editorState.setArmedInternalValue).toHaveBeenCalledExactlyOnceWith(2);
+    cleanupScrub(s, scrub);
+  });
+
+  it('does not start for a press on a control inside the canvas', () => {
+    const { shell: s, wrap, editorState } = fakeShell();
+    const retry = document.createElement('button');
+    wrap.append(retry);
+    onCanvasPointerDown(s, scrub, press(retry));
+    expect(editorState.commit).not.toHaveBeenCalled();
   });
 
   it('only the scrubbing pointer moves the value', () => {

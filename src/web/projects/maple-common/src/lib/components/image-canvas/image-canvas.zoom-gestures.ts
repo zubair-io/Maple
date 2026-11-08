@@ -26,6 +26,15 @@ import {
   type CanvasZoomStop,
 } from './image-canvas.zoom-wasm';
 
+/**
+ * Canvas descendants that own their pointer stream: controls (capturing their
+ * pointer on the wrap would retarget the click away from them) and anything
+ * marked `[data-owns-pointer]`. Neither the canvas nor the editor's scrub
+ * starts a gesture on them.
+ */
+export const CANVAS_POINTER_OWNERS =
+  'button, a, input, select, textarea, [role="button"], [role="slider"], [data-owns-pointer]';
+
 /** The component surface the gesture controller drives. */
 export interface ZoomGestureHost {
   /** Wrap (viewport) size in CSS px. */
@@ -50,6 +59,7 @@ export interface PointerLike {
   clientX: number;
   clientY: number;
   isPrimary?: boolean;
+  pointerType?: string;
 }
 
 /** Minimal wheel shape (structurally satisfied by WheelEvent). */
@@ -97,7 +107,7 @@ function distance(a: Point, b: Point): number {
 }
 
 export class CanvasZoomGestures {
-  private readonly pointers = new Map<number, { x: number; y: number }>();
+  private readonly pointers = new Map<number, { x: number; y: number; type?: string }>();
   private engineInstance: CanvasZoomEngine | null = null;
   private pinchStartDistance = 0;
   private pinchMagnification = 1;
@@ -139,18 +149,9 @@ export class CanvasZoomGestures {
       // here too would steal its moves.
       if (e.defaultPrevented) return;
       // Overlay controls (for example the byte-load Retry button) live inside
-      // the canvas wrap. Capturing their pointer on the wrap retargets the
-      // eventual click away from the control, making it look enabled while
-      // doing nothing. Interactive descendants own their pointer stream.
+      // the canvas wrap and own their pointer stream.
       const target = e.target;
-      if (
-        target instanceof Element &&
-        target.closest(
-          'button, a, input, select, textarea, [role="button"], [role="slider"], [data-owns-pointer]',
-        )
-      ) {
-        return;
-      }
+      if (target instanceof Element && target.closest(CANVAS_POINTER_OWNERS)) return;
       if (e.pointerType === 'mouse' && e.button !== 0 && e.button !== 1) return;
       capturePointer(el, e.pointerId);
       this.onPointerDown(e);
@@ -164,7 +165,11 @@ export class CanvasZoomGestures {
       }
       this.onPointerUp(e);
     };
-    const lost = (e: PointerEvent) => this.onLostPointerCapture(e);
+    // Only the wrap's own capture: an overlay handle losing its capture
+    // bubbles here too and says nothing about the wrap's pointers.
+    const lost = (e: PointerEvent) => {
+      if (e.target === el) this.onLostPointerCapture(e);
+    };
     const wheel = (e: WheelEvent) => {
       if (this.onWheel(e)) e.preventDefault();
     };
@@ -252,10 +257,10 @@ export class CanvasZoomGestures {
   // ── Pointer events (touch pinch + drag-pan) ────────────────────────────
 
   onPointerDown(e: PointerLike): void {
-    // A primary press starts a new contact sequence: any pointer still
-    // tracked lost its release somewhere and must not pinch against it.
-    if (e.isPrimary && this.pointers.size > 0) this.dropAllPointers();
-    this.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    // A primary press starts a new contact sequence of its kind: a pointer of
+    // that kind still tracked lost its release and must not pinch against it.
+    if (e.isPrimary) this.dropStalePointers(e.pointerType);
+    this.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY, type: e.pointerType });
     if (this.pointers.size === 2) {
       const engine = this.engine();
       if (this.dragOrigin && engine) {
@@ -326,9 +331,9 @@ export class CanvasZoomGestures {
     if (this.pointers.has(e.pointerId) || this.dividerDrag) this.onPointerUp(e);
   }
 
-  private dropAllPointers(): void {
+  private dropStalePointers(pointerType: string | undefined): void {
     for (const [pointerId, at] of [...this.pointers]) {
-      this.onPointerUp({ pointerId, clientX: at.x, clientY: at.y });
+      if (at.type === pointerType) this.onPointerUp({ pointerId, clientX: at.x, clientY: at.y });
     }
   }
 
