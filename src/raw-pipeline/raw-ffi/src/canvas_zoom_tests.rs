@@ -52,6 +52,13 @@ fn state_round_trips_through_the_core_model() {
         pinch_start_centroid: MapleCanvasPoint { x: 9.0, y: 10.0 },
         pinch_last_centroid: MapleCanvasPoint { x: 11.0, y: 12.0 },
         fills_viewport: 1,
+        pinch_start_magnification: 1.5,
+        pinch_last_magnification: 1.75,
+        has_drag_last_translation: 1,
+        drag_last_translation: MapleCanvasSize {
+            width: 13.0,
+            height: 14.0,
+        },
     };
     assert_eq!(
         MapleCanvasZoomState::from(CanvasZoomModel::from(state)),
@@ -67,8 +74,9 @@ fn state_round_trips_through_the_core_model() {
 fn transitions_thread_the_state_through() {
     let context = landscape();
     let centre = MapleCanvasPoint { x: 500.0, y: 400.0 };
-    let live =
-        maple_canvas_zoom_pinch_changed(MapleCanvasZoomState::default(), 2.0, centre, context);
+    let captured =
+        maple_canvas_zoom_pinch_changed(MapleCanvasZoomState::default(), 1.0, centre, context);
+    let live = maple_canvas_zoom_pinch_changed(captured, 2.0, centre, context);
     assert_eq!(live.has_pinch_start_scale, 1);
     assert_eq!(live.pixel_scale, 0.5);
     let released = maple_canvas_zoom_pinch_ended(live, 2.0, context);

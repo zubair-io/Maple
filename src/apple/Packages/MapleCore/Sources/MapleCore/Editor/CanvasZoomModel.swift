@@ -156,6 +156,13 @@ public struct CanvasZoomModel: Equatable, Sendable {
   public internal(set) var pinchStartPan: CGSize = .zero
   public internal(set) var pinchStartCentroid: CGPoint = .zero
   public internal(set) var pinchLastCentroid: CGPoint = .zero
+  /// Magnification at the pinch capture; the pinch scales by the ratio of
+  /// the live magnification to it.
+  public internal(set) var pinchStartMagnification: CGFloat = 0
+  /// Latest pinch magnification: with `pinchLastCentroid`, the live input.
+  public internal(set) var pinchLastMagnification: CGFloat = 0
+  /// Latest cumulative translation of a live drag.
+  public internal(set) var dragLastTranslation: CGSize?
   /// True while the zoom is the fill stop (re-resolved on resize).
   public internal(set) var fillsViewport = false
 
@@ -316,8 +323,6 @@ public struct CanvasZoomModel: Equatable, Sendable {
       maple_canvas_zoom_double_tap(ffi, MapleCanvasPoint(location), UInt32(code), context.ffi))
   }
 
-  /// Back to fit mode: `pixelScale = 0`, centred in the visible area,
-  /// captures cleared.
   /// Rest at the frame an interrupted settle was showing, held to the zoom
   /// range and inside the visible area; ignored for an undrawable frame or
   /// before the image size is known.
@@ -327,6 +332,8 @@ public struct CanvasZoomModel: Equatable, Sendable {
         ffi, Double(frame.scale), MapleCanvasSize(frame.pan), context.ffi))
   }
 
+  /// Back to fit mode: `pixelScale = 0`, centred in the visible area; a live
+  /// pinch or drag continues from fit.
   public mutating func resetToFit(context: CanvasZoomContext) {
     adopt(maple_canvas_zoom_reset_to_fit(ffi, context.ffi))
   }
@@ -348,9 +355,10 @@ public struct CanvasZoomModel: Equatable, Sendable {
     adopt(maple_canvas_zoom_step_out(ffi, context.ffi))
   }
 
-  /// Re-resolve against fresh geometry (viewport resize, chrome insets, native
-  /// size seed): fit re-centres in the visible area, fill follows it, and any
-  /// other pan is pulled back inside range (a pan already inside stays put).
+  /// Re-resolve against fresh geometry when the previous geometry is unknown
+  /// (`geometryChanged(from:to:)` carries the zoom when it is): fit re-centres
+  /// in the visible area, fill follows it, and any other pan is pulled back
+  /// inside range (a pan already inside stays put).
   public mutating func reclampPan(context: CanvasZoomContext) {
     adopt(maple_canvas_zoom_reclamp_pan(ffi, context.ffi))
   }

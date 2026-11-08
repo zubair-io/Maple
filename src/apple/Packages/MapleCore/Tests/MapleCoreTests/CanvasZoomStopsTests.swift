@@ -57,6 +57,7 @@ final class CanvasZoomStopsTests: XCTestCase {
 
     func testPinchBelowFitFollowsTheFingersAndReleasesToFit() {
         var model = CanvasZoomModel()
+        model.pinchChanged(magnification: 1, location: CGPoint(x: 100, y: 100), context: square)
         model.pinchChanged(magnification: 0.7, location: CGPoint(x: 100, y: 100), context: square)
         XCTAssertEqual(model.pixelScale, fit * 0.7, accuracy: 1e-9)
         XCTAssertNotEqual(model.panOffset, .zero, "below fit the photo stays under the fingers")
@@ -68,6 +69,7 @@ final class CanvasZoomStopsTests: XCTestCase {
 
     func testPinchHeldAtFloorReleasesToFit() {
         var model = CanvasZoomModel()
+        model.pinchChanged(magnification: 1, location: .zero, context: square)
         model.pinchChanged(magnification: 0.1, location: .zero, context: square)
         XCTAssertEqual(model.pixelScale, square.minScale, accuracy: 1e-9)
         model.pinchEnded(magnification: 0.1, context: square)
@@ -76,6 +78,7 @@ final class CanvasZoomStopsTests: XCTestCase {
 
     func testBelowFitInputsBelongToTheEditingSurface() {
         var model = CanvasZoomModel()
+        model.pinchChanged(magnification: 1, location: .zero, context: square)
         model.pinchChanged(magnification: 0.6, location: .zero, context: square)
         model.pinchEnded(magnification: 0.6, context: square)
         XCTAssertEqual(model.dragIntent(context: square), .editing)
@@ -177,6 +180,7 @@ final class CanvasZoomStopsTests: XCTestCase {
     func testPinchReleaseNearFillSettlesOnFill() {
         var model = CanvasZoomModel()
         let magnification = fill / fit * 1.02
+        model.pinchChanged(magnification: 1, location: CGPoint(x: 500, y: 400), context: square)
         model.pinchChanged(magnification: magnification, location: CGPoint(x: 500, y: 400), context: square)
         XCTAssertEqual(
             model.pixelScale, fit * magnification, accuracy: 1e-9,
@@ -191,6 +195,7 @@ final class CanvasZoomStopsTests: XCTestCase {
     func testPinchAwayFromFillClearsTheFillStop() {
         var model = CanvasZoomModel()
         model.zoomToFill(context: square)
+        model.pinchChanged(magnification: 1, location: CGPoint(x: 500, y: 400), context: square)
         model.pinchChanged(magnification: 2, location: CGPoint(x: 500, y: 400), context: square)
         model.pinchEnded(magnification: 2, context: square)
         XCTAssertFalse(model.fillsViewport)
@@ -199,6 +204,7 @@ final class CanvasZoomStopsTests: XCTestCase {
 
     func testPinchJustBelowFitSettlesOnFitOnReleaseOnly() {
         var model = CanvasZoomModel()
+        model.pinchChanged(magnification: 1, location: CGPoint(x: 300, y: 200), context: square)
         model.pinchChanged(magnification: 0.97, location: CGPoint(x: 300, y: 200), context: square)
         XCTAssertEqual(model.pixelScale, fit * 0.97, accuracy: 1e-12)
         model.pinchEnded(magnification: 0.97, context: square)
@@ -324,6 +330,7 @@ final class CanvasZoomStopsTests: XCTestCase {
     func testAScaleRelativeToFillIsNotReResolvedOnResize() {
         var model = CanvasZoomModel()
         model.zoomToFill(context: square)
+        model.pinchChanged(magnification: 1, location: CGPoint(x: 500, y: 400), context: square)
         model.pinchChanged(magnification: 2, location: CGPoint(x: 500, y: 400), context: square)
         model.pinchEnded(magnification: 2, context: square)
         model.reclampPan(context: landscape)

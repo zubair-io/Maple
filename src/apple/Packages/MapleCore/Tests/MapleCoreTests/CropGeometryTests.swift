@@ -21,10 +21,19 @@ final class CropGeometryTests: XCTestCase {
         XCTAssertEqual(fp.top, 0, accuracy: 1e-6)
     }
 
-    func testFitFootprintNeverUpscales() {
+    /// The crop overlay lies on the photo as the canvas paints it: an image
+    /// smaller than the viewport is upscaled to fit, exactly as the canvas
+    /// fit does.
+    func testFitFootprintUpscalesASmallImageLikeTheCanvasFit() throws {
         let fp = CropGeometry.fitFootprint(wrapW: 4000, wrapH: 4000, imgW: 600, imgH: 400)
-        XCTAssertEqual(fp.width, 600, accuracy: 1e-6)
-        XCTAssertEqual(fp.height, 400, accuracy: 1e-6)
+        let canvas = CanvasZoomContext(
+            viewportPoints: CGSize(width: 4000, height: 4000),
+            nativeImageSize: CGSize(width: 600, height: 400), displayScale: 1)
+        let frame = try XCTUnwrap(canvas.displayFrameInPoints(at: 0))
+        XCTAssertEqual(fp.width, frame.width, accuracy: 1e-6)
+        XCTAssertEqual(fp.height, frame.height, accuracy: 1e-6)
+        XCTAssertEqual(fp.width, 4000, accuracy: 1e-6)
+        XCTAssertEqual(fp.top, (4000 - frame.height) / 2, accuracy: 1e-6)
     }
 
     // MARK: - cropRectToPx / pxToNormalized round-trip

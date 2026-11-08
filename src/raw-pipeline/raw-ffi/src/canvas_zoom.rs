@@ -6,7 +6,8 @@
 //! Double-tap behaviour travels as `MAPLE_CANVAS_DOUBLE_TAP_*` (an unknown
 //! code resets to fit) and intents as `MAPLE_CANVAS_*_INTENT_*`. The
 //! stateless rules and the stop codes are in `canvas_zoom_rules.rs`, the
-//! visible-area queries in `canvas_zoom_insets.rs`.
+//! visible-area queries in `canvas_zoom_insets.rs`, the transitions that keep
+//! live gestures continuous in `canvas_zoom_continuity.rs`.
 
 use crate::canvas_math::{MapleCanvasPoint, MapleCanvasSize};
 use crate::canvas_zoom_rules::{stop_code, MAPLE_CANVAS_ZOOM_STOP_NONE};
@@ -68,6 +69,15 @@ pub struct MapleCanvasZoomState {
     pub pinch_start_centroid: MapleCanvasPoint,
     pub pinch_last_centroid: MapleCanvasPoint,
     pub fills_viewport: u8,
+    /// Magnification at the pinch capture; the pinch scales by the ratio of
+    /// the live magnification to it (0 reads as 1).
+    pub pinch_start_magnification: f64,
+    /// Latest pinch magnification, with `pinch_last_centroid` the live pinch
+    /// input (0 reads as 1).
+    pub pinch_last_magnification: f64,
+    pub has_drag_last_translation: u8,
+    /// Latest cumulative translation of a live drag.
+    pub drag_last_translation: MapleCanvasSize,
 }
 
 /// A transition that also reports whether the input was consumed/committed.
@@ -117,6 +127,12 @@ impl From<MapleCanvasZoomState> for CanvasZoomModel {
             pinch_start_pan: state.pinch_start_pan.into(),
             pinch_start_centroid: state.pinch_start_centroid.into(),
             pinch_last_centroid: state.pinch_last_centroid.into(),
+            pinch_start_magnification: state.pinch_start_magnification,
+            pinch_last_magnification: state.pinch_last_magnification,
+            drag_last_translation: state
+                .has_drag_last_translation
+                .ne(&0)
+                .then(|| state.drag_last_translation.into()),
             fills_viewport: state.fills_viewport != 0,
         }
     }
@@ -136,6 +152,10 @@ impl From<CanvasZoomModel> for MapleCanvasZoomState {
             pinch_start_centroid: model.pinch_start_centroid.into(),
             pinch_last_centroid: model.pinch_last_centroid.into(),
             fills_viewport: u8::from(model.fills_viewport),
+            pinch_start_magnification: model.pinch_start_magnification,
+            pinch_last_magnification: model.pinch_last_magnification,
+            has_drag_last_translation: u8::from(model.drag_last_translation.is_some()),
+            drag_last_translation: model.drag_last_translation.unwrap_or_default().into(),
         }
     }
 }
