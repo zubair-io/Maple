@@ -285,6 +285,62 @@ pub(crate) fn describe(name: &str) -> Option<String> {
             tint,
             algorithm_version,
         })),
+        "MapleCanvasSize" => Some(layout!(crate::canvas_math::MapleCanvasSize {
+            width,
+            height
+        })),
+        "MapleCanvasPoint" => Some(layout!(crate::canvas_math::MapleCanvasPoint { x, y })),
+        "MapleCanvasRect" => Some(layout!(crate::canvas_math::MapleCanvasRect {
+            x,
+            y,
+            width,
+            height,
+        })),
+        "MapleCanvasZoomContext" => Some(layout!(crate::canvas_zoom::MapleCanvasZoomContext {
+            viewport_points,
+            native_image_size,
+            display_scale,
+        })),
+        "MapleCanvasZoomState" => Some(layout!(crate::canvas_zoom::MapleCanvasZoomState {
+            pixel_scale,
+            pan_offset,
+            base_pan,
+            has_drag_translation_base,
+            drag_translation_base,
+            has_pinch_start_scale,
+            pinch_start_scale,
+            pinch_start_pan,
+            pinch_start_centroid,
+            pinch_last_centroid,
+            fills_viewport,
+        })),
+        "MapleCanvasZoomTransition" => {
+            Some(layout!(crate::canvas_zoom::MapleCanvasZoomTransition {
+                state,
+                handled
+            }))
+        }
+        "MapleCanvasMathInput" => Some(layout!(crate::canvas_math::MapleCanvasMathInput {
+            viewport_px,
+            native_image_size,
+            pixel_scale,
+            pan_offset,
+            display_scale,
+        })),
+        "MapleCanvasMathResult" => Some(layout!(crate::canvas_math::MapleCanvasMathResult {
+            has_image_extent,
+            image_extent,
+            fit_pixel_scale,
+            fill_pixel_scale,
+            effective_pixel_scale,
+            has_display_frame,
+            display_frame_in_points,
+            has_fast_target,
+            fast_target_size,
+            has_refined_target,
+            refined_target_size,
+            visible_source_rect,
+        })),
         #[cfg(feature = "gpu")]
         "MapleGpuLiveParams" => Some(layout!(crate::gpu_live::MapleGpuLiveParams {
             temperature,

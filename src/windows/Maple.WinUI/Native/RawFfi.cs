@@ -25,6 +25,11 @@ namespace Maple.WinUI.Native
             RequireSize(sizeof(MapleSceneLinearBufferF32), 408, "MapleSceneLinearBufferF32", "buffers.rs");
             RequireSize(sizeof(MapleCaptureCreative), 560, "MapleCaptureCreative", "capture_creative.rs");
             RequireSize(sizeof(MapleCaptureBufferF32), 968, "MapleCaptureBufferF32", "capture_creative.rs");
+            RequireSize(sizeof(MapleCanvasZoomContext), 40, "MapleCanvasZoomContext", "canvas_zoom.rs");
+            RequireSize(sizeof(MapleCanvasZoomState), 136, "MapleCanvasZoomState", "canvas_zoom.rs");
+            RequireSize(sizeof(MapleCanvasZoomTransition), 144, "MapleCanvasZoomTransition", "canvas_zoom.rs");
+            RequireSize(sizeof(MapleCanvasMathInput), 64, "MapleCanvasMathInput", "canvas_math.rs");
+            RequireSize(sizeof(MapleCanvasMathResult), 152, "MapleCanvasMathResult", "canvas_math.rs");
         }
 
         private static void RequireSize(int actual, int expected, string name, string rustFile)

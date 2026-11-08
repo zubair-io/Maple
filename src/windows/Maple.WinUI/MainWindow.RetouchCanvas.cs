@@ -135,7 +135,7 @@ public sealed partial class MainWindow
         if (!CanEditRepairs || !e.GetCurrentPoint(_repairCanvas).Properties.IsLeftButtonPressed
             || RepairPoint(e) is not { } point || RepairMap is not { } map) return;
         // Leave numeric editing before canvas gestures so Delete/Undo target the repair.
-        ViewerScroll.Focus(FocusState.Pointer);
+        ViewerViewport.Focus(FocusState.Pointer);
         _repairDraft = ViewModel.Adjustments.Retouch;
         _repairGesturePhoto = ViewModel.SelectedPhoto;
         _repairAnchor = point;
@@ -145,7 +145,7 @@ public sealed partial class MainWindow
         {
             if (map.ToDisplay(new(x, y)) is not { } p) return false;
             return Math.Pow(p.X * _repairCanvas.Width - mouse.X, 2) + Math.Pow(p.Y * _repairCanvas.Height - mouse.Y, 2)
-                <= Math.Pow(14 / ViewerScroll.ZoomFactor, 2);
+                <= Math.Pow(14 / _canvasZoom.View.ScaleToFit, 2);
         }
         var selected = SelectedRepair;
         if (selected != null && Hit(selected.SourceX, selected.SourceY)) _repairDraggingSource = true;

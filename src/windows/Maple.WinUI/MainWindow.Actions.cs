@@ -92,6 +92,12 @@ namespace Maple.WinUI
                 ResetZoom();
         }
 
+        private void OnMenuZoomFill(object sender, RoutedEventArgs e)
+        {
+            if (_mode != ShellMode.Browse)
+                ZoomToFill();
+        }
+
         private void OnMenuZoomOneToOne(object sender, RoutedEventArgs e)
         {
             if (_mode != ShellMode.Browse)
@@ -101,13 +107,13 @@ namespace Maple.WinUI
         private void OnMenuZoomIn(object sender, RoutedEventArgs e)
         {
             if (_mode != ShellMode.Browse)
-                SetZoom(ViewerScroll.ZoomFactor * 1.5f);
+                StepZoom(zoomIn: true);
         }
 
         private void OnMenuZoomOut(object sender, RoutedEventArgs e)
         {
             if (_mode != ShellMode.Browse)
-                SetZoom(ViewerScroll.ZoomFactor / 1.5f);
+                StepZoom(zoomIn: false);
         }
 
         private void OnMenuRating(object sender, RoutedEventArgs e)
