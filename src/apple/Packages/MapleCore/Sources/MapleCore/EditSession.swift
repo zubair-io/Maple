@@ -206,6 +206,9 @@ public final class EditSession {
   /// CPU backdrop stays hidden: the black-canvas-on-reopen bug). See #1069.
   public var gpuFramePresented: Bool = false
 
+  /// What Preview or the editor left for the other to open with (#5764).
+  @ObservationIgnored public var canvasHandoff: CanvasZoomHandoff?
+
   /// True once a wgpu present has THROWN for this session (#1769). Views gate
   /// the GPU canvas leaf on this: a torn/failed present must not stay on
   /// glass with no repaint path — flipping this false→true unmounts the

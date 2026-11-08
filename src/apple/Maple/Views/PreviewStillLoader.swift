@@ -1,9 +1,8 @@
 // PreviewStillLoader.swift — the stills a Preview page shows before (and
 // instead of) a render (#5762): the grid's decoded tile, the grid thumbnail,
 // then the display tier (`.maple/previews`, the server's `/api/fs/preview`, a
-// PhotoKit high-quality request). The visible page hands them to the shared
-// GPU canvas as its placeholder; a neighbouring page shows them as a plain
-// still.
+// PhotoKit high-quality request). The visible page draws them beneath the
+// shared canvas; a neighbouring page shows them alone.
 //
 // The page's `.task`s drive every load, so leaving the page or changing its
 // photo cancels them. A visible page whose display tier failed retries it on
@@ -38,6 +37,8 @@ final class PreviewStillLoader {
   @ObservationIgnored private var displayTierUnavailable = false
   @ObservationIgnored private var firstPaintFailed = false
   @ObservationIgnored private var preparedKey: String?
+  /// A still the editor handed back: a smaller thumbnail does not replace it.
+  @ObservationIgnored private var handedOffLongEdge = 0
 
   init(asset: AssetRef, source: (any ImageSource)?, provider: ThumbnailProvider) {
     self.asset = asset
@@ -71,6 +72,7 @@ final class PreviewStillLoader {
     isDisplayTierSettled = false
     displayTierUnavailable = false
     firstPaintFailed = false
+    handedOffLongEdge = 0
   }
 
   /// The grid tile, then the grid thumbnail. A missing thumbnail falls back
@@ -148,9 +150,24 @@ final class PreviewStillLoader {
     }
   }
 
+  /// The still on screen, for the editor to open with (#5764).
+  var handoffStill: CanvasHandoffStill? {
+    image.map { CanvasHandoffStill(image: $0, isDisplayPreview: hasDisplayTier) }
+  }
+
+  /// The still the editor showed, until this page's own loads land. It may
+  /// predate the edits, so it never stands in for the display tier.
+  func showHandedOff(_ still: CanvasHandoffStill) {
+    guard image == nil else { return }
+    show(still.image, isDisplayTier: false)
+    handedOffLongEdge = max(still.image.width, still.image.height)
+  }
+
   /// Nothing smaller replaces the display tier once it is shown.
   private func show(_ still: CGImage, isDisplayTier: Bool) {
-    guard isDisplayTier || !hasDisplayTier else { return }
+    guard isDisplayTier || !hasDisplayTier,
+      isDisplayTier || max(still.width, still.height) >= handedOffLongEdge
+    else { return }
     image = still
     phase = .loaded
     if isDisplayTier {
