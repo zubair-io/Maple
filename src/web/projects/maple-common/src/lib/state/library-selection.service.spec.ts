@@ -11,6 +11,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 
 import { LibrarySelection } from './library-selection.service';
 import { LibraryStore } from './library-store.service';
+import { BrowsePreferencesService } from './browse-preferences.service';
 import { LIBRARY_BACKEND } from '../api/library-backend.token';
 import type { Asset, AssetId } from '../models/asset';
 import type { GridFolderItem } from '../models/folder';
@@ -123,5 +124,36 @@ describe('LibrarySelection — asset + folder selection (#2976)', () => {
     expect(selection.selectedFolderIds()).toEqual(new Set());
     expect(selection.focusedAssetId()).toBeNull();
     expect(selection.focusedFolderId()).toBeNull();
+  });
+});
+
+describe('LibrarySelection — photos before the cull filter (#5712)', () => {
+  let selection: LibrarySelection;
+  let prefs: BrowsePreferencesService;
+
+  beforeEach(() => {
+    TestBed.configureTestingModule({
+      providers: [{ provide: LIBRARY_BACKEND, useValue: 'self-hosted' }],
+    });
+    const store = TestBed.inject(LibraryStore);
+    store.assets.set([...ASSETS, { ...makeAsset('other.dng'), folderId: 'lib:other' }]);
+    prefs = TestBed.inject(BrowsePreferencesService);
+    prefs.filter.set('all');
+    selection = TestBed.inject(LibrarySelection);
+    selection.selectedSourceId.set(SOURCE);
+  });
+
+  it("keeps the folder's photos when the cull filter hides them all", () => {
+    prefs.filter.set('picks');
+
+    expect(selection.assetsInSelectedFolder()).toEqual([]);
+    expect(selection.searchMatchedAssetsInSelectedFolder()).toEqual(ASSETS);
+  });
+
+  it('still narrows by the toolbar search', () => {
+    prefs.filter.set('picks');
+    selection.searchQuery.set('B.DNG');
+
+    expect(selection.searchMatchedAssetsInSelectedFolder()).toEqual([ASSETS[1]]);
   });
 });
