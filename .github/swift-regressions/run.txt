@@ -42,6 +42,7 @@ CropEditingStateTests
 EditSessionSidecarWriteGuardTests
 EditSessionTransactionTests
 EditorAutoSourceTests
+EditorCanvasSeedTests
 EditorCommandRouterTests
 EditorCommandWhiteBalanceTests
 EditorHSLTests
