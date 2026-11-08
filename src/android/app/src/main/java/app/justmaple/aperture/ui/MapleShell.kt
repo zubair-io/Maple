@@ -299,22 +299,24 @@ fun MapleShell(model: MapleViewModel) {
             dismissButton = { TextButton({ recovery = null }) { Text("Cancel") } },
             containerColor = MapleColors.surface,
         )
-    if (pinnedSources) content()
-    else
-        ModalNavigationDrawer(
-            drawerState = drawer,
-            drawerContent = {
-                ModalDrawerSheet(
-                    drawerContainerColor = MapleColors.sidebar,
-                    modifier = Modifier.width(300.dp),
-                ) {
-                    sidebar()
-                }
-            },
-            gesturesEnabled = browsing,
-        ) {
-            content()
-        }
+    // One call site for the content whether or not the sidebar is pinned: a tablet rotating across
+    // the pinning width must not discard the photo's saved state, its zoom included (#5748). The
+    // sheet keeps its width while pinned so the drawer's closed position never moves to 0 (open).
+    LaunchedEffect(pinnedSources) { if (pinnedSources) drawer.snapTo(DrawerValue.Closed) }
+    ModalNavigationDrawer(
+        drawerState = drawer,
+        drawerContent = {
+            ModalDrawerSheet(
+                drawerContainerColor = MapleColors.sidebar,
+                modifier = Modifier.width(300.dp),
+            ) {
+                if (!pinnedSources) sidebar()
+            }
+        },
+        gesturesEnabled = browsing && !pinnedSources,
+    ) {
+        content()
+    }
     if (info && !inlineInfo && !posture.isBookSplit && !posture.isTabletopSplit && !browsing) {
         @OptIn(ExperimentalMaterial3Api::class)
         ModalBottomSheet(

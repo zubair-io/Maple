@@ -54,7 +54,6 @@ internal fun PhotoCanvas(
     DisposableEffect(sampler) { onDispose { sampler.close() } }
     val report by rememberUpdatedState(onHistogram)
     LaunchedEffect(state.selected?.key) { report(null) }
-    LaunchedEffect(state.selected?.key, state.mode, showCropOverlay) { zoomState.reset() }
     LaunchedEffect(
         state.selected?.key,
         state.values,
@@ -91,12 +90,14 @@ internal fun PhotoCanvas(
         uncroppedAspect * (crop.right - crop.left).coerceAtLeast(0.001f) /
             (crop.bottom - crop.top).coerceAtLeast(0.001f)
     val aspect = state.nativeImageSize?.let { it.width.toFloat() / it.height } ?: fallbackAspect
-    var adoptedSize by remember(state.selected?.key) { mutableStateOf<NativeImageSize?>(null) }
+    val adopted = zoomState.frameFor(state.selected?.key)
     val fallbackDims = if (fallbackAspect >= 1f) 2048 to (2048f / fallbackAspect).roundToInt().coerceAtLeast(1)
         else (2048f * fallbackAspect).roundToInt().coerceAtLeast(1) to 2048
-    val imageDims = adoptedSize?.let { it.width to it.height } ?: fallbackDims
-    val nativeReady = adoptedSize != null && adoptedSize == state.nativeImageSize
-    val currentImageDims by rememberUpdatedState(imageDims)
+    val imageDims = adopted?.let { it.width to it.height } ?: fallbackDims
+    val nativeReady = adopted != null &&
+        NativeImageSize(adopted.width, adopted.height) == state.nativeImageSize
+    val currentPhotoKey by rememberUpdatedState(state.selected?.key)
+    val presentedCrop = remember(state.document, state.cropToolActive) { state.presentedCropRect() }
     val currentFallbackDims by rememberUpdatedState(fallbackDims)
     val currentMode by rememberUpdatedState(state.mode)
 
@@ -109,7 +110,9 @@ internal fun PhotoCanvas(
                     zoomState = zoomState,
                     // Read live: a gesture frame between adoption and the next recomposition
                     // must already carry the adopted size, or the zoom rebases onto the old one.
-                    imageDimensions = { adoptedSize?.let { it.width to it.height } ?: currentFallbackDims },
+                    imageDimensions = {
+                        zoomState.frameFor(currentPhotoKey)?.let { it.width to it.height } ?: currentFallbackDims
+                    },
                     allowSwipePaging = currentMode == PhotoMode.Preview,
                     onSwipePage = { delta -> model.openAdjacent(delta) },
                 )
@@ -121,28 +124,20 @@ internal fun PhotoCanvas(
         // Whole pixels, the same viewport the gesture loop reads from its node size.
         val viewportPxW = constraints.maxWidth.toFloat().coerceAtLeast(1f)
         val viewportPxH = constraints.maxHeight.toFloat().coerceAtLeast(1f)
-        LaunchedEffect(state.nativeImageSize, state.selected?.key) {
-            val size = state.nativeImageSize ?: return@LaunchedEffect
-            if (adoptedSize == null) zoomState.adoptNativeDimensions(fallbackDims.first, fallbackDims.second,
-                size.width, size.height, viewportPxW, viewportPxH)
-            else if (adoptedSize != size) zoomState.reset()
-            adoptedSize = size
-        }
+        CanvasZoomContinuity(zoomState, CanvasZoomScope(state.selected?.key, state.mode, showCropOverlay),
+            state.nativeImageSize, presentedCrop, fallbackDims, viewportPxW, viewportPxH)
         LaunchedEffect(state.selected?.key, state.mode, state.document, state.comparingBefore,
             state.nativeSurfaceRevision,
-            state.values.isEmpty(), adoptedSize, state.nativeImageSize, showCropOverlay,
+            state.values.isEmpty(), adopted, state.nativeImageSize, showCropOverlay,
             zoomState.pixelScale, zoomState.panX, zoomState.panY, viewportPxW, viewportPxH) {
             if (!zoomState.isZoomed || showCropOverlay || zoomState.pixelScale < 1f) {
                 model.requestNativeDetail(null)
             } else if (!nativeReady) {
                 model.prepareNativeDimensions()
             } else {
-                model.requestNativeDetail(nativeViewportRegion(adoptedSize!!, viewportPxW, viewportPxH,
+                model.requestNativeDetail(nativeViewportRegion(state.nativeImageSize!!, viewportPxW, viewportPxH,
                     zoomState.pixelScale, zoomState.panX, zoomState.panY))
             }
-        }
-        LaunchedEffect(viewportPxW, viewportPxH, currentImageDims) {
-            zoomState.reclamp(currentImageDims.first, currentImageDims.second, viewportPxW, viewportPxH)
         }
         DisposableEffect(model) { onDispose { model.cancelNativeDetail() } }
         val zoomFactor =

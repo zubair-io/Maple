@@ -2,9 +2,6 @@ package app.justmaple.aperture.ui
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.awaitEachGesture
-import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.foundation.gestures.calculatePan
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.padding
@@ -15,14 +12,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.pointer.PointerInputScope
-import androidx.compose.ui.input.pointer.positionChanged
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -33,7 +27,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import app.justmaple.aperture.data.NativeBridge
+import app.justmaple.aperture.data.NativeImageSize
 import app.justmaple.aperture.generated.CanvasZoomAbi.OP_ADOPT_IMAGE
 import app.justmaple.aperture.generated.CanvasZoomAbi.OP_ADVANCE_STOP
 import app.justmaple.aperture.generated.CanvasZoomAbi.OP_DOUBLE_TAP
@@ -44,19 +38,19 @@ import app.justmaple.aperture.generated.CanvasZoomAbi.OP_PINCH_ENDED
 import app.justmaple.aperture.generated.CanvasZoomAbi.OP_REBASE_DRAG
 import app.justmaple.aperture.generated.CanvasZoomAbi.OP_REBASE_PINCH
 import app.justmaple.aperture.generated.CanvasZoomAbi.OP_RECLAMP
+import app.justmaple.aperture.generated.CanvasZoomAbi.OP_REFRAME_IMAGE
+import app.justmaple.aperture.generated.CanvasZoomAbi.OP_SETTLE
 import app.justmaple.aperture.generated.CanvasZoomAbi.QUERY_EFFECTIVE_SCALE
 import app.justmaple.aperture.generated.CanvasZoomAbi.QUERY_FIT_SCALE
 import app.justmaple.aperture.generated.CanvasZoomAbi.QUERY_NEXT_STOP
 import app.justmaple.aperture.generated.CanvasZoomAbi.STATE_LEN
 import app.justmaple.aperture.generated.CanvasZoomAbi.STOP_ACTUAL_SIZE
 import app.justmaple.aperture.generated.CanvasZoomAbi.STOP_FILL
-import kotlin.math.abs
-import kotlin.math.max
 import kotlin.math.roundToInt
 
 /**
  * Zoom & pan state for the Android Preview and Editor canvases. The rules are the shared
- * `raw_core::canvas::CanvasZoomModel` (#5714), reached through [NativeBridge.canvasZoom]: this
+ * `raw_core::canvas::CanvasZoomModel` (#5714), reached through [CanvasZoomNative]: this
  * class owns the model as a plain `DoubleArray`, hands it to each transition, and mirrors the
  * scale and pan into Compose state. Canvas units are Compose pixels.
  * - [pixelScale] == 0f means Fit; 1.0f means 100% (one image pixel per screen pixel); max 8.0f.
@@ -66,7 +60,9 @@ import kotlin.math.roundToInt
  *   so lifting one finger slightly before the other never jumps the canvas.
  */
 @Stable
-class CanvasZoomState {
+class CanvasZoomState internal constructor(private val native: CanvasZoomNative) {
+    constructor() : this(JniCanvasZoom)
+
     private val model = DoubleArray(STATE_LEN)
 
     var pixelScale by mutableFloatStateOf(0f)
@@ -81,6 +77,11 @@ class CanvasZoomState {
     private var pinchEndedAtMs: Long? = null
     private var anchorX = 0f
     private var anchorY = 0f
+
+    internal var scope: CanvasZoomScope? = null
+        private set
+
+    private var frame by mutableStateOf<CanvasZoomFrame?>(null)
 
     val isZoomed: Boolean
         get() = pixelScale > 0f
@@ -248,6 +249,64 @@ class CanvasZoomState {
         transition(OP_ADVANCE_STOP, imageWidth, imageHeight, viewportWidth, viewportHeight)
     }
 
+    /**
+     * The canvas now shows [next]. Only a different photo, mode or crop tool returns to fit: a new
+     * canvas instance for a rotation or fold posture keeps the zoom (#5748).
+     */
+    internal fun enterScope(next: CanvasZoomScope) {
+        if (next == scope) return
+        if (next.photoKey != scope?.photoKey) frame = null
+        reset()
+        scope = next
+    }
+
+    /** The extent the zoom is expressed in for [photoKey], once its original's size is known. */
+    internal fun frameFor(photoKey: String?): CanvasZoomFrame? = frame?.takeIf { it.photoKey == photoKey }
+
+    /**
+     * The original of [photoKey] measures [size] under [crop]. The first size replaces the
+     * placeholder the zoom started on; a later one (a crop or straighten applied or undone) keeps
+     * the image point at the viewport centre there, instead of returning to fit (#5748).
+     */
+    internal fun adoptImage(photoKey: String?, size: NativeImageSize, crop: CropRect,
+        placeholderWidth: Int, placeholderHeight: Int, viewportWidth: Float, viewportHeight: Float) {
+        val previous = frameFor(photoKey)
+        val next = CanvasZoomFrame(photoKey, size.width, size.height, crop)
+        if (previous == next) return
+        if (previous == null) {
+            adoptNativeDimensions(placeholderWidth, placeholderHeight, size.width, size.height,
+                viewportWidth, viewportHeight)
+        } else {
+            val (x, y, width, height) = previous.extentOf(crop)
+            transition(OP_REFRAME_IMAGE, size.width, size.height, viewportWidth, viewportHeight,
+                x, y, width, height)
+        }
+        frame = next
+    }
+
+    /**
+     * Ends whatever a cancelled gesture left live (its canvas left the screen, or the activity was
+     * recreated mid-pinch), so the gesture starting now continues from what is on screen.
+     */
+    internal fun settle(imageWidth: Int, imageHeight: Int, viewportWidth: Float, viewportHeight: Float) {
+        transition(OP_SETTLE, imageWidth, imageHeight, viewportWidth, viewportHeight)
+    }
+
+    internal val anchor: Pair<Float, Float>
+        get() = anchorX to anchorY
+
+    internal fun slots(): DoubleArray = model.copyOf()
+
+    internal fun restore(slots: DoubleArray, anchorX: Float, anchorY: Float,
+        scope: CanvasZoomScope?, frame: CanvasZoomFrame?) {
+        if (slots.size == STATE_LEN) slots.copyInto(model)
+        this.anchorX = anchorX
+        this.anchorY = anchorY
+        this.scope = scope
+        this.frame = frame
+        publish()
+    }
+
     /** Re-resolves against a new viewport: fill keeps covering it and the pan stays legal. */
     fun reclamp(imageWidth: Int, imageHeight: Int, viewportWidth: Float, viewportHeight: Float) {
         if (isZoomed) transition(OP_RECLAMP, imageWidth, imageHeight, viewportWidth, viewportHeight)
@@ -274,7 +333,7 @@ class CanvasZoomState {
         c: Double = 0.0,
         d: Double = 0.0,
     ): Int {
-        val result = NativeBridge.canvasZoom(model, op, a, b, c, d, viewportWidth.toDouble(),
+        val result = native.transition(model, op, a, b, c, d, viewportWidth.toDouble(),
             viewportHeight.toDouble(), imageWidth.toDouble(), imageHeight.toDouble())
         publish()
         return result
@@ -287,7 +346,7 @@ class CanvasZoomState {
         viewportWidth: Float,
         viewportHeight: Float,
     ): Double =
-        NativeBridge.canvasZoomQuery(model, which, viewportWidth.toDouble(),
+        native.query(model, which, viewportWidth.toDouble(),
             viewportHeight.toDouble(), imageWidth.toDouble(), imageHeight.toDouble())
 
     private fun publish() {
@@ -303,9 +362,6 @@ class CanvasZoomState {
         const val SWIPE_PAGE_THRESHOLD_PX = 96f
     }
 }
-
-@Composable
-fun rememberCanvasZoomState(): CanvasZoomState = remember { CanvasZoomState() }
 
 @Composable
 internal fun CanvasZoomBadge(
@@ -347,152 +403,6 @@ internal fun CanvasZoomBadge(
                 fontWeight = FontWeight.Medium,
                 fontFamily = FontFamily.Monospace,
             )
-        }
-    }
-}
-
-internal suspend fun PointerInputScope.detectCanvasZoomPanAndSwipe(
-    zoomState: CanvasZoomState,
-    imageDimensions: () -> Pair<Int, Int>,
-    allowSwipePaging: Boolean,
-    onSwipePage: (Int) -> Unit,
-    clockMs: () -> Long = System::currentTimeMillis,
-) {
-    var lastTapTimeMs = -1L
-    var lastTapPos = Offset.Zero
-    awaitEachGesture {
-        val down = awaitFirstDown(requireUnconsumed = false)
-        var consumedByChild = down.isConsumed
-        val downTimeMs = clockMs()
-        val downPos = down.position
-        var pinch: PinchTracker? = null
-        var pinchResets = zoomState.resets
-        var gestureWasMultiTouch = false
-        var dragX = 0f
-        var dragY = 0f
-        var totalSingleDragX = 0f
-        var totalSingleDragY = 0f
-        var maxMovement = 0f
-
-        do {
-            val event = awaitPointerEvent()
-            if (event.changes.any { it.isConsumed }) {
-                consumedByChild = true
-            }
-            val pressed = event.changes.filter { it.pressed }
-            val viewportW = size.width.toFloat().coerceAtLeast(1f)
-            val viewportH = size.height.toFloat().coerceAtLeast(1f)
-            val (imgW, imgH) = imageDimensions()
-
-            if (pressed.size >= 2) {
-                if (pinchResets != zoomState.resets) pinch = null
-                val tracker =
-                    pinch?.also { tracker ->
-                        val fingers =
-                            event.changes.map {
-                                PinchFinger(
-                                    previous = if (it.previousPressed) it.previousPosition else null,
-                                    current = if (it.pressed) it.position else null,
-                                )
-                            }
-                        tracker.advance(fingers)?.let { regrouped ->
-                            zoomState.rebasePinch(regrouped.x, regrouped.y, imgW, imgH, viewportW, viewportH)
-                        }
-                    } ?: PinchTracker(pressed.map { it.position }).also {
-                        zoomState.dragEnded()
-                        pinch = it
-                        pinchResets = zoomState.resets
-                    }
-                gestureWasMultiTouch = true
-                zoomState.pinchChanged(
-                    magnification = tracker.magnification,
-                    centroidX = tracker.centroid.x,
-                    centroidY = tracker.centroid.y,
-                    imageWidth = imgW,
-                    imageHeight = imgH,
-                    viewportWidth = viewportW,
-                    viewportHeight = viewportH,
-                )
-                event.changes.forEach { if (it.positionChanged()) it.consume() }
-            } else if (pressed.size == 1 && !consumedByChild) {
-                pinch?.let {
-                    pinch = null
-                    zoomState.pinchEnded(it.magnification, clockMs(), imgW, imgH, viewportW, viewportH)
-                    dragX = 0f
-                    dragY = 0f
-                }
-                val panChange = event.calculatePan()
-                maxMovement = max(maxMovement, (pressed.first().position - downPos).getDistance())
-                if (panChange != Offset.Zero) {
-                    if (zoomState.isZoomed) {
-                        dragX += panChange.x
-                        dragY += panChange.y
-                        val panned =
-                            zoomState.dragChanged(
-                                translationX = dragX,
-                                translationY = dragY,
-                                imageWidth = imgW,
-                                imageHeight = imgH,
-                                viewportWidth = viewportW,
-                                viewportHeight = viewportH,
-                                nowMs = clockMs(),
-                            )
-                        if (panned) {
-                            event.changes.forEach { if (it.positionChanged()) it.consume() }
-                        }
-                    } else if (allowSwipePaging && !zoomState.isInPinchCooldown(clockMs())) {
-                        totalSingleDragX += panChange.x
-                        totalSingleDragY += panChange.y
-                        if (
-                            abs(totalSingleDragX) > abs(totalSingleDragY) * 1.25f &&
-                                abs(totalSingleDragX) > 16f
-                        ) {
-                            event.changes.forEach { if (it.positionChanged()) it.consume() }
-                        }
-                    }
-                }
-            }
-        } while (event.changes.any { it.pressed })
-
-        val upTimeMs = clockMs()
-        pinch?.let {
-            val (imgW, imgH) = imageDimensions()
-            zoomState.pinchEnded(it.magnification, upTimeMs, imgW, imgH,
-                size.width.toFloat().coerceAtLeast(1f), size.height.toFloat().coerceAtLeast(1f))
-        }
-        zoomState.dragEnded()
-        if (gestureWasMultiTouch) {
-            lastTapTimeMs = -1L
-        } else if (consumedByChild) {
-            lastTapTimeMs = -1L
-        } else if (
-            allowSwipePaging &&
-                !zoomState.isZoomed &&
-                abs(totalSingleDragX) >= CanvasZoomState.SWIPE_PAGE_THRESHOLD_PX &&
-                abs(totalSingleDragX) > abs(totalSingleDragY) * 1.25f
-        ) {
-            // Swipe left (negative X) advances to next photo (+1); swipe right goes to previous (-1)
-            onSwipePage(if (totalSingleDragX < 0f) 1 else -1)
-        } else if (maxMovement <= CanvasZoomState.DOUBLE_TAP_SLOP_PX && upTimeMs - downTimeMs <= 250L) {
-            if (
-                lastTapTimeMs >= 0L &&
-                    upTimeMs - lastTapTimeMs <= CanvasZoomState.DOUBLE_TAP_TIMEOUT_MS &&
-                    (downPos - lastTapPos).getDistance() <= CanvasZoomState.DOUBLE_TAP_SLOP_PX * 1.5f
-            ) {
-                val (imgW, imgH) = imageDimensions()
-                zoomState.doubleTap(
-                    tapX = downPos.x,
-                    tapY = downPos.y,
-                    imageWidth = imgW,
-                    imageHeight = imgH,
-                    viewportWidth = size.width.toFloat().coerceAtLeast(1f),
-                    viewportHeight = size.height.toFloat().coerceAtLeast(1f),
-                )
-                lastTapTimeMs = -1L
-            } else {
-                lastTapTimeMs = upTimeMs
-                lastTapPos = downPos
-            }
         }
     }
 }

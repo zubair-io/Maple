@@ -18,6 +18,8 @@ pub(crate) const OP_ADVANCE_STOP: u32 = 6;
 pub(crate) const OP_RECLAMP: u32 = 7;
 pub(crate) const OP_ADOPT_IMAGE: u32 = 8;
 pub(crate) const OP_REBASE_PINCH: u32 = 9;
+pub(crate) const OP_REFRAME_IMAGE: u32 = 10;
+pub(crate) const OP_SETTLE: u32 = 11;
 
 pub(crate) const QUERY_EFFECTIVE_SCALE: u32 = 0;
 pub(crate) const QUERY_FIT_SCALE: u32 = 1;

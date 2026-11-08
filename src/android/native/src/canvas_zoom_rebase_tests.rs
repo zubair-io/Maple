@@ -300,6 +300,25 @@ fn adopting_the_original_rebases_every_live_gesture() {
 }
 
 #[test]
+fn reframing_the_image_rebases_every_live_gesture() {
+    let cropped = Layout {
+        image: (3200.0, 2400.0),
+        ..START
+    };
+    for name in GESTURES {
+        let (mut state, frame) = live_gesture(name, IMAGE);
+        send(
+            &mut state,
+            OP_REFRAME_IMAGE,
+            [400.0, 300.0, cropped.image.0, cropped.image.1],
+            cropped,
+        );
+        let label = format!("{name}, image reframed");
+        assert_identical_frame_changes_nothing(state, frame, cropped, &label);
+    }
+}
+
+#[test]
 fn a_finger_set_change_rebases_every_live_pinch_about_the_new_centroid() {
     for name in GESTURES
         .into_iter()

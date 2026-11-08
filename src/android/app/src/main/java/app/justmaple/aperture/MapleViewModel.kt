@@ -692,9 +692,9 @@ internal constructor(
         mutable.update { current ->
             val nextDoc =
                 updates.entries.fold(current.document) { doc, (k, v) -> doc.withAttribute(k, v) }
-            current.copy(document = nextDoc, comparingBefore = false, dirty = true)
+            current.copy(document = nextDoc, nativeImageSize = nativeProjection(nextDoc,
+                current.nativeSourceSize), comparingBefore = false, dirty = true)
         }
-        mutable.update { it.copy(nativeImageSize = nativeProjection(it.document)) }
         if (editing && commit) commitGesture()
         scheduleSave()
         if (state.value.mode == PhotoMode.Edit) {
