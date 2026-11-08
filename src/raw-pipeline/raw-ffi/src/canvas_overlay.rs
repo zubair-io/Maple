@@ -8,7 +8,7 @@ use crate::canvas_math::{MapleCanvasPoint, MapleCanvasSize};
 use crate::error::{catch_panic, catch_panic_rc, set_last_error};
 use raw_core::canvas::{
     crop_handle_centers, crop_overlay, rasterize_overlay, CanvasOverlay, CropOverlayInput,
-    RasterizeError,
+    RasterizeError, CROP_OVERLAY_OVERSCAN,
 };
 
 /// Everything the crop overlay depends on: the crop, the viewport in points,
@@ -80,6 +80,14 @@ pub unsafe extern "C" fn maple_canvas_crop_overlay_rasterize(
             }
         },
     )
+}
+
+/// Points the crop overlay surface extends past the viewport on every side.
+/// The host sizes the surface to the viewport plus twice this per axis and
+/// places it this far above and left of the viewport.
+#[no_mangle]
+pub extern "C" fn maple_canvas_crop_overlay_overscan() -> f64 {
+    CROP_OVERLAY_OVERSCAN
 }
 
 /// The centre, in viewport points, of the corner or edge handle `handle`

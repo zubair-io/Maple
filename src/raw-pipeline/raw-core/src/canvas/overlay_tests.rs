@@ -45,9 +45,10 @@ fn mask_is_bounded_to_the_footprint_in_surface_pixels() {
     let mask = overlay.active()[0];
     // 6000×4000 into 400×300 points fits at 400×266.67, centred, ×2 px/pt.
     let expected_height = 4000.0 * (400.0 / 6000.0) * 2.0;
-    let expected_top = (600.0 - expected_height) / 2.0;
-    assert_eq!(mask.clip[0], 0.0);
-    assert_eq!(mask.clip[2], 800.0);
+    let margin = CROP_OVERLAY_OVERSCAN * 2.0;
+    let expected_top = margin + (600.0 - expected_height) / 2.0;
+    assert_eq!(f64::from(mask.clip[0]), margin);
+    assert_eq!(f64::from(mask.clip[2]), margin + 800.0);
     assert!((mask.clip[1] - expected_top as f32).abs() < 1e-3);
     assert!((mask.clip[3] - (expected_top + expected_height) as f32).abs() < 1e-3);
     assert_eq!(mask.rect, mask.clip, "a full-frame crop dims nothing");
@@ -195,7 +196,11 @@ fn rasterizer_rejects_short_buffers() {
 fn pixels_read_as_dim_frame_and_clear() {
     let overlay = crop_overlay(input(inset_crop(), None));
     let mask = overlay.active()[0];
-    let outside_crop = overlay_pixel(&overlay, 2, (mask.clip[1] + 4.0) as u32);
+    let outside_crop = overlay_pixel(
+        &overlay,
+        (mask.clip[0] + 2.0) as u32,
+        (mask.clip[1] + 4.0) as u32,
+    );
     assert_eq!(outside_crop.map(unorm8), [0, 0, 0, unorm8(CROP_MASK_ALPHA)]);
     let inside = overlay_pixel(
         &overlay,
@@ -225,4 +230,35 @@ fn non_finite_geometry_rasterizes_without_panicking() {
     let mut out = vec![0_u8; 64 * 64 * 4];
     rasterize_overlay(&overlay, 64, 64, 256, &mut out).unwrap();
     assert!(out == reference_bytes(&overlay, 64, 64));
+}
+
+#[test]
+fn full_frame_fit_draws_every_dot_and_stroke_inside_the_surface() {
+    let scale = 2.0;
+    let overlay = crop_overlay(input(CropEdges::default(), None));
+    let width = ((400.0 + 2.0 * CROP_OVERLAY_OVERSCAN) * scale).round() as u32;
+    let height = ((300.0 + 2.0 * CROP_OVERLAY_OVERSCAN) * scale).round() as u32;
+    let margin = (CROP_OVERLAY_OVERSCAN * scale) as f32;
+    let dots: Vec<_> = overlay
+        .active()
+        .iter()
+        .filter(|p| p.kind == OVERLAY_KIND_DISC)
+        .collect();
+    assert_eq!(dots.len(), 4);
+    assert!(
+        dots.iter()
+            .all(|d| d.rect[0] == margin || d.rect[0] == width as f32 - margin),
+        "the fitted image fills the viewport's width, so the dots sit on its edges"
+    );
+    for dot in &dots {
+        let reach = dot.rect[2] + 0.5;
+        assert!(dot.rect[0] - reach >= 0.0 && dot.rect[0] + reach <= width as f32);
+        assert!(dot.rect[1] - reach >= 0.0 && dot.rect[1] + reach <= height as f32);
+    }
+    let bytes = reference_bytes(&overlay, width, height);
+    let alpha = |x: u32, y: u32| bytes[((y * width + x) * 4 + 3) as usize];
+    let border = (0..width)
+        .flat_map(|x| [(x, 0), (x, height - 1)])
+        .chain((0..height).flat_map(|y| [(0, y), (width - 1, y)]));
+    assert!(border.into_iter().all(|(x, y)| alpha(x, y) == 0));
 }

@@ -5,6 +5,7 @@
 use super::*;
 use raw_core::canvas::{
     crop_overlay, rasterize_overlay, CanvasOverlay, CropEdges, CropHandle, CropOverlayInput, Size,
+    CROP_OVERLAY_OVERSCAN,
 };
 
 fn params(overlay: &CanvasOverlay) -> OverlayParams {
@@ -69,8 +70,8 @@ fn crop_overlay_gpu_matches_cpu_rasterizer_within_one_step() {
     ];
     for (viewport, scale, active) in cases {
         let overlay = crop_overlay(crop_input(viewport, scale, active));
-        let width = (viewport.0 * scale).round() as u32;
-        let height = (viewport.1 * scale).round() as u32;
+        let width = ((viewport.0 + 2.0 * CROP_OVERLAY_OVERSCAN) * scale).round() as u32;
+        let height = ((viewport.1 + 2.0 * CROP_OVERLAY_OVERSCAN) * scale).round() as u32;
         let gpu = render_overlay_offscreen(&ctx, &params(&overlay), width, height).expect("gpu");
         assert_within_one_step(
             &gpu,
@@ -78,6 +79,31 @@ fn crop_overlay_gpu_matches_cpu_rasterizer_within_one_step() {
             &format!("{viewport:?}@{scale} {active:?}"),
         );
     }
+}
+
+#[test]
+fn full_frame_fit_keeps_dots_and_frame_off_the_drawable_edge() {
+    let ctx = GpuContext::new_blocking().expect("gpu context");
+    let (viewport, scale) = ((300.0, 200.0), 2.0);
+    let overlay = crop_overlay(CropOverlayInput {
+        crop: CropEdges::default(),
+        ..crop_input(viewport, scale, None)
+    });
+    let width = ((viewport.0 + 2.0 * CROP_OVERLAY_OVERSCAN) * scale).round() as u32;
+    let height = ((viewport.1 + 2.0 * CROP_OVERLAY_OVERSCAN) * scale).round() as u32;
+    let gpu = render_overlay_offscreen(&ctx, &params(&overlay), width, height).expect("gpu");
+    assert_within_one_step(&gpu, &cpu(&overlay, width, height), "full frame");
+    let alpha = |x: u32, y: u32| gpu[((y * width + x) * 4 + 3) as usize];
+    let border = (0..width)
+        .flat_map(|x| [(x, 0), (x, height - 1)])
+        .chain((0..height).flat_map(|y| [(0, y), (width - 1, y)]));
+    assert!(border.into_iter().all(|(x, y)| alpha(x, y) == 0));
+    let margin = (CROP_OVERLAY_OVERSCAN * scale) as u32;
+    assert_eq!(
+        alpha(margin, margin),
+        255,
+        "the top-left dot is drawn whole"
+    );
 }
 
 #[test]

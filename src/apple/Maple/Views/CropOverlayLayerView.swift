@@ -3,7 +3,8 @@
 // The overlay is drawn by the shared Rust renderer, not SwiftUI: wgpu into a
 // dedicated, transparent `CAMetalLayer` when the GPU path is available, the
 // Rust CPU rasterizer into a plain layer's contents otherwise (or after a GPU
-// failure). The layer sits upright above the straighten-rotated canvas and is
+// failure). The layer sits upright above the straighten-rotated canvas,
+// overscanning the view by `CropOverlayInput.overscan` on every side, and is
 // redrawn only when the overlay input changes; it never touches the develop
 // chain.
 //
@@ -52,11 +53,12 @@ final class CropOverlayLayerController {
   }
 
   func layout(bounds: CGRect, scale: CGFloat) {
+    let surface = bounds.insetBy(dx: -CropOverlayInput.overscan, dy: -CropOverlayInput.overscan)
     CATransaction.begin()
     CATransaction.setDisableActions(true)
-    metalLayer.frame = bounds
+    metalLayer.frame = surface
     metalLayer.contentsScale = scale
-    cpuLayer.frame = bounds
+    cpuLayer.frame = surface
     cpuLayer.contentsScale = scale
     CATransaction.commit()
   }
@@ -177,6 +179,7 @@ private struct RedrawTarget: @unchecked Sendable {
         self.controller = controller
         super.init(frame: .zero)
         wantsLayer = true
+        clipsToBounds = false
         layer?.addSublayer(controller.cpuLayer)
         layer?.addSublayer(controller.metalLayer)
       }
@@ -214,6 +217,7 @@ private struct RedrawTarget: @unchecked Sendable {
         self.controller = controller
         super.init(frame: .zero)
         isUserInteractionEnabled = false
+        clipsToBounds = false
         layer.addSublayer(controller.cpuLayer)
         layer.addSublayer(controller.metalLayer)
       }
