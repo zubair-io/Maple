@@ -34,16 +34,20 @@ impl CanvasZoomModel {
         }
         let Some(start) = self.pinch_start_scale else {
             let tracked = Self {
-                pinch_start_scale: Some(1.0),
                 pinch_last_magnification: magnification,
                 pinch_last_centroid: location,
                 ..self
             };
-            return tracked.recaptured_pinch(
+            let captured = tracked.recaptured_pinch(
                 context.effective_scale(self.pixel_scale),
                 self.pan_offset,
                 context,
             );
+            return if captured.pinch_start_scale.is_some() {
+                captured
+            } else {
+                self
+            };
         };
         let next = pinch_scale(
             start,

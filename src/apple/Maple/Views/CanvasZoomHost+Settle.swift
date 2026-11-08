@@ -56,6 +56,10 @@ extension CanvasZoomHost {
   /// command, a wheel pan): head there from what is on screen.
   func retargetSettle(to settled: CanvasShownFrame) {
     guard let running = settle, running.to != settled else { return }
+    guard !dragInProgress else {
+      settle = nil
+      return
+    }
     startSettle(CanvasSettleAnimation(from: running.shown(at: Date()), to: settled, start: Date()))
   }
 
@@ -72,11 +76,16 @@ extension CanvasZoomHost {
   /// A deliberate zoom (a command, double-tap, the badge, the wheel landing
   /// on fit) animates from what is on screen — mid-animation from the frame
   /// it shows — to the new resting frame (#5741, #5742). The fingers own a
-  /// live pinch, which continues from the command's result instead.
+  /// live pinch or drag, which continues from the command's result instead:
+  /// an animation would be held, and so undone, by the next finger frame.
   func animateCommand(_ move: CanvasCommandedMove?) {
     guard let move else { return }
     guard !isPinching else {
       refreshLivePinch()
+      return
+    }
+    guard !dragInProgress else {
+      settle = nil
       return
     }
     guard canvasReady else { return }
