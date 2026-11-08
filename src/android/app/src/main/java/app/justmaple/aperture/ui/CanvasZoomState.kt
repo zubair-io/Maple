@@ -135,8 +135,13 @@ class CanvasZoomState {
             else -> "Zoom to Fit"
         }
 
+    /** How many times [reset] ran, so a gesture in progress can restart from the reset state. */
+    internal var resets = 0
+        private set
+
     /** Fit: the shared model's fit state is all zeros (`CanvasZoomModel::default`). */
     fun reset() {
+        resets += 1
         model.fill(0.0)
         pinchEndedAtMs = null
         publish()
@@ -360,6 +365,7 @@ internal suspend fun PointerInputScope.detectCanvasZoomPanAndSwipe(
         val downTimeMs = clockMs()
         val downPos = down.position
         var pinch: PinchTracker? = null
+        var pinchResets = zoomState.resets
         var gestureWasMultiTouch = false
         var dragX = 0f
         var dragY = 0f
@@ -378,6 +384,7 @@ internal suspend fun PointerInputScope.detectCanvasZoomPanAndSwipe(
             val (imgW, imgH) = imageDimensions()
 
             if (pressed.size >= 2) {
+                if (pinchResets != zoomState.resets) pinch = null
                 val tracker =
                     pinch?.also { tracker ->
                         val fingers =
@@ -393,6 +400,7 @@ internal suspend fun PointerInputScope.detectCanvasZoomPanAndSwipe(
                     } ?: PinchTracker(pressed.map { it.position }).also {
                         zoomState.dragEnded()
                         pinch = it
+                        pinchResets = zoomState.resets
                     }
                 gestureWasMultiTouch = true
                 zoomState.pinchChanged(

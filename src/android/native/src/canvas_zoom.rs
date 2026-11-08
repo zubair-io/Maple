@@ -141,7 +141,7 @@ fn apply(
             &context,
         ),
         OP_ADVANCE_STOP => model.advance_stop(&context),
-        OP_RECLAMP => recapture_live_gesture(model.reclamp_pan(&context), live, &context),
+        OP_RECLAMP => model.reclamp_pan(&context),
         OP_ADOPT_IMAGE => {
             let previous = Geometry {
                 image: Size::new(a, b),
@@ -248,7 +248,12 @@ pub unsafe extern "C" fn maple_android_canvas_zoom_query(
     // SAFETY: non-null, and the caller guarantees STATE_LEN readable f64s.
     let slots = unsafe { &*state.cast::<[f64; STATE_LEN]>() };
     let geometry = Geometry::new(viewport_width, viewport_height, image_width, image_height);
-    crate::guarded(f64::NAN, || Ok(query(decode(slots), which, geometry)))
+    crate::guarded(f64::NAN, || {
+        let live = LiveGesture::read(slots);
+        let stored = Geometry::read(slots);
+        let model = rebased_for_geometry(decode(slots), OP_RECLAMP, live, stored, geometry);
+        Ok(query(model, which, geometry))
+    })
 }
 
 #[cfg(test)]

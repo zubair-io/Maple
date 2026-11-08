@@ -134,6 +134,10 @@ fn live_gesture(name: &str, image: (f64, f64)) -> ([f64; STATE_LEN], Frame) {
             &mut state,
             &[pinch(1.0, (500.0, 375.0)), pinch(0.01, (500.0, 375.0))],
         ),
+        "free pinch just above fit" => frames(
+            &mut state,
+            &[pinch(1.0, (500.0, 375.0)), pinch(1.1, (520.0, 380.0))],
+        ),
         "free drag" => {
             at_actual_size(&mut state);
             frames(&mut state, &[drag(100.0, 50.0), drag(300.0, 100.0)])
@@ -152,17 +156,29 @@ fn live_gesture(name: &str, image: (f64, f64)) -> ([f64; STATE_LEN], Frame) {
     (state, frame)
 }
 
-const GESTURES: [&str; 7] = [
+const GESTURES: [&str; 8] = [
     "pinch at 100%",
     "pinch off-centre",
     "pinch at the cap",
     "pinch at the floor",
+    "free pinch just above fit",
     "free drag",
     "drag at the limit",
     "drag rebased after a pinch",
 ];
 
-const LAYOUT_CHANGES: [Layout; 4] = [
+/// Besides plain resizes: a viewport whose larger floor lifts a pinch held at
+/// the old floor, and one whose fit moves within snapping range of a free
+/// pinch scale.
+const LAYOUT_CHANGES: [Layout; 6] = [
+    Layout {
+        viewport: (2400.0, 1800.0),
+        image: IMAGE,
+    },
+    Layout {
+        viewport: (1080.0, 810.0),
+        image: IMAGE,
+    },
     Layout {
         viewport: (1200.0, 750.0),
         image: IMAGE,
@@ -315,4 +331,27 @@ fn a_third_finger_moves_the_pinch_pivot_to_the_true_centroid() {
         START,
     );
     assert_eq!(decode(&state).pan_offset, Size::new(-100.0, 0.0));
+}
+
+#[test]
+fn a_query_under_new_geometry_reads_the_rebased_zoom() {
+    let panorama = Layout {
+        image: (2000.0, 1000.0),
+        ..START
+    };
+    let mut state = [0.0; STATE_LEN];
+    send(&mut state, OP_ADVANCE_STOP, [0.0; 4], panorama);
+    assert!(decode(&state).fills_viewport);
+    // SAFETY: `state` is a live STATE_LEN array.
+    let scale = unsafe {
+        maple_android_canvas_zoom_query(
+            state.as_ptr(),
+            QUERY_EFFECTIVE_SCALE,
+            1000.0,
+            900.0,
+            panorama.image.0,
+            panorama.image.1,
+        )
+    };
+    assert_eq!(scale, 0.9, "fill re-resolves for the taller viewport");
 }
