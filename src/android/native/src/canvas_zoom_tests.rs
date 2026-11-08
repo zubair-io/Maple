@@ -2,7 +2,12 @@ use super::*;
 
 const VIEWPORT: (f64, f64) = (1000.0, 750.0);
 
-fn zoom(state: &mut [f64; STATE_LEN], op: u32, args: [f64; 4], image: (f64, f64)) -> i32 {
+pub(super) fn zoom(
+    state: &mut [f64; STATE_LEN],
+    op: u32,
+    args: [f64; 4],
+    image: (f64, f64),
+) -> i32 {
     let [a, b, c, d] = args;
     // SAFETY: `state` is a live, exclusively borrowed STATE_LEN array.
     unsafe {
@@ -21,7 +26,7 @@ fn zoom(state: &mut [f64; STATE_LEN], op: u32, args: [f64; 4], image: (f64, f64)
     }
 }
 
-fn read(state: &[f64; STATE_LEN], which: u32, image: (f64, f64)) -> f64 {
+pub(super) fn read(state: &[f64; STATE_LEN], which: u32, image: (f64, f64)) -> f64 {
     // SAFETY: `state` is a live STATE_LEN array.
     unsafe {
         maple_android_canvas_zoom_query(
@@ -178,74 +183,6 @@ fn badge_cycles_fit_fill_and_100_percent() {
 }
 
 #[test]
-fn delayed_original_keeps_a_one_to_one_double_tap_and_its_anchor() {
-    let placeholder = (2048.0, 1365.0);
-    let original = (6000.0, 4000.0);
-    let mut state = [0.0; STATE_LEN];
-    zoom(
-        &mut state,
-        OP_DOUBLE_TAP,
-        [750.0, 375.0, 0.0, 0.0],
-        placeholder,
-    );
-    zoom(
-        &mut state,
-        OP_ADOPT_IMAGE,
-        [placeholder.0, placeholder.1, 750.0, 375.0],
-        original,
-    );
-    let model = decode(&state);
-    assert_eq!(model.pixel_scale, 1.0);
-    assert!((model.pan_offset.width + 1250.0).abs() < 1e-9);
-    let source_x = (750.0 - 500.0 - model.pan_offset.width) / model.pixel_scale + 3000.0;
-    assert!(
-        (source_x - 4500.0).abs() < 1e-9,
-        "the tapped point stays under the tap"
-    );
-}
-
-#[test]
-fn delayed_original_keeps_a_free_pinch_relative_to_fit() {
-    let placeholder = (2048.0, 1365.0);
-    let original = (6000.0, 4000.0);
-    let mut state = [0.0; STATE_LEN];
-    zoom(
-        &mut state,
-        OP_PINCH_CHANGED,
-        [2.0, 750.0, 375.0, 0.0],
-        placeholder,
-    );
-    zoom(
-        &mut state,
-        OP_PINCH_ENDED,
-        [2.0, 0.0, 0.0, 0.0],
-        placeholder,
-    );
-    zoom(
-        &mut state,
-        OP_ADOPT_IMAGE,
-        [placeholder.0, placeholder.1, 750.0, 375.0],
-        original,
-    );
-    let over_fit =
-        read(&state, QUERY_EFFECTIVE_SCALE, original) / read(&state, QUERY_FIT_SCALE, original);
-    assert!((over_fit - 2.0).abs() < 1e-9);
-    assert!((decode(&state).pan_offset.width + 250.0).abs() < 1e-9);
-}
-
-#[test]
-fn adopting_at_fit_changes_nothing() {
-    let mut state = [0.0; STATE_LEN];
-    zoom(
-        &mut state,
-        OP_ADOPT_IMAGE,
-        [2048.0, 1365.0, 750.0, 375.0],
-        (6000.0, 4000.0),
-    );
-    assert_eq!(state, [0.0; STATE_LEN]);
-}
-
-#[test]
 fn null_state_and_unknown_ops_are_rejected_without_writing() {
     // SAFETY: a null state is the documented rejection case.
     let null = unsafe {
@@ -285,216 +222,6 @@ fn non_finite_geometry_degrades_instead_of_panicking() {
         1
     );
     assert!(read(&state, QUERY_FIT_SCALE, nan).is_finite());
-}
-
-#[test]
-fn adopting_mid_pinch_continues_the_pinch_relative_to_fit() {
-    let placeholder = (2048.0, 1365.0);
-    let original = (6000.0, 4000.0);
-    let mut state = [0.0; STATE_LEN];
-    zoom(
-        &mut state,
-        OP_PINCH_CHANGED,
-        [1.0, 500.0, 375.0, 0.0],
-        placeholder,
-    );
-    zoom(
-        &mut state,
-        OP_PINCH_CHANGED,
-        [1.5, 500.0, 375.0, 0.0],
-        placeholder,
-    );
-    zoom(
-        &mut state,
-        OP_ADOPT_IMAGE,
-        [placeholder.0, placeholder.1, 500.0, 375.0],
-        original,
-    );
-    zoom(
-        &mut state,
-        OP_PINCH_CHANGED,
-        [2.0, 500.0, 375.0, 0.0],
-        original,
-    );
-    let over_fit =
-        read(&state, QUERY_EFFECTIVE_SCALE, original) / read(&state, QUERY_FIT_SCALE, original);
-    assert!((over_fit - 2.0).abs() < 1e-9, "{over_fit}");
-}
-
-#[test]
-fn adopting_mid_pinch_at_100_percent_keeps_the_adopted_zoom_on_the_next_frame() {
-    let placeholder = (2048.0, 1365.0);
-    let original = (6000.0, 4000.0);
-    let centroid = [1.0, 700.0, 300.0, 0.0];
-    let mut state = [0.0; STATE_LEN];
-    zoom(
-        &mut state,
-        OP_DOUBLE_TAP,
-        [750.0, 375.0, 0.0, 0.0],
-        placeholder,
-    );
-    zoom(&mut state, OP_PINCH_CHANGED, centroid, placeholder);
-    zoom(
-        &mut state,
-        OP_ADOPT_IMAGE,
-        [placeholder.0, placeholder.1, 700.0, 300.0],
-        original,
-    );
-    let adopted = decode(&state);
-    assert_eq!(adopted.pixel_scale, 1.0);
-    zoom(&mut state, OP_PINCH_CHANGED, centroid, original);
-    let next_frame = decode(&state);
-    assert!(
-        (next_frame.pixel_scale - 1.0).abs() < 1e-9,
-        "{}",
-        next_frame.pixel_scale
-    );
-    assert!((next_frame.pan_offset.width - adopted.pan_offset.width).abs() < 1e-9);
-    assert!((next_frame.pan_offset.height - adopted.pan_offset.height).abs() < 1e-9);
-    zoom(&mut state, OP_PINCH_ENDED, [1.0, 0.0, 0.0, 0.0], original);
-    assert!((decode(&state).pixel_scale - 1.0).abs() < 1e-9);
-}
-
-/// Pinches at `magnification` on the placeholder, adopts the original, and
-/// returns the adopted scale and the scale of an identical frame after it.
-fn adopt_mid_pinch(start_at_100: bool, magnification: f64) -> (f64, f64) {
-    let placeholder = (2048.0, 1365.0);
-    let original = (6000.0, 4000.0);
-    let mut state = [0.0; STATE_LEN];
-    if start_at_100 {
-        zoom(
-            &mut state,
-            OP_DOUBLE_TAP,
-            [500.0, 375.0, 0.0, 0.0],
-            placeholder,
-        );
-    }
-    zoom(
-        &mut state,
-        OP_PINCH_CHANGED,
-        [1.0, 500.0, 375.0, 0.0],
-        placeholder,
-    );
-    zoom(
-        &mut state,
-        OP_PINCH_CHANGED,
-        [magnification, 500.0, 375.0, 0.0],
-        placeholder,
-    );
-    zoom(
-        &mut state,
-        OP_ADOPT_IMAGE,
-        [placeholder.0, placeholder.1, 500.0, 375.0],
-        original,
-    );
-    let adopted = read(&state, QUERY_EFFECTIVE_SCALE, original);
-    zoom(
-        &mut state,
-        OP_PINCH_CHANGED,
-        [magnification, 500.0, 375.0, 0.0],
-        original,
-    );
-    (adopted, read(&state, QUERY_EFFECTIVE_SCALE, original))
-}
-
-#[test]
-fn adopting_a_pinch_held_at_the_cap_does_not_jump_on_the_next_frame() {
-    let (adopted, next_frame) = adopt_mid_pinch(true, 10.0);
-    let fit_ratio = (1000.0 / 6000.0) / (1000.0 / 2048.0);
-    assert!(
-        (adopted - MAX_PIXEL_SCALE * fit_ratio).abs() < 1e-9,
-        "{adopted}"
-    );
-    assert!(
-        (next_frame - adopted).abs() < 1e-9,
-        "{adopted} → {next_frame}"
-    );
-}
-
-#[test]
-fn adopting_a_pinch_held_at_the_floor_does_not_jump_on_the_next_frame() {
-    let (adopted, next_frame) = adopt_mid_pinch(false, 0.1);
-    let floor = 0.5 * 1000.0 / 6000.0;
-    assert!((adopted - floor).abs() < 1e-9, "{adopted}");
-    assert!(
-        (next_frame - adopted).abs() < 1e-9,
-        "{adopted} → {next_frame}"
-    );
-}
-
-#[test]
-fn the_pinch_magnification_slot_clears_when_the_pinch_ends() {
-    let image = (2000.0, 1000.0);
-    let mut state = [0.0; STATE_LEN];
-    zoom(
-        &mut state,
-        OP_PINCH_CHANGED,
-        [1.0, 500.0, 375.0, 0.0],
-        image,
-    );
-    zoom(
-        &mut state,
-        OP_PINCH_CHANGED,
-        [3.0, 500.0, 375.0, 0.0],
-        image,
-    );
-    assert_eq!(state[PINCH_MAGNIFICATION_SLOT], 3.0);
-    zoom(&mut state, OP_RECLAMP, [0.0; 4], image);
-    assert_eq!(state[PINCH_MAGNIFICATION_SLOT], 3.0);
-    zoom(&mut state, OP_PINCH_ENDED, [3.0, 0.0, 0.0, 0.0], image);
-    assert_eq!(state[PINCH_MAGNIFICATION_SLOT], 0.0);
-}
-
-#[test]
-fn adopting_mid_drag_keeps_the_drag_offset() {
-    let placeholder = (2048.0, 1365.0);
-    let original = (6000.0, 4000.0);
-    let mut state = [0.0; STATE_LEN];
-    zoom(
-        &mut state,
-        OP_DOUBLE_TAP,
-        [500.0, 375.0, 0.0, 0.0],
-        placeholder,
-    );
-    zoom(
-        &mut state,
-        OP_DRAG_CHANGED,
-        [40.0, 30.0, 0.0, 0.0],
-        placeholder,
-    );
-    zoom(
-        &mut state,
-        OP_ADOPT_IMAGE,
-        [placeholder.0, placeholder.1, 500.0, 375.0],
-        original,
-    );
-    let adopted = decode(&state).pan_offset;
-    zoom(
-        &mut state,
-        OP_DRAG_CHANGED,
-        [50.0, 30.0, 0.0, 0.0],
-        original,
-    );
-    assert_eq!(
-        decode(&state).pan_offset,
-        Size::new(adopted.width + 10.0, adopted.height),
-        "the next drag frame moves by its own delta, without a jump"
-    );
-}
-
-#[test]
-fn adopting_at_fill_re_resolves_fill_for_the_new_extent() {
-    let mut state = [0.0; STATE_LEN];
-    zoom(&mut state, OP_ADVANCE_STOP, [0.0; 4], (2000.0, 1000.0));
-    zoom(
-        &mut state,
-        OP_ADOPT_IMAGE,
-        [2000.0, 1000.0, 500.0, 375.0],
-        (6000.0, 4000.0),
-    );
-    assert!(decode(&state).fills_viewport);
-    let fill = read(&state, QUERY_EFFECTIVE_SCALE, (6000.0, 4000.0));
-    assert!((fill - 750.0 / 4000.0).abs() < 1e-9, "{fill}");
 }
 
 #[test]
