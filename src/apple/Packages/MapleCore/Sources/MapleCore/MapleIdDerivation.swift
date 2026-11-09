@@ -22,25 +22,26 @@ public enum MapleIdDerivation {
     /// A file whose extension is in `SidecarPath.videoExtensions` is dated
     /// from its QuickTime `moov` atom (`VideoCaptureDate`) and never from
     /// EXIF, as `readExif`'s `VIDEO_EXTS` branch does (#5079). Any other file
-    /// is dated by `ExifCaptureDate.capturedAt` over its raw EXIF strings.
+    /// is dated by `ExifCaptureDate.capturedAt` over the raw EXIF tag strings
+    /// `RawExifDates` reads from its bytes — not ImageIO's dictionary, which
+    /// rewrites or drops strings the server's exifr hands over verbatim (#5090).
     ///
     /// Throws what `reader` throws: a transient read failure must surface so
     /// the caller derives no id, not a fallback id that would then be cached.
     public static func capturedAt(
         fileExtension: String,
-        reader: ByteRangeReader,
-        stillDates: () async -> ImageMetadataReader.RawCaptureDateStrings
+        reader: ByteRangeReader
     ) async throws -> String? {
         if SidecarPath.videoExtensions.contains(fileExtension.lowercased()) {
             return try await VideoCaptureDate.iso8601UTC(from: reader)
         }
-        let dates = await stillDates()
+        let dates = try await RawExifDates.read(from: reader)
         return ExifCaptureDate.capturedAt(
             dateTimeOriginal: dates.dateTimeOriginal, createDate: dates.createDate)
     }
 
     /// Derive a maple_id for a file given its first-64KB head bytes, its
-    /// capture date (`capturedAt(fileExtension:reader:stillDates:)`), and a
+    /// capture date (`capturedAt(fileExtension:reader:)`), and a
     /// chunked reader over the file's full bytes for the fallback-form path.
     ///
     /// Tries primary form first, dated by `capturedAtISO8601`.

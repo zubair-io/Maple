@@ -5,9 +5,11 @@
 //   1. Read the bounded 64 KB head (`SHA1_HEAD_BYTES` in `maple-id.ts`).
 //   2. Find a capture timestamp the way the server's `readExif` does: a video
 //      (`VIDEO_EXTENSIONS`) is dated from its QuickTime `moov` atom
-//      (`video-capture-date.ts`, #5079), never from EXIF; any other file is
-//      parsed via `exifr` (same package + same two tags `normalizeExif`
-//      consults).
+//      (`video-capture-date.ts`, #5079), never from EXIF; a JPEG or TIFF-family
+//      file (every RAW) has its two ExifIFD date tags read by the shared tag
+//      reader (`exif-capture-dates.ts`, #5090), which the server's `readExif`
+//      uses too; any other container goes to `exifr` (same package + same two
+//      tags `normalizeExif` consults).
 //   3. `captured_at` present  -> primary form, plain TS (`primary()` in
 //      `maple-id.ts` — bounded 64 KB, no WASM round-trip needed).
 //      `captured_at` absent   -> fallback form, streamed through the WASM
@@ -29,6 +31,7 @@
 import { Injectable, inject } from '@angular/core';
 import { VIDEO_EXTENSIONS } from '../state/no-preview-extensions';
 import { capturedAtFromExif } from './captured-at';
+import { blobReader, readRawCaptureDates } from './exif-capture-dates';
 import { ExifReaderService } from './exif-reader.service';
 import { fromHex, primary, SHA1_HEAD_BYTES, type MapleId } from './maple-id';
 import { MapleIdCacheService } from './maple-id-cache';
@@ -83,6 +86,8 @@ export class HostedMapleIdService {
       if (dot > 0 && VIDEO_EXTENSIONS.has(file.name.slice(dot + 1).toLowerCase())) {
         return await videoCaptureDate(file);
       }
+      const dates = await readRawCaptureDates(blobReader(file));
+      if (dates) return capturedAtFromExif({ ...dates });
       const raw = await this.exifReader.parse(file, CAPTURED_AT_PICK_TAGS);
       return raw ? capturedAtFromExif(raw) : null;
     } catch {

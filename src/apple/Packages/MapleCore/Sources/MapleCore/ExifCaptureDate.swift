@@ -8,8 +8,8 @@
 // whose string branch feeds a "YYYY:MM:DD HH:MM:SS" prefix match to
 // `Date.UTC(...)`. That reads the wall-clock fields as UTC whatever the
 // indexer host's timezone, so the device needs no timezone assumption.
-// Apple reads the same raw strings through ImageIO (`ImageMetadataReader
-// .readRawCaptureDateStrings`). The output must be byte-identical to the
+// Apple reads the same raw tag strings (`RawExifDates`, #5090). The output
+// must be byte-identical to the
 // server's for the same string: maple_id's primary form hashes it verbatim
 // (`raw_core::MapleId::primary`), so any divergence gives the same photo two
 // ids.
@@ -75,7 +75,7 @@ public enum ExifCaptureDate {
     }
 
     /// The server's `asIsoDate(DateTimeOriginal) ?? asIsoDate(CreateDate)`,
-    /// for the raw EXIF strings ImageIO reports (`CreateDate` is EXIF
+    /// for the raw EXIF tag strings (`CreateDate` is EXIF
     /// DateTimeDigitized).
     ///
     /// A field that is absent or doesn't match the EXIF prefix (including a

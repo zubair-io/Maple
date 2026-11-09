@@ -216,8 +216,9 @@ COPY src/api/package.json src/api/bun.lock* ./
 RUN bun install --production --frozen-lockfile
 
 COPY src/api/src/ src/
-# Dependency-free ID parser shared with the browser library.
+# Dependency-free ID parser and capture-date readers shared with the browser library.
 COPY src/web/projects/maple-common/src/lib/addressing/maple-id-parser.ts /web/projects/maple-common/src/lib/addressing/maple-id-parser.ts
+COPY src/web/projects/maple-common/src/lib/addressing/exif-capture-dates.ts /web/projects/maple-common/src/lib/addressing/exif-capture-dates.ts
 COPY src/web/projects/maple-common/src/lib/xmp/xmp-duplicate-attributes.ts /web/projects/maple-common/src/lib/xmp/xmp-duplicate-attributes.ts
 COPY src/api/tsconfig.json ./
 COPY resources/film-luts/ film-luts/

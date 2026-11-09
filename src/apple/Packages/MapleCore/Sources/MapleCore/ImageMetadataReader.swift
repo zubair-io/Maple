@@ -47,12 +47,11 @@ public enum ImageMetadataReader {
     }
   }
 
-  /// Raw (unformatted) EXIF capture-date strings as ImageIO surfaces them
-  /// — `"YYYY:MM:DD HH:MM:SS"`, untouched. Used by maple_id primary-form
-  /// derivation (`ExifCaptureDate.iso8601UTC`, #1995), which needs the RAW
-  /// tag value, not `formatExifDate`'s human-display reformatting (that
-  /// helper is a DISPLAY formatter for the Info tab and its output isn't
-  /// guaranteed to stay in a shape `ExifCaptureDate` can re-parse).
+  /// Raw (unformatted) EXIF capture-date strings — `"YYYY:MM:DD HH:MM:SS"`,
+  /// untouched, not `formatExifDate`'s human-display reformatting. The
+  /// ImageIO readers below feed filenames and rename fingerprints; maple_id
+  /// derivation reads the tag bytes itself (`RawExifDates`, #5090) because
+  /// ImageIO rewrites or drops strings the server's exifr hands over verbatim.
   public struct RawCaptureDateStrings: Sendable, Equatable {
     /// `kCGImagePropertyExifDateTimeOriginal` — exifr's `DateTimeOriginal`.
     public var dateTimeOriginal: String?

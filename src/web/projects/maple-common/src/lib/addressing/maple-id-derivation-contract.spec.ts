@@ -15,7 +15,7 @@ import { MapleIdFallbackHasherService } from './maple-id-fallback-hasher.service
 
 const idsDir = '../../test-fixtures/ids';
 const corpus = JSON.parse(readFileSync(resolve(idsDir, 'derivation.json'), 'utf8')) as {
-  cases: { file: string; capturedAt: string | null; id: string }[];
+  cases: { file: string; capturedAt: string | null; id: string; optional?: boolean }[];
 };
 
 describe('maple_id derivation corpus', () => {
@@ -34,7 +34,9 @@ describe('maple_id derivation corpus', () => {
     });
   });
 
-  for (const { file, capturedAt, id } of corpus.cases) {
+  // Optional cases are gitignored RAWs of up to 130 MB; the API, raw-core and
+  // MapleCore suites read them in place.
+  for (const { file, capturedAt, id } of corpus.cases.filter((c) => !c.optional)) {
     it(`derives ${id} for ${file}`, async () => {
       const bytes = new Uint8Array(readFileSync(resolve(idsDir, file)));
       const derived = await TestBed.inject(HostedMapleIdService).computeMapleId(
