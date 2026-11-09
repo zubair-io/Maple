@@ -50,7 +50,7 @@ struct PreviewVideoView: View {
     } else if let cloud = source as? CloudSource, let stableID = asset.stableID {
       url = try? await cloud.videoURL(for: stableID)
     } else {
-      url = nil
+      url = await LivePhotoClip.playbackURL(for: asset, source: source)
     }
     guard !Task.isCancelled else { return }
     guard let url else {

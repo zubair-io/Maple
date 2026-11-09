@@ -95,7 +95,16 @@ extension BrowseViewModel {
         // walk. If nothing's been set we fall back to the folder URL itself
         // — better than nothing when the folder came from `fileImporter` and
         // is already scope-backed.
-        let refs = raws.map { AssetRef(url: $0, scopeParentURL: scope) }
+        let links = await LivePhotoPairing.links(for: raws.map(\.path)) { path in
+          let url = URL(fileURLWithPath: path)
+          guard let kind = LivePhotoPairing.Kind(filename: url.lastPathComponent) else {
+            return nil
+          }
+          return await LiveContentIdentifier.read(fileAt: url, kind: kind)
+        }
+        let refs = raws.map {
+          AssetRef(url: $0, scopeParentURL: scope, livePhoto: links[$0.path])
+        }
 
         try Task.checkCancellation()
         await slots.release()
