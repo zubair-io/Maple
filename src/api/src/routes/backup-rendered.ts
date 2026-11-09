@@ -49,7 +49,10 @@ import {
 } from './backup-id.ts';
 import { openChunkSession, takeChunk } from './backup-chunk.ts';
 import { Elysia, t } from 'elysia';
-import { setAppleCompanionPath } from '../db/repos/backup.repo.ts';
+import {
+  fillAppleCompanionPath,
+  setAppleCompanionPath,
+} from '../db/repos/backup-companions.repo.ts';
 import { assetOwnsRelPath } from '../db/repos/assets.location-owner.ts';
 import { filesIdentical, moveNoClobber } from '../backup/fs-util.ts';
 import type { ObjectId } from '../db/object-id.ts';
@@ -297,6 +300,7 @@ export const backupRenderedRoutes = new Elysia().post(
     });
     if (opened instanceof Response) return opened;
     const { session, didReset, alreadyComplete } = opened;
+    const slot = companion === 'live' ? 'apple_live_video_path' : 'apple_rendered_path';
 
     // Same short-circuit as backup-ingest: when the rendered companion
     // already finished server-side, return 200 with the stored target path
@@ -307,10 +311,17 @@ export const backupRenderedRoutes = new Elysia().post(
         { phid, targetRelPath: session.target_rel_path },
         'rendered ingest short-circuit (already complete)',
       );
-      set.status = 200;
       // A disambiguated upload completed under its sibling name; hand that
       // back, not the occupied path the device asked for.
-      return { target_rel_path: session.resolved_rel_path ?? session.target_rel_path };
+      const landed = session.resolved_rel_path ?? session.target_rel_path;
+      // A device re-sending a companion the asset has no record of (#5778)
+      // must leave it recorded, even when these bytes landed before.
+      const landedPath = containedJoin(folder.path, landed);
+      if (session.maple_id && landedPath && (await fs.stat(landedPath).catch(() => null))) {
+        await fillAppleCompanionPath(libraryId, session.maple_id, slot, landed);
+      }
+      set.status = 200;
+      return { target_rel_path: landed };
     }
 
     const resolvedTargetRelPath = session.target_rel_path;
@@ -341,7 +352,6 @@ export const backupRenderedRoutes = new Elysia().post(
     // drop-abs-path-2026-05-21 the per-library pointer is the asset's
     // locations, so the update is scoped by a location in this library plus
     // the content-addressed `maple_id`.
-    const slot = companion === 'live' ? 'apple_live_video_path' : 'apple_rendered_path';
     await setAppleCompanionPath(libraryId, mapleId, slot, placed);
 
     log.debug({ phid, targetRelPath: placed, mapleId }, 'rendered ingest complete');

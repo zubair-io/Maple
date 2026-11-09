@@ -388,6 +388,51 @@ describe('POST /api/libraries/:id/backup/rendered', () => {
     expect(completedSessionId(`${phidLive}::rendered`)).toBe(renderedSession);
   });
 
+  test('re-sending a landed companion the asset has no record of records it again (#5778)', async () => {
+    const phidRepair = 'REND/L0/REPAIR';
+    const mapleIdRepair = '02aa11bb22cc33dd44ee55ff66778899';
+    const relPath = '2024/11/01/IMG_REPAIR.HEIC';
+    const assetId = seedIngested({
+      mapleId: mapleIdRepair,
+      relPath,
+      phassetLocalId: phidRepair,
+      size: 64,
+    });
+    const sendMov = () =>
+      authedHandle(
+        rendered(Buffer.alloc(64, 4), {
+          'X-Maple-Device-Id': deviceId,
+          'X-Maple-Phasset-Id': phidRepair,
+          'X-Maple-Target-Rel-Path': relPath,
+          'X-Maple-Total-Bytes': '64',
+          'X-Maple-Maple-Id': mapleIdRepair,
+          'X-Maple-Suffix-Override': 'mov',
+          'Content-Range': 'bytes 0-63/64',
+        }),
+      );
+    const clearSlot = (value: string | null) =>
+      live.db.run(`UPDATE assets SET apple_live_video_path = ? WHERE id = ?`, [
+        value,
+        assetId.toHexString(),
+      ]);
+
+    expect((await sendMov()).status).toBe(200);
+    clearSlot(null);
+    expect((await sendMov()).status).toBe(200);
+    expect(readAsset(live.db, assetId)?.apple_live_video_path).toBe('2024/11/01/IMG_REPAIR.mov');
+
+    clearSlot('2024/11/01/IMG_REPAIR-newer.mov');
+    expect((await sendMov()).status).toBe(200);
+    expect(readAsset(live.db, assetId)?.apple_live_video_path).toBe(
+      '2024/11/01/IMG_REPAIR-newer.mov',
+    );
+
+    clearSlot(null);
+    await fs.rm(path.join(tmpLib, '2024/11/01/IMG_REPAIR.mov'));
+    expect((await sendMov()).status).toBe(200);
+    expect(readAsset(live.db, assetId)?.apple_live_video_path).toBeNull();
+  });
+
   test("rendered session de-dup: synthetic phid doesn't collide with original session", async () => {
     // After the first happy-path test, the rendered session (phid::rendered) is
     // completed. It is a distinct row from any session the original phid would

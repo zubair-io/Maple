@@ -111,6 +111,36 @@ describe('GET /api/libraries/:id/backup/state', () => {
     expect(body.assets.map((a: any) => a.phasset_local_id).sort()).toEqual(['P1', 'P2']);
   });
 
+  test('each asset reports which companions the server holds beside it', async () => {
+    seedBackupAsset(live.db, {
+      mapleId: 'hash-live',
+      appleLiveVideoPath: 'live.mov',
+      locations: [{ libraryId: libId, relPath: 'live.heic' }],
+      links: [{ deviceId, phassetLocalId: 'P5', firstSeen: new Date('2026-05-11T03:00:00Z') }],
+    });
+    seedBackupAsset(live.db, {
+      mapleId: 'hash-edited',
+      appleRenderedPath: 'edited.rendered.JPEG',
+      locations: [{ libraryId: libId, relPath: 'edited.heic' }],
+      links: [{ deviceId, phassetLocalId: 'P6', firstSeen: new Date('2026-05-11T04:00:00Z') }],
+    });
+    const url = `http://localhost/api/libraries/${libId.toHexString()}/backup/state?device_id=${deviceId}`;
+    const res = await authedHandle(new Request(url));
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      assets: Array<{ phasset_local_id: string; has_live_video: boolean; has_rendered: boolean }>;
+    };
+    const companions = Object.fromEntries(
+      body.assets.map((a) => [a.phasset_local_id, [a.has_live_video, a.has_rendered]]),
+    );
+    expect(companions).toEqual({
+      P1: [false, false],
+      P2: [false, false],
+      P5: [true, false],
+      P6: [false, true],
+    });
+  });
+
   test('an asset whose only location in this library is marked missing_since is left out', async () => {
     seedBackupAsset(live.db, {
       mapleId: 'hash-d',

@@ -25,9 +25,9 @@ import {
   linkPhasset,
   listBackupState,
   markDeletedFromPhotos,
-  setAppleCompanionPath,
   type PhassetLink,
 } from './backup.repo.ts';
+import { fillAppleCompanionPath, setAppleCompanionPath } from './backup-companions.repo.ts';
 import type { SqliteDb } from './db-handle.ts';
 
 const DEVICE = 'device-A';
@@ -448,6 +448,24 @@ describe('the device reconciliation feed', () => {
     const rows = await listBackupState(lib, DEVICE, new Date(0), db);
     expect(rows.map((r) => r.rel_path)).toEqual(['2024/Tokyo/IMG_0001-1.HEIC']);
   });
+
+  test('reports which companions each asset has recorded', async () => {
+    using handle = await createTestDatabase();
+    const db = testSqliteDb(handle.db);
+    const lib = library(handle.db);
+    await seedUpload(db, lib, { mapleId: 'bare', relPath: 'a.heic', phassetLocalId: 'P1' });
+    await seedUpload(db, lib, { mapleId: 'live', relPath: 'b.heic', phassetLocalId: 'P2' });
+    await seedUpload(db, lib, { mapleId: 'both', relPath: 'c.heic', phassetLocalId: 'P3' });
+    await setAppleCompanionPath(lib, 'live', 'apple_live_video_path', 'b.mov', db);
+    await setAppleCompanionPath(lib, 'both', 'apple_live_video_path', 'c.mov', db);
+    await setAppleCompanionPath(lib, 'both', 'apple_rendered_path', 'c.rendered.JPEG', db);
+
+    const rows = await listBackupState(lib, DEVICE, new Date(0), db);
+    const companions = Object.fromEntries(
+      rows.map((row) => [row.phasset_local_id, [row.has_live_video, row.has_rendered]]),
+    );
+    expect(companions).toEqual({ P1: [false, false], P2: [true, false], P3: [true, true] });
+  });
 });
 
 describe('a device reporting photos deleted from Apple Photos', () => {
@@ -513,6 +531,31 @@ describe('the Apple-rendered companion pointer', () => {
     );
     expect(outcome.matchedCount).toBe(0);
     expect(assetRow(handle.db, 'content-1').apple_rendered_path).toBeNull();
+  });
+
+  test('filling a slot records an empty one and never replaces a recorded companion', async () => {
+    using handle = await createTestDatabase();
+    const db = testSqliteDb(handle.db);
+    const lib = library(handle.db);
+    await seedUpload(db, lib);
+
+    const filled = await fillAppleCompanionPath(
+      lib,
+      'content-1',
+      'apple_rendered_path',
+      'a.JPEG',
+      db,
+    );
+    const kept = await fillAppleCompanionPath(
+      lib,
+      'content-1',
+      'apple_rendered_path',
+      'b.JPEG',
+      db,
+    );
+
+    expect([filled.matchedCount, kept.matchedCount]).toEqual([1, 0]);
+    expect(assetRow(handle.db, 'content-1').apple_rendered_path).toBe('a.JPEG');
   });
 
   test("a Live Photo's .mov lands in its own slot and leaves the rendered edit's alone", async () => {

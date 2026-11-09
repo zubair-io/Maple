@@ -31,17 +31,10 @@
  * told it updated them again.
  */
 
-import type { AppleCompanionSlot } from '../apple-companions.ts';
 import { ObjectId } from '../object-id.ts';
 import { newObjectIdHex } from '../object-id.ts';
 import { classifyMediaType } from '../../indexer/media-types.ts';
-import {
-  matchedOne,
-  sqliteDb,
-  updateOutcome,
-  type SqliteDb,
-  type UpdateOutcome,
-} from './db-handle.ts';
+import { sqliteDb, type SqliteDb } from './db-handle.ts';
 import { ALL_STAGE_NAMES } from '../../workers/stages/stage-names.ts';
 import { seedStageRowStatements } from './stage-state.repo.ts';
 import { transactionUnlessPurged } from './backup-purge-guard.ts';
@@ -224,6 +217,10 @@ export interface BackupStateEntry {
   first_seen: string;
   maple_id: string | null;
   rel_path: string;
+  /** The asset has a Live Photo video recorded beside it. */
+  has_live_video: boolean;
+  /** The asset has an Apple-rendered edit recorded beside it. */
+  has_rendered: boolean;
 }
 
 /**
@@ -232,6 +229,8 @@ export interface BackupStateEntry {
  * The device calls it on launch to learn which of its photos are already backed
  * up. An asset with no live location in this library is left out — its bytes
  * are not here, so telling the device it is backed up would lose the photo.
+ * Each row also says which companions the asset has recorded, so a device can
+ * re-send a Live Photo video or edited render an earlier client dropped.
  *
  * ISO-8601 timestamps compare lexicographically in the order they compare
  * chronologically, so `first_seen >= ?` is the `{ $gte: since }` it replaces;
@@ -247,11 +246,18 @@ export async function listBackupState(
   // Both LIVE_REL_PATH_SUBQUERY and the EXISTS guard filter
   // `l.deleted_at IS NULL AND l.missing_since IS NULL`, so a missing ordinal-0
   // row is skipped in favour of the first live ordinal (#4700).
-  return await sqliteDb(dbOverride).read<BackupStateEntry>(
+  const rows = await sqliteDb(dbOverride).read<
+    Omit<BackupStateEntry, 'has_live_video' | 'has_rendered'> & {
+      has_live_video: number;
+      has_rendered: number;
+    }
+  >(
     `SELECT p.phasset_local_id AS phasset_local_id,
             p.first_seen AS first_seen,
             a.maple_id AS maple_id,
-            ${LIVE_REL_PATH_SUBQUERY} AS rel_path
+            ${LIVE_REL_PATH_SUBQUERY} AS rel_path,
+            a.apple_live_video_path IS NOT NULL AS has_live_video,
+            a.apple_rendered_path IS NOT NULL AS has_rendered
        FROM asset_phasset_links p
        JOIN assets a ON a.id = p.asset_id
       WHERE p.device_id = ? AND p.first_seen >= ?
@@ -260,6 +266,11 @@ export async function listBackupState(
                        AND l.deleted_at IS NULL AND l.missing_since IS NULL)`,
     [library, deviceId, since.toISOString(), library],
   );
+  return rows.map((row) => ({
+    ...row,
+    has_live_video: row.has_live_video === 1,
+    has_rendered: row.has_rendered === 1,
+  }));
 }
 
 // ---------------------------------------------------------------------------
@@ -364,31 +375,4 @@ export async function markDeletedFromPhotos(
     [toHex(libraryId), deviceId, ...phassetLocalIds],
   );
   return result.changes;
-}
-
-/**
- * Point an asset's `slot` at the companion that was just uploaded beside it.
- *
- * One row, chosen by the same `(maple_id, this library)` pair the Mongo
- * `updateOne` matched on. The inner `LIMIT 1` is what keeps it `updateOne`
- * rather than `updateMany`: two libraries can hold the same content, and only
- * the one the companion was uploaded to should learn about it.
- */
-export async function setAppleCompanionPath(
-  libraryId: ObjectId,
-  mapleId: string,
-  slot: AppleCompanionSlot,
-  relPath: string,
-  dbOverride?: SqliteDb,
-): Promise<UpdateOutcome> {
-  const result = await sqliteDb(dbOverride).write(
-    `UPDATE assets SET ${slot} = ?
-      WHERE id = (SELECT a.id FROM assets a
-                   WHERE a.maple_id = ?
-                     AND EXISTS (SELECT 1 FROM asset_locations l
-                                  WHERE l.asset_id = a.id AND l.library_id = ?)
-                   LIMIT 1)`,
-    [relPath, mapleId, toHex(libraryId)],
-  );
-  return updateOutcome(matchedOne(result.changes));
 }
