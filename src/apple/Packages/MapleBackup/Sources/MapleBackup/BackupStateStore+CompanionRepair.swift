@@ -20,6 +20,13 @@ public struct BackupCompanions: OptionSet, Sendable, Hashable {
 
   public static let liveVideo = BackupCompanions(rawValue: 1 << 0)
   public static let rendered = BackupCompanions(rawValue: 1 << 1)
+
+  /// The companions a server's backup listing reports holding, or nil when it
+  /// does not report them (a server that predates #5778).
+  public init?(serverHasLiveVideo: Bool?, serverHasRendered: Bool?) {
+    guard let serverHasLiveVideo, let serverHasRendered else { return nil }
+    self = [serverHasLiveVideo ? .liveVideo : [], serverHasRendered ? .rendered : []]
+  }
 }
 
 public enum CompanionRepair {
@@ -40,6 +47,45 @@ public enum CompanionRepair {
         let missing = companions.intersection(backedUp).subtracting(onServer)
         return missing.isEmpty ? nil : (phid, missing)
       })
+  }
+
+  /// Re-queues the uploaded photos still missing a companion the server
+  /// lacks. `possible` is each library photo's companions as its subtype and
+  /// edit state suggest; `onDevice` confirms them from the photo's resources,
+  /// and is asked only about photos that are uploaded and not yet repaired.
+  /// Returns the photos re-queued; throws when the store cannot save them.
+  public static func requeueMissing(
+    possible: [String: BackupCompanions],
+    held: [String: BackupCompanions],
+    includeLivePhotos: Bool,
+    deviceId: String,
+    capturedAt: [String: Date],
+    state: BackupStateStore,
+    queue: any BackupQueue,
+    onDevice: @Sendable (Set<String>) async -> [String: BackupCompanions]
+  ) async throws -> Set<String> {
+    let suspects = lacking(local: possible, held: held, includeLivePhotos: includeLivePhotos)
+    guard !suspects.isEmpty else { return [] }
+    let candidates = try await state.companionRepairCandidates(
+      deviceId: deviceId, among: Set(suspects.keys))
+    guard !candidates.isEmpty else { return [] }
+    let confirmed = await onDevice(candidates)
+      .filter { candidates.contains($0.key) }
+    let tasks = lacking(local: confirmed, held: held, includeLivePhotos: includeLivePhotos)
+      .keys.sorted().map {
+        BackupTask(
+          id: BackupTaskID(deviceId: deviceId, phassetLocalId: $0),
+          state: .pending, priority: .background, capturedAt: capturedAt[$0])
+      }
+    var requeued: Set<String> = []
+    for offset in stride(from: 0, to: tasks.count, by: 256) {
+      guard !Task.isCancelled else { break }
+      let repaired = try await state.requeueForMissingCompanions(
+        Array(tasks[offset..<min(offset + 256, tasks.count)]))
+      requeued.formUnion(repaired.map(\.id.phassetLocalId))
+      await queue.enqueue(repaired, priority: nil)
+    }
+    return requeued
   }
 }
 

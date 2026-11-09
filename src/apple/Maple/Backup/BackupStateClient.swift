@@ -35,11 +35,7 @@ actor BackupStateClient {
     /// The companions the server holds beside the original, or nil when the
     /// server does not report them.
     var companions: BackupCompanions? {
-      guard let hasLiveVideo, let hasRendered else { return nil }
-      return BackupCompanions([
-        hasLiveVideo ? .liveVideo : [],
-        hasRendered ? .rendered : [],
-      ])
+      BackupCompanions(serverHasLiveVideo: hasLiveVideo, serverHasRendered: hasRendered)
     }
 
     enum CodingKeys: String, CodingKey {

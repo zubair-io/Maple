@@ -64,6 +64,17 @@ final class BackupCompanionRepairTests: XCTestCase {
     XCTAssertEqual(lacking, ["editedLive": [.rendered]])
   }
 
+  func testAServerThatDoesNotReportCompanionsReportsNone() {
+    XCTAssertNil(BackupCompanions(serverHasLiveVideo: nil, serverHasRendered: nil))
+    XCTAssertNil(BackupCompanions(serverHasLiveVideo: true, serverHasRendered: nil))
+    XCTAssertEqual(
+      BackupCompanions(serverHasLiveVideo: false, serverHasRendered: false), [])
+    XCTAssertEqual(
+      BackupCompanions(serverHasLiveVideo: true, serverHasRendered: false), [.liveVideo])
+    XCTAssertEqual(
+      BackupCompanions(serverHasLiveVideo: false, serverHasRendered: true), [.rendered])
+  }
+
   // MARK: - Store
 
   func testCandidatesAreUploadedRowsNotYetRepaired() async throws {
@@ -165,6 +176,70 @@ final class BackupCompanionRepairTests: XCTestCase {
     XCTAssertEqual(candidates, ["old"])
   }
 
+  // MARK: - The scan's repair
+
+  private actor DeviceLookups {
+    private(set) var asked: [Set<String>] = []
+    func record(_ phids: Set<String>) { asked.append(phids) }
+  }
+
+  func testRepairAsksPhotoKitOnlyAboutUploadedSuspectsAndRequeuesConfirmedOnes() async throws {
+    let store = try BackupStateStore(databaseURL: storeURL())
+    let queue = InProcessBackupQueue()
+    let shot = Date(timeIntervalSince1970: 1_700_000_000)
+    try await store.upsert([
+      task("live", .uploaded), task("edited", .uploaded), task("unedited", .uploaded),
+      task("complete", .uploaded), task("pending", .pending), task("oldServer", .uploaded),
+    ])
+    let lookups = DeviceLookups()
+
+    let requeued = try await CompanionRepair.requeueMissing(
+      possible: [
+        "live": [.liveVideo], "edited": [.rendered], "unedited": [.rendered],
+        "complete": [.liveVideo], "pending": [.liveVideo], "oldServer": [.liveVideo],
+        "plain": [],
+      ],
+      held: [
+        "live": [], "edited": [], "unedited": [], "complete": [.liveVideo], "pending": [],
+        "plain": [],
+      ],
+      includeLivePhotos: true, deviceId: "d", capturedAt: ["live": shot],
+      state: store, queue: queue,
+      onDevice: { phids in
+        await lookups.record(phids)
+        return ["live": [.liveVideo], "edited": [.rendered], "unedited": []]
+      })
+
+    XCTAssertEqual(requeued, ["live", "edited"])
+    let asked = await lookups.asked
+    XCTAssertEqual(asked, [["live", "edited", "unedited"]])
+    let queued = await queue.snapshot()
+    XCTAssertEqual(Set(queued.map(\.id.phassetLocalId)), ["live", "edited"])
+    let live = try await store.find(id("live"))
+    XCTAssertEqual(live?.state, .pending)
+    XCTAssertEqual(live?.capturedAt, shot)
+    let unedited = try await store.find(id("unedited"))
+    XCTAssertEqual(unedited?.state, .uploaded)
+  }
+
+  func testASecondScanDoesNotRepairTheSamePhotoAgain() async throws {
+    let store = try BackupStateStore(databaseURL: storeURL())
+    try await store.upsert(task("live", .uploaded))
+    let repair = {
+      try await CompanionRepair.requeueMissing(
+        possible: ["live": [.liveVideo]], held: ["live": []], includeLivePhotos: true,
+        deviceId: "d", capturedAt: [:], state: store, queue: InProcessBackupQueue(),
+        onDevice: { _ in ["live": [.liveVideo]] })
+    }
+
+    let first = try await repair()
+    try await store.transition(id("live"), to: .uploaded)
+    let second = try await repair()
+
+    XCTAssertEqual(first, ["live"])
+    XCTAssertEqual(second, [])
+  }
+
   // MARK: - End to end
 
   func testAReinstalledDeviceResendsTheLivePhotoVideoTheServerLacks() async throws {
@@ -178,12 +253,11 @@ final class BackupCompanionRepairTests: XCTestCase {
     defer { try? FileManager.default.removeItem(at: tmpRoot) }
 
     _ = try await state.markServerHeld([task("P1", .uploaded)])
-    let candidates = try await state.companionRepairCandidates(deviceId: "d", among: ["P1"])
-    let lacking = CompanionRepair.lacking(
-      local: ["P1": [.liveVideo]], held: ["P1": []], includeLivePhotos: true)
-    let requeued = try await state.requeueForMissingCompanions(
-      candidates.intersection(lacking.keys).map { task($0, .pending) })
-    await queue.enqueue(requeued, priority: nil)
+    let requeued = try await CompanionRepair.requeueMissing(
+      possible: ["P1": [.liveVideo]], held: ["P1": []], includeLivePhotos: true,
+      deviceId: "d", capturedAt: [:], state: state, queue: queue,
+      onDevice: { _ in ["P1": [.liveVideo]] })
+    XCTAssertEqual(requeued, ["P1"])
     try await engine.processOne()
 
     let paths = StubURLProtocol.recordedRequests.compactMap { $0.url?.path }
@@ -220,8 +294,6 @@ final class BackupCompanionRepairTests: XCTestCase {
     let settled = try await state.markServerHeld([task("P1", .uploaded)])
     XCTAssertEqual(settled, [])
     let afterWalk = try await state.find(id("P1"))
-    XCTAssertEqual(afterWalk?.state, .failedRetry, "left for the user's Retry, not repaired again")
-    let candidates = try await state.companionRepairCandidates(deviceId: "d", among: ["P1"])
-    XCTAssertEqual(candidates, [])
+    XCTAssertEqual(afterWalk?.state, .failedRetry, "left for the user's Retry, not settled")
   }
 }

@@ -38,50 +38,33 @@ extension ChangeObserverWiring {
     state: BackupStateStore, queue: any BackupQueue
   ) async -> Set<String>? {
     let includeLivePhotos = settings.includeLivePhotos
-    let suspects = CompanionRepair.lacking(
-      local: Dictionary(
-        assets.map { ($0.phid, $0.possibleCompanions) }, uniquingKeysWith: { first, _ in first }),
-      held: serverCompanions, includeLivePhotos: includeLivePhotos)
-    guard !suspects.isEmpty,
-      let candidates = try? await state.companionRepairCandidates(
-        deviceId: deviceId, among: Set(suspects.keys)),
-      !candidates.isEmpty
-    else { return [] }
-
-    let lookup = Task.detached(priority: .utility) {
-      companionsOnDevice(of: candidates, includeLivePhotos: includeLivePhotos)
-    }
-    let onDevice = await withTaskCancellationHandler {
-      await lookup.value
-    } onCancel: {
-      lookup.cancel()
-    }
-    guard !Task.isCancelled else { return [] }
-
-    let missing = CompanionRepair.lacking(
-      local: onDevice, held: serverCompanions, includeLivePhotos: includeLivePhotos)
-    let capturedAtByPhid = Dictionary(
-      assets.compactMap { asset in asset.capturedAt.map { (asset.phid, $0) } },
-      uniquingKeysWith: { first, _ in first })
-    let tasks = missing.keys.sorted().map {
-      BackupTask(
-        id: BackupTaskID(deviceId: deviceId, phassetLocalId: $0),
-        state: .pending, priority: .background, capturedAt: capturedAtByPhid[$0])
-    }
-    var requeued: Set<String> = []
-    guard
-      await writeInBatches(
-        tasks,
-        { batch, _ in
-          let repaired = try await state.requeueForMissingCompanions(batch)
-          requeued.formUnion(repaired.map(\.id.phassetLocalId))
-          await queue.enqueue(repaired, priority: nil)
+    do {
+      let requeued = try await CompanionRepair.requeueMissing(
+        possible: Dictionary(
+          assets.map { ($0.phid, $0.possibleCompanions) }, uniquingKeysWith: { first, _ in first }),
+        held: serverCompanions, includeLivePhotos: includeLivePhotos, deviceId: deviceId,
+        capturedAt: Dictionary(
+          assets.compactMap { asset in asset.capturedAt.map { (asset.phid, $0) } },
+          uniquingKeysWith: { first, _ in first }),
+        state: state, queue: queue,
+        onDevice: { candidates in
+          let lookup = Task.detached(priority: .utility) {
+            companionsOnDevice(of: candidates, includeLivePhotos: includeLivePhotos)
+          }
+          return await withTaskCancellationHandler {
+            await lookup.value
+          } onCancel: {
+            lookup.cancel()
+          }
         })
-    else { return nil }
-    repairLog.info(
-      "companion repair: suspects=\(suspects.count) checked=\(candidates.count) requeued=\(requeued.count)"
-    )
-    return requeued
+      repairLog.info("companion repair requeued \(requeued.count) photos")
+      return requeued
+    } catch {
+      BackupIssueStatus.log(.error, "Backup state write failed: \(error)")
+      EngineHost.shared.progress.setWalkPhase(
+        .failed("couldn't save local backup records. Details are in the logs."))
+      return nil
+    }
   }
 
   /// The companions each asset has on this device, by the same rule the
