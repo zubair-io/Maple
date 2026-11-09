@@ -13,11 +13,8 @@
 import { errnoCode } from '../fs/errno-code.ts';
 import { filesIdentical } from '../fs/file-bytes.ts';
 import { constants, copyFile, link, lstat, rename, unlink } from '../fs/mirrored.ts';
-import {
-  LINK_UNSUPPORTED,
-  PublishCollisionError,
-  privateSiblingOf,
-} from '../fs/relocate-publish.ts';
+import { privateSiblingOf } from '../fs/private-sibling.ts';
+import { LINK_UNSUPPORTED, PublishCollisionError } from '../fs/relocate-publish.ts';
 import { syncCopiedFile } from '../fs/sync-file.ts';
 
 async function nameIsTaken(destination: string): Promise<boolean> {

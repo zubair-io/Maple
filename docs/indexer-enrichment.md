@@ -77,6 +77,7 @@ Each directory visit (`visitDirectory`):
 3. Re-stats every missing candidate before believing it. A `readdir` on an SMB share can succeed and return an incomplete listing; only a genuine ENOENT counts, and if the library root itself is unavailable the whole visit confirms nothing rather than mass-tagging present files.
 4. Runs rename reconciliation, then emits ordinary `created` / `removed` events for whatever is left.
 5. Reconciles the folder-level `.hidden` marker (`workers/discover/folder-hidden.ts`).
+6. Removes the temp files a crashed relocation left in the folder (`fs/crash-left-temps.ts`, #5136): a verifying copy (`<name>.tmp.<pid>-<hex>.copy`) or any private sibling that is a hard link of the file beside it, once untouched for a day and not owned by this process. A displaced photo or moved-aside file with no second name may be the only copy of something, so it is never removed.
 
 When the frontier for a generation drains, `advanceSweep` records a checkpoint (`indexer/checkpoint.ts`) and reseeds the root at the next generation, so the sweep loops forever and a restart resumes the in-progress generation rather than re-walking from scratch.
 
