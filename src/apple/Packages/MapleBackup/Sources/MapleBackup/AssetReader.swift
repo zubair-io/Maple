@@ -51,6 +51,12 @@ public struct AssetReadResult: Sendable {
   /// reads each through `readCompanion` once the primary bytes land.
   public let deferredCompanions: Set<CompanionKind>
 
+  /// Whether a Live Photo video or edited render must land with the original.
+  var hasCompanions: Bool {
+    !deferredCompanions.isEmpty || renderedBytes?.isEmpty == false
+      || liveVideoBytes?.isEmpty == false
+  }
+
   public init(
     originalBytes: Data, renderedBytes: Data?,
     renderedFilenameExtension: String? = nil,

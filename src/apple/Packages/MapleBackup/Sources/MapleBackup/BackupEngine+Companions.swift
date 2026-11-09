@@ -2,10 +2,10 @@
 //
 // Outstanding-companion accounting (#702), split out of BackupEngine.swift to
 // keep that file under the 570-line headroom gate (#2311), along with the
-// bounded companion retry scheduling. A "companion" is the
-// best-effort sidecar / rendered-bytes upload that rides alongside a photo's
-// bytes: the photo is done when its bytes land, but the progress VM needs to
-// distinguish "uploaded" from "uploaded, companions still pending".
+// bounded companion retry scheduling and the Live Photo video / edited render
+// uploads. Only the local-edit sidecar is still best-effort after the photo is
+// uploaded; the progress VM distinguishes "uploaded" from "uploaded, sidecar
+// still pending".
 
 import CryptoKit
 import Foundation
@@ -57,8 +57,8 @@ extension BackupEngine {
   /// schedule a bounded, exponentially-backed-off detached retry (tracked in
   /// `retryTasks` so `stop()` tears it down cleanly). Never throws, never
   /// emits queue events. `busyElsewhere` on a companion is treated like any
-  /// other transient failure here — it's coordination on a re-derivable
-  /// artifact, not a reason to fail the (already-uploaded) photo.
+  /// other transient failure here — the edit is re-sent by a later walk, so
+  /// it is not a reason to fail the (already-uploaded) photo.
   func runCompanion(
     taskId: BackupTaskID,
     label: String,
@@ -86,8 +86,8 @@ extension BackupEngine {
   }
 
   /// Schedule the next bounded companion retry. Detached so it doesn't hold a
-  /// `run()` concurrency slot; on exhaustion the re-derivable artifact is
-  /// simply dropped (a future safety walk can regenerate it).
+  /// `run()` concurrency slot; on exhaustion it is dropped here, and the edit's
+  /// delivered-revision record makes a later walk re-send it (#4719).
   func scheduleCompanionRetry(
     taskId: BackupTaskID,
     label: String,
@@ -101,7 +101,7 @@ extension BackupEngine {
     guard !Task.isCancelled else { return }
     guard attempt < maxAttempts else {
       Self.companionLog.error(
-        "companion \(label, privacy: .public) exhausted \(maxAttempts) attempts — dropping (re-derivable artifacts can be regenerated on a future walk)"
+        "companion \(label, privacy: .public) exhausted \(maxAttempts) attempts — dropping (a later walk re-sends an undelivered edit)"
       )
       // Terminal: budget exhausted. Decrement once so a dropped companion
       // doesn't leak as permanently "pending" (#702).
@@ -140,5 +140,35 @@ extension BackupEngine {
       await self?.finishRetry(token)
     }
     retryTasks[token] = retryTask
+  }
+
+  // MARK: - Live Photo video and edited render
+
+  /// Uploads the edited render and the Live Photo video beside the landed
+  /// original. A failure fails the task, so it retries on the task's budget
+  /// and the photo is never recorded as uploaded without them.
+  func uploadDerivedCompanions(
+    of read: AssetReadResult, id: BackupTaskID, original: UploadClient.Result
+  ) async throws {
+    if let renderedBytes = read.renderedBytes, !renderedBytes.isEmpty {
+      let originalExt = (original.targetRelPath as NSString).pathExtension
+      try await upload.uploadRendered(
+        phassetLocalId: id.phassetLocalId,
+        targetRelPath: original.targetRelPath,
+        filenameExt: read.renderedFilenameExtension ?? (originalExt.isEmpty ? "jpeg" : originalExt),
+        bytes: renderedBytes,
+        mapleId: original.mapleId,
+        phassetCloudId: read.sidecar.phassetCloudId)
+    }
+    if let liveBytes = read.liveVideoBytes, !liveBytes.isEmpty {
+      try await upload.uploadRendered(
+        phassetLocalId: id.phassetLocalId,
+        targetRelPath: original.targetRelPath,
+        filenameExt: "mov",
+        bytes: liveBytes,
+        mapleId: original.mapleId,
+        suffixOverride: "mov",
+        phassetCloudId: read.sidecar.phassetCloudId)
+    }
   }
 }
