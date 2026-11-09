@@ -147,7 +147,7 @@ async function identity(fixture: EditorFixture) {
   const { core, input, access, folder, gesture, writer, read } = fixture;
   const id = crypto.randomUUID();
   const named = await core.embed(
-    { schemaVersion: 1, variantId: id, variantName: 'Named', snapshots: [], history: [] },
+    { schemaVersion: 2, variantId: id, variantName: 'Named', snapshots: [], history: [] },
     input,
   );
   await access.writeFile(folder, 'photo.xmp', new TextEncoder().encode(named));
@@ -165,15 +165,15 @@ async function identity(fixture: EditorFixture) {
 async function future(fixture: EditorFixture) {
   const { core, input, access, folder, gesture, writer, read } = fixture;
   const record = {
-    schemaVersion: 1,
+    schemaVersion: 2,
     variantId: 'primary',
     variantName: 'Primary',
     snapshots: [],
     history: [],
   };
   const future = (await core.embed(record, input)).replace(
-    '<papp:SchemaVersion>1',
     '<papp:SchemaVersion>2',
+    '<papp:SchemaVersion>3',
   );
   await access.writeFile(folder, 'photo.xmp', new TextEncoder().encode(future));
   gesture(1.25);

@@ -47,3 +47,20 @@ pub fn workflow_snapshot_xmp(xmp: &str, json: &str) -> Result<String, JsError> {
 pub fn workflow_restore_xmp(xmp: &str, json: &str) -> Result<String, JsError> {
     SidecarWorkflow::restore_xmp(xmp, json).map_err(|e| JsError::new(&e))
 }
+
+#[wasm_bindgen]
+pub fn workflow_reconcile_xmp(
+    base: &str,
+    current: &str,
+    incoming: &str,
+    now_ms: f64,
+) -> Result<String, JsError> {
+    raw_core::workflow::timestamp_ms(now_ms)
+        .and_then(|now| SidecarWorkflow::reconcile_xmp(base, current, incoming, now))
+        .map_err(|e| JsError::new(&e))
+}
+
+#[wasm_bindgen]
+pub fn workflow_cursor_xmp(xmp: &str) -> Result<String, JsError> {
+    SidecarWorkflow::cursor_xmp(xmp).map_err(|e| JsError::new(&e))
+}

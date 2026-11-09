@@ -153,7 +153,7 @@ export function tryLoadNapiBinding(): NativeBinding | null {
     if (typeof addon.rasterAnalyzePath !== 'function') {
       throw new Error(`N-API addon ${addonPath} lacks rasterAnalyzePath; rebuild or update it`);
     }
-    const workflow = (method: string, args: readonly string[]) => {
+    const workflow = (method: string, args: readonly (string | number)[]) => {
       const fn = addon[method];
       return typeof fn === 'function'
         ? fn(...args)
@@ -185,6 +185,10 @@ export function tryLoadNapiBinding(): NativeBinding | null {
       workflowVariantFilename: wrap<'workflowVariantFilename'>((primaryName, variantId) =>
         workflow('workflowVariantFilename', [primaryName, variantId]),
       ),
+      workflowReconcileXmp: wrap<'workflowReconcileXmp'>((base, current, incoming, nowMs) =>
+        workflow('workflowReconcileXmp', [base, current, incoming, Number(nowMs)]),
+      ),
+      workflowCursorXmp: wrap<'workflowCursorXmp'>((xmp) => workflow('workflowCursorXmp', [xmp])),
       // -- filename (synchronous, no I/O) --------------------------------
       renderFilenameTemplate: wrap<'renderFilenameTemplate'>((args) =>
         addon.renderFilenameTemplate({ ...args, capturedAt: args.capturedAt ?? undefined }),

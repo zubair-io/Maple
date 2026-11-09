@@ -65,3 +65,21 @@ pub fn workflow_snapshot_xmp(xmp: String, json: String) -> WorkflowResult {
 pub fn workflow_restore_xmp(xmp: String, json: String) -> WorkflowResult {
     result(SidecarWorkflow::restore_xmp(&xmp, &json))
 }
+
+#[napi]
+pub fn workflow_reconcile_xmp(
+    base: String,
+    current: String,
+    incoming: String,
+    now_ms: f64,
+) -> WorkflowResult {
+    result(
+        raw_core::workflow::timestamp_ms(now_ms)
+            .and_then(|now| SidecarWorkflow::reconcile_xmp(&base, &current, &incoming, now)),
+    )
+}
+
+#[napi]
+pub fn workflow_cursor_xmp(xmp: String) -> WorkflowResult {
+    result(SidecarWorkflow::cursor_xmp(&xmp))
+}

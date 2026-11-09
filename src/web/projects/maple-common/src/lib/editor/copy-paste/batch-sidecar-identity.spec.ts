@@ -37,6 +37,7 @@ import { WorkflowXmpService } from '../../xmp/workflow-xmp.service';
 import {
   PRIMARY_VARIANT_ID,
   parseSidecarWorkflow,
+  WORKFLOW_VERSION,
   type SidecarWorkflow,
   type WorkflowHistoryEntry,
   type WorkflowSnapshot,
@@ -74,7 +75,7 @@ const primaryPassthrough = {
 };
 const variantModel = () => ({ ...defaultAdjustmentModel(), saturation: 40, clarity: 15 });
 const workflowB: SidecarWorkflow = {
-  schemaVersion: 1,
+  schemaVersion: WORKFLOW_VERSION,
   variantId: VARIANT_B,
   variantName: 'B',
   snapshots: [],

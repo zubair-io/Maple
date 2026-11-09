@@ -58,6 +58,10 @@ test-fixtures/*
 # Exception: Lightroom profile-look sidecars (#4685) — two small XMPs shared
 # by the raw-core, MapleCore and maple-common reader/passthrough tests.
 !test-fixtures/look-profiles/
+# Exception: the shared workflow corpus (#4035/#4983) — the v2 wire corpus and
+# one real v1 sidecar for the migration — read by raw-core, the Swift, Web and
+# API contract tests and tools/qualification/workflow-roundtrip.sh. No RAWs.
+!test-fixtures/workflow/
 # Exception: the committed per-device perf-table rows (#3421) ARE committed —
 # small hand-reviewed JSON, one file per device under test-fixtures/perf/,
 # rendered into docs/performance.md by tools/perf-table.py and gated locally

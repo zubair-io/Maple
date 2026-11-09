@@ -130,7 +130,8 @@ final class WorkflowVariantCacheTests: XCTestCase {
     let checkpoint = XMPSerializer.serialize(model: model, culling: CullingState())
     let xml = try WorkflowSidecarCore.embed(
       SidecarWorkflow(
-        schemaVersion: 1, variantId: id, variantName: "Night", snapshots: [], history: []),
+        schemaVersion: WorkflowContract.version, variantId: id, variantName: "Night", snapshots: [],
+        history: []),
       in: checkpoint)
     try xml.write(to: named, atomically: true, encoding: .utf8)
     try FileManager.default.setAttributes([.modificationDate: stamp], ofItemAtPath: named.path)

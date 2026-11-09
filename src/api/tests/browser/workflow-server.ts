@@ -71,7 +71,7 @@ function blockedReadCount(path: string): number {
   return blocked.get(path)?.arrived ?? 0;
 }
 function fixtureSchema(xml: string, future: boolean | undefined): string {
-  return future ? xml.replace('<papp:SchemaVersion>1', '<papp:SchemaVersion>2') : xml;
+  return future ? xml.replace('<papp:SchemaVersion>2', '<papp:SchemaVersion>3') : xml;
 }
 function dropAcceptedResponse(request: Request) {
   const url = new URL(request.url);

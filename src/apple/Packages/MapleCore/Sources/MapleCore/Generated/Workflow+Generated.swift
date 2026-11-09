@@ -3,10 +3,11 @@
 import Foundation
 
 public enum WorkflowContract {
-  public static let version: UInt32 = 1
+  public static let version: UInt32 = 2
   public static let historyLimit = 32
   public static let maxTimestampMS: UInt64 = 9_007_199_254_740_991
   public static let maxBytes = 262144
+  public static let writerMaxBytes = 64
   public static let primaryVariantID = "primary"
   public static let markupPattern = "<(?:[^<\\s:]+:)?Workflow(?=[\\s/>])"
   public static let uuidPattern = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
@@ -20,6 +21,7 @@ public enum WorkflowContract {
     "undo",
     "redo",
     "variant-create",
+    "external",
   ]
 }
 
@@ -50,7 +52,10 @@ public struct WorkflowSnapshot: Codable, Equatable, Sendable {
 
   public init(from decoder: Decoder) throws {
     let all = try decoder.container(keyedBy: WorkflowAnyKey.self)
-    guard Set(all.allKeys.map(\.stringValue)) == Set(CodingKeys.allCases.map(\.rawValue)) else {
+    let keys = Set(all.allKeys.map(\.stringValue))
+    let known = Set(CodingKeys.allCases.map(\.rawValue))
+    let omittable: Set<String> = Set<String>()
+    guard keys.isSubset(of: known), known.subtracting(omittable).isSubset(of: keys) else {
       throw WorkflowWireError.invalid
     }
     let values = try decoder.container(keyedBy: CodingKeys.self)
@@ -76,6 +81,8 @@ public struct WorkflowHistoryEntry: Codable, Equatable, Sendable {
   public let createdAtMs: UInt64
   public let action: String
   public let label: String
+  public let parentId: String
+  public let writer: String
   public let adjustmentXmp: String
 
   public init(
@@ -83,12 +90,16 @@ public struct WorkflowHistoryEntry: Codable, Equatable, Sendable {
     createdAtMs: UInt64,
     action: String,
     label: String,
+    parentId: String = "",
+    writer: String = "",
     adjustmentXmp: String
   ) {
     self.id = id
     self.createdAtMs = createdAtMs
     self.action = action
     self.label = label
+    self.parentId = parentId
+    self.writer = writer
     self.adjustmentXmp = adjustmentXmp
   }
 
@@ -97,12 +108,17 @@ public struct WorkflowHistoryEntry: Codable, Equatable, Sendable {
     case createdAtMs
     case action
     case label
+    case parentId
+    case writer
     case adjustmentXmp
   }
 
   public init(from decoder: Decoder) throws {
     let all = try decoder.container(keyedBy: WorkflowAnyKey.self)
-    guard Set(all.allKeys.map(\.stringValue)) == Set(CodingKeys.allCases.map(\.rawValue)) else {
+    let keys = Set(all.allKeys.map(\.stringValue))
+    let known = Set(CodingKeys.allCases.map(\.rawValue))
+    let omittable: Set<String> = ["parentId", "writer"]
+    guard keys.isSubset(of: known), known.subtracting(omittable).isSubset(of: keys) else {
       throw WorkflowWireError.invalid
     }
     let values = try decoder.container(keyedBy: CodingKeys.self)
@@ -110,6 +126,8 @@ public struct WorkflowHistoryEntry: Codable, Equatable, Sendable {
     createdAtMs = try values.decode(UInt64.self, forKey: .createdAtMs)
     action = try values.decode(String.self, forKey: .action)
     label = try values.decode(String.self, forKey: .label)
+    parentId = try values.decodeIfPresent(String.self, forKey: .parentId) ?? ""
+    writer = try values.decodeIfPresent(String.self, forKey: .writer) ?? ""
     adjustmentXmp = try values.decode(String.self, forKey: .adjustmentXmp)
     try validateWire()
   }
@@ -121,6 +139,8 @@ public struct WorkflowHistoryEntry: Codable, Equatable, Sendable {
     try values.encode(createdAtMs, forKey: .createdAtMs)
     try values.encode(action, forKey: .action)
     try values.encode(label, forKey: .label)
+    try values.encode(parentId, forKey: .parentId)
+    try values.encode(writer, forKey: .writer)
     try values.encode(adjustmentXmp, forKey: .adjustmentXmp)
   }
 }
@@ -156,7 +176,10 @@ public struct SidecarWorkflow: Codable, Equatable, Sendable {
 
   public init(from decoder: Decoder) throws {
     let all = try decoder.container(keyedBy: WorkflowAnyKey.self)
-    guard Set(all.allKeys.map(\.stringValue)) == Set(CodingKeys.allCases.map(\.rawValue)) else {
+    let keys = Set(all.allKeys.map(\.stringValue))
+    let known = Set(CodingKeys.allCases.map(\.rawValue))
+    let omittable: Set<String> = Set<String>()
+    guard keys.isSubset(of: known), known.subtracting(omittable).isSubset(of: keys) else {
       throw WorkflowWireError.invalid
     }
     let values = try decoder.container(keyedBy: CodingKeys.self)
@@ -218,6 +241,16 @@ extension WorkflowHistoryEntry {
     else {
       throw WorkflowWireError.invalid
     }
+    if !parentId.isEmpty {
+      try workflowIdentity(parentId)
+      guard parentId != id else { throw WorkflowWireError.invalid }
+    }
+    if !writer.isEmpty {
+      try workflowName(writer)
+      guard writer.utf8.count <= WorkflowContract.writerMaxBytes else {
+        throw WorkflowWireError.invalid
+      }
+    }
   }
 }
 extension SidecarWorkflow {
@@ -244,7 +277,7 @@ extension SidecarWorkflow {
       "history": history.map {
         [
           "id": $0.id, "createdAtMs": $0.createdAtMs, "action": $0.action, "label": $0.label,
-          "adjustmentXmp": $0.adjustmentXmp,
+          "parentId": $0.parentId, "writer": $0.writer, "adjustmentXmp": $0.adjustmentXmp,
         ] as [String: Any]
       },
     ]

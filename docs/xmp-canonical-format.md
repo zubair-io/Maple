@@ -629,6 +629,7 @@ Three independent version numbers appear in or around a sidecar, and they mean d
 - **`papp:WbScaleVersion` (`1`–`5`)** — a _semantics_ version; see above. An unknown value is a hard parse error in `raw-core`.
 - **`papp:RetouchFrameVersion` (`2`)** — the second _semantics_ version: the frame the repair-spot list is expressed in; see "Repair spots". Absent means the legacy sensor frame. An unknown value is a hard parse error in `raw-core`.
 - **`"schema": 2`** inside the `papp:InpaintRemovals` JSON payload — versioning local to that payload.
+- **`papp:SchemaVersion` (`2`)** inside the `papp:Workflow` record — the version of the authoring record itself; see "Edit history, lineage and conflicts". A newer version is a hard error for an older reader and is never erased.
 
 New fields are added by extending `ADJUSTMENT_SCHEMA`, regenerating with `tools/codegen.sh`, and mirroring the key in all writers; because absent attributes read back as the canonical default and defaults are omitted on write, a new field costs nothing in existing sidecars. Removing a field is the harder direction — the reader arm has to stay (as `papp:Look`'s does) or old sidecars stop round-tripping.
 
@@ -822,6 +823,33 @@ qualification remain acceptance requirements under #2437.
 `tools/qualification/workflow-roundtrip.sh` runs the committed XMP corpus through
 Rust → generated Swift → generated Web/API TypeScript → Rust and checks identical
 final serialization. It writes only its own temporary files.
+
+### Edit history, lineage and conflicts (#4983)
+
+`papp:Workflow` carries the persisted edit history, so a conflict between two writers becomes a history entry instead of a lost write. Schema version **2** adds lineage to each history entry:
+
+| Field      | Meaning                                                                                                                                                                |
+| ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `parentId` | `id` of the entry whose state the writer based the change on (its compare-and-swap base). Empty when none was recorded.                                                |
+| `writer`   | Label of the originating writer (`apple`, `web`, …), at most 64 bytes. Empty when unrecorded, which is always the case for `external` entries and migrated v1 entries. |
+
+Both are optional when a host builds a record or entry (absent reads as empty), are stored exactly as given, and are always written. A host that names no `parentId` records no lineage; the writers in the Apple, Web and API stores always name the head they were based on. The action vocabulary gains `external`: a state produced by something that keeps no history (Lightroom, an older build, a crash after an ordinary save), captured at the moment a conflicting write is reconciled so that it is never overwritten unrecorded. `createdAtMs` is when the entry was recorded.
+
+The head is the last history entry. A **fork** is an entry whose `parentId` is not the id of the entry just before it: both edits sit in the history as consecutive entries, and the divergence is visible from the structure alone.
+
+**Bounds.** Unchanged: 32 entries (the editor's undo window) and the 256 KiB sidecar bound, so large masks can retire entries sooner. Compaction retires the oldest entries first and never the head or a named snapshot. A retired entry can leave a dangling `parentId`, which is valid; a parent still present must come earlier than its child.
+
+**Conflict rule (`reconcile_xmp`).** A writer names the document it was based on (`base`: the last revision it read or published, or empty when it saw no sidecar). If the file still equals `base`, nothing changed concurrently and the writer's document is published as is. Otherwise `raw_core::workflow::SidecarWorkflow::reconcile_xmp(base, current, incoming, now_ms)` runs, one pure operation shared by every host:
+
+1. **Capture.** When `current` is not already the history head's checkpoint, an `external` entry records it. Its id derives from its parent and content, so independent reconcilers record one entry.
+2. **Three-way merge** of the primary `rdf:Description`, per property: each attribute and each top-level child element is one property. A property only one side changed takes that side's value; a property both changed takes the incoming writer's value, because the later write is applied on top. The displaced value stays recoverable from the history entry that holds `current`.
+3. The writer then commits its own entry with `parentId` set to the head it was based on.
+
+The merge edits only the byte spans of properties that change in `current`; unknown attributes, unknown child elements and every byte outside the Description stay exactly as `current` holds them. Attribute order and layout follow the incoming writer for properties it adds. A merge that is not well-formed, or that strands a prefix from its namespace declaration, fails before publication and the writer keeps its pending edit. An `external` entry can also record another Maple writer's unfinished ordinary save; it costs one retained entry, never data.
+
+**Undo and redo across restarts.** The editor's stacks are a deterministic fold over the retained history (`SidecarWorkflow::cursor`, exposed as `cursor_xmp`): an `undo` or `redo` entry moves the head between the stacks, any other entry pushes the previous head and clears redo. A sidecar that no longer equals the head (an outside edit, a crash) makes the head one more undo step and empties redo. Every host rebuilds the same ring from the returned entry ids, up to the cap.
+
+**Versioning and migration.** A v1 record reads as v2 (`parentId` is the predecessor, `writer` is empty) and becomes v2 on its next commit. An older build reading v2 fails closed exactly as it does for any future schema, and never erases the record. Writers that do not understand `papp:Workflow` (Windows, Linux, Lightroom) keep it verbatim as an unknown child. `raw-core::workflow` owns the fields and `tools/codegen.sh` regenerates the Swift and TypeScript records and validators; the C-FFI, WASM and N-API bindings expose `reconcile_xmp` and `cursor_xmp` beside the existing converters. `test-fixtures/workflow/contract.json` is the shared v2 corpus and `test-fixtures/workflow/v1-sidecar.xmp` a real v1 sidecar for the migration.
 
 ## Test contract
 

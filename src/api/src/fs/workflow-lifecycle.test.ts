@@ -39,7 +39,7 @@ async function stage(dir: string, name: string, id = ID) {
   const variant = path.join(location, base + '.v' + id + '.xmp');
   const result = await callNative('workflowEmbedXmp', [
     JSON.stringify({
-      schemaVersion: 1,
+      schemaVersion: 2,
       variantId: id,
       variantName: 'Alternate',
       snapshots: [],
@@ -69,7 +69,7 @@ describe('portable variant asset lifecycle', () => {
       const source = await stage('mixed-writers', 'photo.dng');
       const initial = await callNative('workflowEmbedXmp', [
         JSON.stringify({
-          schemaVersion: 1,
+          schemaVersion: 2,
           variantId: 'primary',
           variantName: 'Primary',
           snapshots: [],
@@ -130,7 +130,7 @@ describe('portable variant asset lifecycle', () => {
       if (!record.ok) throw Error(record.error);
       const history = JSON.parse(record.value).history;
       const winner = results.findIndex((result) => result.status === 'fulfilled');
-      expect(history).toEqual([entries[winner]]);
+      expect(history).toEqual([{ ...entries[winner], parentId: '', writer: '' }]);
       expect(await fs.readFile(source.primary, 'utf8')).toBe(source.original);
     },
   );
@@ -139,7 +139,7 @@ describe('portable variant asset lifecycle', () => {
     const source = await stage('cached-history', 'photo.dng');
     const embedded = await callNative('workflowEmbedXmp', [
       JSON.stringify({
-        schemaVersion: 1,
+        schemaVersion: 2,
         variantId: 'primary',
         variantName: 'Primary',
         snapshots: [],
@@ -168,7 +168,7 @@ describe('portable variant asset lifecycle', () => {
     const saved = await fs.readFile(source.sidecar, 'utf8');
     const record = await callNative('workflowReadXmp', [saved]);
     if (!record.ok) throw Error(record.error);
-    expect(JSON.parse(record.value).history).toEqual([entry]);
+    expect(JSON.parse(record.value).history).toEqual([{ ...entry, parentId: '', writer: '' }]);
     expect(saved).toContain('crs:Exposure2012="1.25"');
     expect(saved).toContain('<crs:MaskGroup>');
     expect(await fs.readFile(source.primary, 'utf8')).toBe(source.original);

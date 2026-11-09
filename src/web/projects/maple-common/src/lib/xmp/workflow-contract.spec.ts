@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 import { parseSidecarWorkflow, WORKFLOW_HISTORY_LIMIT } from '../generated/workflow.generated';
 
 const corpus = JSON.parse(
-  readFileSync(resolve('../../test-fixtures/workflow/contract-v1.json'), 'utf8'),
+  readFileSync(resolve('../../test-fixtures/workflow/contract.json'), 'utf8'),
 );
 describe('shared workflow wire contract (#4035)', () => {
   it('reopens complete checkpoint XMP without changing any bytes', () => {
@@ -32,7 +32,7 @@ describe('shared workflow wire contract (#4035)', () => {
     const { variantName: _name, ...missing } = value;
     const { adjustmentXmp: _xmp, ...missingCheckpoint } = value.snapshots[0];
     for (const invalid of [
-      { ...value, schemaVersion: 2 },
+      { ...value, schemaVersion: 3 },
       missing,
       { ...value, future: true },
       { ...value, snapshots: [{ ...value.snapshots[0], future: true }] },
@@ -43,6 +43,10 @@ describe('shared workflow wire contract (#4035)', () => {
       { ...value, history: [value.history[0], value.history[0]] },
       { ...value, history: [{ ...value.history[0], action: 'render' }] },
       { ...value, history: [{ ...value.history[0], createdAtMs: 9007199254740992 }] },
+      { ...value, history: [{ ...value.history[0], parentId: 'not-a-uuid' }] },
+      { ...value, history: [{ ...value.history[0], parentId: value.history[0].id }] },
+      { ...value, history: [{ ...value.history[0], writer: 'x'.repeat(65) }] },
+      { ...value, history: [{ ...value.history[0], writer: '\n' }] },
       { ...value, snapshots: [{ ...value.snapshots[0], id: `${value.snapshots[0].id}\n` }] },
       {
         ...value,
@@ -57,5 +61,13 @@ describe('shared workflow wire contract (#4035)', () => {
     const parsed = parseSidecarWorkflow(value);
     expect(parsed).not.toBe(value);
     expect(parsed.snapshots).not.toBe(value.snapshots);
+  });
+  it('lineage fields are optional when a host builds an entry and kept when present', () => {
+    const value = corpus[0];
+    const { parentId: _parent, writer: _writer, ...bare } = value.history[0];
+    expect(() => parseSidecarWorkflow({ ...value, history: [bare] })).not.toThrow();
+    const forked = value.history.find((entry: { action: string }) => entry.action === 'external');
+    expect(forked).toBeDefined();
+    expect(parseSidecarWorkflow(value).history).toEqual(value.history);
   });
 });

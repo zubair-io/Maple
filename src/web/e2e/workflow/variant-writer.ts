@@ -45,7 +45,7 @@ export async function variantWriter(input: string, scenario: string) {
     await access.writeFile(folder, 'photo.dng', new Uint8Array([1, 0, 255, 42]));
     await access.writeFile(folder, 'photo.xmp', new TextEncoder().encode(input));
     const branch = await variants.create(folder, 'photo.xmp', {
-      schemaVersion: 1,
+      schemaVersion: 2,
       variantId: id,
       variantName: 'Night',
       snapshots: [],

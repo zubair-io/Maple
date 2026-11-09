@@ -47,7 +47,7 @@ extension EditorWorkflowState {
             !session.sidecarWritesDisabled
           else { return }
           let record = SidecarWorkflow(
-            schemaVersion: 1, variantId: UUID().uuidString.lowercased(),
+            schemaVersion: WorkflowContract.version, variantId: UUID().uuidString.lowercased(),
             variantName: trimmed, snapshots: [], history: [])
           command = WorkflowVariantCreation(
             record: record, sourceVariantId: self.selectedVariantId,

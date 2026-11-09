@@ -12,7 +12,7 @@ import { xmpRoutes } from './assets/xmp';
 
 const corpus = JSON.parse(
   await readFile(
-    new URL('../../../../test-fixtures/workflow/contract-v1.json', import.meta.url),
+    new URL('../../../../test-fixtures/workflow/contract.json', import.meta.url),
     'utf8',
   ),
 );
