@@ -67,14 +67,8 @@ struct EditorVerticalControlBar: View {
   /// Mac never shows either.
   static func top(in geometry: GeometryProxy) -> CGFloat {
     #if os(iOS)
-      let occlusions =
-        if #available(iOS 27.1, *) {
-          geometry.reservedRegions(kind: .occlusion).map(\.frame)
-        } else {
-          [CGRect]()
-        }
       return topClearance(
-        occlusions: occlusions,
+        occlusions: geometry.occlusionFrames,
         topTrailingCorner: geometry.containerCornerInsets.topTrailing.height,
         trailingEdge: geometry.size.width + geometry.safeAreaInsets.trailing)
     #else

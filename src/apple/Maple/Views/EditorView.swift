@@ -213,8 +213,7 @@ struct EditorSurface: View {
           .padding(.top, 8)
         Spacer()
       }
-      .padding(.top, 8)
-      .frame(maxWidth: .infinity)
+      .statusRowHeaderPlacement()
       .ignoresSafeArea(edges: .bottom)
       #if os(iOS)
         if sideRailCarriesGroups {
