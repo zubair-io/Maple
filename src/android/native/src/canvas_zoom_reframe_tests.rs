@@ -414,6 +414,40 @@ fn reframing_mid_drag_continues_without_a_jump() {
     );
 }
 
+/// Review on #5753: a crop changed mid-pinch below fit pulled the pinch into
+/// the resting range, which below fit is the centre, so the photo jumped.
+#[test]
+fn a_crop_mid_pinch_below_fit_keeps_the_photo_where_it_is() {
+    let image = (4000.0, 3000.0);
+    let cropped = (3200.0, 3000.0);
+    let mut state = [0.0; STATE_LEN];
+    for (magnification, x, y) in [(1.0, 300.0, 200.0), (0.7, 260.0, 190.0)] {
+        call(
+            &mut state,
+            OP_PINCH_CHANGED,
+            [magnification, x, y, 0.0],
+            VIEWPORT,
+            image,
+        );
+    }
+    let scale = effective_scale(&state, VIEWPORT, image);
+    let before = centre_point(&state, VIEWPORT, image);
+    call(
+        &mut state,
+        OP_REFRAME_IMAGE,
+        [0.0, 0.0, cropped.0, cropped.1],
+        VIEWPORT,
+        cropped,
+    );
+    assert_close(effective_scale(&state, VIEWPORT, cropped), scale, "scale");
+    assert_point(
+        centre_point(&state, VIEWPORT, cropped),
+        before,
+        "the same source pixel stays centred",
+    );
+    assert!(decode(&state).pinch_start_scale.is_some());
+}
+
 #[test]
 fn settling_ends_a_pinch_that_never_ended() {
     let image = (4000.0, 3000.0);

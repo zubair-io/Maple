@@ -10,8 +10,10 @@ use super::*;
 /// image lies in the previous image's pixels (the whole previous image when
 /// only the viewport changed; the new crop's rectangle when a crop changed).
 /// 100% stays 1:1, fill re-resolves, and a free scale keeps the content's
-/// size on screen within the next floor and cap. The caller continues any
-/// live gesture from the result.
+/// size on screen within the next floor and cap; a live pinch keeps the
+/// content's size on screen at any stop. The result is not yet clamped: the
+/// caller's `continued` re-resolves it at rest, or holds a live pinch only
+/// to the pinch's floor and cap and continues it.
 pub(super) fn reframe(
     model: CanvasZoomModel,
     extent: Rect,
@@ -22,17 +24,20 @@ pub(super) fn reframe(
         return model;
     }
     if !extent.is_finite() || extent.width <= 0.0 || extent.height <= 0.0 {
-        return model.reclamp_pan(next);
+        return model;
     }
     let old_image = previous.native_image_size();
     let new_image = next.native_image_size();
     let start = previous.effective_scale(model.pixel_scale);
-    let scale = match model.current_stop() {
-        Some(ZoomStop::Fill) => next.fill_scale(),
-        Some(ZoomStop::Fit | ZoomStop::ActualSize) => model.pixel_scale,
-        None => (start * extent.width / new_image.width)
-            .min(MAX_PIXEL_SCALE)
-            .max(next.min_scale()),
+    let kept_size = (start * extent.width / new_image.width).min(MAX_PIXEL_SCALE);
+    let scale = if model.pinch_start_scale.is_some() {
+        kept_size
+    } else {
+        match model.current_stop() {
+            Some(ZoomStop::Fill) => next.fill_scale(),
+            Some(ZoomStop::Fit | ZoomStop::ActualSize) => model.pixel_scale,
+            None => kept_size.max(next.min_scale()),
+        }
     };
     let to_image = previous.display_scale() / start;
     let centred = Point::new(
@@ -49,7 +54,7 @@ pub(super) fn reframe(
         (new_image.height / 2.0 - mapped.y) * to_points,
     );
     if !pan.is_finite() || !scale.is_finite() {
-        return model.reclamp_pan(next);
+        return model;
     }
     CanvasZoomModel {
         pixel_scale: scale,
@@ -57,7 +62,6 @@ pub(super) fn reframe(
         base_pan: pan,
         ..model
     }
-    .reclamp_pan(next)
 }
 
 /// Ends a pinch or drag whose gesture was cancelled (its view left the
