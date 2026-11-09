@@ -23,6 +23,16 @@ final class StatusRowHeaderPlacementTests: XCTestCase {
     XCTAssertEqual(row?.trailing, 134)
   }
 
+  /// The app root measures the region in window space; a header below the
+  /// top inset maps it back to its own coordinates.
+  func testWindowRegionsMapIntoAHeaderBelowTheTopInset() {
+    let local = [CGRect(x: 535, y: -82, width: 134, height: 82)]
+    let origin = CGPoint(x: 0, y: openDuoSafeArea.top)
+    let window = StatusRowHeaderPlacement.windowRegions(local, origin: origin)
+    XCTAssertEqual(window, [CGRect(x: 535, y: 0, width: 134, height: 82)])
+    XCTAssertEqual(StatusRowHeaderPlacement.localRegions(window, origin: origin), local)
+  }
+
   /// The owner's open Duo with a Focus icon stacked above the clock: the
   /// status items span about x 547–642 pt and y 20–60 pt from the screen top.
   func testOpenDuoFocusIconAboveTheClockCentresOnTheStackedItems() {

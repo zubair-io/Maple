@@ -65,10 +65,10 @@ struct EditorVerticalControlBar: View {
   /// `topClearance` for this geometry: the vertical bar and the closed
   /// Duo's side group rail both start below the trailing status items. The
   /// Mac never shows either.
-  static func top(in geometry: GeometryProxy) -> CGFloat {
+  static func top(in geometry: GeometryProxy, statusRegions: [CGRect]) -> CGFloat {
     #if os(iOS)
       return topClearance(
-        occlusions: geometry.occlusionFrames,
+        occlusions: geometry.statusRegions(window: statusRegions),
         topTrailingCorner: geometry.containerCornerInsets.topTrailing.height,
         trailingEdge: geometry.size.width + geometry.safeAreaInsets.trailing)
     #else

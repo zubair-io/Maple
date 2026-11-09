@@ -8,6 +8,7 @@
   /// below the clock (#5770).
   struct EditorSideGroupRail: View {
     @Bindable var state: EditorState
+    @Environment(\.statusRegions) private var statusRegions
 
     var body: some View {
       GeometryReader { geometry in
@@ -16,7 +17,9 @@
           .padding(.vertical, 4)
           .modifier(PhotoHeaderGlass())
           .frame(width: geometry.safeAreaInsets.trailing)
-          .padding(.top, EditorVerticalControlBar.top(in: geometry))
+          .padding(
+            .top, EditorVerticalControlBar.top(in: geometry, statusRegions: statusRegions)
+          )
           .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
           .ignoresSafeArea(.container, edges: .trailing)
       }
