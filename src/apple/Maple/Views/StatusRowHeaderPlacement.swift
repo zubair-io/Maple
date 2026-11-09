@@ -1,5 +1,8 @@
 import MapleCore
+import OSLog
 import SwiftUI
+
+private let statusRowLog = Logger(subsystem: "app.justmaple.aperture", category: "status-row")
 
 /// Places a floating header row 8 pt below the safe-area top. Where the
 /// system's status items occupy only the trailing end of the top inset (the
@@ -12,25 +15,54 @@ struct StatusRowHeaderPlacement: ViewModifier {
   /// Reserved-region edges can land a fraction of a point off the inset.
   private static let edgeTolerance: CGFloat = 1
 
+  let surface: String
+
   func body(content: Content) -> some View {
     GeometryReader { geometry in
-      let statusRow = Self.statusRowInsets(in: geometry)
+      let inputs = PlacementInputs(geometry: geometry)
+      let statusRow = inputs.statusRow
       content
         .padding(statusRow ?? EdgeInsets(top: Self.restingTop, leading: 0, bottom: 0, trailing: 0))
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .ignoresSafeArea(.container, edges: statusRow == nil ? [] : .top)
+        .onChange(of: inputs, initial: true) {
+          if inputs.isPhone { inputs.log(surface: surface, global: geometry.frame(in: .global)) }
+        }
     }
   }
 
-  private static func statusRowInsets(in geometry: GeometryProxy) -> EdgeInsets? {
-    #if os(iOS)
-      guard MapleShellKind.currentIdiom == .phone else { return nil }
-      return statusRowInsets(
-        occlusions: geometry.occlusionFrames, size: geometry.size,
-        safeArea: geometry.safeAreaInsets)
-    #else
-      return nil
-    #endif
+  /// What decides the header row's placement. Phones log it once per
+  /// change, so a device the simulator cannot reproduce can be read back.
+  private struct PlacementInputs: Equatable {
+    let isPhone: Bool
+    let size: CGSize
+    let safeArea: EdgeInsets
+    let occlusions: [CGRect]
+
+    init(geometry: GeometryProxy) {
+      #if os(iOS)
+        isPhone = MapleShellKind.currentIdiom == .phone
+      #else
+        isPhone = false
+      #endif
+      size = geometry.size
+      safeArea = geometry.safeAreaInsets
+      occlusions = isPhone ? geometry.occlusionFrames : []
+    }
+
+    var statusRow: EdgeInsets? {
+      isPhone
+        ? StatusRowHeaderPlacement.statusRowInsets(
+          occlusions: occlusions, size: size, safeArea: safeArea)
+        : nil
+    }
+
+    func log(surface: String, global: CGRect) {
+      let geometry = "size \(size) safeArea \(safeArea) global \(global)"
+      let decision = "occlusions \(occlusions) -> \(String(describing: statusRow))"
+      statusRowLog.notice(
+        "\(surface, privacy: .public): \(geometry, privacy: .public) \(decision, privacy: .public)")
+    }
   }
 
   /// The row's padding from the screen top and the safe area's trailing
@@ -69,7 +101,7 @@ extension GeometryProxy {
 }
 
 extension View {
-  func statusRowHeaderPlacement() -> some View {
-    modifier(StatusRowHeaderPlacement())
+  func statusRowHeaderPlacement(surface: String) -> some View {
+    modifier(StatusRowHeaderPlacement(surface: surface))
   }
 }
