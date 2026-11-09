@@ -203,6 +203,23 @@ checks coordinate only writers inside the API process. The worker child process
 (for example batch-sync jobs) and external filesystem writers do not participate
 and can still race a conditional save.
 
+`POST /api/xmp/variant/commit` takes `{expectedXmp, xmp, entry}` (`expectedXmp` is
+the last complete sidecar the client saw, `null` for none). When the file still
+equals `expectedXmp` the commit publishes as before. When it differs, the server
+does not refuse (`409` no longer means "stale base" for commit): inside the same
+per-sidecar barrier it reconciles `xmp` onto the file with the shared Rust
+three-way merge (an `external` history entry is recorded for an outside edit;
+a property only one side changed keeps that side, one both changed takes the
+client's) and commits `entry` rewritten to describe the merged result: its
+`adjustmentXmp` becomes the merged checkpoint and its `parentId` the head of
+`expectedXmp`'s record (`""` if none); `id` and `writer` are kept. The response
+body is the merged sidecar, which the client adopts. A retry whose `entry.id` is
+already in the file's history is acknowledged with the file unchanged. A file
+deleted since `expectedXmp` still answers `409`; a future-schema or unmergeable
+record, or a size-bound overflow, fails closed with the native error and writes
+nothing. `variant/snapshot` and `variant/restore` stay strict whole-text
+compare-and-swap and answer `409` on a stale `expectedXmp`.
+
 ## Search
 
 Every filter parameter below is shared by `/api/search`, `/api/search/facets`, `/api/search/buckets`, and `/api/map/clusters`, declared once in `routes/search/query-schema.ts`.

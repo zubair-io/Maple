@@ -64,7 +64,7 @@ async function expectVariant(file: string, xml: string, id = ID) {
 describe('portable variant asset lifecycle', () => {
   // Repeated independent real sidecars expose the intermittent Linux writer race (#4051).
   test.each(Array.from({ length: 100 }, (_, round) => round))(
-    'mixed concurrent ordinary and semantic writers retain the admitted action (round %i)',
+    'mixed concurrent ordinary and semantic writers all retain their admitted action (round %i)',
     async () => {
       const source = await stage('mixed-writers', 'photo.dng');
       const initial = await callNative('workflowEmbedXmp', [
@@ -99,7 +99,7 @@ describe('portable variant asset lifecycle', () => {
         Promise.all(ordinary),
       ]);
       if (
-        results.filter((result) => result.status === 'fulfilled').length !== 1 ||
+        results.some((result) => result.status !== 'fulfilled') ||
         ordinaryResults.some((result) => !result.ok)
       ) {
         const saved = await fs.readFile(source.sidecar, 'utf8').then(
@@ -123,14 +123,13 @@ describe('portable variant asset lifecycle', () => {
         };
         console.error('Actual mixed-writer failure:', JSON.stringify(diagnostics));
       }
-      expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
+      expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(8);
       expect(ordinaryResults.every((result) => result.ok)).toBe(true);
       const saved = await fs.readFile(source.sidecar, 'utf8');
       const record = await callNative('workflowReadXmp', [saved]);
       if (!record.ok) throw Error(record.error);
-      const history = JSON.parse(record.value).history;
-      const winner = results.findIndex((result) => result.status === 'fulfilled');
-      expect(history).toEqual([{ ...entries[winner], parentId: '', writer: '' }]);
+      const history: { id: string }[] = JSON.parse(record.value).history;
+      expect(history.map((row) => row.id).sort()).toEqual(entries.map((entry) => entry.id).sort());
       expect(await fs.readFile(source.primary, 'utf8')).toBe(source.original);
     },
   );

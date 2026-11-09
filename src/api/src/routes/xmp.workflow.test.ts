@@ -475,42 +475,38 @@ test('confirmed selected-variant actions retain immutable snapshots and history 
   expect(await readFile(join(directory, 'photo.dng'))).toEqual(Buffer.from([1, 0, 255, 42]));
 });
 
-test('competing confirmed commits reject stale writers without dropping semantic history', async () => {
+test('competing confirmed commits from one base all land without dropping semantic history', async () => {
   await symlink(directory, join(directory, 'inside-alias'), 'dir');
-  const first = historyEntry(xml);
+  const ids = Array.from({ length: 8 }, () => crypto.randomUUID());
   const outcomes = await Promise.all(
-    Array.from({ length: 8 }, (_, index) =>
+    ids.map((id, index) =>
       actionRequest(
         'commit',
         'primary',
-        {
-          expectedXmp: xml,
-          xmp: xml,
-          entry: { ...first, id: crypto.randomUUID() },
-        },
+        { expectedXmp: xml, xmp: xml, entry: { ...historyEntry(xml), id } },
         index % 2 === 0
           ? join(directory, 'photo.dng')
           : join(directory, 'inside-alias', 'photo.dng'),
       ),
     ),
   );
-  expect(outcomes.map((row) => row.status).sort()).toEqual([
-    200, 409, 409, 409, 409, 409, 409, 409,
-  ]);
+  expect(outcomes.map((row) => row.status)).toEqual(ids.map(() => 200));
   const saved = await readFile(join(directory, 'photo.xmp'), 'utf8');
-  expect(JSON.parse(await nativeValue('workflowReadXmp', saved)).history).toHaveLength(1);
+  const rows: { id: string }[] = JSON.parse(await nativeValue('workflowReadXmp', saved)).history;
+  expect(rows.map((row) => row.id).sort()).toEqual([...ids].sort());
   const retry = await actionRequest('commit', 'primary', {
     expectedXmp: saved,
     xmp: xml,
     entry: historyEntry(xml),
   });
   expect(retry.status).toBe(200);
-  expect(JSON.parse(await nativeValue('workflowReadXmp', await retry.text())).history).toHaveLength(
-    2,
+  const kept: { history: unknown[] } = JSON.parse(
+    await nativeValue('workflowReadXmp', await retry.text()),
   );
+  expect(kept.history).toHaveLength(9);
 });
 
-test('explicit primary absence creates only once, while missing named branches never fall back', async () => {
+test('explicit primary absence reconciles concurrent creators, while missing named branches never fall back', async () => {
   await unlink(join(directory, 'photo.xmp'));
   const requests = await Promise.all(
     [0, 1].map(() =>
@@ -521,7 +517,9 @@ test('explicit primary absence creates only once, while missing named branches n
       }),
     ),
   );
-  expect(requests.map((row) => row.status).sort()).toEqual([200, 409]);
+  expect(requests.map((row) => row.status)).toEqual([200, 200]);
+  const saved = await readFile(join(directory, 'photo.xmp'), 'utf8');
+  expect(JSON.parse(await nativeValue('workflowReadXmp', saved)).history).toHaveLength(2);
   expect(
     (
       await actionRequest('commit', crypto.randomUUID(), {
