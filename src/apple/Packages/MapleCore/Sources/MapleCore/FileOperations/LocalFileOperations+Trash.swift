@@ -305,8 +305,9 @@ extension LocalFileOperations {
   /// existed, or a marker write that failed) are left alone rather than
   /// guessed at — the same conservatism as the PhotoKit orphan sweeper
   /// only ever acting on dated entries. Also removes any ORPHANED marker
-  /// (`sweepOrphanedMarkers`) whose primary is already gone. Returns the
-  /// total count of primaries purged plus orphaned markers removed.
+  /// (`sweepOrphanedMarkers`) whose primary is already gone, and any orphaned
+  /// sidecar (`sweepOrphanedSidecars`, #5132). Returns the total count of
+  /// primaries purged plus orphaned markers and sidecars removed.
   @discardableResult
   public static func sweepExpiredMapleTrash(
     libraryRoot: URL, olderThanDays: Int = 30, now: Date = Date()
@@ -321,6 +322,8 @@ extension LocalFileOperations {
       }
     }
     purged += sweepOrphanedMarkers(libraryRoot: libraryRoot)
+    purged += sweepOrphanedSidecars(
+      libraryRoot: libraryRoot, olderThanDays: olderThanDays, now: now)
     return purged
   }
 
