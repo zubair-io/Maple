@@ -206,4 +206,109 @@ final class BackupWalkReconcileTests: XCTestCase {
     let row = try await state.find(task.id)
     XCTAssertEqual(row?.state, .uploaded)
   }
+
+  func testExhaustedCompanionReadsLeaveThePhotoFailedUntilARetryDeliversThem() async throws {
+    let ingest = StubURLProtocol.Stub.ok(
+      json: #"{"maple_id":"hash-P1","target_rel_path":"2024/03/15/IMG.heic"}"#)
+    StubURLProtocol.stub = .sequence([
+      ingest, ingest,
+      .ok(json: #"{"target_rel_path":"2024/03/15/IMG.rendered.jpeg"}"#),
+      .ok(json: #"{"target_rel_path":"2024/03/15/IMG.mov"}"#),
+    ])
+    let reader = DeferredCompanionAssetReader(failingReads: 1)
+    let (engine, queue, state, _, tmpRoot) =
+      try freshHarness(companionBackoff: { _ in 0 }, reader: reader)
+    defer { try? FileManager.default.removeItem(at: tmpRoot) }
+    let lastAttempt = BackupTask(
+      id: id("P1"), state: .pending, priority: .background, retryCount: 7)
+    try await state.upsert(lastAttempt)
+    await queue.enqueue(lastAttempt, priority: .background)
+
+    do {
+      try await engine.processOne()
+      XCTFail("an unreadable companion fails the last attempt")
+    } catch {}
+
+    let failed = try await state.find(lastAttempt.id)
+    XCTAssertEqual(failed?.state, .failedRetry, "out of retries with companions undelivered")
+    let owing = try await state.phidsOwingCompanions(deviceId: "d")
+    XCTAssertEqual(owing, ["P1"], "never counted as backed up")
+
+    let settled = try await state.markServerHeld([held("P1")])
+    XCTAssertEqual(settled, [])
+    let afterWalk = try await state.find(lastAttempt.id)
+    XCTAssertEqual(afterWalk?.state, .failedRetry, "the server holding the original is not enough")
+    let rehydrated = try await state.rehydrate(into: InProcessBackupQueue())
+    XCTAssertEqual(rehydrated, 0, "a failed photo waits for the user's retry")
+
+    let requeued = try await state.requeueFailed([
+      BackupTask(id: lastAttempt.id, state: .pending, priority: .background)
+    ])
+    XCTAssertEqual(requeued.map(\.id), [lastAttempt.id])
+    let reset = try await state.find(lastAttempt.id)
+    XCTAssertEqual(reset?.state, .pending)
+    XCTAssertEqual(reset?.retryCount, 0)
+
+    await engine.stop()
+    await queue.enqueue(requeued, priority: nil)
+    try await engine.processOne()
+
+    let companionUploads = {
+      StubURLProtocol.recordedRequests.filter { $0.url?.path.contains("backup/rendered") == true }
+    }
+    let deadline = Date().addingTimeInterval(2)
+    while Date() < deadline, companionUploads().count < 2 {
+      try await Task.sleep(nanoseconds: 10_000_000)
+    }
+    XCTAssertEqual(companionUploads().count, 2, "rendered and Live Photo twins land on the retry")
+    let delivered = try await state.find(lastAttempt.id)
+    XCTAssertEqual(delivered?.state, .uploaded)
+    let stillOwing = try await state.phidsOwingCompanions(deviceId: "d")
+    XCTAssertEqual(stillOwing, [])
+  }
+
+  func testOriginalSentWithoutAResponseStillOwesItsCompanions() async throws {
+    StubURLProtocol.stub = .status(500)
+    let reader = DeferredCompanionAssetReader(failingReads: 0)
+    let (engine, queue, state, _, tmpRoot) =
+      try freshHarness(companionBackoff: { _ in 0 }, reader: reader)
+    defer { try? FileManager.default.removeItem(at: tmpRoot) }
+    let lastAttempt = BackupTask(
+      id: id("P1"), state: .pending, priority: .background, retryCount: 7)
+    try await state.upsert(lastAttempt)
+    await queue.enqueue(lastAttempt, priority: .background)
+
+    do {
+      try await engine.processOne()
+      XCTFail("the original upload fails")
+    } catch {}
+
+    let settled = try await state.markServerHeld([held("P1")])
+    XCTAssertEqual(settled, [])
+    let row = try await state.find(lastAttempt.id)
+    XCTAssertEqual(row?.state, .failedRetry)
+  }
+
+  func testRetryLeavesFailuresTheWalkSettledAlone() async throws {
+    let store = try freshStore()
+    try await store.upsert([
+      BackupTask(id: id("held"), state: .failedRetry, priority: .background, retryCount: 8),
+      BackupTask(id: id("owing"), state: .failedRetry, priority: .background, retryCount: 8),
+      BackupTask(id: id("unknown"), state: .failedRetry, priority: .background, retryCount: 8),
+    ])
+    try await store.markCompanionsOwed(id("owing"))
+
+    _ = try await store.markServerHeld([held("held"), held("owing")])
+    let requeued = try await store.requeueFailed(
+      ["held", "owing", "unknown"].map {
+        BackupTask(id: id($0), state: .pending, priority: .background)
+      })
+
+    XCTAssertEqual(Set(requeued.map(\.id)), [id("owing"), id("unknown")])
+    let held = try await store.find(id("held"))
+    XCTAssertEqual(held?.state, .uploaded)
+    let owing = try await store.find(id("owing"))
+    XCTAssertEqual(owing?.state, .pending)
+    XCTAssertEqual(owing?.retryCount, 0)
+  }
 }

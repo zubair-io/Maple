@@ -330,10 +330,13 @@ enum ChangeObserverWiring {
       since: cursor.serverSince(fullScan: isFullScan, hasUndeliveredEdits: hasUndeliveredEdits))
     guard !Task.isCancelled else { return }
 
+    // A server-held original whose companions are still owed is not backed up.
+    let owingCompanions = (try? await state.phidsOwingCompanions(deviceId: deviceId)) ?? []
+    let serverBackedUp = serverKnownPhids.subtracting(owingCompanions)
     progress.recordLibrarySnapshot(
       photoIDs: libraryPhotoIDs,
-      backedUpIDs: local.backedUpPhids.union(serverKnownPhids).intersection(libraryPhotoIDs))
-    progress.removePendingPhotoIDs(serverKnownPhids)
+      backedUpIDs: local.backedUpPhids.union(serverBackedUp).intersection(libraryPhotoIDs))
+    progress.removePendingPhotoIDs(serverBackedUp)
 
     // Server-held photos are recorded only when they are in the library, so
     // photos gone from it never inflate the library count.
@@ -370,23 +373,27 @@ enum ChangeObserverWiring {
       await queue.enqueue(backfilled, priority: nil)
     }
 
-    let unknownToServer = outcome.assets.filter { !serverKnownPhids.contains($0.phid) }
-    let retryTasks =
+    // Server-held failures were settled above unless they still owe companions;
+    // the store re-queues only rows still failed.
+    let retryCandidates =
       retryFailed
-      ? unknownToServer.filter { local.stateByPhid[$0.phid] == .failedRetry }.map {
+      ? outcome.assets.filter { local.stateByPhid[$0.phid] == .failedRetry }.map {
         BackupTask(
           id: BackupTaskID(deviceId: deviceId, phassetLocalId: $0.phid),
           state: .pending, priority: .background, capturedAt: $0.capturedAt)
       } : []
+    var retriedCount = 0
     guard
       await writeInBatches(
-        retryTasks,
+        retryCandidates,
         { batch, _ in
-          try await state.upsert(batch)
-          await queue.enqueue(batch, priority: nil)
+          let requeued = try await state.requeueFailed(batch)
+          retriedCount += requeued.count
+          await queue.enqueue(requeued, priority: nil)
         })
     else { return }
 
+    let unknownToServer = outcome.assets.filter { !serverKnownPhids.contains($0.phid) }
     let newTasks = unknownToServer.filter { local.stateByPhid[$0.phid] == nil }.map {
       BackupTask(
         id: BackupTaskID(deviceId: deviceId, phassetLocalId: $0.phid),
@@ -411,7 +418,7 @@ enum ChangeObserverWiring {
     }
 
     log.info(
-      "walk done: enqueued=\(newTasks.count) retried=\(retryTasks.count) reconciled-uploaded=\(serverHeldTasks.count) totalEligible=\(libraryPhotoIDs.count)"
+      "walk done: enqueued=\(newTasks.count) retried=\(retriedCount) reconciled-uploaded=\(serverHeldTasks.count) totalEligible=\(libraryPhotoIDs.count)"
     )
 
     // Photos the server already holds can still carry a newer local edit than
@@ -428,7 +435,7 @@ enum ChangeObserverWiring {
     progress.recordWalkSummary(
       BackupProgressViewModel.WalkSummary(
         enumerated: libraryPhotoIDs.count,
-        enqueued: newTasks.count + retryTasks.count,
+        enqueued: newTasks.count + retriedCount,
         failedPermanently: failedPermanently,
         finishedAt: Date()))
   }
