@@ -331,6 +331,8 @@ mod scene_linear_chain_encode_target_tests;
 #[path = "scene_linear_chain_fused_tests.rs"]
 mod scene_linear_chain_fused_tests;
 #[cfg(test)]
+mod scene_linear_chain_iso_tests;
+#[cfg(test)]
 #[path = "scene_linear_chain_local_tests.rs"]
 mod scene_linear_chain_local_tests;
 #[cfg(test)]

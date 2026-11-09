@@ -147,10 +147,7 @@ impl RasterDetailImage {
                 self.rgba[start..start + w as usize * 4].iter().copied()
             })
             .collect();
-        let options = ChainOptions {
-            skip_agx: true,
-            ..Default::default()
-        };
+        let options = ChainOptions::uncalibrated_raster();
         let haze = self.frame_haze(model, &options, cancel)?;
         let output = apply_scene_linear_chain_f32_windowed_cancellable(
             &input,

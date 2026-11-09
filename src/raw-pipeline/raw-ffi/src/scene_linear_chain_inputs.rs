@@ -54,6 +54,16 @@ impl<'a> ChainInputs<'a> {
     }
 }
 
+/// A stale RAW host leaves ISO 0, which keeps the legacy RAW default of 100;
+/// a raster has no sensor ISO and stays unknown like the shared raster chain
+/// (#4653). The CPU and GPU-live chains both resolve through this.
+pub(crate) fn host_iso(iso: u32, is_raw: bool) -> u32 {
+    match (iso, is_raw) {
+        (0, true) => 100,
+        (iso, _) => iso,
+    }
+}
+
 /// # Safety
 /// `p` must be a valid `MapleAdjustmentParams`; when `noise_profile_len > 0`
 /// its `noise_profile_ptr` must be valid and aligned for that many `f32`s for
@@ -256,7 +266,7 @@ pub(crate) unsafe fn chain_inputs_from_params(
                 std::slice::from_raw_parts(p.noise_profile_ptr, p.noise_profile_len as usize)
             })
         };
-    let iso = if p.iso == 0 { 100 } else { p.iso };
+    let iso = host_iso(p.iso, p.skip_agx == 0);
 
     // WB slider frame (#1781): RAW shapes only — a non-RAW buffer has no
     // camera calibration and its D65-anchored delta stays on the generic
