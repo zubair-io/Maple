@@ -43,6 +43,30 @@ extension BackupEngine {
     }
   }
 
+  /// True when a photo this device backed up carries a local edit the server
+  /// has not received under the sidecar name it reads. Judged from local
+  /// records alone, so a scan can decide whether it needs the server path of
+  /// every held photo before asking the server for only its newest ones.
+  public func hasUndeliveredEdits(deviceId: String) async -> Bool {
+    do {
+      let edited = try sidecars.storedSidecarFileNames()
+      guard !edited.isEmpty else { return false }
+      let candidates = try await state.phids(in: .uploaded, deviceId: deviceId).filter {
+        edited.contains(sidecars.sidecarURL(phassetLocalId: $0).lastPathComponent)
+      }
+      for phid in candidates {
+        let id = BackupTaskID(deviceId: deviceId, phassetLocalId: phid)
+        guard let xmp = try? sidecars.read(phassetLocalId: phid) else { continue }
+        if try await state.deliveredCanonicalDigest(id) != Self.digest(of: xmp) { return true }
+      }
+      return false
+    } catch {
+      Self.companionLog.error(
+        "edit re-send check failed: \(String(describing: error), privacy: .public)")
+      return true
+    }
+  }
+
   private func resendIfNewer(_ asset: ServerHeldAsset) async {
     do {
       try await sendLatestEdit(
@@ -102,7 +126,15 @@ extension BackupEngine {
     let delivered = try await state.deliveredSidecar(id, targetRelPath: targetRelPath)
     guard let xmp = try sidecars.read(phassetLocalId: id.phassetLocalId) else { return }
     let digest = Self.digest(of: xmp)
-    guard delivered != DeliveredSidecar(digest: digest, counts: true) else { return }
+    guard delivered != DeliveredSidecar(digest: digest, counts: true) else {
+      // Video sidecars always land under the name the server reads, but rows
+      // recorded before that was tracked say otherwise; `hasUndeliveredEdits`
+      // has no server path to tell, so record it here.
+      if BackupSidecarName.isVideo(targetRelPath) {
+        try await state.markDeliveredSidecarCanonical(id)
+      }
+      return
+    }
     let canonical = try await upload.uploadSidecar(
       phassetLocalId: id.phassetLocalId,
       targetRelPath: targetRelPath,

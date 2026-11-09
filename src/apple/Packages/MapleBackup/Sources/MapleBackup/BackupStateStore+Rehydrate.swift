@@ -6,16 +6,10 @@ import GRDB
 public struct BackupStartupSnapshot: Sendable, Equatable {
   public let libraryPhotoIDs: Set<String>
   public let backedUpPhotoIDs: Set<String>
-  public let failedPermanentlyCount: Int
 
-  public init(
-    libraryPhotoIDs: Set<String>,
-    backedUpPhotoIDs: Set<String>,
-    failedPermanentlyCount: Int
-  ) {
+  public init(libraryPhotoIDs: Set<String>, backedUpPhotoIDs: Set<String>) {
     self.libraryPhotoIDs = libraryPhotoIDs
     self.backedUpPhotoIDs = backedUpPhotoIDs
-    self.failedPermanentlyCount = failedPermanentlyCount
   }
 }
 
@@ -64,24 +58,13 @@ extension BackupStateStore {
           """,
         arguments: [deviceId])
       guard !rows.isEmpty else { return nil }
-      var allIDs = Set<String>()
-      allIDs.reserveCapacity(rows.count)
-      var uploadedIDs = Set<String>()
-      var failedCount = 0
-      for row in rows {
-        let phid: String = row["phasset_local_id"]
-        let stateRaw: String = row["state"]
-        allIDs.insert(phid)
-        if stateRaw == BackupState.uploaded.rawValue {
-          uploadedIDs.insert(phid)
-        } else if stateRaw == BackupState.failedRetry.rawValue {
-          failedCount += 1
-        }
+      let entries: [(phid: String, state: String)] = rows.map {
+        ($0["phasset_local_id"], $0["state"])
       }
       return BackupStartupSnapshot(
-        libraryPhotoIDs: allIDs,
-        backedUpPhotoIDs: uploadedIDs,
-        failedPermanentlyCount: failedCount)
+        libraryPhotoIDs: Set(entries.map(\.phid)),
+        backedUpPhotoIDs: Set(
+          entries.filter { $0.state == BackupState.uploaded.rawValue }.map(\.phid)))
     }
   }
 
