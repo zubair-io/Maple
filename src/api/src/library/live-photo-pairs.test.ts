@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'bun:test';
-import { pairLivePhotos } from './live-photo-pairs.ts';
+import * as path from 'node:path';
+import { pairLivePhotos, type LivePhotoLink } from './live-photo-pairs.ts';
 
 const ID = '3F2A8C1E-9B47-4D55-A6E0-0C7D1B2E4F90';
 const OTHER = '9A1B2C3D-0000-4D55-A6E0-0C7D1B2E4F91';
@@ -61,5 +62,35 @@ describe('pairLivePhotos', () => {
   it('ignores files that cannot be a Live Photo half', () => {
     const pairs = pairLivePhotos([asset('IMG_1.DNG', ID), asset('IMG_1.MOV', ID)]);
     expect(pairs.size).toBe(0);
+  });
+});
+
+interface CorpusCase {
+  name: string;
+  files: { path: string; contentId: string | null }[];
+  pairs: Record<string, LivePhotoLink>;
+}
+
+const corpus = (await Bun.file(
+  new URL('../../../../test-fixtures/live-photo-pairing/cases.json', import.meta.url),
+).json()) as { cases: CorpusCase[] };
+
+/** The same corpus the Apple local-folder and SMB pairing runs (`LivePhotoPairingTests`). */
+describe('pairLivePhotos over the shared pairing corpus', () => {
+  it.each(corpus.cases.map((entry) => [entry.name, entry] as const))('%s', (_name, entry) => {
+    const folders = Map.groupBy(entry.files, (file) => path.dirname(file.path));
+    const found = Object.fromEntries(
+      [...folders].flatMap(([folder, files]) =>
+        [
+          ...pairLivePhotos(
+            files.map((file) => ({
+              filename: path.basename(file.path),
+              live_content_id: file.contentId,
+            })),
+          ),
+        ].map(([filename, link]) => [path.join(folder, filename), link] as const),
+      ),
+    );
+    expect(found).toEqual(entry.pairs);
   });
 });

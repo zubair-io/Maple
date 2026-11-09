@@ -1,0 +1,362 @@
+{
+  "description": "Live Photo pairing rule (#5448, #5544): a still and a clip pair only when they share a folder, a case-folded stem and an Apple content identifier. Consumed by the indexer (src/api/src/library/live-photo-pairs.test.ts) and by Apple's local-folder and SMB pairing (LivePhotoPairingTests).",
+  "cases": [
+    {
+      "name": "pairs IMG_1234.HEIC with its clip when the identifiers match",
+      "files": [
+        {
+          "path": "Trip/IMG_1234.HEIC",
+          "contentId": "3F2A8C1E-9B47-4D55-A6E0-0C7D1B2E4F90"
+        },
+        {
+          "path": "Trip/IMG_1234.MOV",
+          "contentId": "3F2A8C1E-9B47-4D55-A6E0-0C7D1B2E4F90"
+        }
+      ],
+      "pairs": {
+        "Trip/IMG_1234.HEIC": {
+          "role": "still",
+          "partner": "IMG_1234.MOV"
+        },
+        "Trip/IMG_1234.MOV": {
+          "role": "clip",
+          "partner": "IMG_1234.HEIC"
+        }
+      }
+    },
+    {
+      "name": "pairs IMG_1234.JPG with its clip when the identifiers match",
+      "files": [
+        {
+          "path": "Trip/IMG_1234.JPG",
+          "contentId": "3F2A8C1E-9B47-4D55-A6E0-0C7D1B2E4F90"
+        },
+        {
+          "path": "Trip/IMG_1234.MOV",
+          "contentId": "3F2A8C1E-9B47-4D55-A6E0-0C7D1B2E4F90"
+        }
+      ],
+      "pairs": {
+        "Trip/IMG_1234.JPG": {
+          "role": "still",
+          "partner": "IMG_1234.MOV"
+        },
+        "Trip/IMG_1234.MOV": {
+          "role": "clip",
+          "partner": "IMG_1234.JPG"
+        }
+      }
+    },
+    {
+      "name": "pairs IMG_1234.heif with its clip when the identifiers match",
+      "files": [
+        {
+          "path": "Trip/IMG_1234.heif",
+          "contentId": "3F2A8C1E-9B47-4D55-A6E0-0C7D1B2E4F90"
+        },
+        {
+          "path": "Trip/IMG_1234.MOV",
+          "contentId": "3F2A8C1E-9B47-4D55-A6E0-0C7D1B2E4F90"
+        }
+      ],
+      "pairs": {
+        "Trip/IMG_1234.heif": {
+          "role": "still",
+          "partner": "IMG_1234.MOV"
+        },
+        "Trip/IMG_1234.MOV": {
+          "role": "clip",
+          "partner": "IMG_1234.heif"
+        }
+      }
+    },
+    {
+      "name": "pairs IMG_1234.jpeg with its clip when the identifiers match",
+      "files": [
+        {
+          "path": "Trip/IMG_1234.jpeg",
+          "contentId": "3F2A8C1E-9B47-4D55-A6E0-0C7D1B2E4F90"
+        },
+        {
+          "path": "Trip/IMG_1234.MOV",
+          "contentId": "3F2A8C1E-9B47-4D55-A6E0-0C7D1B2E4F90"
+        }
+      ],
+      "pairs": {
+        "Trip/IMG_1234.jpeg": {
+          "role": "still",
+          "partner": "IMG_1234.MOV"
+        },
+        "Trip/IMG_1234.MOV": {
+          "role": "clip",
+          "partner": "IMG_1234.jpeg"
+        }
+      }
+    },
+    {
+      "name": "same stem but different identifiers stays two independent files",
+      "files": [
+        {
+          "path": "Trip/IMG_1234.HEIC",
+          "contentId": "3F2A8C1E-9B47-4D55-A6E0-0C7D1B2E4F90"
+        },
+        {
+          "path": "Trip/IMG_1234.MOV",
+          "contentId": "9A1B2C3D-0000-4D55-A6E0-0C7D1B2E4F91"
+        }
+      ],
+      "pairs": {}
+    },
+    {
+      "name": "renamed still: equal identifiers under different stems never pair",
+      "files": [
+        {
+          "path": "Trip/IMG_E1234.HEIC",
+          "contentId": "3F2A8C1E-9B47-4D55-A6E0-0C7D1B2E4F90"
+        },
+        {
+          "path": "Trip/IMG_1234.MOV",
+          "contentId": "3F2A8C1E-9B47-4D55-A6E0-0C7D1B2E4F90"
+        }
+      ],
+      "pairs": {}
+    },
+    {
+      "name": "a still with no identifier is not paired by stem",
+      "files": [
+        {
+          "path": "Trip/IMG_1.HEIC",
+          "contentId": null
+        },
+        {
+          "path": "Trip/IMG_1.MOV",
+          "contentId": "3F2A8C1E-9B47-4D55-A6E0-0C7D1B2E4F90"
+        }
+      ],
+      "pairs": {}
+    },
+    {
+      "name": "a clip with no identifier is not paired by stem",
+      "files": [
+        {
+          "path": "Trip/IMG_1.HEIC",
+          "contentId": "3F2A8C1E-9B47-4D55-A6E0-0C7D1B2E4F90"
+        },
+        {
+          "path": "Trip/IMG_1.MOV",
+          "contentId": null
+        }
+      ],
+      "pairs": {}
+    },
+    {
+      "name": "neither half has an identifier",
+      "files": [
+        {
+          "path": "Trip/IMG_1.HEIC",
+          "contentId": null
+        },
+        {
+          "path": "Trip/IMG_1.MOV",
+          "contentId": null
+        }
+      ],
+      "pairs": {}
+    },
+    {
+      "name": "an orphan clip stays unpaired",
+      "files": [
+        {
+          "path": "Trip/IMG_7.MOV",
+          "contentId": "3F2A8C1E-9B47-4D55-A6E0-0C7D1B2E4F90"
+        }
+      ],
+      "pairs": {}
+    },
+    {
+      "name": "an orphan still stays unpaired",
+      "files": [
+        {
+          "path": "Trip/IMG_7.HEIC",
+          "contentId": "3F2A8C1E-9B47-4D55-A6E0-0C7D1B2E4F90"
+        }
+      ],
+      "pairs": {}
+    },
+    {
+      "name": "the same stem and identifier in another folder never pairs",
+      "files": [
+        {
+          "path": "Trip/IMG_1.HEIC",
+          "contentId": "3F2A8C1E-9B47-4D55-A6E0-0C7D1B2E4F90"
+        },
+        {
+          "path": "Other/IMG_1.MOV",
+          "contentId": "3F2A8C1E-9B47-4D55-A6E0-0C7D1B2E4F90"
+        }
+      ],
+      "pairs": {}
+    },
+    {
+      "name": "stems and identifiers match regardless of case",
+      "files": [
+        {
+          "path": "Trip/img_1234.heic",
+          "contentId": "3F2A8C1E-9B47-4D55-A6E0-0C7D1B2E4F90"
+        },
+        {
+          "path": "Trip/IMG_1234.mov",
+          "contentId": "3F2A8C1E-9B47-4D55-A6E0-0C7D1B2E4F90"
+        }
+      ],
+      "pairs": {
+        "Trip/img_1234.heic": {
+          "role": "still",
+          "partner": "IMG_1234.mov"
+        },
+        "Trip/IMG_1234.mov": {
+          "role": "clip",
+          "partner": "img_1234.heic"
+        }
+      }
+    },
+    {
+      "name": "several pairs in one folder never cross",
+      "files": [
+        {
+          "path": "Trip/IMG_1.HEIC",
+          "contentId": "3F2A8C1E-9B47-4D55-A6E0-0C7D1B2E4F90"
+        },
+        {
+          "path": "Trip/IMG_1.MOV",
+          "contentId": "3F2A8C1E-9B47-4D55-A6E0-0C7D1B2E4F90"
+        },
+        {
+          "path": "Trip/IMG_2.HEIC",
+          "contentId": "9A1B2C3D-0000-4D55-A6E0-0C7D1B2E4F91"
+        },
+        {
+          "path": "Trip/IMG_2.MOV",
+          "contentId": "9A1B2C3D-0000-4D55-A6E0-0C7D1B2E4F91"
+        },
+        {
+          "path": "Trip/IMG_3.HEIC",
+          "contentId": null
+        }
+      ],
+      "pairs": {
+        "Trip/IMG_1.HEIC": {
+          "role": "still",
+          "partner": "IMG_1.MOV"
+        },
+        "Trip/IMG_1.MOV": {
+          "role": "clip",
+          "partner": "IMG_1.HEIC"
+        },
+        "Trip/IMG_2.HEIC": {
+          "role": "still",
+          "partner": "IMG_2.MOV"
+        },
+        "Trip/IMG_2.MOV": {
+          "role": "clip",
+          "partner": "IMG_2.HEIC"
+        }
+      }
+    },
+    {
+      "name": "a duplicated identifier on two stills leaves the group unpaired",
+      "files": [
+        {
+          "path": "Trip/IMG_1.HEIC",
+          "contentId": "3F2A8C1E-9B47-4D55-A6E0-0C7D1B2E4F90"
+        },
+        {
+          "path": "Trip/IMG_1.JPG",
+          "contentId": "3F2A8C1E-9B47-4D55-A6E0-0C7D1B2E4F90"
+        },
+        {
+          "path": "Trip/IMG_1.MOV",
+          "contentId": "3F2A8C1E-9B47-4D55-A6E0-0C7D1B2E4F90"
+        }
+      ],
+      "pairs": {}
+    },
+    {
+      "name": "a duplicated identifier on two clips leaves the group unpaired",
+      "files": [
+        {
+          "path": "Trip/IMG_1.HEIC",
+          "contentId": "3F2A8C1E-9B47-4D55-A6E0-0C7D1B2E4F90"
+        },
+        {
+          "path": "Trip/IMG_1.MOV",
+          "contentId": "3F2A8C1E-9B47-4D55-A6E0-0C7D1B2E4F90"
+        },
+        {
+          "path": "Trip/IMG_1.mov",
+          "contentId": "3F2A8C1E-9B47-4D55-A6E0-0C7D1B2E4F90"
+        }
+      ],
+      "pairs": {}
+    },
+    {
+      "name": "a second still with another identifier leaves the matching pair intact",
+      "files": [
+        {
+          "path": "Trip/IMG_1.HEIC",
+          "contentId": "3F2A8C1E-9B47-4D55-A6E0-0C7D1B2E4F90"
+        },
+        {
+          "path": "Trip/IMG_1.JPG",
+          "contentId": "9A1B2C3D-0000-4D55-A6E0-0C7D1B2E4F91"
+        },
+        {
+          "path": "Trip/IMG_1.MOV",
+          "contentId": "3F2A8C1E-9B47-4D55-A6E0-0C7D1B2E4F90"
+        }
+      ],
+      "pairs": {
+        "Trip/IMG_1.HEIC": {
+          "role": "still",
+          "partner": "IMG_1.MOV"
+        },
+        "Trip/IMG_1.MOV": {
+          "role": "clip",
+          "partner": "IMG_1.HEIC"
+        }
+      }
+    },
+    {
+      "name": "files that cannot be a Live Photo half are ignored",
+      "files": [
+        {
+          "path": "Trip/IMG_1.DNG",
+          "contentId": "3F2A8C1E-9B47-4D55-A6E0-0C7D1B2E4F90"
+        },
+        {
+          "path": "Trip/IMG_1.MOV",
+          "contentId": "3F2A8C1E-9B47-4D55-A6E0-0C7D1B2E4F90"
+        },
+        {
+          "path": "Trip/IMG_1.MP4",
+          "contentId": "3F2A8C1E-9B47-4D55-A6E0-0C7D1B2E4F90"
+        }
+      ],
+      "pairs": {}
+    },
+    {
+      "name": "an empty identifier is no identifier",
+      "files": [
+        {
+          "path": "Trip/IMG_1.HEIC",
+          "contentId": ""
+        },
+        {
+          "path": "Trip/IMG_1.MOV",
+          "contentId": ""
+        }
+      ],
+      "pairs": {}
+    }
+  ]
+}

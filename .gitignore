@@ -47,6 +47,9 @@ test-fixtures/*
 # the Bun test suite, Swift XCTest, and the Windows test project against
 # their own relocate/rename primitives.
 !test-fixtures/file-operations/
+# Exception: the Live Photo pairing-rule corpus (#5448, #5544) IS committed — declarative JSON,
+# replayed by the indexer's Bun tests and by Apple's local-folder and SMB pairing tests.
+!test-fixtures/live-photo-pairing/
 # Exception: the local-adjustments flat-record fixture (#3274) IS committed —
 # one small JSON layer stack, cross-checked byte-for-byte by both raw-core's
 # and MapleCore's flat-record writer tests ("one fixture, two writers").

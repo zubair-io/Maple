@@ -12,6 +12,7 @@ import {
   type LiveTestDatabase,
 } from '../../db/sqlite/test-sqlite.test-helpers.ts';
 import { invalidateLibraryRoots } from '../../indexer/libraries.cache.ts';
+import { pairLivePhotos } from '../../library/live-photo-pairs.ts';
 import {
   appleTiff,
   heicWithExif,
@@ -21,6 +22,7 @@ import {
 import livePhotoStage, { livePhotoHandler } from './live-photo.ts';
 
 const ID = '3F2A8C1E-9B47-4D55-A6E0-0C7D1B2E4F90';
+const OTHER_ID = '9A1B2C3D-0000-4D55-A6E0-0C7D1B2E4F91';
 const stageContext = () => ({ signal: new AbortController().signal, log: { debug() {} } }) as never;
 
 describe('live-photo stage', () => {
@@ -104,6 +106,35 @@ describe('live-photo stage', () => {
     const id = insertAsset(live.db, {});
     const result = await livePhotoHandler(assetDoc(id, 'raw.dng') as never, stageContext());
     expect(result).toEqual({ skip: 'not-a-live-photo-candidate' });
+  });
+
+  it('pairs a folder of real files by identifier and leaves every mismatch independent', async () => {
+    const still = (id: string | null) => heicWithExif(appleTiff({ contentId: id }));
+    const files: [string, Buffer][] = [
+      ['paired.HEIC', still(ID)],
+      ['paired.MOV', quickTimeClip({ contentId: ID })],
+      ['IMG_E2.HEIC', still(OTHER_ID)],
+      ['IMG_2.MOV', quickTimeClip({ contentId: OTHER_ID })],
+      ['orphan.MOV', quickTimeClip({ contentId: ID })],
+      ['dup.HEIC', still(ID)],
+      ['dup.JPG', jpegWithExif(appleTiff({ contentId: ID }))],
+      ['dup.MOV', quickTimeClip({ contentId: ID })],
+      ['mismatch.HEIC', still(ID)],
+      ['mismatch.MOV', quickTimeClip({ contentId: OTHER_ID })],
+      ['foreign.HEIC', still(null)],
+      ['foreign.MOV', quickTimeClip({ contentId: ID })],
+    ];
+    const read = await Promise.all(
+      files.map(async ([filename, bytes]) => ({
+        filename,
+        live_content_id: await runOn(filename, bytes),
+      })),
+    );
+
+    const pairs = pairLivePhotos(read);
+
+    expect([...pairs.keys()].sort()).toEqual(['paired.HEIC', 'paired.MOV']);
+    expect(pairs.get('paired.HEIC')).toEqual({ role: 'still', partner: 'paired.MOV' });
   });
 
   it('runs independently of every other stage', () => {
