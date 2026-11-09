@@ -11,7 +11,13 @@
  *   since      — optional ISO timestamp; defaults to epoch
  *
  * Response 200:
- *   { assets: [ { phasset_local_id, first_seen, maple_id, rel_path }, ... ] }
+ *   { assets: [ { phasset_local_id, first_seen, maple_id, rel_path,
+ *                 has_live_video, has_rendered }, ... ] }
+ *
+ *   `has_live_video` / `has_rendered` say whether the asset has a Live Photo
+ *   video or an Apple-rendered edit recorded beside it. The device's full scan
+ *   re-sends a companion an earlier client dropped; a device that predates
+ *   these fields ignores them.
  *
  * Response 400 on missing device_id or invalid library id.
  *
