@@ -93,16 +93,21 @@ impl ZoomCanvas {
                     .is_none_or(|(ready, _)| !same(*ready, rect))
             })
     }
+    /// The last laid-out geometry; before the first layout, an empty one whose
+    /// home position is the viewport centre.
+    fn laid_out_context(&self) -> CanvasZoomContext {
+        self.last_context.unwrap_or_default()
+    }
+
     pub fn fit(&mut self) {
-        self.model = self.model.reset_to_fit();
-        self.drag_translation = egui::Vec2::ZERO;
+        self.settle(self.model.reset_to_fit(&self.laid_out_context()));
         self.invalidate();
     }
 
     /// Re-centred zoom to `scale` real pixels per source pixel (the 100%
     /// control and Z use 1), clamped to the model's explicit range.
     pub fn zoom_to(&mut self, scale: f64) {
-        self.settle(self.model.zoom_to_scale(scale));
+        self.settle(self.model.zoom_to_scale(scale, &self.laid_out_context()));
     }
 
     /// The fill stop for the last laid-out geometry; ignored when fill is not
