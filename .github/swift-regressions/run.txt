@@ -216,6 +216,7 @@ MapViewportRegionMapKitTests
 MapViewportTests
 MapleEnumeratorMapleDirTests
 MapleIdDerivationTests
+MapleIdDerivationContractTests
 MapleItemCapabilitiesTests
 MapleItemTests
 MapleSidecarPathsTests

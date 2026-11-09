@@ -38,7 +38,7 @@ pub const SHA1_HEAD_BYTES: usize = 64 * 1024;
 /// those rules change on any client; device id caches stamp rows with it
 /// and treat rows from another version as misses (#5106). The hash forms
 /// themselves are unversioned — they have never changed.
-pub const MAPLE_ID_DERIVATION_VERSION: u32 = 1;
+pub const MAPLE_ID_DERIVATION_VERSION: u32 = 2;
 
 /// Which derivation produced a [`MapleId`].
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -322,19 +322,6 @@ mod tests {
         assert_eq!(
             hash_via_splits(&bytes, &[0, 65536, 70001]).to_hex(),
             "020cd7e09e4485130fa4e571188060f1"
-        );
-    }
-
-    /// #5001: the server dates this QuickTime file from its creationdate key
-    /// (`2026-04-05T11:26:20-0700` → UTC); the device must hash the same
-    /// primary form. Pinned by `tests/maple-id-contract.test.ts` and
-    /// `VideoCaptureDateTests` too.
-    #[test]
-    fn dated_video_primary_matches_typescript_golden() {
-        let bytes = include_bytes!("../../../../test-fixtures/ids/dated-video.mov");
-        assert_eq!(
-            MapleId::primary(bytes, "2026-04-05T18:26:20.000Z", None, None).to_hex(),
-            "01b176338229c1cb8b9ddfc6235e829d"
         );
     }
 

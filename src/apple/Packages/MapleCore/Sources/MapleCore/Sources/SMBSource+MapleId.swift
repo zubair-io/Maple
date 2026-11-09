@@ -56,7 +56,17 @@ extension SMBSource {
     else { return nil }
     guard !headBytes.isEmpty else { return nil }
 
-    let dates = ImageMetadataReader.readRawCaptureDateStrings(from: headBytes)
+    let reader = ByteRangeReader(size: UInt64(asset.size)) { offset, length in
+      try await client.contents(atPath: asset.path, range: offset..<offset + UInt64(length))
+    }
+    let capturedAt: String?
+    do {
+      capturedAt = try await MapleIdDerivation.capturedAt(
+        fileExtension: (asset.path as NSString).pathExtension, reader: reader,
+        stillDates: { ImageMetadataReader.readRawCaptureDateStrings(from: headBytes) })
+    } catch {
+      return nil
+    }
 
     // ONE stream, ONE iterator, shared by reference across every
     // `nextChunk()` call — `client.contents(atPath:)` opens a fresh
@@ -72,8 +82,7 @@ extension SMBSource {
     // fail-safe-to-nil contract (see the `headBytes` guard above).
     return try? await MapleIdDerivation.derive(
       headBytes: headBytes,
-      exifDateTimeOriginal: dates.dateTimeOriginal,
-      exifCreateDate: dates.createDate,
+      capturedAtISO8601: capturedAt,
       filesize: UInt64(asset.size),
       nextChunk: {
         // Primary-form identity never requests a whole-file stream.

@@ -90,7 +90,8 @@ actor PhotoKitAssetReader: AssetReader {
 
     let phassetCloudId = Self.resolveCloudIdentifier(for: phassetLocalId)
 
-    guard let mapleId = Self.deriveMapleId(originalBytes: originalBytes, filename: filename) else {
+    guard let mapleId = await Self.deriveMapleId(originalBytes: originalBytes, filename: filename)
+    else {
       throw ReaderError.hashFailed
     }
 
@@ -194,13 +195,12 @@ actor PhotoKitAssetReader: AssetReader {
   /// starts persisting them, this helper must update in lockstep —
   /// otherwise dedup will silently regress on cameras that report
   /// shutter counts.
-  nonisolated private static func deriveMapleId(originalBytes: Data, filename: String) -> String? {
-    let isVideo = SidecarPath.videoExtensions.contains(
-      (filename as NSString).pathExtension.lowercased())
-    let capturedAt =
-      isVideo
-      ? VideoCaptureDate.iso8601UTC(fromVideoBytes: originalBytes)
-      : readExifCaptureDateISO8601UTC(from: originalBytes)
+  nonisolated private static func deriveMapleId(originalBytes: Data, filename: String) async
+    -> String?
+  {
+    let capturedAt = try? await MapleIdDerivation.capturedAt(
+      fileExtension: (filename as NSString).pathExtension, reader: .data(originalBytes),
+      stillDates: { ImageMetadataReader.readRawCaptureDateStrings(from: originalBytes) })
     if let ts = capturedAt {
       // Cap the head slice at the spec's 64 KB. Hashing the whole
       // file is wasted work — `MapleId::primary` ignores everything
@@ -219,28 +219,6 @@ actor PhotoKitAssetReader: AssetReader {
       }
     }
     return MapleId.fallback(bytes: originalBytes)
-  }
-
-  /// Read EXIF capture timestamp from the asset bytes and normalise to
-  /// the ISO 8601 string the server indexer hashes (`asIsoDate`).
-  ///
-  /// Reads `DateTimeOriginal` and `DateTimeDigitized` (= exifr's
-  /// `CreateDate`) and picks between them exactly as the indexer's
-  /// `asIsoDate(DateTimeOriginal) ?? asIsoDate(CreateDate)` does
-  /// (`ExifCaptureDate.capturedAt`, #5082) — a blank original date falls
-  /// through to the digitized one, and placeholders like
-  /// `0000:00:00 00:00:00` date the photo the way the server does.
-  ///
-  /// Returns nil when neither key matches the EXIF date form — callers fall
-  /// through to fallback-form derivation.
-  nonisolated private static func readExifCaptureDateISO8601UTC(from data: Data) -> String? {
-    guard let src = CGImageSourceCreateWithData(data as CFData, nil),
-      let props = CGImageSourceCopyPropertiesAtIndex(src, 0, nil) as? [CFString: Any],
-      let exif = props[kCGImagePropertyExifDictionary] as? [CFString: Any]
-    else { return nil }
-    return ExifCaptureDate.capturedAt(
-      dateTimeOriginal: exif[kCGImagePropertyExifDateTimeOriginal] as? String,
-      createDate: exif[kCGImagePropertyExifDateTimeDigitized] as? String)
   }
 
   // MARK: - Reading bytes

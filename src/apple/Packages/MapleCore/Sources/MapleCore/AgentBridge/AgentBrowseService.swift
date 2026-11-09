@@ -326,9 +326,11 @@ enum AgentBrowseService {
     return await Task.detached(priority: .utility) {
       let claimed = scope?.startAccessingSecurityScopedResource() ?? false
       defer { if claimed { scope?.stopAccessingSecurityScopedResource() } }
-      let dates = ImageMetadataReader.readRawCaptureDateStrings(from: url)
-      return ExifCaptureDate.capturedAt(
-        dateTimeOriginal: dates.dateTimeOriginal, createDate: dates.createDate)
+      return try? await ByteRangeReader.withFile(at: url) { reader in
+        try await MapleIdDerivation.capturedAt(
+          fileExtension: url.pathExtension, reader: reader,
+          stillDates: { ImageMetadataReader.readRawCaptureDateStrings(from: url) })
+      }
     }.value
   }
 
