@@ -49,6 +49,13 @@ public actor BackupStateStore {
       if !columns.contains("captured_at") {
         try db.execute(sql: "ALTER TABLE tasks ADD COLUMN captured_at DOUBLE")
       }
+      // Set while a photo's Live Photo video or edited render is still owed to
+      // the server. Only the engine delivering them clears it, so a walk that
+      // finds the original already on the server cannot settle the row (#5777).
+      if !columns.contains("companions_owed") {
+        try db.execute(
+          sql: "ALTER TABLE tasks ADD COLUMN companions_owed INTEGER NOT NULL DEFAULT 0")
+      }
       // The local-edit revision each asset's sidecar upload last delivered
       // (#4719). The edit itself stays in AppSupportSidecarStore; this row is
       // what tells a newer local edit apart from the one already uploaded.
@@ -143,7 +150,8 @@ public actor BackupStateStore {
   }
 
   /// Transition a task to `state`. Always overwrites `last_error` —
-  /// pass nil to clear it on success. When `retryCount` is supplied,
+  /// pass nil to clear it on success. Reaching `.uploaded` clears the
+  /// companions-owed mark. When `retryCount` is supplied,
   /// the `retry_count` column is updated in the same statement; when
   /// nil, the existing column value is preserved.
   public func transition(
@@ -159,7 +167,8 @@ public actor BackupStateStore {
             UPDATE tasks
                SET state=\(state.rawValue),
                    last_error=\(error),
-                   retry_count=\(retryCount)
+                   retry_count=\(retryCount),
+                   companions_owed=CASE WHEN \(state == .uploaded) THEN 0 ELSE companions_owed END
              WHERE device_id=\(id.deviceId)
                AND phasset_local_id=\(id.phassetLocalId)
             """)
@@ -168,7 +177,8 @@ public actor BackupStateStore {
           literal: """
             UPDATE tasks
                SET state=\(state.rawValue),
-                   last_error=\(error)
+                   last_error=\(error),
+                   companions_owed=CASE WHEN \(state == .uploaded) THEN 0 ELSE companions_owed END
              WHERE device_id=\(id.deviceId)
                AND phasset_local_id=\(id.phassetLocalId)
             """)

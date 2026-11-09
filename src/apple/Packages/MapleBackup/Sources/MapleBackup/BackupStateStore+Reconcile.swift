@@ -12,20 +12,27 @@ import GRDB
 extension BackupStateStore {
 
   /// Marks photos the server already holds as uploaded, leaving rows a worker
-  /// has claimed, finished, or is waiting to retry alone: a retry can be the
-  /// one that still owes a Live Photo video or edited render after the
-  /// original landed. Returns the ids that were still pending: those are the
-  /// queue entries the caller should cancel.
+  /// has claimed, finished, or is waiting to retry alone, and every row that
+  /// still owes a Live Photo video or edited render: the server holding the
+  /// original says nothing about those, even once the row is out of retries.
+  /// Returns the ids that were still pending: those are the queue entries the
+  /// caller should cancel.
   public func markServerHeld(_ tasks: [BackupTask]) throws -> [BackupTaskID] {
     try dbQueue.write { db in
       try tasks.compactMap { task in
         let row = try Row.fetchOne(
           db,
-          sql: "SELECT state, retry_count FROM tasks WHERE device_id = ? AND phasset_local_id = ?",
+          sql: """
+            SELECT state, retry_count, companions_owed FROM tasks
+             WHERE device_id = ? AND phasset_local_id = ?
+            """,
           arguments: [task.id.deviceId, task.id.phassetLocalId])
         let prior = (row?["state"] as String?).flatMap(BackupState.init(rawValue:))
         let isRetrying = prior == .pending && (row?["retry_count"] as Int? ?? 0) > 0
-        guard prior != .uploaded, prior != .uploading, !isRetrying else { return nil }
+        let owesCompanions = (row?["companions_owed"] as Int? ?? 0) != 0
+        guard prior != .uploaded, prior != .uploading, !isRetrying, !owesCompanions else {
+          return nil
+        }
         try db.execute(
           sql: """
             INSERT INTO tasks
@@ -44,6 +51,56 @@ extension BackupStateStore {
           ])
         return prior == .pending ? task.id : nil
       }
+    }
+  }
+
+  /// Re-queues the photos that are still out of retries with a fresh budget,
+  /// including ones whose original the server holds but whose companions it
+  /// lacks. Rows settled since the caller's snapshot are left alone. Returns
+  /// the tasks re-queued.
+  public func requeueFailed(_ tasks: [BackupTask]) throws -> [BackupTask] {
+    try dbQueue.write { db in
+      try tasks.filter { task in
+        try db.execute(
+          sql: """
+            UPDATE tasks
+               SET state = ?, retry_count = 0, last_error = NULL, priority = ?,
+                   enqueued_at = ?, captured_at = COALESCE(?, captured_at)
+             WHERE device_id = ? AND phasset_local_id = ? AND state = ?
+            """,
+          arguments: [
+            BackupState.pending.rawValue, task.priority.rawValue,
+            task.enqueuedAt.timeIntervalSince1970, task.capturedAt?.timeIntervalSince1970,
+            task.id.deviceId, task.id.phassetLocalId, BackupState.failedRetry.rawValue,
+          ])
+        return db.changesCount > 0
+      }
+    }
+  }
+
+  /// Records that the photo's Live Photo video or edited render has yet to
+  /// reach the server. Set before the original is sent, so an original that
+  /// lands without its response reaching us still leaves the mark.
+  public func markCompanionsOwed(_ id: BackupTaskID) throws {
+    try dbQueue.write { db in
+      try db.execute(
+        sql: """
+          UPDATE tasks SET companions_owed = 1
+           WHERE device_id = ? AND phasset_local_id = ?
+          """,
+        arguments: [id.deviceId, id.phassetLocalId])
+    }
+  }
+
+  /// Photos the server may hold the original of but that still owe it a
+  /// companion, so they never count as backed up.
+  public func phidsOwingCompanions(deviceId: String) throws -> Set<String> {
+    try dbQueue.read { db in
+      Set(
+        try String.fetchAll(
+          db,
+          sql: "SELECT phasset_local_id FROM tasks WHERE device_id = ? AND companions_owed = 1",
+          arguments: [deviceId]))
     }
   }
 

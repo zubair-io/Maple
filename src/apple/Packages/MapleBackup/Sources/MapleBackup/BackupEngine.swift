@@ -301,6 +301,9 @@ public actor BackupEngine {
         await queue.emit(.preparing(task.id, message: message))
       }
       try Task.checkCancellation()
+      if !primary.deferredCompanions.isEmpty {
+        try await state.markCompanionsOwed(task.id)
+      }
 
       // Capture local references for the progress closure (actor-isolated
       // captures aren't permitted directly inside the async closure below).
