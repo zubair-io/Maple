@@ -404,6 +404,8 @@ extension EditSession {
     editSessionLogger.notice("GPU-TRACE present OK gen=\(gen ?? 0)")
     lastPublishedRenderGeneration = gen
     if !gpuFramePresented { gpuFramePresented = true }
+    let presentedLongEdge = driver.currentDims.map { CGFloat(max($0.width, $0.height)) } ?? 0
+    if gpuFrameLongEdgePixels != presentedLongEdge { gpuFrameLongEdgePixels = presentedLongEdge }
     histogramState.framePresented()
     editSessionSignposter.emitEvent("GPU frame submitted")
     // GPU analog of the CPU publish clear (#1221): `decodeAndRender` returns

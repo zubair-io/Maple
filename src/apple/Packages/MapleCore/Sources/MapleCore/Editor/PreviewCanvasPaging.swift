@@ -88,4 +88,31 @@ public enum PreviewCanvasRender {
   ) -> Bool {
     isZoomedIn && stillLongEdgePixels > 0 && shownLongEdgePixels > stillLongEdgePixels
   }
+
+  /// What covers the still. A frame of the render covers it only once it has
+  /// at least as many pixels, so zooming never swaps in a softer source
+  /// (#5768): not the grid thumbnail or embedded JPEG the session seeds itself
+  /// with, nor a viewport-sized fast pass. The GPU frame also waits out the
+  /// full-quality decode, before which it develops a seed.
+  public static func cover(
+    usesGpu: Bool, gpuFramePresented: Bool, gpuFrameLongEdgePixels: CGFloat,
+    isFullQualityDecoding: Bool, cpuFrameLongEdgePixels: CGFloat, stillLongEdgePixels: CGFloat
+  ) -> PreviewCanvasCover {
+    let gpuCovers =
+      usesGpu && gpuFramePresented && !isFullQualityDecoding
+      && isAtLeastAsSharp(gpuFrameLongEdgePixels, as: stillLongEdgePixels)
+    let cpuCovers = isAtLeastAsSharp(cpuFrameLongEdgePixels, as: stillLongEdgePixels)
+    return gpuCovers ? .gpuFrame : cpuCovers ? .cpuFrame : .still
+  }
+
+  private static func isAtLeastAsSharp(_ frameLongEdgePixels: CGFloat, as still: CGFloat) -> Bool {
+    frameLongEdgePixels > 0 && frameLongEdgePixels >= still
+  }
+}
+
+/// What a rendering Preview page shows on top.
+public enum PreviewCanvasCover {
+  case still
+  case gpuFrame
+  case cpuFrame
 }
