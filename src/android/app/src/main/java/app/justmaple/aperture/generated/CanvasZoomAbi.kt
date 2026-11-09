@@ -2,7 +2,7 @@
 package app.justmaple.aperture.generated
 
 object CanvasZoomAbi {
-    const val STATE_LEN = 24
+    const val STATE_LEN = 26
     const val OP_PINCH_CHANGED = 0
     const val OP_PINCH_ENDED = 1
     const val OP_DRAG_CHANGED = 2

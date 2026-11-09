@@ -15,18 +15,14 @@ mod abi;
 mod live;
 
 use abi::*;
-use live::{
-    adopt_image_size, rebase_pinch, rebased_for_geometry, recapture_live_gesture, LiveGesture,
-};
+use live::{adopt_image_size, continued, rebase_pinch, rebased_for_geometry};
 
-/// Slots holding the shared model; the layout is `encode`'s.
-const MODEL_SLOTS: usize = 17;
-/// The live gesture's cumulative input (`LiveGesture`).
-const PINCH_MAGNIFICATION_SLOT: usize = MODEL_SLOTS;
-const DRAG_TRANSLATION_SLOT: usize = MODEL_SLOTS + 1;
+/// Slots holding the shared model, including the live gesture's latest input
+/// the model re-captures from; the layout is `encode`'s.
+const MODEL_SLOTS: usize = 22;
 /// The previous call's geometry, so a change can re-capture a live gesture;
 /// all zero until the first call that carries one.
-const GEOMETRY_SLOT: usize = MODEL_SLOTS + 3;
+const GEOMETRY_SLOT: usize = MODEL_SLOTS;
 const _: () = assert!(GEOMETRY_SLOT + 4 == STATE_LEN);
 
 /// Returned by a transition that was rejected (null state, unknown op, or a
@@ -80,6 +76,7 @@ fn flag(value: bool) -> f64 {
 
 fn encode(model: &CanvasZoomModel) -> [f64; MODEL_SLOTS] {
     let drag_base = model.drag_translation_base.unwrap_or(Size::ZERO);
+    let drag_last = model.drag_last_translation.unwrap_or(Size::ZERO);
     [
         model.pixel_scale,
         model.pan_offset.width,
@@ -98,6 +95,11 @@ fn encode(model: &CanvasZoomModel) -> [f64; MODEL_SLOTS] {
         model.pinch_last_centroid.x,
         model.pinch_last_centroid.y,
         flag(model.fills_viewport),
+        model.pinch_start_magnification,
+        model.pinch_last_magnification,
+        flag(model.drag_last_translation.is_some()),
+        drag_last.width,
+        drag_last.height,
     ]
 }
 
@@ -113,6 +115,9 @@ fn decode<const N: usize>(state: &[f64; N]) -> CanvasZoomModel {
         pinch_start_centroid: Point::new(state[12], state[13]),
         pinch_last_centroid: Point::new(state[14], state[15]),
         fills_viewport: state[16] != 0.0,
+        pinch_start_magnification: state[17],
+        pinch_last_magnification: state[18],
+        drag_last_translation: (state[19] != 0.0).then(|| Size::new(state[20], state[21])),
     }
 }
 
@@ -123,7 +128,6 @@ fn apply(
     model: CanvasZoomModel,
     op: u32,
     args: [f64; 4],
-    live: LiveGesture,
     geometry: Geometry,
 ) -> Option<(CanvasZoomModel, bool)> {
     let context = geometry.context();
@@ -134,7 +138,7 @@ fn apply(
         OP_DRAG_CHANGED => return Some(model.drag_changed(Size::new(a, b), &context)),
         OP_DRAG_ENDED => return Some(model.drag_ended()),
         OP_REBASE_DRAG => model.rebase_drag_baseline(Size::new(a, b)),
-        OP_REBASE_PINCH => rebase_pinch(model, Point::new(a, b), live, &context),
+        OP_REBASE_PINCH => rebase_pinch(model, Point::new(a, b), &context),
         OP_DOUBLE_TAP => model.double_tap(
             Point::new(a, b),
             DoubleTapBehavior::ToggleFitAnd100,
@@ -148,7 +152,7 @@ fn apply(
                 ..geometry
             };
             let adopted = adopt_image_size(model, Point::new(c, d), &previous.context(), &context);
-            recapture_live_gesture(adopted, live, &context)
+            continued(adopted, &context)
         }
         _ => return None,
     };
@@ -211,12 +215,10 @@ pub unsafe extern "C" fn maple_android_canvas_zoom(
     let slots = unsafe { &mut *state.cast::<[f64; STATE_LEN]>() };
     let geometry = Geometry::new(viewport_width, viewport_height, image_width, image_height);
     crate::guarded(REJECTED, || {
-        let live = LiveGesture::read(slots);
-        let model = rebased_for_geometry(decode(slots), op, live, Geometry::read(slots), geometry);
-        Ok(match apply(model, op, [a, b, c, d], live, geometry) {
+        let model = rebased_for_geometry(decode(slots), op, Geometry::read(slots), geometry);
+        Ok(match apply(model, op, [a, b, c, d], geometry) {
             Some((next, result)) => {
                 slots[..MODEL_SLOTS].copy_from_slice(&encode(&next));
-                live.after(op, a, b, &next).write(slots);
                 if op != OP_DRAG_ENDED {
                     geometry.write(slots);
                 }
@@ -249,9 +251,8 @@ pub unsafe extern "C" fn maple_android_canvas_zoom_query(
     let slots = unsafe { &*state.cast::<[f64; STATE_LEN]>() };
     let geometry = Geometry::new(viewport_width, viewport_height, image_width, image_height);
     crate::guarded(f64::NAN, || {
-        let live = LiveGesture::read(slots);
         let stored = Geometry::read(slots);
-        let model = rebased_for_geometry(decode(slots), OP_RECLAMP, live, stored, geometry);
+        let model = rebased_for_geometry(decode(slots), OP_RECLAMP, stored, geometry);
         Ok(query(model, which, geometry))
     })
 }

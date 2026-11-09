@@ -36,6 +36,12 @@ fn delayed_original_keeps_a_free_pinch_relative_to_fit() {
     zoom(
         &mut state,
         OP_PINCH_CHANGED,
+        [1.0, 750.0, 375.0, 0.0],
+        placeholder,
+    );
+    zoom(
+        &mut state,
+        OP_PINCH_CHANGED,
         [2.0, 750.0, 375.0, 0.0],
         placeholder,
     );
@@ -205,7 +211,7 @@ fn adopting_a_pinch_held_at_the_floor_does_not_jump_on_the_next_frame() {
 }
 
 #[test]
-fn the_pinch_magnification_slot_clears_when_the_pinch_ends() {
+fn the_pinch_magnification_survives_a_reclamp_and_clears_when_the_pinch_ends() {
     let image = (2000.0, 1000.0);
     let mut state = [0.0; STATE_LEN];
     zoom(
@@ -220,11 +226,11 @@ fn the_pinch_magnification_slot_clears_when_the_pinch_ends() {
         [3.0, 500.0, 375.0, 0.0],
         image,
     );
-    assert_eq!(state[PINCH_MAGNIFICATION_SLOT], 3.0);
+    assert_eq!(decode(&state).pinch_last_magnification, 3.0);
     zoom(&mut state, OP_RECLAMP, [0.0; 4], image);
-    assert_eq!(state[PINCH_MAGNIFICATION_SLOT], 3.0);
+    assert_eq!(decode(&state).pinch_last_magnification, 3.0);
     zoom(&mut state, OP_PINCH_ENDED, [3.0, 0.0, 0.0, 0.0], image);
-    assert_eq!(state[PINCH_MAGNIFICATION_SLOT], 0.0);
+    assert_eq!(decode(&state).pinch_last_magnification, 0.0);
 }
 
 #[test]
@@ -411,17 +417,17 @@ fn adopting_after_the_post_pinch_pause_absorbed_movement_does_not_jump() {
 }
 
 #[test]
-fn the_drag_translation_slots_clear_when_the_drag_ends() {
+fn the_drag_translation_clears_when_the_drag_ends() {
     let image = (4000.0, 3000.0);
     let mut state = [0.0; STATE_LEN];
     zoom(&mut state, OP_DOUBLE_TAP, [500.0, 375.0, 0.0, 0.0], image);
     drag(&mut state, 30.0, image);
     zoom(&mut state, OP_DRAG_CHANGED, [30.0, -20.0, 0.0, 0.0], image);
     assert_eq!(
-        state[DRAG_TRANSLATION_SLOT..GEOMETRY_SLOT],
-        [30.0, -20.0],
+        decode(&state).drag_last_translation,
+        Some(Size::new(30.0, -20.0)),
         "the last cumulative translation"
     );
     zoom(&mut state, OP_DRAG_ENDED, [0.0; 4], image);
-    assert_eq!(state[DRAG_TRANSLATION_SLOT..GEOMETRY_SLOT], [0.0, 0.0]);
+    assert_eq!(decode(&state).drag_last_translation, None);
 }

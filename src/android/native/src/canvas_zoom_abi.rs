@@ -6,7 +6,7 @@
 //! codegen-drift gate keeps those copies current.
 
 /// Slots in the state array Kotlin owns; `canvas_zoom.rs` lays them out.
-pub(crate) const STATE_LEN: usize = 24;
+pub(crate) const STATE_LEN: usize = 26;
 
 pub(crate) const OP_PINCH_CHANGED: u32 = 0;
 pub(crate) const OP_PINCH_ENDED: u32 = 1;
