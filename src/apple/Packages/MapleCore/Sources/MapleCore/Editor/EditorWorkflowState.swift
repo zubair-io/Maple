@@ -20,6 +20,7 @@ public final class EditorWorkflowState {
   @ObservationIgnored private var activeOperationID: UUID?
   @ObservationIgnored var task: Task<Void, Never>?
   @ObservationIgnored var generation: UInt64 = 0
+  @ObservationIgnored var undoRestoreTask: Task<Void, Never>?
   @ObservationIgnored private var pending: WorkflowPublication?
   @ObservationIgnored private var beforeCheckpoint: String?
   @ObservationIgnored private var replay: (id: UInt64, undo: Bool, command: WorkflowPublication)?
@@ -157,7 +158,8 @@ public final class EditorWorkflowState {
         entry: WorkflowHistoryEntry(
           id: UUID().uuidString.lowercased(), createdAtMs: timestamp(),
           action: snapshot ? "snapshot-restore" : "history-restore",
-          label: "Restore \(selected.0)", adjustmentXmp: selected.1))
+          label: "Restore \(selected.0)", parentId: record?.history.last?.id ?? "",
+          writer: WorkflowContract.appleWriter, adjustmentXmp: selected.1))
       errorText = nil
     } catch { showFailure(error) }
   }
@@ -276,6 +278,8 @@ public final class EditorWorkflowState {
             id: UUID().uuidString.lowercased(), createdAtMs: timestamp(),
             action: undo ? "undo" : "redo",
             label: "\(undo ? "Undo" : "Redo") \(transaction.description)",
+            parentId: try WorkflowSidecarCore.headId(xmp: xml, variantId: selectedVariantId),
+            writer: WorkflowContract.appleWriter,
             adjustmentXmp: undo ? checkpoint.before : checkpoint.after))
         replay = (transaction.id, undo, command)
       }

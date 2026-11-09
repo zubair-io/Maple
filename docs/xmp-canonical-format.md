@@ -805,13 +805,33 @@ the action and its retry identity. Checkpoints omit Workflow markup, so Undo nev
 recursively captures history. The adjustment-diff wire version remains unchanged;
 complete XML is a local ring payload backed by the shared versioned Workflow schema.
 Reopening the editor reloads portable history and snapshots and rebuilds its Undo
-ring from the retained history ("Edit history, lineage and conflicts"). Copied
-single-file imports need
+ring from the retained history ("Edit history, lineage and conflicts";
+`cursor_xmp`, up to the 32-entry cap). On Apple each step is a pair of the
+retained complete checkpoints and replays through the same confirmed publication
+as a restore, so Undo after a restart reaches the previous retained state and an
+outside edit made while the editor was closed is one more undo step. Opening an
+editor records nothing. Copied single-file imports need
 their writable source to use these controls. A first snapshot uses a null-XMP
 precondition plus its captured initial checkpoint; the initial primary and snapshot
 publish together, without a separate baseline write or invented history entry.
 Concurrent first writers have one winner and stale commands cannot replace it.
-Apple primary snapshot/history controls (#4062) read and publish through the actual
+Apple ordinary saves and gesture commits no longer refuse a sidecar that changed
+since the editor last read or published it (#4983): the filesystem and Photos
+writer, inside its `NSFileCoordinator` section, runs `reconcile_xmp` with the last
+observed document as `base`, publishes the merge with an `external` entry for the
+outside state and the gesture's own entry (`writer` `apple`, `parentId` the head of
+`base`'s record), and the Cloud store does the same client-side before a conditional
+`POST /api/xmp` (`If-Match` the strong ETag, bounded retry on 412) or lets the commit
+endpoint reconcile a stale `expectedXmp`, acknowledging the action by `id` and
+adopting the XML the server returns. The live editor adopts the merged document the
+way a confirmed restore does (no save scheduled, Undo/Redo rebuilt from the new
+history), and until it does the store keeps merging later saves against the document
+the editor's model still represents, so a stale model never reverts the merge. A
+file that disappeared, or a merge that fails, still refuses and keeps the pending
+edit queued (`externalConflict`). Explicit snapshot, restore and Undo/Redo
+publications and the SMB writer keep their whole-text compare-and-swap; SMB
+qualification stays under #2437. Apple primary snapshot/history controls (#4062)
+read and publish through the actual
 filesystem, PhotoKit App Support and authenticated API writers. The More menu
 opens named snapshots, portable history, explicit restore confirmation, and Refresh.
 Complete-XMP restores join each writer's ordinary-save queue, validate the primary

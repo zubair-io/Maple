@@ -310,6 +310,7 @@ extension EditSession {
   /// `decodedImage` — the guard above returns early on revisit.
   public func ensureRenderStarted() {
     renderRequested = true
+    restoreUndoHistory()
     // URL-backed metadata can block on RAW parsing or File Provider I/O
     // too. Start it asynchronously for every source so click handling and
     // the immediate thumbnail paint never wait for that work.

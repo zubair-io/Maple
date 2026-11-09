@@ -16,43 +16,53 @@ final class XMPSidecarExternalConflictTests: XCTestCase {
     XMPSerializer.serialize(model: AdjustmentModel(exposure: exposure), culling: CullingState())
   }
 
-  func testConfirmedSavePreservesExternallyReplacedSidecar() async throws {
-    let (raw, sidecar) = try fixture()
-    defer { try? FileManager.default.removeItem(at: raw.deletingLastPathComponent()) }
-    try xml(exposure: 0).write(to: sidecar, atomically: true, encoding: .utf8)
-    let store = XMPSidecarStore(rawURL: raw)
-    _ = try await store.loadIfPresent()
-
-    let external = xml(exposure: 2)
-    try external.write(to: sidecar, atomically: true, encoding: .utf8)
-    do {
-      try await store.writeConfirmed(
-        model: AdjustmentModel(exposure: 0.01), culling: CullingState())
-      XCTFail("A stale editor must not overwrite a newer external XMP")
-    } catch XMPStoreError.externalConflict(let url) {
-      XCTAssertEqual(url, sidecar)
-    }
-    XCTAssertEqual(try String(contentsOf: sidecar, encoding: .utf8), external)
+  private func xml(contrast: Double) -> String {
+    var model = AdjustmentModel.default
+    model.contrast = contrast
+    return XMPSerializer.serialize(model: model, culling: CullingState())
   }
 
-  func testDebouncedSaveKeepsPendingEditAndExternalBytes() async throws {
+  private func published(_ sidecar: URL) throws -> (AdjustmentModel, [WorkflowHistoryEntry]) {
+    let text = try String(contentsOf: sidecar, encoding: .utf8)
+    return (
+      try XMPParser.parse(text).0, try WorkflowSidecarCore.read(xmp: text)?.history ?? []
+    )
+  }
+
+  func testConfirmedSaveMergesAndRecordsExternallyReplacedSidecar() async throws {
     let (raw, sidecar) = try fixture()
     defer { try? FileManager.default.removeItem(at: raw.deletingLastPathComponent()) }
     try xml(exposure: 0).write(to: sidecar, atomically: true, encoding: .utf8)
     let store = XMPSidecarStore(rawURL: raw)
     _ = try await store.loadIfPresent()
 
-    let external = xml(exposure: 2)
-    try external.write(to: sidecar, atomically: true, encoding: .utf8)
+    try xml(contrast: 30).write(to: sidecar, atomically: true, encoding: .utf8)
+    try await store.writeConfirmed(model: AdjustmentModel(exposure: 0.01), culling: CullingState())
+
+    let (model, history) = try published(sidecar)
+    XCTAssertEqual(model.exposure, 0.01, accuracy: 1e-9, "the editor's change is kept")
+    XCTAssertEqual(model.contrast, 30, accuracy: 1e-9, "the outside change is kept")
+    XCTAssertEqual(history.map(\.action), ["external"])
+    XCTAssertEqual(try XMPParser.parse(history[0].adjustmentXmp).0.contrast, 30)
+    XCTAssertEqual(history[0].writer, "")
+  }
+
+  func testDebouncedSaveMergesOntoExternalBytesAndAdvancesTheObservedRevision() async throws {
+    let (raw, sidecar) = try fixture()
+    defer { try? FileManager.default.removeItem(at: raw.deletingLastPathComponent()) }
+    try xml(exposure: 0).write(to: sidecar, atomically: true, encoding: .utf8)
+    let store = XMPSidecarStore(rawURL: raw)
+    _ = try await store.loadIfPresent()
+
+    try xml(contrast: 30).write(to: sidecar, atomically: true, encoding: .utf8)
     await store.update(model: AdjustmentModel(exposure: 0.01), culling: CullingState())
     await store.flush()
-    XCTAssertEqual(try String(contentsOf: sidecar, encoding: .utf8), external)
-    do {
-      try await store.writeConfirmed(
-        model: AdjustmentModel(exposure: 0.01), culling: CullingState())
-      XCTFail("The failed debounce must remain unconfirmed")
-    } catch XMPStoreError.externalConflict {}
-    XCTAssertEqual(try String(contentsOf: sidecar, encoding: .utf8), external)
+    XCTAssertEqual(try published(sidecar).0.contrast, 30, accuracy: 1e-9)
+    try await store.writeConfirmed(model: AdjustmentModel(exposure: 0.02), culling: CullingState())
+    let (model, history) = try published(sidecar)
+    XCTAssertEqual(model.exposure, 0.02, accuracy: 1e-9)
+    XCTAssertEqual(history.map(\.action), ["external"], "the merge is recorded once")
+    try await store.requireObservedRevisionCurrent()
   }
 
   func testSidecarRemovalAfterLoadIsAConflict() async throws {
@@ -71,21 +81,20 @@ final class XMPSidecarExternalConflictTests: XCTestCase {
     XCTAssertFalse(FileManager.default.fileExists(atPath: sidecar.path))
   }
 
-  func testSidecarCreationAfterAbsentLoadIsAConflict() async throws {
+  func testSidecarCreationAfterAbsentLoadIsRecordedNotReplaced() async throws {
     let (raw, sidecar) = try fixture()
     defer { try? FileManager.default.removeItem(at: raw.deletingLastPathComponent()) }
     let store = XMPSidecarStore(rawURL: raw)
     let loaded = try await store.loadIfPresent()
     XCTAssertNil(loaded)
-    let external = xml(exposure: 2)
-    try external.write(to: sidecar, atomically: true, encoding: .utf8)
+    try xml(contrast: 30).write(to: sidecar, atomically: true, encoding: .utf8)
 
-    do {
-      try await store.writeConfirmed(
-        model: AdjustmentModel(exposure: 0.01), culling: CullingState())
-      XCTFail("A newly created external sidecar must not be replaced")
-    } catch XMPStoreError.externalConflict {}
-    XCTAssertEqual(try String(contentsOf: sidecar, encoding: .utf8), external)
+    try await store.writeConfirmed(model: AdjustmentModel(exposure: 0.01), culling: CullingState())
+
+    let (model, history) = try published(sidecar)
+    XCTAssertEqual(model.exposure, 0.01, accuracy: 1e-9)
+    XCTAssertEqual(history.map(\.action), ["external"], "the created sidecar is recorded")
+    XCTAssertEqual(try XMPParser.parse(history[0].adjustmentXmp).0.contrast, 30)
   }
 
   func testOwnSequentialWritesAdvanceObservedRevision() async throws {
