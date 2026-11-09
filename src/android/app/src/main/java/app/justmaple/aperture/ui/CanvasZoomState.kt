@@ -60,7 +60,8 @@ import kotlin.math.roundToInt
  * class owns the model as a plain `DoubleArray`, hands it to each transition, and mirrors the
  * scale and pan into Compose state. Canvas units are Compose pixels.
  * - [pixelScale] == 0f means Fit; 1.0f means 100% (one image pixel per screen pixel); max 8.0f.
- * - Pinch settles on fit or fill within 4%, and zooms out to half of fit.
+ * - A live pinch follows the fingers down to half of fit; its release returns to fit from below
+ *   fit and settles on fit or fill within 4%.
  * - Suppresses single-finger pan for [PINCH_COOLDOWN_MS] after a two-finger pinch ends
  *   so lifting one finger slightly before the other never jumps the canvas.
  */

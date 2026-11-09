@@ -57,12 +57,16 @@ fn encode_round_trips_every_field() {
         pinch_start_pan: Size::new(9.0, 10.0),
         pinch_start_centroid: Point::new(11.0, 12.0),
         pinch_last_centroid: Point::new(13.0, 14.0),
+        pinch_start_magnification: 1.25,
+        pinch_last_magnification: 1.75,
+        drag_last_translation: Some(Size::new(15.0, -16.0)),
         fills_viewport: true,
     };
     assert_eq!(decode(&encode(&model)), model);
     let empty_options = CanvasZoomModel {
         drag_translation_base: None,
         pinch_start_scale: None,
+        drag_last_translation: None,
         ..model
     };
     assert_eq!(decode(&encode(&empty_options)), empty_options);
@@ -117,12 +121,14 @@ fn drag_at_fit_is_not_consumed() {
         zoom(&mut state, OP_DRAG_CHANGED, [50.0, 40.0, 0.0, 0.0], image),
         0
     );
-    assert_eq!(state[..GEOMETRY_SLOT], [0.0; GEOMETRY_SLOT]);
+    let model = decode(&state);
+    assert_eq!((model.pixel_scale, model.pan_offset), (0.0, Size::ZERO));
     assert_eq!(zoom(&mut state, OP_DRAG_ENDED, [0.0; 4], image), 0);
+    assert_eq!(state[..GEOMETRY_SLOT], [0.0; GEOMETRY_SLOT]);
 }
 
 #[test]
-fn pinch_derives_from_cumulative_magnification_and_settles_on_detents() {
+fn pinch_derives_from_cumulative_magnification_and_settles_on_release() {
     let image = (2000.0, 1000.0);
     let mut state = [0.0; STATE_LEN];
     zoom(
@@ -167,8 +173,19 @@ fn pinch_derives_from_cumulative_magnification_and_settles_on_detents() {
         [1.0, 500.0, 375.0, 0.0],
         image,
     );
-    zoom(&mut state, OP_PINCH_ENDED, [0.01, 0.0, 0.0, 0.0], image);
+    zoom(
+        &mut state,
+        OP_PINCH_CHANGED,
+        [0.01, 500.0, 375.0, 0.0],
+        image,
+    );
     assert_eq!(decode(&state).pixel_scale, 0.25, "the floor is half of fit");
+    zoom(&mut state, OP_PINCH_ENDED, [0.01, 0.0, 0.0, 0.0], image);
+    assert_eq!(
+        state[..GEOMETRY_SLOT],
+        [0.0; GEOMETRY_SLOT],
+        "a release below fit returns to fit"
+    );
 }
 
 #[test]

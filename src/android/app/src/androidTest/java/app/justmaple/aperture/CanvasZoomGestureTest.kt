@@ -26,14 +26,16 @@ class CanvasZoomGestureTest {
     @get:Rule val compose = createComposeRule()
 
     @Test
-    fun pinchFrom100PercentBelowFitDoesNotSnapUpToFit() {
+    fun pinchFrom100PercentBelowFitFollowsTheFingersAndReturnsToFitOnRelease() {
         val zoom = CanvasZoomState()
         zoom.doubleTap(500f, 375f, 800, 600, 1000f, 750f)
+        zoom.pinchChanged(1f, 500f, 375f, 800, 600, 1000f, 750f)
         zoom.pinchChanged(1.1f, 500f, 375f, 800, 600, 1000f, 750f)
         assertEquals(1.1f, zoom.pixelScale, 1e-6f)
         zoom.pinchChanged(0.9f, 500f, 375f, 800, 600, 1000f, 750f)
+        assertEquals("a live pinch does not snap to fit", 0.9f, zoom.pixelScale, 1e-6f)
         zoom.pinchEnded(0.9f, 0L, 800, 600, 1000f, 750f)
-        assertEquals(0.9f, zoom.pixelScale, 1e-6f)
+        assertFalse("a release below fit returns to fit", zoom.isZoomed)
     }
 
     @Test
@@ -253,22 +255,27 @@ class CanvasZoomGestureTest {
     @Test
     fun pinchSettlesOnFitInsideItsBandAndClampsAtMaxScale() {
         val zoom = CanvasZoomState()
+        zoom.pinchChanged(1f, 500f, 250f, 2000, 1000, 1000f, 500f)
         zoom.pinchChanged(2.0f, 500f, 250f, 2000, 1000, 1000f, 500f)
         zoom.pinchEnded(2.0f, 0L, 2000, 1000, 1000f, 500f)
         assertEquals(1.0f, zoom.pixelScale, 1e-4f)
 
+        zoom.pinchChanged(1f, 500f, 250f, 2000, 1000, 1000f, 500f)
         zoom.pinchChanged(0.515f, 500f, 250f, 2000, 1000, 1000f, 500f)
         zoom.pinchEnded(0.515f, 0L, 2000, 1000, 1000f, 500f)
         assertFalse("Within 4% of fit settles on fit", zoom.isZoomed)
 
+        zoom.pinchChanged(1f, 500f, 250f, 2000, 1000, 1000f, 500f)
         zoom.pinchChanged(30f, 500f, 250f, 2000, 1000, 1000f, 500f)
         assertEquals(8f, zoom.pixelScale, 1e-4f)
         zoom.pinchEnded(30f, 0L, 2000, 1000, 1000f, 500f)
 
         zoom.reset()
+        zoom.pinchChanged(1f, 500f, 250f, 2000, 1000, 1000f, 500f)
         zoom.pinchChanged(0.1f, 500f, 250f, 2000, 1000, 1000f, 500f)
-        zoom.pinchEnded(0.1f, 0L, 2000, 1000, 1000f, 500f)
         assertEquals("Zoom out stops at half of fit", 0.25f, zoom.pixelScale, 1e-4f)
+        zoom.pinchEnded(0.1f, 0L, 2000, 1000, 1000f, 500f)
+        assertFalse("A release below fit returns to fit", zoom.isZoomed)
     }
 
     @Test
@@ -278,6 +285,7 @@ class CanvasZoomGestureTest {
         assertEquals(0f, zoom.panX, 1e-4f)
         zoom.dragEnded()
 
+        zoom.pinchChanged(1f, 500f, 250f, 2000, 1000, 1000f, 500f)
         zoom.pinchChanged(2.0f, 500f, 250f, 2000, 1000, 1000f, 500f)
         zoom.pinchEnded(2.0f, 1000L, 2000, 1000, 1000f, 500f)
 
@@ -325,6 +333,7 @@ class CanvasZoomGestureTest {
     @Test
     fun delayedOriginalMetadataKeepsPinchMagnificationRelativeToFit() {
         val zoom = CanvasZoomState()
+        zoom.pinchChanged(1f, 750f, 375f, 2048, 1365, 1000f, 750f)
         zoom.pinchChanged(2f, 750f, 375f, 2048, 1365, 1000f, 750f)
         zoom.pinchEnded(2f, 0L, 2048, 1365, 1000f, 750f)
         zoom.adoptNativeDimensions(2048, 1365, 6000, 4000, 1000f, 750f)
