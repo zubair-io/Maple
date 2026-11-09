@@ -254,8 +254,8 @@ pub struct FullChainInputs<'a> {
     /// (#1714): raw-core's CPU NLM scales `h` and the search radius per pixel off
     /// this, so a GPU chain that doesn't carry it denoises differently from the
     /// develop/export path on any profile-carrying RAW. Appended at the struct
-    /// tail per the append-only convention; empty = the flat filter, which is the
-    /// pre-#1714 GPU behaviour.
+    /// tail per the append-only convention; empty = raw-core's `None`: the ISO-only
+    /// fallback at a known ISO (#4638), the flat filter at ISO 0.
     pub noise_profile: Vec<f32>,
     /// `RawImage::iso`, paired with `noise_profile` (raw-core treats 0 as
     /// "unknown" and zeroes the profile coefficients).

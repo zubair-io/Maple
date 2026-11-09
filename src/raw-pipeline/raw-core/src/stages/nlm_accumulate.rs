@@ -18,6 +18,15 @@ fn repair_gaussian_tails(arguments: [f32; 4], mut weights: [f32; 4]) -> [f32; 4]
     weights
 }
 
+/// Per-pixel strength and search reach for one accumulated row: a pixel only
+/// takes shifts within its own radius, as in the general dynamic kernel.
+#[derive(Clone, Copy)]
+pub(super) struct Modulation<'a> {
+    pub inv_norm: &'a [f32],
+    pub radii: &'a [u32],
+    pub shift: u32,
+}
+
 pub(super) fn accumulate(
     sums: &[f32],
     shifted: &[f32],
@@ -25,12 +34,39 @@ pub(super) fn accumulate(
     weights: &mut [f32],
     maxima: &mut [f32],
     inv_norm: f32,
+    modulation: Option<Modulation<'_>>,
+) {
+    match modulation {
+        Some(m) => accumulate_impl::<true>(sums, shifted, acc, weights, maxima, inv_norm, m),
+        None => {
+            let constant = Modulation {
+                inv_norm: &[],
+                radii: &[],
+                shift: 0,
+            };
+            accumulate_impl::<false>(sums, shifted, acc, weights, maxima, inv_norm, constant)
+        }
+    }
+}
+
+fn accumulate_impl<const DYNAMIC: bool>(
+    sums: &[f32],
+    shifted: &[f32],
+    acc: &mut [f32],
+    weights: &mut [f32],
+    maxima: &mut [f32],
+    inv_norm: f32,
+    modulation: Modulation<'_>,
 ) {
     let count = sums.len();
     assert_eq!(shifted.len(), count);
     assert_eq!(acc.len(), count);
     assert_eq!(weights.len(), count);
     assert_eq!(maxima.len(), count);
+    if DYNAMIC {
+        assert_eq!(modulation.inv_norm.len(), count);
+        assert_eq!(modulation.radii.len(), count);
+    }
     #[allow(unused_mut)]
     let mut start = 0;
     #[cfg(target_arch = "aarch64")]
@@ -39,8 +75,13 @@ pub(super) fn accumulate(
         let table = fast_exp_table();
         // AArch64 guarantees NEON; every load/store stays inside these equal-length slices.
         unsafe {
-            let norm = vdupq_n_f32(inv_norm);
+            let constant_norm = vdupq_n_f32(inv_norm);
             while start + 4 <= count {
+                let norm = if DYNAMIC {
+                    vld1q_f32(modulation.inv_norm.as_ptr().add(start))
+                } else {
+                    constant_norm
+                };
                 let x = vmulq_f32(
                     vmaxnmq_f32(vld1q_f32(sums.as_ptr().add(start)), vdupq_n_f32(0.0)),
                     norm,
@@ -68,21 +109,38 @@ pub(super) fn accumulate(
                 } else {
                     weight
                 };
-                vst1q_f32(
-                    acc.as_mut_ptr().add(start),
-                    vaddq_f32(
-                        vld1q_f32(acc.as_ptr().add(start)),
-                        vmulq_f32(weight, vld1q_f32(shifted.as_ptr().add(start))),
-                    ),
+                let old_acc = vld1q_f32(acc.as_ptr().add(start));
+                let old_weights = vld1q_f32(weights.as_ptr().add(start));
+                let old_maxima = vld1q_f32(maxima.as_ptr().add(start));
+                let new_acc = vaddq_f32(
+                    old_acc,
+                    vmulq_f32(weight, vld1q_f32(shifted.as_ptr().add(start))),
                 );
-                vst1q_f32(
-                    weights.as_mut_ptr().add(start),
-                    vaddq_f32(vld1q_f32(weights.as_ptr().add(start)), weight),
-                );
-                vst1q_f32(
-                    maxima.as_mut_ptr().add(start),
-                    vmaxq_f32(vld1q_f32(maxima.as_ptr().add(start)), weight),
-                );
+                let new_weights = vaddq_f32(old_weights, weight);
+                let new_maxima = vmaxq_f32(old_maxima, weight);
+                if DYNAMIC {
+                    // A pixel whose reach excludes this shift keeps its exact bits.
+                    let taken = vcgeq_u32(
+                        vld1q_u32(modulation.radii.as_ptr().add(start)),
+                        vdupq_n_u32(modulation.shift),
+                    );
+                    vst1q_f32(
+                        acc.as_mut_ptr().add(start),
+                        vbslq_f32(taken, new_acc, old_acc),
+                    );
+                    vst1q_f32(
+                        weights.as_mut_ptr().add(start),
+                        vbslq_f32(taken, new_weights, old_weights),
+                    );
+                    vst1q_f32(
+                        maxima.as_mut_ptr().add(start),
+                        vbslq_f32(taken, new_maxima, old_maxima),
+                    );
+                } else {
+                    vst1q_f32(acc.as_mut_ptr().add(start), new_acc);
+                    vst1q_f32(weights.as_mut_ptr().add(start), new_weights);
+                    vst1q_f32(maxima.as_mut_ptr().add(start), new_maxima);
+                }
                 start += 4;
             }
         }
@@ -110,8 +168,13 @@ pub(super) fn accumulate(
         // bound every unaligned four-lane load/store; the tail stays scalar.
         unsafe {
             let zero = f32x4_splat(0.0);
-            let norm = f32x4_splat(inv_norm);
+            let constant_norm = f32x4_splat(inv_norm);
             while start + 4 <= count {
+                let norm = if DYNAMIC {
+                    load_f32x4(modulation.inv_norm.as_ptr().add(start))
+                } else {
+                    constant_norm
+                };
                 let x = f32x4_mul(max_number(load_f32x4(sums.as_ptr().add(start)), zero), norm);
                 let bounded =
                     v128_bitselect(zero, f32x4_min(x, f32x4_splat(8.0)), f32x4_lt(x, zero));
@@ -152,27 +215,54 @@ pub(super) fn accumulate(
                 } else {
                     weight
                 };
+                let old_acc = load_f32x4(acc.as_ptr().add(start));
+                let old_weights = load_f32x4(weights.as_ptr().add(start));
+                let old_maxima = load_f32x4(maxima.as_ptr().add(start));
+                let new_acc = f32x4_add(
+                    old_acc,
+                    f32x4_mul(weight, load_f32x4(shifted.as_ptr().add(start))),
+                );
+                let new_weights = f32x4_add(old_weights, weight);
+                let new_maxima = max_number(old_maxima, weight);
+                let taken = if DYNAMIC {
+                    u32x4_ge(
+                        modulation
+                            .radii
+                            .as_ptr()
+                            .add(start)
+                            .cast::<v128>()
+                            .read_unaligned(),
+                        u32x4_splat(modulation.shift),
+                    )
+                } else {
+                    u32x4_splat(u32::MAX)
+                };
                 store_f32x4(
                     acc.as_mut_ptr().add(start),
-                    f32x4_add(
-                        load_f32x4(acc.as_ptr().add(start)),
-                        f32x4_mul(weight, load_f32x4(shifted.as_ptr().add(start))),
-                    ),
+                    v128_bitselect(new_acc, old_acc, taken),
                 );
                 store_f32x4(
                     weights.as_mut_ptr().add(start),
-                    f32x4_add(load_f32x4(weights.as_ptr().add(start)), weight),
+                    v128_bitselect(new_weights, old_weights, taken),
                 );
                 store_f32x4(
                     maxima.as_mut_ptr().add(start),
-                    max_number(load_f32x4(maxima.as_ptr().add(start)), weight),
+                    v128_bitselect(new_maxima, old_maxima, taken),
                 );
                 start += 4;
             }
         }
     }
     for i in start..count {
-        let weight = fast_neg_exp(sums[i].max(0.0) * inv_norm);
+        if DYNAMIC && modulation.radii[i] < modulation.shift {
+            continue;
+        }
+        let norm = if DYNAMIC {
+            modulation.inv_norm[i]
+        } else {
+            inv_norm
+        };
+        let weight = fast_neg_exp(sums[i].max(0.0) * norm);
         acc[i] += weight * shifted[i];
         weights[i] += weight;
         maxima[i] = maxima[i].max(weight);
@@ -381,7 +471,15 @@ mod tests {
         let mut acc = vec![0.125; sums.len()];
         let mut weights = vec![0.25; sums.len()];
         let mut maxima = vec![0.375; sums.len()];
-        accumulate(&sums, &shifted, &mut acc, &mut weights, &mut maxima, 1.0);
+        accumulate(
+            &sums,
+            &shifted,
+            &mut acc,
+            &mut weights,
+            &mut maxima,
+            1.0,
+            None,
+        );
         for i in 0..sums.len() {
             let weight = fast_neg_exp(sums[i]);
             assert_eq!(
@@ -402,7 +500,15 @@ mod tests {
             let mut acc = vec![-0.125; count];
             let mut weights = vec![0.25; count];
             let mut maxima = vec![0.375; count];
-            accumulate(&sums, &shifted, &mut acc, &mut weights, &mut maxima, 1.0);
+            accumulate(
+                &sums,
+                &shifted,
+                &mut acc,
+                &mut weights,
+                &mut maxima,
+                1.0,
+                None,
+            );
             for i in 0..count {
                 let weight = fast_neg_exp(sums[i].max(0.0));
                 assert_eq!(acc[i].to_bits(), (-0.125 + weight * shifted[i]).to_bits());

@@ -54,6 +54,7 @@ fn vector_and_scalar_tail_weights_match_the_gaussian() {
             &mut weights,
             &mut maxima,
             1.0,
+            None,
         );
         for i in 0..n {
             let expected = if arguments[i] < 8.0 {

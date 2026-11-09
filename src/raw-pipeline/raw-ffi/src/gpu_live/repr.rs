@@ -250,7 +250,7 @@ pub struct MapleGpuLiveParams {
     //     radius PER PIXEL off these, so a GPU chain that can't see them
     //     denoises differently from the exported frame. Appended at the tail
     //     per the offset-stable ABI convention: null pointer / zero len ⇒ the
-    //     flat filter, bit-identical to pre-#1714 output. ---
+    //     ISO-only fallback, or the flat filter at ISO 0. ---
     /// Flat `(slope, offset)` pairs from the DNG NoiseProfile tag.
     pub noise_profile_ptr: *const f32,
     pub noise_profile_len: u32,

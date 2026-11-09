@@ -515,7 +515,7 @@ bash src/scripts/test_banding.sh
 
 ### Windows ARM64 NLM qualification (#4273)
 
-Pipeline epoch 9 includes the five-tap constant-strength tiled CPU NLM path,
+Pipeline epoch 9 includes the five-tap profile-free tiled CPU NLM path,
 fixed 256-row reseed boundaries in the general path, and a canonical binary32
 exponential table. The table is generated with 80-digit decimal precision by
 `tools/generate_nlm_exp_table.py` and included by both CPU and GPU hosts. This
@@ -531,6 +531,15 @@ covers the general path. CPU tests additionally require bit-identical outputs
 across 1, 2, 4 and 7 threads and compare ARM64 vector accumulation exactly with
 the scalar operations. Scratch allocation is bounded to six buffers per worker
 per call, reused across all that worker's tiles; no per-tile allocations remain.
+
+A RAW with no DNG `NoiseProfile` but a known ISO takes the ISO-only noise model
+(`fallback_noise_params`) on CPU and GPU alike (#4638); only ISO 0 (unknown, or
+a developed raster) keeps the flat constant-strength filter. The tiled path
+computes each tile's per-pixel strength and search reach with the general
+kernel's formula, runs uniform tiles as the constant kernel at that strength,
+and masks shifts beyond a pixel's reach, so it matches the general dynamic
+kernel while keeping the profile-free cost. The 257×65 parity test covers the
+ISO fallback against the GPU at ISO 0, 50, 100 and 1600.
 
 The presentation blue-noise storage change preserves the original 4096 values;
 it changes the Adreno shader resource representation, not the dither sequence.

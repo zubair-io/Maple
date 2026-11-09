@@ -14,7 +14,7 @@ pub(super) fn prepare_scaling(
     is_chroma: bool,
 ) -> (Vec<isize>, Vec<f32>) {
     let p = params.patch_radius;
-    let use_dynamic = noise_profile.is_some();
+    let use_dynamic = noise_profile.is_some() || iso > 0;
     let (s_coeff, o_coeff) = if use_dynamic {
         get_noise_params(noise_profile, iso, is_chroma)
     } else {
@@ -32,21 +32,33 @@ pub(super) fn prepare_scaling(
             .zip(local_inv_norm_plane.par_iter_mut())
             .zip(l_plane.par_iter())
             .for_each(|((s_out, inv_norm_out), &l_val)| {
-                let local_l = l_val.clamp(0.0, 10.0);
-                let var = s_coeff * local_l + o_coeff;
-                let sigma = var.max(0.0).sqrt();
-                let scale = (sigma / 0.002366).clamp(0.1, 10.0);
-
-                let local_h = params.h * scale;
-                let local_h_sq = local_h * local_h;
-                *inv_norm_out = 1.0 / (local_h_sq * patch_area);
-
-                let local_s = (params.search_radius as f32 * scale).round() as isize;
-                *s_out = local_s.clamp(1, params.search_radius as isize);
+                (*inv_norm_out, *s_out) =
+                    local_strength(params, s_coeff, o_coeff, l_val, patch_area);
             });
     }
 
     (local_s_plane, local_inv_norm_plane)
+}
+
+/// Per-pixel weight normaliser and search reach for the noise model's sigma at
+/// `luminance`; shared by the general and tiled kernels so they stay bit-equal.
+pub(super) fn local_strength(
+    params: NlmParams,
+    slope: f32,
+    offset: f32,
+    luminance: f32,
+    patch_area: f32,
+) -> (f32, isize) {
+    let sigma = (slope * luminance.clamp(0.0, 10.0) + offset)
+        .max(0.0)
+        .sqrt();
+    let scale = (sigma / 0.002366).clamp(0.1, 10.0);
+    let local_h = params.h * scale;
+    let reach = (params.search_radius as f32 * scale).round() as isize;
+    (
+        1.0 / (local_h * local_h * patch_area),
+        reach.clamp(1, params.search_radius as isize),
+    )
 }
 
 pub(crate) fn denoise_chroma_pair_cancellable(
