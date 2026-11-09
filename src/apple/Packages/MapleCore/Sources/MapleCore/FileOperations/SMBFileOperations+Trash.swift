@@ -209,9 +209,10 @@ extension SMBFileOperations {
   /// reasoning. A restored item ages from its trashed date, or from its
   /// restore date when it has none. Items with no marker are left alone —
   /// see `LocalFileOperations.sweepExpiredMapleTrash`'s doc comment for why.
-  /// Also removes orphaned markers (`sweepOrphanedMarkers`) and expired
-  /// restore staging copies. Returns the total count of primaries purged
-  /// plus orphaned markers and staging copies removed.
+  /// Also removes orphaned markers (`sweepOrphanedMarkers`), orphaned sidecars
+  /// (`sweepOrphanedSidecars`, #5132) and expired restore staging copies.
+  /// Returns the total count of primaries purged plus orphaned markers,
+  /// sidecars and staging copies removed.
   @discardableResult
   public static func sweepExpiredMapleTrash(
     shareRoot: String = "/", olderThanDays: Int = 30, now: Date = Date(),
@@ -229,6 +230,8 @@ extension SMBFileOperations {
       }
     }
     purged += await sweepOrphanedMarkers(shareRoot: shareRoot, transport: transport)
+    purged += await sweepOrphanedSidecars(
+      shareRoot: shareRoot, olderThanDays: olderThanDays, now: now, transport: transport)
     purged += await sweepExpiredRestoreStaging(
       shareRoot: shareRoot, olderThanDays: olderThanDays, now: now, transport: transport)
     return purged

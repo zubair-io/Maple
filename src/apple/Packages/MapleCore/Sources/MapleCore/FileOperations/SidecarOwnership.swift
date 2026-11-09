@@ -47,11 +47,29 @@ enum SidecarOwnership {
     let skipped = Set(([primaryPath] + excluding).map(key))
     let primaryStem = stem(of: (primaryPath as NSString).lastPathComponent, foldsCase: foldsCase)
     return siblingNames.contains { name in
-      !name.hasPrefix(".") && !isStagingName(name)
-        && SupportedImageExtensions.all.contains((name as NSString).pathExtension.lowercased())
-        && !skipped.contains(key((dir as NSString).appendingPathComponent(name)))
+      isPhotoName(name) && !skipped.contains(key((dir as NSString).appendingPathComponent(name)))
         && stem(of: name, foldsCase: foldsCase) == primaryStem
     }
+  }
+
+  /// True when no photo or video in `siblingNames` (the non-directory entries of
+  /// the sidecar's folder) shares the sidecar's stem or is the stem a `.v…`
+  /// branch extends (workflow variants, foreign `.v2` copies): such a branch
+  /// stays with its photo, so only a sidecar nothing could own is an orphan.
+  static func isOrphanedSidecar(
+    _ sidecarName: String, siblingNames: [String], foldsCase: Bool = true
+  ) -> Bool {
+    let sidecarStem = stem(of: sidecarName, foldsCase: foldsCase)
+    return !siblingNames.contains { name in
+      guard isPhotoName(name) else { return false }
+      let photoStem = stem(of: name, foldsCase: foldsCase)
+      return sidecarStem == photoStem || sidecarStem.hasPrefix(photoStem + ".")
+    }
+  }
+
+  private static func isPhotoName(_ name: String) -> Bool {
+    !name.hasPrefix(".") && !isStagingName(name)
+      && SupportedImageExtensions.all.contains((name as NSString).pathExtension.lowercased())
   }
 
   /// An unlistable folder counts as claimed: copying is always safe, taking is not.

@@ -271,6 +271,8 @@ What happens to the trashed copy depends on the transport:
 - **Local filesystem (iOS/iPadOS `.maple/trash`).** After publication, restore removes the trashed originals by first renaming each one into a private custody name and checking it is still the file it verified.
 - **SMB shares.** Restore is copy-only: it never deletes or renames any file that existed before it started. A process on the NAS itself (local disk access or NFS) is not bound by SMB locks, and Samba carries out deletes and renames by pathname. If such a process swaps another file into the trashed photo's place, a delete or rename would hit that unrelated file — this was reproduced against a real Samba server (#4173). Instead, the trashed photo and its XMP stay where they are, and restore adds a `<name>.restored-YYYY-MM-DD` marker beside them. The Trash view then hides the item, and the normal trash expiry removes it with the rest of the trash, 30 days after it was trashed. That expiry is the only process that deletes anything restore leaves behind, including copies an interrupted restore left in `.maple/restore-staging`. Windows restore does not yet read the marker or pair non-canonical sidecars (#2847).
 
+The same expiry removes a sidecar left in `.maple/trash` after its last same-stem photo is gone (#5132). A trashed sidecar stays while another photo with its stem is trashed (#4707), and SMB folds case when it compares stems, so a photo that was removed some other way, or one that only matched by case, can leave its sidecar behind with no row in the Trash view. Such a sidecar is removed once it was last modified more than 30 days ago. One with a photo or video beside it, including its `.v<uuid>` workflow variants, is never touched.
+
 ---
 
 ## 7. Settings and admin
