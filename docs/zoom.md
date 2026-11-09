@@ -51,7 +51,7 @@ Only finger motion moves the photo directly. Anything else that puts the zoom so
 
 The open Duo's group switcher (Light / Color / Effects / Detail) sits in the editor header's row instead of the system navigation bar, so the header and every top control share one level at the top safe area. The landscape vertical control bar is docked flush to the trailing screen edge.
 
-The web canvas follows the same range, detents and badge cycle (#5714), and its double-click is the editor's fit ↔ 100%. The badge sits in the canvas component's own toolbar, which the web editor hides, so in the web editor fill is reached by a pinch detent; ⌘/Ctrl+0, ⌘/Ctrl+1, ⌘/Ctrl+= / - and double-click cover the other stops.
+The web canvas follows the same range, detents, pinch release and badge cycle (#5714), and its double-click is the editor's fit ↔ 100%. It has no settle animation: a release or a command draws its settled frame directly. The badge sits in the canvas component's own toolbar, which the web editor hides, so in the web editor fill is reached by a pinch detent; ⌘/Ctrl+0, ⌘/Ctrl+1, ⌘/Ctrl+= / - and double-click cover the other stops.
 
 ### Continuity (all platforms)
 

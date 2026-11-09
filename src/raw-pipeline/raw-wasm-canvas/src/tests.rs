@@ -48,6 +48,9 @@ fn model_round_trips_through_the_scratch_block() {
         pinch_start_pan: Size::new(1.0, 2.0),
         pinch_start_centroid: Point::new(100.0, 200.0),
         pinch_last_centroid: Point::new(110.0, 190.0),
+        pinch_start_magnification: 1.25,
+        pinch_last_magnification: 1.75,
+        drag_last_translation: Some(Size::new(-6.0, 8.0)),
         fills_viewport: true,
     };
     write_model(model);
@@ -102,6 +105,45 @@ fn pinch_matches_the_core_model() {
     canvas_zoom_pinch_ended(2.0);
     assert_eq!(read_model(), expected);
     assert_eq!(read(CanvasSlot::PixelScale), 1.0);
+}
+
+#[test]
+fn a_pinch_continues_from_a_mid_pinch_zoom_across_calls() {
+    let _guard = exclusive_scratch();
+    set_landscape_context();
+    let context = read_context();
+    let expected = CanvasZoomModel::default()
+        .pinch_changed(1.0, Point::new(400.0, 300.0), &context)
+        .pinch_changed(1.6, Point::new(420.0, 310.0), &context)
+        .wheel_zoom(40.0, Point::new(500.0, 363.0), &context)
+        .pinch_changed(1.8, Point::new(430.0, 320.0), &context);
+
+    canvas_zoom_pinch_changed(1.0, 400.0, 300.0);
+    canvas_zoom_pinch_changed(1.6, 420.0, 310.0);
+    canvas_zoom_wheel_zoom(40.0, 500.0, 363.0);
+    assert_eq!(read(CanvasSlot::PinchStartMagnification), 1.6);
+    canvas_zoom_pinch_changed(1.8, 430.0, 320.0);
+    assert_eq!(read_model(), expected);
+}
+
+#[test]
+fn a_drag_continues_from_a_mid_drag_wheel_pan_across_calls() {
+    let _guard = exclusive_scratch();
+    set_landscape_context();
+    canvas_zoom_to_scale(1.0);
+    let context = read_context();
+    let expected = read_model()
+        .drag_changed(Size::new(-20.0, 0.0), &context)
+        .0
+        .wheel_pan(Size::new(-30.0, 0.0), &context)
+        .drag_changed(Size::new(-25.0, 0.0), &context)
+        .0;
+
+    assert!(canvas_zoom_drag_changed(-20.0, 0.0));
+    canvas_zoom_wheel_pan(-30.0, 0.0);
+    assert!(canvas_zoom_drag_changed(-25.0, 0.0));
+    assert_eq!(read_model(), expected);
+    assert_eq!(read(CanvasSlot::PanX), -55.0);
 }
 
 #[test]

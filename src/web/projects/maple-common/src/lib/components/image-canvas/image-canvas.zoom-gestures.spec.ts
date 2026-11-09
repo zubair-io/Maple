@@ -109,11 +109,15 @@ describe('CanvasZoomGestures over the shared model', () => {
     expect(pan).toEqual({ x: 0, y: 0 });
   });
 
-  it('a pinch below fit holds its scale on release, down to the half-fit floor', () => {
-    pinch(200, 140);
+  it('a pinch below fit follows the fingers down to the half-fit floor and releases to fit', () => {
+    pinch(200, 140, false);
     expect(pixelScale).toBeCloseTo(FIT * 0.7, 9);
-    pinch(200, 20);
+    g.onPointerMove({ pointerId: 2, clientX: 510, clientY: 363 });
     expect(pixelScale).toBeCloseTo(FIT * 0.5, 9);
+    g.onPointerUp({ pointerId: 1, clientX: 490, clientY: 363 });
+    g.onPointerUp({ pointerId: 2, clientX: 510, clientY: 363 });
+    expect(pixelScale).toBe(0);
+    expect(pan).toEqual({ x: 0, y: 0 });
   });
 
   it('a pinch released inside the fill band settles on fill, which follows a resize', () => {

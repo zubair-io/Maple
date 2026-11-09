@@ -51,8 +51,13 @@ pub enum CanvasSlot {
     PinchStartCentroidY = 18,
     PinchLastCentroidX = 19,
     PinchLastCentroidY = 20,
-    FillsViewport = 21,
-    Count = 22,
+    PinchStartMagnification = 21,
+    PinchLastMagnification = 22,
+    HasDragLastTranslation = 23,
+    DragLastTranslationX = 24,
+    DragLastTranslationY = 25,
+    FillsViewport = 26,
+    Count = 27,
 }
 
 /// Double-tap behaviour per surface.
@@ -153,6 +158,14 @@ fn read_model() -> CanvasZoomModel {
             CanvasSlot::PinchLastCentroidX,
             CanvasSlot::PinchLastCentroidY,
         ),
+        pinch_start_magnification: read(CanvasSlot::PinchStartMagnification),
+        pinch_last_magnification: read(CanvasSlot::PinchLastMagnification),
+        drag_last_translation: flag(CanvasSlot::HasDragLastTranslation).then(|| {
+            read_size(
+                CanvasSlot::DragLastTranslationX,
+                CanvasSlot::DragLastTranslationY,
+            )
+        }),
         fills_viewport: flag(CanvasSlot::FillsViewport),
     }
 }
@@ -193,6 +206,23 @@ fn write_model(model: CanvasZoomModel) {
         CanvasSlot::PinchLastCentroidY,
         model.pinch_last_centroid,
     );
+    write(
+        CanvasSlot::PinchStartMagnification,
+        model.pinch_start_magnification,
+    );
+    write(
+        CanvasSlot::PinchLastMagnification,
+        model.pinch_last_magnification,
+    );
+    write_flag(
+        CanvasSlot::HasDragLastTranslation,
+        model.drag_last_translation.is_some(),
+    );
+    write_size(
+        CanvasSlot::DragLastTranslationX,
+        CanvasSlot::DragLastTranslationY,
+        model.drag_last_translation.unwrap_or_default(),
+    );
     write_flag(CanvasSlot::FillsViewport, model.fills_viewport);
 }
 
@@ -232,7 +262,8 @@ pub fn canvas_zoom_pinch_changed(magnification: f64, x: f64, y: f64) {
     transition(|model, context| model.pinch_changed(magnification, Point::new(x, y), context));
 }
 
-/// Pinch release; settles on fit or fill inside their detent bands.
+/// Pinch release; below fit, or inside a fit or fill detent band, it settles
+/// on that stop.
 #[wasm_bindgen]
 pub fn canvas_zoom_pinch_ended(magnification: f64) {
     transition(|model, context| model.pinch_ended(magnification, context));
@@ -274,16 +305,17 @@ pub fn canvas_zoom_double_tap(x: f64, y: f64, behavior: CanvasDoubleTap) {
     transition(|model, context| model.double_tap(Point::new(x, y), behavior, context));
 }
 
-/// Fit mode with every pan and gesture capture cleared.
+/// Fit, centred; a live pinch or drag continues from it.
 #[wasm_bindgen]
 pub fn canvas_zoom_reset_to_fit() {
-    transition(|model, _| model.reset_to_fit());
+    transition(|model, context| model.reset_to_fit(context));
 }
 
-/// Explicit zoom target (⌘1 = `1`), clamped and re-centred.
+/// Explicit zoom target (⌘1 = `1`), clamped and re-centred; a live pinch or
+/// drag continues from it.
 #[wasm_bindgen]
 pub fn canvas_zoom_to_scale(scale: f64) {
-    transition(|model, _| model.zoom_to_scale(scale));
+    transition(|model, context| model.zoom_to_scale(scale, context));
 }
 
 /// Badge tap: the next stop in `fit → fill → 100%`.
