@@ -39,11 +39,11 @@ struct LivePhotoClipOverlay: View {
   @State private var isPlaying = false
 
   var body: some View {
-    if item.overlays.livePhoto == .clip, let clip = clipSource {
+    if item.overlays.livePhoto == .clip, case .local(let asset, let box) = item.thumbnailSource {
       ZStack {
         if isPlaying {
           MotionClipPlayerView(
-            resolveURL: { try? await clip.cloud.videoURL(for: clip.refID) },
+            resolveURL: { await LivePhotoClip.playbackURL(for: asset, source: box?.source) },
             isInline: true,
             onFinished: { isPlaying = false }
           )
@@ -65,12 +65,5 @@ struct LivePhotoClipOverlay: View {
       }
       .onDisappear { isPlaying = false }
     }
-  }
-
-  private var clipSource: (cloud: CloudSource, refID: String)? {
-    guard case .local(let ref, let box) = item.thumbnailSource,
-      let cloud = box?.source as? CloudSource, let refID = ref.stableID
-    else { return nil }
-    return (cloud, refID)
   }
 }

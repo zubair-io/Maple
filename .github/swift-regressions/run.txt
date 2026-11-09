@@ -343,6 +343,11 @@ CloudSourceOriginalHTTPTests
 CloudAddressResolverTests
 CloudSourceMotionClipTests
 CloudSourceLivePhotoTests
+# Live Photo pairing on local folders and SMB (#5544): real temp-dir files, the shared rule corpus, owned Samba.
+LiveContentIdentifierTests
+LivePhotoPairingTests
+LivePhotoLocalFolderTests
+LivePhotoSMBTests
 
 # Unified native folder readers and the production API contract (#4006).
 UnifiedFolderConsumerTests

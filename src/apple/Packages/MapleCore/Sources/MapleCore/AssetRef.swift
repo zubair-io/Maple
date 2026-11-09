@@ -173,7 +173,8 @@ public struct AssetRef: Identifiable, Sendable, Equatable, Hashable {
   /// row, and the reveal-containing-folder action. See `CatalogRef`.
   public let catalog: CatalogRef?
 
-  /// The Live Photo half this Self Hosted listing entry is, with its partner's filename (#5448).
+  /// The Live Photo half this listing entry is, with its partner's filename: reported by the
+  /// Self Hosted listing (#5448), derived by `LivePhotoPairing` for local folders and SMB (#5544).
   public let livePhoto: LivePhotoLink?
 
   /// The listed share-relative SMB location. Content ids are shared by
@@ -358,7 +359,10 @@ public struct AssetRef: Identifiable, Sendable, Equatable, Hashable {
     self.init(url: url, scopeParentURL: ref.scopeParentURL, captureDate: ref.captureDate)
   }
 
-  public init(url: URL, scopeParentURL: URL? = nil, captureDate: Date? = nil) {
+  public init(
+    url: URL, scopeParentURL: URL? = nil, captureDate: Date? = nil,
+    livePhoto: LivePhotoLink? = nil
+  ) {
     self.id = UUID()
     self.primaryURL = url
     self.displayNameOverride = nil
@@ -372,7 +376,7 @@ public struct AssetRef: Identifiable, Sendable, Equatable, Hashable {
     self.explicitIsRaw = nil
     self.thumbnailProvenance = nil
     self.catalog = nil
-    self.livePhoto = nil
+    self.livePhoto = livePhoto
     self.smbPath = nil
     self.smbSourceID = nil
   }

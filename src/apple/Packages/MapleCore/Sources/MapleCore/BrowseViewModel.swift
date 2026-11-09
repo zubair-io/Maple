@@ -176,6 +176,8 @@ public final class BrowseViewModel {
     do {
       let refs = try await source.images()
       guard gen == loadGeneration else { return }
+      let livePhotoLinks = await (source as? SMBSource)?.livePhotoLinks() ?? [:]
+      guard gen == loadGeneration else { return }
 
       let assetRefs = refs.map { ref -> AssetRef in
         if let url = ref.url {
@@ -207,6 +209,7 @@ public final class BrowseViewModel {
           stableID: capturedRef.id,
           captureDate: capturedRef.captureDate,
           thumbnailProvenance: provenance,
+          livePhoto: capturedRef.smbPath.flatMap { livePhotoLinks[$0] },
           smbPath: capturedRef.smbPath,
           smbSourceID: capturedRef.smbSourceID,
           originalFileWriter: (capturedSource as? SMBSource).map { smb in

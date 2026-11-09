@@ -330,9 +330,9 @@ struct PreviewView: View {
     .task(id: asset.id) {
       playsMotionClip = false
       hasMotionClip = false
-      let url = await PreviewMotionClip.clipURL(for: asset, source: source)
+      let hasClip = await PreviewMotionClip.hasClip(for: asset, source: source)
       guard !Task.isCancelled else { return }
-      hasMotionClip = url != nil
+      hasMotionClip = hasClip
     }
     // Re-prime the Info session whenever the pane is open — on first
     // appearance (the pane defaults to open, so no tap ever fires) and
