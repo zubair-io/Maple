@@ -7,9 +7,10 @@
 // photo's frame, and renders the RAW only once the photo is zoomed past the
 // still's resolution, so opening and paging never decode. The GPU canvas
 // mounts with the render: a placeholder drawn at viewport resolution would
-// be softer than the still it covers once zoomed in. A neighbouring page,
-// and a visible one whose session is not primed yet, is the still alone, at
-// the same fit rect.
+// be softer than the still it covers once zoomed in, and nothing the render
+// draws covers the still before it is at least as sharp (#5768). A
+// neighbouring page, and a visible one whose session is not primed yet, is
+// the still alone, at the same fit rect.
 
 import CoreImage
 import MapleCore
@@ -211,13 +212,20 @@ struct PreviewCanvasPage: View {
   }
 
   /// The still beneath and, once rendering, the GPU canvas over it (whose
-  /// controller starts the render; hidden until it presents, so its empty
-  /// layer never covers the still), the render's CPU frames until the GPU
-  /// presents, and the native-resolution detail patch.
+  /// controller starts the render; hidden until its frame is at least as
+  /// sharp as the still), the render's CPU frame when that one is, and the
+  /// native-resolution detail patch.
   private func leaf(_ zoom: CanvasZoomController) -> some View {
     let session = zoom.session
     let rendering = zoom.rendersSession
     let gpu = usesGpuCanvas(session)
+    let cpuFrameLongEdge =
+      session.renderedPreview.map { max($0.extent.width, $0.extent.height) } ?? 0
+    let cover = PreviewCanvasRender.cover(
+      usesGpu: gpu, gpuFramePresented: session.gpuFramePresented,
+      gpuFrameLongEdgePixels: session.gpuFrameLongEdgePixels,
+      isFullQualityDecoding: session.isFullQualityDecoding,
+      cpuFrameLongEdgePixels: cpuFrameLongEdge, stillLongEdgePixels: loader.longEdgePixels)
     return ZStack {
       if let image = loader.image {
         stillImage(image)
@@ -225,11 +233,9 @@ struct PreviewCanvasPage: View {
       if rendering, gpu {
         GpuLiveCanvasView(session: session)
           .id(ObjectIdentifier(session))
-          .opacity(session.gpuFramePresented ? 1 : 0)
+          .opacity(cover == .gpuFrame ? 1 : 0)
       }
-      if rendering, !gpu || session.isFullQualityDecoding || !session.gpuFramePresented,
-        let preview = session.renderedPreview
-      {
+      if rendering, cover == .cpuFrame, let preview = session.renderedPreview {
         CanvasImageView(image: preview)
           .equatable()
           .allowsHitTesting(false)

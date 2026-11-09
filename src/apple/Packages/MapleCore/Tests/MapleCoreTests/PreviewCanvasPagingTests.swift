@@ -1,5 +1,6 @@
 // PreviewCanvasPagingTests.swift — #5762: how a touch on a Preview page is
-// split between dismissing and paging, and where a released swipe goes.
+// split between dismissing and paging, where a released swipe goes, and what
+// the render may draw over the still (#5768).
 
 import CoreGraphics
 import XCTest
@@ -105,5 +106,52 @@ final class PreviewCanvasPagingTests: XCTestCase {
     XCTAssertFalse(
       PreviewCanvasRender.shouldRender(
         isZoomedIn: true, shownLongEdgePixels: 8000, stillLongEdgePixels: 0))
+  }
+
+  // MARK: - What covers the still once rendering (#5768)
+
+  private func cover(
+    usesGpu: Bool = true, gpuPresented: Bool = false, gpuLongEdge: CGFloat = 0,
+    decoding: Bool = false, cpuLongEdge: CGFloat = 0, still: CGFloat = 1280
+  ) -> PreviewCanvasCover {
+    PreviewCanvasRender.cover(
+      usesGpu: usesGpu, gpuFramePresented: gpuPresented, gpuFrameLongEdgePixels: gpuLongEdge,
+      isFullQualityDecoding: decoding, cpuFrameLongEdgePixels: cpuLongEdge,
+      stillLongEdgePixels: still)
+  }
+
+  func testTheGridThumbnailSeedNeverCoversASharperStill() {
+    XCTAssertEqual(cover(decoding: true, cpuLongEdge: 512), .still)
+  }
+
+  func testAGpuFrameDevelopedFromASeedWaitsOutTheDecode() {
+    XCTAssertEqual(cover(gpuPresented: true, gpuLongEdge: 4000, decoding: true), .still)
+  }
+
+  func testAFastPassSofterThanTheStillLeavesTheStillShowing() {
+    XCTAssertEqual(
+      cover(gpuPresented: true, gpuLongEdge: 1290, cpuLongEdge: 512, still: 2048), .still)
+  }
+
+  func testTheRawReplacesASofterStill() {
+    XCTAssertEqual(cover(gpuPresented: true, gpuLongEdge: 2580, cpuLongEdge: 512), .gpuFrame)
+  }
+
+  func testTheRawReplacesAStillOfItsOwnSize() {
+    XCTAssertEqual(cover(gpuPresented: true, gpuLongEdge: 1280), .gpuFrame)
+  }
+
+  func testAGpuFrameOnlyCoversOnceItHasPresented() {
+    XCTAssertEqual(cover(gpuPresented: false, gpuLongEdge: 4000), .still)
+  }
+
+  func testACpuFrameAsSharpAsTheStillCoversIt() {
+    XCTAssertEqual(cover(decoding: true, cpuLongEdge: 2796), .cpuFrame)
+    XCTAssertEqual(
+      cover(usesGpu: false, gpuPresented: true, gpuLongEdge: 4000, cpuLongEdge: 3000), .cpuFrame)
+  }
+
+  func testWithoutAFrameTheStillShows() {
+    XCTAssertEqual(cover(), .still)
   }
 }
