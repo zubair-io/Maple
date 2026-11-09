@@ -130,6 +130,9 @@ TS_TABLES_OUT="src/web/projects/maple-common/src/lib/generated/adjustment-tables
 "$BIN" --schema ranked-window --target swift --out "src/apple/Packages/MapleCore/Sources/MapleCloudKit/Generated/RankedWindow+Generated.swift"
 # raw-ffi develop statuses the API defers on (#5499).
 "$BIN" --schema ffi-status --target ts --out "src/api/src/generated/ffi-status.generated.ts"
+"$BIN" --schema maple-id --target swift --out "src/apple/Packages/MapleCore/Sources/MapleCore/Generated/MapleIdDerivationVersion+Generated.swift"
+"$BIN" --schema maple-id --target ts --out "src/web/projects/maple-common/src/lib/generated/maple-id-derivation-version.generated.ts"
+"$BIN" --schema maple-id --target ts --out "src/api/src/generated/maple-id-derivation-version.generated.ts"
 "$BIN" --schema filename --target swift --out "src/apple/Packages/MapleCore/Sources/MapleCore/Generated/FilenameVocabulary+Generated.swift"
 "$BIN" --schema filename --target ts --out "src/api/src/generated/filename-vocabulary.generated.ts"
 "$BIN" --schema filename --target cs --out "src/windows/Maple.WinUI/Generated/FilenameVocabulary.g.cs"

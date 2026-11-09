@@ -230,6 +230,10 @@ Describe and video-describe accumulate reported provider charges in their respec
 
 **`search-blob` depends only on the always-on stages,** so keyword search is available early. Every producer of the blob's text — describe, geocode, transcribe, video-describe, people renames — re-arms it when its output changes, and re-arms `embed` too, since the embedded text reads the same sources.
 
+### maple_id derivation rules and version
+
+The server and every client that mints a maple_id (Apple Filesystem, SMB and PhotoKit backup sources, the browser's Hosted mode) must date a file identically, because the primary form hashes the capture time. The rules that choose that date are versioned by `raw_core::id::MAPLE_ID_DERIVATION_VERSION`, which `tools/codegen.sh` emits as `MapleIdDerivationVersion.current` (Swift) and `MAPLE_ID_DERIVATION_VERSION` (API and web TypeScript). Device id caches (`.maple/id-cache-apple.json`, the browser's `maple-id-cache` IndexedDB store) stamp every row with the version and treat a row from another version as a miss, so ids derived by older rules re-derive once (#5106). Bump the constant in the same change that alters which date a client reads for any file type. The hash forms themselves are unversioned.
+
 ### On-demand previews
 
 A cold-cache `GET /api/preview/:slug/*` renders the preview in the API process, ahead of the `preview` stage's backlog (#5433, `indexer/ondemand-preview.ts`):

@@ -242,4 +242,12 @@ describe('MapleIdCache', () => {
       '02222222222222222222222222222222'.slice(0, 32),
     );
   });
+  it('returns null for a record written before derivation versioning', async () => {
+    const key = 'lib:legacy.dng';
+    await putCachedMapleId(key, 1024, 1_700_000_000_000, '01aabbccddeeff001122334455667788');
+    const store = registry.get('maple-id-cache')?.stores.get('ids');
+    const record = store?.data.get(key) as Record<string, unknown>;
+    delete record['derivationVersion'];
+    expect(await getCachedMapleId(key, 1024, 1_700_000_000_000)).toBeNull();
+  });
 });

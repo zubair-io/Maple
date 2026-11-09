@@ -6,6 +6,7 @@ import vectors from '../../../test-fixtures/ids/parser.json';
 import * as api from '../src/indexer/id.ts';
 import { readExif } from '../src/indexer/exif.ts';
 import * as web from '../../web/projects/maple-common/src/lib/addressing/maple-id-parser.ts';
+import { MAPLE_ID_DERIVATION_VERSION } from '../src/generated/maple-id-derivation-version.generated.ts';
 
 for (const [name, implementation] of Object.entries({ api, web })) {
   test(`${name}: shared parser contract`, () => {
@@ -17,6 +18,10 @@ for (const [name, implementation] of Object.entries({ api, web })) {
     for (const value of vectors.invalid) expect(() => implementation.fromHex(value)).toThrow();
   });
 }
+
+test('maple_id derivation version is single-sourced from raw-core', () => {
+  expect(MAPLE_ID_DERIVATION_VERSION).toBe(1);
+});
 
 test('70,001-byte golden preserves primary and the full-file fallback on the server, browser and native paths', async () => {
   const bytes = Uint8Array.from({ length: 70001 }, (_, i) => i % 251);
