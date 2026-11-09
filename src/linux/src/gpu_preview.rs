@@ -100,6 +100,7 @@ impl GpuPreview {
             bytes,
             ext,
             model,
+            long_edge,
             film.as_ref().map(|film| film.lut),
             film.as_ref().map_or(0, |film| film.key),
             capture.whites_anchor_ev,

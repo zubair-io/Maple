@@ -8,9 +8,9 @@
 //!   photo, across deep denoise, chroma prefilter, retouch, capture
 //!   sharpening, Oklab recovery and auto exposure, through the session's own
 //!   tick path. Fixture-gated (`--ignored`), with a synthetic-DNG subset that
-//!   always runs. The Neutral profile, as in S3a: under Auto the sized CPU
-//!   refine already differed from the live session by up to 28 steps before
-//!   the capture decode, by the same amount after it.
+//!   always runs. Both the Neutral and the Auto profile: the session fits Auto
+//!   at its own develop edge, the entry the sized CPU refine of that edge
+//!   fits, so the two apply the same curve and residual LUT.
 //! - The white-balance tick allocates nothing on the host and no pooled GPU
 //!   resource after its first frame.
 
@@ -36,7 +36,7 @@ fn base() -> AdjustmentModel {
     }
 }
 
-fn combinations() -> Vec<(&'static str, AdjustmentModel)> {
+fn neutral_combinations() -> Vec<(&'static str, AdjustmentModel)> {
     let spot = RetouchSpot {
         kind: RetouchKind::Heal,
         center: Point2::new(0.42, 0.4),
@@ -108,6 +108,13 @@ fn combinations() -> Vec<(&'static str, AdjustmentModel)> {
     ]
 }
 
+fn combinations(profile: Profile) -> Vec<(&'static str, AdjustmentModel)> {
+    neutral_combinations()
+        .into_iter()
+        .map(|(name, model)| (name, AdjustmentModel { profile, ..model }))
+        .collect()
+}
+
 /// The live frame for `model` through the session's own tick path
 /// (`LiveProfile::update`, then the creative stage), read back and oriented
 /// as the one-shot `render_bytes_gpu` does.
@@ -171,6 +178,7 @@ fn gate(
                 bytes,
                 ext,
                 &decode_model,
+                edge,
                 None,
                 0,
                 prefix.whites_anchor_ev,
@@ -232,8 +240,10 @@ fn fixture_gate(name: &str) {
         .and_then(|e| e.to_str())
         .unwrap_or("dng")
         .to_ascii_lowercase();
-    let worst = gate(name, &bytes, &ext, EDGE, combinations());
-    eprintln!("{name}: worst live-vs-refine step {worst}");
+    for profile in [Profile::Neutral, Profile::Auto] {
+        let worst = gate(name, &bytes, &ext, EDGE, combinations(profile));
+        eprintln!("{name} [{profile:?}]: worst live-vs-refine step {worst}");
+    }
 }
 
 #[test]
@@ -262,7 +272,7 @@ fn live_matches_refine_within_one_step_on_a_synthetic_dng() {
         ..Default::default()
     }
     .write_to_bytes();
-    let selected = combinations()
+    let selected = combinations(Profile::Neutral)
         .into_iter()
         .filter(|(combination, _)| matches!(*combination, "plain" | "ae-off" | "oklab-recovery"))
         .collect();
@@ -288,6 +298,7 @@ fn white_balance_drag_allocates_nothing() {
         &bytes,
         "dng",
         &model,
+        64,
         None,
         0,
         prefix.whites_anchor_ev,

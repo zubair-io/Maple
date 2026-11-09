@@ -91,6 +91,7 @@ fn capture_inputs(
     bytes: &[u8],
     ext: &str,
     model: &AdjustmentModel,
+    fit_long_edge: u32,
     whites_anchor_ev: f32,
 ) -> Result<FullChainInputs<'static>, String> {
     let film = crate::film::resolve(&model.film_look)?;
@@ -99,6 +100,7 @@ fn capture_inputs(
         bytes,
         ext,
         model,
+        fit_long_edge,
         film.map(|f| f.0),
         film.map_or(0, |f| f.1),
         whites_anchor_ev,
@@ -237,7 +239,8 @@ impl Session {
                     edge,
                     raw_core::CancelToken::never(),
                 )?;
-                let inputs = capture_inputs(raw, &bytes, &ext, &model, capture.whites_anchor_ev)?;
+                let inputs =
+                    capture_inputs(raw, &bytes, &ext, &model, edge, capture.whites_anchor_ev)?;
                 (
                     LiveSession::new(&ctx, &capture.rgba, capture.width, capture.height)?,
                     capture.prefix_model,

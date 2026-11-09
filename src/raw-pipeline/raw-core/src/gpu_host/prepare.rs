@@ -1,7 +1,9 @@
 //! Shared RAW preparation for native and browser GPU sessions (#4317).
 //! The prefix, AE probe and Auto fit are the existing browser implementation.
 use super::model::{build_full_chain_inputs, stripped_prefix_model, NoiseProfileInputs};
-use crate::pipeline::{fit_auto_profile_from_raw, FitArtifacts, RawInput, RenderQuality};
+use crate::pipeline::{
+    fit_auto_profile_from_raw_at_cap, FitArtifacts, FitCap, RawInput, RenderQuality,
+};
 use crate::types::adjustment::{AutoExposureMode, Profile};
 use crate::view::auto_profile::{self, AutoFitOutcome};
 use crate::xmp::AdjustmentModel;
@@ -66,22 +68,27 @@ pub fn prefix_model_for(
 /// #5458): `Some(outcome)` for `Profile::Auto`, `None` otherwise. An absent curve or LUT
 /// stays ABSENT (empty flat / size-0 LUT) so the chain omits that look pass
 /// (#4216), matching raw-core's `if let Some` skips; never substitute identity,
-/// whose curve knee crushes white 1.0 → 0.975. The fit is keyed on the RAW BYTES
-/// (not the model), so after the first call it is cache-served.
+/// whose curve knee crushes white 1.0 → 0.975. The fit develops at
+/// `fit_long_edge`, the long edge of the session's own sized develop, and is
+/// keyed on the RAW BYTES plus that edge (not the model): it is the SAME entry
+/// the sized CPU render of that edge fits and caches, so a live frame and its
+/// refine apply identical artifacts, and after the first call it is cache-served.
 pub fn fit_profile_artifacts_with_status(
     raw_img: &crate::image::RawImage,
     raw: &[u8],
     ext: &str,
     model: &AdjustmentModel,
+    fit_long_edge: u32,
 ) -> (Vec<f32>, usize, Vec<f32>, Option<AutoFitOutcome>) {
     // AMaZE develop/export quality (#4092): matches the quality used by
     // browser CPU render/export and the live session prefix develop.
     flatten_profile_artifacts((model.profile == Profile::Auto).then(|| {
-        fit_auto_profile_from_raw(
+        fit_auto_profile_from_raw_at_cap(
             raw_img,
             model,
             RenderQuality::Amaze,
             RawInput::Bytes { bytes: raw, ext },
+            FitCap::Render(fit_long_edge),
         )
     }))
 }
@@ -121,12 +128,13 @@ pub fn chain_inputs_with_status(
     raw: &[u8],
     ext: &str,
     model: &AdjustmentModel,
+    fit_long_edge: u32,
     film_lut: Option<&crate::film::FilmLut>,
     film_lut_key: u32,
     whites_anchor_ev: f32,
 ) -> (FullChainInputs<'static>, Option<AutoFitOutcome>) {
     let (profile_curve_flat, residual_lut_size, residual_lut_data, auto_fit) =
-        fit_profile_artifacts_with_status(raw_img, raw, ext, model);
+        fit_profile_artifacts_with_status(raw_img, raw, ext, model, fit_long_edge);
     let inputs = build_full_chain_inputs(
         model,
         profile_curve_flat,

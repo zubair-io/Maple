@@ -23,6 +23,7 @@ impl LiveProfile {
         bytes: &[u8],
         ext: &str,
         model: &AdjustmentModel,
+        fit_long_edge: u32,
         film: Option<&FilmLut>,
         film_key: u32,
         whites_anchor: f32,
@@ -30,8 +31,16 @@ impl LiveProfile {
         // Capability belongs to this immutable source, even when opened Neutral.
         // Probe before fitting, exactly as the prefix's AE decision does.
         let preview_capable = auto_will_fit(&AdjustmentModel::default(), bytes, ext);
-        let (inputs, auto_fit) =
-            chain_inputs_with_status(raw, bytes, ext, model, film, film_key, whites_anchor);
+        let (inputs, auto_fit) = chain_inputs_with_status(
+            raw,
+            bytes,
+            ext,
+            model,
+            fit_long_edge,
+            film,
+            film_key,
+            whites_anchor,
+        );
         Self {
             inputs,
             auto_fit,
