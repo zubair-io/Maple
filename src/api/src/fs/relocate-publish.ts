@@ -78,17 +78,54 @@ export async function copyVerifiedIntoPlace(
 
 async function replaceWith(tmp: string, destination: string): Promise<RelocatePublication> {
   const identity = await fs.lstat(tmp);
+  const occupant = await occupantIdentity(destination);
   const displaced = await keepOccupant(destination);
-  await fs.rename(tmp, destination).catch(async (err: unknown) => {
-    if (displaced) await fs.unlink(displaced).catch(() => {});
-    throw err;
-  });
+  await abortIfOccupantChanged(destination, occupant)
+    .then(() => fs.rename(tmp, destination))
+    .catch(async (err: unknown) => {
+      if (displaced) await fs.unlink(displaced).catch(() => {});
+      throw err;
+    });
   return {
     path: destination,
     dev: identity.dev,
     ino: identity.ino,
     ...(displaced ? { displaced } : {}),
   };
+}
+
+type OccupantIdentity = { dev: bigint; ino: bigint; size: bigint; mtimeNs: bigint };
+
+/** What is at `destination` right now, `null` when nothing is. */
+async function occupantIdentity(destination: string): Promise<OccupantIdentity | null> {
+  return fs.lstat(destination, { bigint: true }).then(
+    ({ dev, ino, size, mtimeNs }) => ({ dev, ino, size, mtimeNs }),
+    (err: unknown) => (errnoCode(err) === 'ENOENT' ? null : Promise.reject(err)),
+  );
+}
+
+/** Node has no compare-and-swap rename, so the destination is re-read against
+ * what was kept right before the swap: a writer that created or replaced it
+ * since (a copy on SMB can take seconds) is never overwritten (#5141). */
+async function abortIfOccupantChanged(
+  destination: string,
+  kept: OccupantIdentity | null,
+): Promise<void> {
+  const now = await occupantIdentity(destination);
+  const unchanged =
+    kept === null
+      ? now === null
+      : now !== null &&
+        now.dev === kept.dev &&
+        now.ino === kept.ino &&
+        now.size === kept.size &&
+        now.mtimeNs === kept.mtimeNs;
+  if (!unchanged) {
+    throw new PublishCollisionError(
+      destination,
+      `relocate: destination changed while it was being replaced: ${destination}`,
+    );
+  }
 }
 
 /** A second name for the photo about to be replaced, so a rollback can put it
