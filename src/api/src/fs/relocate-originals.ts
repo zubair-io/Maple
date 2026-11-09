@@ -10,7 +10,8 @@ import {
   removePhotoUnlessOldNameEditStays,
 } from './legacy-backup-sidecar.ts';
 import { readSidecarBytes } from './sidecar-bytes.ts';
-import { privateSiblingOf, publishExclusive } from './relocate-publish.ts';
+import { publishExclusive } from './relocate-publish.ts';
+import { privateSiblingOf } from './private-sibling.ts';
 import { serializeSidecarWrite } from './sidecar-write-order.ts';
 import * as fs from './mirrored.ts';
 import type { MovedSidecar } from './relocate-sidecar-plan.ts';

@@ -28,10 +28,10 @@ import { child as childLogger } from '../log.ts';
 import {
   PublishCollisionError,
   errnoCode,
-  privateSiblingOf,
   publishExclusive,
   type RelocatePublication,
 } from './relocate-publish.ts';
+import { privateSiblingOf, VERIFYING_COPY_MARKER } from './private-sibling.ts';
 
 const log = childLogger('fs/sidecar-ownership');
 
@@ -43,9 +43,9 @@ export class SidecarCollisionError extends PublishCollisionError {
 }
 
 /** The temp names relocate, restore and the XMP writers stage under —
- * `<name>.tmp.<pid>-<hex>` or `<name>.tmp.<pid>.<hex>`. A real photo whose
+ * `<name>.tmp.<pid>-<hex>[.copy]` or `<name>.tmp.<pid>.<hex>`. A real photo whose
  * name merely contains `.tmp.` (`IMG.tmp.JPG`) still claims its stem. */
-const STAGING_NAME = /\.tmp\.\d+[-.][0-9a-f]+$/;
+const STAGING_NAME = /\.tmp\.\d+[-.][0-9a-f]+(\.copy)?$/;
 
 function comparable(p: string): string {
   return path.resolve(p).normalize('NFC').toLowerCase();
@@ -228,7 +228,7 @@ async function linkExclusive(tmp: string, dest: string): Promise<RelocatePublica
 }
 
 export async function writeVerifiedTemp(dest: string, bytes: Buffer): Promise<string> {
-  const tmp = privateSiblingOf(dest);
+  const tmp = privateSiblingOf(dest, VERIFYING_COPY_MARKER);
   try {
     await fs.writeFile(tmp, bytes);
     if (!bytes.equals(await fs.readFile(tmp))) {

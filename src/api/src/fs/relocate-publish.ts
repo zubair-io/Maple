@@ -3,9 +3,9 @@ export { errnoCode } from './errno-code';
 import { syncCopiedFile, syncFileHandle } from './sync-file.ts';
 import { recordVerifiedPrimaryRollback } from './primary-replacement-admission';
 import { randomBytes } from 'node:crypto';
-import * as path from 'node:path';
 import * as fs from './mirrored.ts';
 import { filesIdentical } from './file-bytes.ts';
+import { privateSiblingOf, VERIFYING_COPY_MARKER } from './private-sibling.ts';
 import { child as childLogger } from '../log.ts';
 
 const log = childLogger('fs/relocate-publish');
@@ -34,17 +34,6 @@ export class PublishCollisionError extends Error {
 
 export const LINK_UNSUPPORTED = new Set(['EXDEV', 'EPERM', 'EOPNOTSUPP', 'ENOTSUP', 'ENOSYS']);
 
-/** `.tmp.` in the basename keeps `mirrored.ts` from replicating the name. A
- * destination name too long for the suffix gets a short hidden sibling instead,
- * so a long file name stays inside the 255-byte limit. */
-export function privateSiblingOf(destination: string): string {
-  const suffix = `.tmp.${process.pid}-${randomBytes(8).toString('hex')}`;
-  const beside = `${destination}${suffix}`;
-  return Buffer.byteLength(path.basename(beside)) <= 255
-    ? beside
-    : path.join(path.dirname(destination), suffix);
-}
-
 function samePublication(
   publication: RelocatePublication,
   identity: { dev: number; ino: number } | null,
@@ -61,7 +50,7 @@ export async function copyVerifiedIntoPlace(
   replace: boolean,
   publications: RelocatePublication[],
 ): Promise<void> {
-  const tmp = privateSiblingOf(destination);
+  const tmp = privateSiblingOf(destination, VERIFYING_COPY_MARKER);
   try {
     await fs.copyFile(src, tmp);
     await syncCopiedFile(tmp);

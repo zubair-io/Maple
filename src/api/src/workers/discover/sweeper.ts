@@ -15,6 +15,7 @@ import {
 import { SUPPORTED_EXTS, toPosixRelDir } from './types.ts';
 import type { WatchEvent } from './types.ts';
 import { DUPLICATES_DIR_NAME } from '../../fs/duplicates.ts';
+import { sweepCrashLeftTemps } from '../../fs/crash-left-temps.ts';
 import * as frontier from './frontier.repo.ts';
 import type { FrontierDir } from './frontier.repo.ts';
 import { readCheckpoint, writeCheckpoint } from '../../db/repos/indexer-checkpoints.repo.ts';
@@ -68,6 +69,8 @@ export async function visitDirectory(
     await frontier.completeDir(dir._id);
     return;
   }
+
+  await sweepCrashLeftTemps(dir.dir_path, entries);
 
   const { subdirs, filesOnDisk, hasHiddenMarker } = partitionEntries(entries, dir.dir_path);
   // Effective folder-hidden state: own `.hidden` marker, or inherited from an
