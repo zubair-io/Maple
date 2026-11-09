@@ -31,6 +31,7 @@ struct PillHeader: View {
           actions
         } accessory: {
           EditorGroupSwitcher(state: state)
+            .accessibilityIdentifier("editor-header-groups")
         }
       } else {
         plainHeader

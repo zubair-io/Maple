@@ -57,7 +57,7 @@ struct EditorControls: View {
     let bottomPanelHeight = shortCrop ? 96 : min(360, geometry.size.height * 0.40)
     let usesVerticalBar = fitsVerticalBar && !isBottom
     if usesVerticalBar {
-      let top = Self.verticalBarTop(in: geometry)
+      let top = EditorVerticalControlBar.top(in: geometry)
       EditorVerticalControlBar(
         state: state, onPresetsTap: onPresetsTap, showsScope: showsScope,
         maximumHeight: max(geometry.size.height - top - 12, 1)
@@ -75,26 +75,6 @@ struct EditorControls: View {
         isBottom: isBottom, arrangement: arrangement, shortCrop: shortCrop,
         bottomPanelHeight: bottomPanelHeight)
     }
-  }
-
-  /// Clears the header and any screen area the system covers at the top
-  /// trailing corner, such as the open Duo's status cluster. The Mac never
-  /// shows the vertical bar.
-  private static func verticalBarTop(in geometry: GeometryProxy) -> CGFloat {
-    #if os(iOS)
-      let occlusions =
-        if #available(iOS 27.1, *) {
-          geometry.reservedRegions(kind: .occlusion).map(\.frame)
-        } else {
-          [CGRect]()
-        }
-      return EditorVerticalControlBar.topClearance(
-        occlusions: occlusions,
-        topTrailingCorner: geometry.containerCornerInsets.topTrailing.height,
-        trailingEdge: geometry.size.width + geometry.safeAreaInsets.trailing)
-    #else
-      return EditorVerticalControlBar.headerClearance
-    #endif
   }
 
   private func stackedControls(
