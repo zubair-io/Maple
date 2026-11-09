@@ -98,7 +98,8 @@ struct MapleBackupAgentEntryPoint {
       // agent target (drag it in via Xcode Build Phases → Compile Sources).
       let reader: any AssetReader = PhotoKitAssetReader(
         deviceId: deviceId,
-        geocode: GeocodeClient(baseURL: effectiveURL))
+        geocode: GeocodeClient(baseURL: effectiveURL),
+        includeLivePhotos: s.includeLivePhotos)
     #else
       fatalError("MapleBackupAgent requires Photos.framework")
     #endif

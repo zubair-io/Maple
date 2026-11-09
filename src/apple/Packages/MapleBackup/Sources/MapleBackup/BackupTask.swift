@@ -104,12 +104,14 @@ public enum BackupQueueEvent: Sendable {
   /// All queued work and scheduled retries have drained.
   case drained
   case enqueued(BackupTask)
+  case enqueuedBatch([BackupTask])
   case started(BackupTaskID)
   case preparing(BackupTaskID, message: String)
   case progress(BackupTaskID, sent: Int64, total: Int64)
   case completed(BackupTaskID, mapleId: String)
   case failed(BackupTaskID, error: String, willRetry: Bool)
   case cancelled(BackupTaskID)
+  case cancelledBatch([BackupTaskID])
   /// Bytes already landed (`.completed` was emitted first), but at least one
   /// best-effort companion (sidecar / rendered / live-mov) has fallen into its
   /// bounded detached-retry path. Emitted once per task on the 0→1 transition

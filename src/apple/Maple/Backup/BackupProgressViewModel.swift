@@ -401,10 +401,10 @@ public final class BackupProgressViewModel {
     switch event {
     case .drained: break
     case .enqueued(let task):
-      libraryPhotoIDs?.insert(task.id.phassetLocalId)
-      pendingPhotoIDs.insert(task.id.phassetLocalId)
-      if seenEnqueued.insert(task.id).inserted {
-        totalEnqueued += 1
+      recordEnqueued(task)
+    case .enqueuedBatch(let tasks):
+      for task in tasks {
+        recordEnqueued(task)
       }
     case .started(let id):
       // Add to inFlight if not already there.
@@ -451,9 +451,11 @@ public final class BackupProgressViewModel {
       if !willRetry { totalFailed += 1 }
       lastError = error
     case .cancelled(let id):
-      pendingPhotoIDs.remove(id.phassetLocalId)
-      inFlight.removeAll { $0.id == id }
-      if seenEnqueued.remove(id) != nil { totalEnqueued -= 1 }
+      recordCancelled(id)
+    case .cancelledBatch(let ids):
+      for id in ids {
+        recordCancelled(id)
+      }
     case .companionPending(let id):
       // Bytes already landed (`.completed` arrived first; the engine emits
       // it before any companion work and the queue is a single actor, so
@@ -464,6 +466,20 @@ public final class BackupProgressViewModel {
       // Last companion reached a terminal state — back to fully done.
       pendingCompanions.remove(id)
     }
+  }
+
+  private func recordEnqueued(_ task: BackupTask) {
+    libraryPhotoIDs?.insert(task.id.phassetLocalId)
+    pendingPhotoIDs.insert(task.id.phassetLocalId)
+    if seenEnqueued.insert(task.id).inserted {
+      totalEnqueued += 1
+    }
+  }
+
+  private func recordCancelled(_ id: BackupTaskID) {
+    pendingPhotoIDs.remove(id.phassetLocalId)
+    inFlight.removeAll { $0.id == id }
+    if seenEnqueued.remove(id) != nil { totalEnqueued -= 1 }
   }
 
   /// Recompute the published rates from the meter at "now". Called after every

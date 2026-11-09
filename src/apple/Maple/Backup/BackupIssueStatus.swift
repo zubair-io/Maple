@@ -100,12 +100,18 @@ final class BackupIssueStatus {
         reasons.removeValue(forKey: id)
       }
     case .completed(let id, _), .cancelled(let id):
-      reasons.removeValue(forKey: id)
-      retrying.remove(id)
-      failed.remove(id)
-      waitingForNetwork.remove(id)
+      clearIssue(for: id)
+    case .cancelledBatch(let ids):
+      for id in ids { clearIssue(for: id) }
     default: break
     }
+  }
+
+  private func clearIssue(for id: BackupTaskID) {
+    reasons.removeValue(forKey: id)
+    retrying.remove(id)
+    failed.remove(id)
+    waitingForNetwork.remove(id)
   }
 
   func clearRetries() {

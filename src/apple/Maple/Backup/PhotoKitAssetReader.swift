@@ -24,18 +24,51 @@ actor PhotoKitAssetReader: AssetReader {
 
   private let deviceId: String
   private let geocode: GeocodeClient
+  private let includeLivePhotos: Bool
 
-  init(deviceId: String, geocode: GeocodeClient) {
+  init(deviceId: String, geocode: GeocodeClient, includeLivePhotos: Bool = true) {
     self.deviceId = deviceId
     self.geocode = geocode
+    self.includeLivePhotos = includeLivePhotos
   }
 
   func read(phassetLocalId: String) async throws -> AssetReadResult {
-    try await read(phassetLocalId: phassetLocalId, onStatus: { _ in })
+    try await Self.performRead(
+      phassetLocalId: phassetLocalId,
+      deviceId: deviceId,
+      includeLivePhotos: includeLivePhotos,
+      onStatus: { _ in })
   }
 
   func read(
     phassetLocalId: String,
+    onStatus: @escaping @Sendable (String) async -> Void
+  ) async throws -> AssetReadResult {
+    try await Self.performRead(
+      phassetLocalId: phassetLocalId,
+      deviceId: deviceId,
+      includeLivePhotos: includeLivePhotos,
+      onStatus: onStatus)
+  }
+
+  func readCompanions(
+    phassetLocalId: String,
+    onStatus: @escaping @Sendable (String) async -> Void
+  ) async throws -> CompanionReadResult {
+    try await Self.performReadCompanions(
+      phassetLocalId: phassetLocalId,
+      includeLivePhotos: includeLivePhotos,
+      onStatus: onStatus)
+  }
+
+  /// Nonisolated primary read so concurrent `BackupEngine` workers do not
+  /// serialize PhotoKit resource queries or BLAKE3 hashing on the actor.
+  /// Companion resources (`fullSizePhoto` and `pairedVideo`) are deferred to
+  /// `readCompanions` after the primary bytes upload completes.
+  nonisolated private static func performRead(
+    phassetLocalId: String,
+    deviceId: String,
+    includeLivePhotos: Bool,
     onStatus: @escaping @Sendable (String) async -> Void
   ) async throws -> AssetReadResult {
     guard let asset = PhotoKitCatalog.shared.asset(localId: phassetLocalId) else {
@@ -50,66 +83,26 @@ actor PhotoKitAssetReader: AssetReader {
     else {
       throw ReaderError.noOriginalResource(phassetLocalId)
     }
-    let renderedResource = resources.first(where: { $0.type == .fullSizePhoto })
-
-    // Live Photo: detect and read the paired .mov twin.
-    // The paired video resource sits alongside the still as a
-    // PHAssetResourceType.pairedVideo. We only read it when the asset
-    // subtype flags it as a Live Photo, to avoid spurious reads.
-    let isLivePhoto = asset.mediaSubtypes.contains(.photoLive)
-    let liveVideoResource: PHAssetResource? =
-      isLivePhoto
-      ? resources.first(where: { $0.type == .pairedVideo })
-      : nil
+    let (renderedResource, liveVideoResource) = Self.companionResources(
+      for: asset, resources: resources, includeLivePhotos: includeLivePhotos)
 
     let originalBytes = try await Self.readAllBytes(of: originalResource, onStatus: onStatus)
-    let renderedBytes: Data? =
-      if let renderedResource {
-        try await Self.readAllBytes(of: renderedResource, onStatus: onStatus)
-      } else {
-        nil
-      }
-    let liveVideoBytes: Data? =
-      if let liveVideoResource {
-        try await Self.readAllBytes(of: liveVideoResource, onStatus: onStatus)
-      } else {
-        nil
-      }
 
     let captureDate = asset.creationDate ?? Date()
     let lat = asset.location?.coordinate.latitude
     let lon = asset.location?.coordinate.longitude
     let filename = originalResource.originalFilename
 
-    // Resolve the device-stable cross-device cloud id. Local-DB lookup
-    // (no iCloud round-trip); nil when iCloud Photos is off or the
-    // asset has no cloud identifier yet.
     let phassetCloudId = Self.resolveCloudIdentifier(for: phassetLocalId)
 
-    // Spec-form maple_id derivation. Matches the server indexer at
-    // `src/api/src/workers/stages/exif.ts` so a photo that was already
-    // indexed via folder scan and is now being backed up from a device
-    // resolves to the *same* AssetDoc row (server's
-    // `findOne({ maple_id })` short-circuits with a `$push` to
-    // phasset_links rather than writing a second file).
-    //
-    // Primary form when the original carries a capture date the server also
-    // reads (EXIF for stills, the QuickTime moov date for videos — #5001);
-    // fallback (full-file BLAKE3 + filesize) otherwise.
     guard let mapleId = Self.deriveMapleId(originalBytes: originalBytes, filename: filename) else {
       throw ReaderError.hashFailed
     }
 
-    // For a Live Photo, the .mov twin filename derives from the still:
-    // strip the extension of the original filename and append ".mov".
-    // The companion is referenced in the sidecar so the server can
-    // link them. Actual twin bytes are uploaded via uploadRendered.
-    // The server names the file `<base>.mov` via suffix-override.
     let liveVideoFilename: String? = liveVideoResource.map { _ in
       let base = (filename as NSString).deletingPathExtension
       return "\(base).mov"
     }
-    let livePhotoCompanion: String? = liveVideoFilename
 
     let sidecar = PayloadAssembler.SidecarInput(
       phassetLocalId: phassetLocalId,
@@ -121,7 +114,7 @@ actor PhotoKitAssetReader: AssetReader {
       caption: nil,
       keywords: [],
       tags: [],
-      livePhotoCompanion: livePhotoCompanion,
+      livePhotoCompanion: liveVideoFilename,
       burstStackId: asset.burstIdentifier,
       originalFilename: filename,
       mtime: asset.modificationDate?.timeIntervalSince1970
@@ -131,12 +124,55 @@ actor PhotoKitAssetReader: AssetReader {
 
     return AssetReadResult(
       originalBytes: originalBytes,
-      renderedBytes: renderedBytes,
+      renderedBytes: nil,
       renderedFilenameExtension: renderedResource.flatMap(Self.filenameExtension(of:)),
-      liveVideoBytes: liveVideoBytes,
+      liveVideoBytes: nil,
       liveVideoFilename: liveVideoFilename,
       sidecar: sidecar,
-      mapleId: mapleId)
+      mapleId: mapleId,
+      hasDeferredCompanions: renderedResource != nil || liveVideoResource != nil)
+  }
+
+  nonisolated private static func performReadCompanions(
+    phassetLocalId: String,
+    includeLivePhotos: Bool,
+    onStatus: @escaping @Sendable (String) async -> Void
+  ) async throws -> CompanionReadResult {
+    guard let asset = PhotoKitCatalog.shared.asset(localId: phassetLocalId) else {
+      return CompanionReadResult()
+    }
+    let resources = PHAssetResource.assetResources(for: asset)
+    let (renderedResource, liveVideoResource) = Self.companionResources(
+      for: asset, resources: resources, includeLivePhotos: includeLivePhotos)
+
+    let renderedBytes: Data? =
+      if let renderedResource {
+        try? await Self.readAllBytes(of: renderedResource, onStatus: onStatus)
+      } else {
+        nil
+      }
+    let liveVideoBytes: Data? =
+      if let liveVideoResource {
+        try? await Self.readAllBytes(of: liveVideoResource, onStatus: onStatus)
+      } else {
+        nil
+      }
+
+    return CompanionReadResult(
+      renderedBytes: renderedBytes,
+      renderedFilenameExtension: renderedResource.flatMap(Self.filenameExtension(of:)),
+      liveVideoBytes: liveVideoBytes)
+  }
+
+  nonisolated private static func companionResources(
+    for asset: PHAsset, resources: [PHAssetResource], includeLivePhotos: Bool
+  ) -> (rendered: PHAssetResource?, liveVideo: PHAssetResource?) {
+    let rendered = resources.first(where: { $0.type == .fullSizePhoto })
+    let liveVideo =
+      (includeLivePhotos && asset.mediaSubtypes.contains(.photoLive))
+      ? resources.first(where: { $0.type == .pairedVideo })
+      : nil
+    return (rendered, liveVideo)
   }
 
   nonisolated private static func filenameExtension(of resource: PHAssetResource) -> String? {
@@ -174,7 +210,7 @@ actor PhotoKitAssetReader: AssetReader {
   /// starts persisting them, this helper must update in lockstep —
   /// otherwise dedup will silently regress on cameras that report
   /// shutter counts.
-  private static func deriveMapleId(originalBytes: Data, filename: String) -> String? {
+  nonisolated private static func deriveMapleId(originalBytes: Data, filename: String) -> String? {
     let isVideo = SidecarPath.videoExtensions.contains(
       (filename as NSString).pathExtension.lowercased())
     let capturedAt =
@@ -213,7 +249,7 @@ actor PhotoKitAssetReader: AssetReader {
   ///
   /// Returns nil when neither key matches the EXIF date form — callers fall
   /// through to fallback-form derivation.
-  private static func readExifCaptureDateISO8601UTC(from data: Data) -> String? {
+  nonisolated private static func readExifCaptureDateISO8601UTC(from data: Data) -> String? {
     guard let src = CGImageSourceCreateWithData(data as CFData, nil),
       let props = CGImageSourceCopyPropertiesAtIndex(src, 0, nil) as? [CFString: Any],
       let exif = props[kCGImagePropertyExifDictionary] as? [CFString: Any]
@@ -228,7 +264,7 @@ actor PhotoKitAssetReader: AssetReader {
   /// Stream a PHAssetResource into a single Data buffer.
   /// Uses dataReceivedHandler so iCloud-Photos-only assets get pulled on
   /// demand (isNetworkAccessAllowed = true).
-  private static func readAllBytes(
+  nonisolated private static func readAllBytes(
     of resource: PHAssetResource,
     onStatus: @escaping @Sendable (String) async -> Void = { _ in }
   ) async throws -> Data {

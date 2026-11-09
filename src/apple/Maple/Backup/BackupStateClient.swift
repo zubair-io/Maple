@@ -24,11 +24,13 @@ actor BackupStateClient {
   /// One asset the server reports as already backed up for this device.
   struct ServerAsset: Decodable, Sendable {
     let phassetLocalId: String
+    let firstSeen: String?
     let mapleId: String?
     let relPath: String?
 
     enum CodingKeys: String, CodingKey {
       case phassetLocalId = "phasset_local_id"
+      case firstSeen = "first_seen"
       case mapleId = "maple_id"
       case relPath = "rel_path"
     }
@@ -56,9 +58,11 @@ actor BackupStateClient {
   }
 
   /// Fetch the assets the server already has for this device in this library.
+  /// Pass `since` (an ISO-8601 `first_seen` watermark from a previous walk)
+  /// to fetch only newly-recorded assets since that cursor.
   /// Throws on network failure or non-200 so the caller can fall back to
   /// local-state-only reconciliation.
-  func fetchKnownAssets() async throws -> [ServerAsset] {
+  func fetchKnownAssets(since: String? = nil) async throws -> [ServerAsset] {
     let endpoint =
       baseURL
       .appendingPathComponent("api")
@@ -67,11 +71,15 @@ actor BackupStateClient {
       .appendingPathComponent("backup")
       .appendingPathComponent("state")
     var comps = URLComponents(url: endpoint, resolvingAgainstBaseURL: false)!
-    comps.queryItems = [URLQueryItem(name: "device_id", value: deviceId)]
+    var queryItems = [URLQueryItem(name: "device_id", value: deviceId)]
+    if let since, !since.isEmpty {
+      queryItems.append(URLQueryItem(name: "since", value: since))
+    }
+    comps.queryItems = queryItems
 
     var req = URLRequest(url: comps.url!)
     req.httpMethod = "GET"
-    req.timeoutInterval = 10
+    req.timeoutInterval = 30
     req.setValue(deviceId, forHTTPHeaderField: "X-Maple-Device-Id")
 
     let (data, response) = try await transport(req)

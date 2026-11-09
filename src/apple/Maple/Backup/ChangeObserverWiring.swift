@@ -209,9 +209,6 @@ enum ChangeObserverWiring {
     retryFailed: Bool
   ) async {
     log.info("walk begin libraryId=\(libraryId, privacy: .public) retryFailed=\(retryFailed)")
-    // Phase is published to the status panel (#3386) so the minutes-long
-    // scan on a large library reads as progress, not a wedged engine.
-    EngineHost.shared.progress.setWalkPhase(.enumerating)
     guard let state = EngineHost.shared.state else {
       BackupIssueStatus.log(.error, "Backup scan stopped: engine state is unavailable")
       EngineHost.shared.progress.setWalkPhase(.failed("the backup engine never finished starting"))
@@ -220,51 +217,94 @@ enum ChangeObserverWiring {
     let queue = EngineHost.shared.queue
     guard !Task.isCancelled else { return }
 
-    // PhotoKit enumeration off main. PhotoKitCatalog is NSLock-protected
-    // and Sendable so the detached Task can hammer it without crossing
-    // an actor boundary. Doing this on @MainActor would freeze the UI
-    // for several seconds on a 100k-photo library — the original symptom
-    // that made the Start Backup button look dead.
+    let cursor =
+      (try? await state.cursor(deviceId: deviceId)) ?? BackupCursor(deviceId: deviceId)
+    let isFastTokenCheck =
+      !retryFailed && cursor.initialScanCompleted && cursor.phChangeToken != nil
+      && EngineHost.shared.progress.lastWalkSummary != nil
+    if !isFastTokenCheck {
+      EngineHost.shared.progress.setWalkPhase(.enumerating)
+    }
+
     let walkStarted = Date()
     let enumeration = Task.detached(priority: .userInitiated) {
-      walkPhotoKit(settings: settings)
+      discoverAssets(cursor: cursor, settings: settings, retryFailed: retryFailed)
     }
-    // A detached task does not inherit cancellation: forward Stop to it, so
-    // draining the walk never waits out the rest of a large scan.
-    let ids = await withTaskCancellationHandler {
+    let outcome = await withTaskCancellationHandler {
       await enumeration.value
     } onCancel: {
       enumeration.cancel()
     }
-    log.info(
-      "walk enumerated \(ids.count) eligible assets in \(Int(Date().timeIntervalSince(walkStarted) * 1000))ms"
-    )
-
     guard !Task.isCancelled else { return }
 
-    // Delete reconciliation: diff the current walk against the previous one.
-    // Any phid in lastSeenPhids but not in the current set was deleted
-    // in Apple Photos since our last walk. The first walk after launch
-    // starts with an empty lastSeenPhids, so nothing is flagged as deleted.
-    let currentPhids = Set(ids)
-    let deletedPhids = lastSeenPhids.subtracting(currentPhids)
+    let discoveredAssets: [DiscoveredAsset]
+    let isFullScan: Bool
+    let tokenDeletedPhids: Set<String>
+    let newToken: Data?
+    let fingerprint: String
+    let completedInitialScan: Bool
+
+    switch outcome {
+    case .noChanges(let token):
+      try? await state.updatePhotoKitChangeToken(deviceId: deviceId, token: token)
+      if EngineHost.shared.progress.lastWalkSummary != nil {
+        EngineHost.shared.progress.setWalkPhase(.idle)
+        return
+      }
+      discoveredAssets = []
+      isFullScan = false
+      tokenDeletedPhids = []
+      newToken = token
+      fingerprint = settingsFingerprint(settings)
+      completedInitialScan = true
+
+    case .incremental(let inserted, let deleted, let token, let fp, let completed):
+      if inserted.isEmpty, deleted.isEmpty, EngineHost.shared.progress.lastWalkSummary != nil {
+        try? await state.updatePhotoKitChangeToken(deviceId: deviceId, token: token)
+        EngineHost.shared.progress.setWalkPhase(.idle)
+        return
+      }
+      discoveredAssets = inserted
+      isFullScan = false
+      tokenDeletedPhids = deleted
+      newToken = token
+      fingerprint = fp
+      completedInitialScan = completed
+
+    case .fullScan(let assets, let token, let fp):
+      discoveredAssets = assets
+      isFullScan = true
+      tokenDeletedPhids = []
+      newToken = token
+      fingerprint = fp
+      completedInitialScan = true
+    }
+
+    log.info(
+      "walk discovered \(discoveredAssets.count) assets (fullScan=\(isFullScan)) in \(Int(Date().timeIntervalSince(walkStarted) * 1000))ms"
+    )
+
+    // Delete reconciliation: combine persistent-token deletions with full-scan diff.
+    let currentPhids = Set(discoveredAssets.map(\.phid))
+    var deletedPhids = tokenDeletedPhids
+    if isFullScan {
+      deletedPhids.formUnion(lastSeenPhids.subtracting(currentPhids))
+      lastSeenPhids = currentPhids
+    } else if !lastSeenPhids.isEmpty {
+      lastSeenPhids.subtract(deletedPhids)
+      lastSeenPhids.formUnion(currentPhids)
+    }
     if !deletedPhids.isEmpty {
       await notifyDeleted(
         deviceId: deviceId, libraryId: libraryId,
         serverBaseURL: serverBaseURL, phids: Array(deletedPhids))
     }
     guard !Task.isCancelled else { return }
-    lastSeenPhids = currentPhids
 
-    // One round-trip instead of one per phid. Build a map of known task IDs →
-    // state and diff in-memory so a 100k library doesn't make 100k SQLite
-    // calls.
-    let stateByPhid: [String: BackupState]
+    // Load local SQLite task records once.
+    let local: LocalTaskIndex
     do {
-      let allTasks = try await state.allTasks()
-      stateByPhid = Dictionary(
-        allTasks.map { ($0.id.phassetLocalId, $0.state) },
-        uniquingKeysWith: { _, latest in latest })
+      local = LocalTaskIndex(tasks: try await state.allTasks(), deviceId: deviceId)
     } catch {
       BackupIssueStatus.log(.error, "Backup state read failed: \(error)")
       EngineHost.shared.progress.setWalkPhase(
@@ -273,33 +313,194 @@ enum ChangeObserverWiring {
     }
 
     guard !Task.isCancelled else { return }
-    EngineHost.shared.progress.setPendingPhotoIDs(
-      Set(
-        ids.filter {
-          stateByPhid[$0] != .uploaded && stateByPhid[$0] != .skippedPolicy
-        }))
+    let libraryPhotoIDs: Set<String> =
+      isFullScan
+      ? currentPhids
+      : local.allPhids.subtracting(deletedPhids).union(currentPhids)
 
-    // Server PHID reconciliation (step a — cheap, no hashing). Ask the
-    // server which phids it already has recorded for THIS device, and treat
-    // that as the authoritative "already backed up" set. This is what stops
-    // a cleared/reinstalled local SQLite from re-uploading every photo on
-    // restart: the server already knows about them. Best-effort — a network
-    // failure falls back to local-state-only reconciliation.
-    let libraryPhotoIDs = Set(ids)
-    let locallyBackedUp = Set(ids.filter { stateByPhid[$0] == .uploaded })
+    let discoveredPending = currentPhids.filter {
+      local.stateByPhid[$0] != .uploaded && local.stateByPhid[$0] != .skippedPolicy
+    }
+    EngineHost.shared.progress.setPendingPhotoIDs(
+      local.pendingPhids.subtracting(deletedPhids).union(discoveredPending))
     EngineHost.shared.progress.recordLibrarySnapshot(
-      photoIDs: libraryPhotoIDs, backedUpIDs: locallyBackedUp)
+      photoIDs: libraryPhotoIDs,
+      backedUpIDs: local.backedUpPhids.intersection(libraryPhotoIDs))
+
+    // Server PHID reconciliation using incremental `since` cursor when available.
     EngineHost.shared.progress.setWalkPhase(.checkingServer)
-    var serverKnownPhids: Set<String> = []
-    var serverHeld: [ServerHeldAsset] = []
+    let sinceCursor =
+      (retryFailed || local.allPhids.isEmpty) ? nil : cursor.lastServerReconciledAt
+    let (serverKnownPhids, serverHeld, maxServerFirstSeen) = await fetchServerState(
+      deviceId: deviceId, libraryId: libraryId,
+      serverBaseURL: serverBaseURL, since: sinceCursor)
+    guard !Task.isCancelled else { return }
+
+    EngineHost.shared.progress.recordLibrarySnapshot(
+      photoIDs: libraryPhotoIDs,
+      backedUpIDs: local.backedUpPhids.union(serverKnownPhids).intersection(libraryPhotoIDs))
+    EngineHost.shared.progress.removePendingPhotoIDs(serverKnownPhids)
+
+    var newAssets: [DiscoveredAsset] = []
+    var reconciledTasks: [BackupTask] = []
+    var cancelledPendingIds: [BackupTaskID] = []
+    var retryTasks: [BackupTask] = []
+    var datesToBackfill: [String: Date] = [:]
+
+    for asset in discoveredAssets {
+      guard !Task.isCancelled else { return }
+      let phid = asset.phid
+      let localState = local.stateByPhid[phid]
+      if localState == .uploading { continue }
+      let id = BackupTaskID(deviceId: deviceId, phassetLocalId: phid)
+      if serverKnownPhids.contains(phid) {
+        if localState != .uploaded {
+          reconciledTasks.append(
+            BackupTask(
+              id: id, state: .uploaded, priority: .background, capturedAt: asset.capturedAt))
+        }
+        if localState == .pending { cancelledPendingIds.append(id) }
+        continue
+      }
+      if localState == .pending {
+        if let capturedAt = asset.capturedAt, local.nullDatePendingPhids.contains(phid) {
+          datesToBackfill[phid] = capturedAt
+        }
+        continue
+      }
+      if localState == nil {
+        newAssets.append(asset)
+      } else if localState == .failedRetry && retryFailed {
+        retryTasks.append(
+          BackupTask(
+            id: id, state: .pending, priority: .background, capturedAt: asset.capturedAt))
+      }
+    }
+
+    for phid in serverKnownPhids where !currentPhids.contains(phid) {
+      let localState = local.stateByPhid[phid]
+      guard localState != .uploaded, localState != .uploading else { continue }
+      let id = BackupTaskID(deviceId: deviceId, phassetLocalId: phid)
+      reconciledTasks.append(BackupTask(id: id, state: .uploaded, priority: .background))
+      if localState == .pending { cancelledPendingIds.append(id) }
+    }
+
+    guard await batchUpsert(reconciledTasks, into: state) else { return }
+    if !cancelledPendingIds.isEmpty { await queue.cancel(cancelledPendingIds) }
+    if let maxServerFirstSeen {
+      try? await state.updateServerReconciledAt(deviceId: deviceId, since: maxServerFirstSeen)
+    }
+    if !datesToBackfill.isEmpty,
+      let backfilled = try? await state.backfillPendingCapturedDates(
+        datesToBackfill, deviceId: deviceId),
+      !backfilled.isEmpty
+    {
+      await queue.enqueue(backfilled, priority: nil)
+    }
+    if !retryTasks.isEmpty {
+      guard await batchUpsert(retryTasks, into: state) else { return }
+      guard !Task.isCancelled else { return }
+      await queue.enqueue(retryTasks, priority: nil)
+    }
+
+    let retriedCount = retryTasks.count
+    let reconciledUploaded = reconciledTasks.count
+    var enqueuedCount = 0
+    let discoveredNewest = discoveredAssets.compactMap(\.capturedAt).max()
+    let discoveredOldest = discoveredAssets.compactMap(\.capturedAt).min()
+
+    for offset in stride(from: 0, to: newAssets.count, by: 256) {
+      guard !Task.isCancelled else { return }
+      let end = min(offset + 256, newAssets.count)
+      let slice = newAssets[offset..<end]
+      let tasks = slice.map { asset in
+        BackupTask(
+          id: BackupTaskID(deviceId: deviceId, phassetLocalId: asset.phid),
+          state: .pending, priority: .background, capturedAt: asset.capturedAt)
+      }
+      guard await batchUpsert(tasks, into: state) else { return }
+      guard !Task.isCancelled else { return }
+      await queue.enqueue(tasks, priority: .background)
+      enqueuedCount += tasks.count
+      try? await state.advanceScanWatermarks(
+        deviceId: deviceId,
+        newestScannedAt: discoveredNewest,
+        oldestScannedAt: slice.compactMap(\.capturedAt).min(),
+        oldestScannedPhid: slice.last?.phid,
+        libraryEligibleCount: libraryPhotoIDs.count,
+        settingsFingerprint: fingerprint,
+        initialScanCompleted: cursor.initialScanCompleted)
+      EngineHost.shared.progress.setWalkPhase(
+        .reconciling(checked: end, total: newAssets.count))
+    }
+
+    guard !Task.isCancelled else { return }
+    try? await state.advanceScanWatermarks(
+      deviceId: deviceId,
+      newestScannedAt: discoveredNewest,
+      oldestScannedAt: discoveredOldest,
+      oldestScannedPhid: discoveredAssets.last?.phid,
+      libraryEligibleCount: libraryPhotoIDs.count,
+      settingsFingerprint: fingerprint,
+      initialScanCompleted: completedInitialScan)
+    try? await state.updatePhotoKitChangeToken(deviceId: deviceId, token: newToken)
+
+    log.info(
+      "walk done: enqueued=\(enqueuedCount) retried=\(retriedCount) reconciled-uploaded=\(reconciledUploaded) totalEligible=\(libraryPhotoIDs.count)"
+    )
+
+    if let engine = EngineHost.shared.engine, !serverHeld.isEmpty {
+      await engine.resendNewerEdits(serverHeld)
+    }
+
+    guard !Task.isCancelled else { return }
+    let failedPermanently = (try? await state.count(in: .failedRetry)) ?? 0
+    guard !Task.isCancelled else { return }
+    EngineHost.shared.progress.recordWalkSummary(
+      BackupProgressViewModel.WalkSummary(
+        enumerated: libraryPhotoIDs.count,
+        enqueued: enqueuedCount + retriedCount,
+        failedPermanently: failedPermanently,
+        finishedAt: Date()))
+  }
+
+  private struct LocalTaskIndex {
+    var stateByPhid: [String: BackupState] = [:]
+    var nullDatePendingPhids: Set<String> = []
+    var allPhids: Set<String> = []
+    var backedUpPhids: Set<String> = []
+    var pendingPhids: Set<String> = []
+
+    init(tasks: [BackupTask], deviceId: String) {
+      stateByPhid.reserveCapacity(tasks.count)
+      for task in tasks where task.id.deviceId == deviceId {
+        let phid = task.id.phassetLocalId
+        stateByPhid[phid] = task.state
+        if task.state != .skippedPolicy { allPhids.insert(phid) }
+        if task.state == .uploaded {
+          backedUpPhids.insert(phid)
+        } else if task.state != .skippedPolicy {
+          pendingPhids.insert(phid)
+        }
+        if task.state == .pending && task.capturedAt == nil {
+          nullDatePendingPhids.insert(phid)
+        }
+      }
+    }
+  }
+
+  private static func fetchServerState(
+    deviceId: String, libraryId: String, serverBaseURL: URL, since: String?
+  ) async -> (Set<String>, [ServerHeldAsset], String?) {
     let stateClient = BackupStateClient(
       baseURL: LocalNetworkResolver.shared.effectiveURL(for: serverBaseURL),
       libraryId: libraryId, deviceId: deviceId,
       transport: makeBackupTransport(server: serverBaseURL))
     do {
-      let known = try await stateClient.fetchKnownAssets()
-      serverKnownPhids = Set(known.map(\.phassetLocalId))
-      serverHeld = known.compactMap { asset in
+      let known = try await stateClient.fetchKnownAssets(since: since)
+      let phids = Set(known.map(\.phassetLocalId))
+      let maxFirstSeen = known.compactMap(\.firstSeen).max()
+      let held = known.compactMap { asset in
         asset.relPath.map {
           ServerHeldAsset(
             id: BackupTaskID(deviceId: deviceId, phassetLocalId: asset.phassetLocalId),
@@ -307,241 +508,32 @@ enum ChangeObserverWiring {
         }
       }
       log.info(
-        "walk server-state reconciliation: server knows \(serverKnownPhids.count) phids for this device"
+        "walk server-state reconciliation: server returned \(phids.count) phids (since=\(since ?? "nil", privacy: .public))"
       )
+      return (phids, held, maxFirstSeen)
     } catch {
       if !Task.isCancelled {
         BackupIssueStatus.log(
           .warning, "Backup server check unavailable; using local records: \(error)")
       }
+      return ([], [], nil)
     }
+  }
 
-    guard !Task.isCancelled else { return }
-
-    EngineHost.shared.progress.recordLibrarySnapshot(
-      photoIDs: libraryPhotoIDs, backedUpIDs: locallyBackedUp.union(serverKnownPhids))
-    EngineHost.shared.progress.removePendingPhotoIDs(serverKnownPhids)
-
-    var newPhids: [String] = []
-    var reconciledTasks: [BackupTask] = []
-    var retryTasks: [BackupTask] = []
-    for phid in ids {
-      guard !Task.isCancelled else { return }
-      let localState = stateByPhid[phid]
-      // A live worker owns these rows; a scan must not overwrite them.
-      if localState == .pending || localState == .uploading { continue }
-      let id = BackupTaskID(deviceId: deviceId, phassetLocalId: phid)
-      if serverKnownPhids.contains(phid) {
-        if localState != .uploaded {
-          reconciledTasks.append(BackupTask(id: id, state: .uploaded, priority: .background))
-        }
-      } else if localState == nil {
-        newPhids.append(phid)
-      } else if localState == .failedRetry && retryFailed {
-        retryTasks.append(
-          BackupTask(
-            id: id, state: .pending, priority: .background,
-            capturedAt: PhotoKitCatalog.shared.asset(localId: phid)?.creationDate))
-      }
-    }
-    // Batch writes amortize SQLite commits across large server-known sets.
-    for offset in stride(from: 0, to: reconciledTasks.count, by: 256) {
-      guard !Task.isCancelled else { return }
+  private static func batchUpsert(
+    _ tasks: [BackupTask], into state: BackupStateStore
+  ) async -> Bool {
+    for offset in stride(from: 0, to: tasks.count, by: 256) {
+      guard !Task.isCancelled else { return false }
       do {
-        try await state.upsert(
-          Array(reconciledTasks[offset..<min(offset + 256, reconciledTasks.count)]))
+        try await state.upsert(Array(tasks[offset..<min(offset + 256, tasks.count)]))
       } catch {
         BackupIssueStatus.log(.error, "Backup state write failed: \(error)")
         EngineHost.shared.progress.setWalkPhase(
           .failed("couldn't save local backup records. Details are in the logs."))
-        return
+        return false
       }
     }
-    do {
-      try await state.upsert(retryTasks)
-      for task in retryTasks {
-        guard !Task.isCancelled else { return }
-        await queue.enqueue(task, priority: task.priority)
-      }
-    } catch {
-      BackupIssueStatus.log(.error, "Backup state write failed: \(error)")
-      EngineHost.shared.progress.setWalkPhase(
-        .failed("couldn't save local backup records. Details are in the logs."))
-      return
-    }
-    let retriedCount = retryTasks.count
-    let reconciledUploaded = reconciledTasks.count
-    var enqueuedCount = 0
-
-    // Content dedup happens in the resumable upload protocol after each
-    // worker reads its photo once. Never download the entire iCloud library
-    // serially as a prerequisite to starting the first upload (#3638).
-    let phidsToEnqueue = newPhids
-
-    for offset in stride(from: 0, to: phidsToEnqueue.count, by: 256) {
-      guard !Task.isCancelled else { return }
-      let end = min(offset + 256, phidsToEnqueue.count)
-      let tasks = phidsToEnqueue[offset..<end].map { phid in
-        BackupTask(
-          id: BackupTaskID(deviceId: deviceId, phassetLocalId: phid),
-          state: .pending, priority: .background,
-          capturedAt: PhotoKitCatalog.shared.asset(localId: phid)?.creationDate)
-      }
-      do {
-        try await state.upsert(tasks)
-        guard !Task.isCancelled else { return }
-        for task in tasks { await queue.enqueue(task, priority: task.priority) }
-        enqueuedCount += tasks.count
-        EngineHost.shared.progress.setWalkPhase(
-          .reconciling(checked: end, total: phidsToEnqueue.count))
-      } catch {
-        BackupIssueStatus.log(.error, "Backup state write failed: \(error)")
-        EngineHost.shared.progress.setWalkPhase(
-          .failed("couldn't save local backup records. Details are in the logs."))
-        return
-      }
-    }
-    log.info(
-      "walk done: enqueued=\(enqueuedCount) retried=\(retriedCount) reconciled-uploaded=\(reconciledUploaded) skipped=\(ids.count - enqueuedCount - retriedCount)"
-    )
-
-    // Photos the server already holds can still carry a newer local edit than
-    // the one they were uploaded with; send those on top (#4719).
-    if let engine = EngineHost.shared.engine {
-      await engine.resendNewerEdits(serverHeld)
-    }
-
-    guard !Task.isCancelled else { return }
-    // Publish the outcome so the status panel can tell "fully backed up"
-    // apart from "never started" — both leave the queue empty (#3097).
-    // The `.failedRetry` count is the terminal-failure figure the panel
-    // captions; best-effort, a read failure just reports 0.
-    let failedPermanently = (try? await state.count(in: .failedRetry)) ?? 0
-    guard !Task.isCancelled else { return }
-    EngineHost.shared.progress.recordWalkSummary(
-      BackupProgressViewModel.WalkSummary(
-        enumerated: ids.count,
-        enqueued: enqueuedCount + retriedCount,
-        failedPermanently: failedPermanently,
-        finishedAt: Date()))
-  }
-
-  // MARK: - Off-main PhotoKit walk
-  //
-  // The functions below are `nonisolated` so they can run from a
-  // detached Task on a background executor. They touch only
-  // PhotoKitCatalog (NSLock-protected + `@unchecked Sendable`) and the
-  // value-type BackupSettings; no shared MainActor state.
-
-  /// PhotoKit enumeration extracted from `enqueueAllNew`. Returns the
-  /// set of eligible PHAsset localIdentifiers given the current settings.
-  /// Pure function — safe to call from any thread. Reads everything
-  /// through PhotoKitCatalog so the (potentially expensive) PHAsset
-  /// fetches are cached across walks within the same change cycle.
-  nonisolated private static func walkPhotoKit(settings: BackupSettings) -> [String] {
-    let sharedAlbumIDs: Set<String> =
-      settings.includeSharedAlbums
-      ? []
-      : PhotoKitCatalog.shared.sharedAlbumIdentifiers()
-
-    // We're already off main, so the chunked async iteration that the
-    // catalog exposes for its main-actor callers isn't needed here —
-    // a plain loop over the cached id list keeps the code simple and
-    // the locking overhead minimal.
-    var ids: [String] = []
-    let imageIDs = PhotoKitCatalog.shared.imageIdentifiers()
-    ids.reserveCapacity(imageIDs.count)
-    for phid in imageIDs {
-      guard !Task.isCancelled else { return [] }
-      guard let asset = PhotoKitCatalog.shared.asset(localId: phid),
-        shouldInclude(asset, settings: settings, sharedAlbumIDs: sharedAlbumIDs)
-      else { continue }
-      ids.append(phid)
-    }
-
-    if settings.includeVideos {
-      let videoIDs = PhotoKitCatalog.shared.videoIdentifiers()
-      ids.reserveCapacity(ids.count + videoIDs.count)
-      for phid in videoIDs {
-        guard !Task.isCancelled else { return [] }
-        guard let asset = PhotoKitCatalog.shared.asset(localId: phid),
-          shouldInclude(asset, settings: settings, sharedAlbumIDs: sharedAlbumIDs)
-        else { continue }
-        ids.append(phid)
-      }
-    }
-    return ids
-  }
-
-  /// Notify the server that the given phasset localIdentifiers were deleted
-  /// from Apple Photos. The server sets `deleted_from_photos: true` on the
-  /// matching AssetDoc entries. Best-effort: network failures are silently
-  /// swallowed — the next walk will retry the diff.
-  private static func notifyDeleted(
-    deviceId: String, libraryId: String,
-    serverBaseURL: URL, phids: [String]
-  ) async {
-    let url = LocalNetworkResolver.shared.effectiveURL(for: serverBaseURL)
-      .appendingPathComponent("api")
-      .appendingPathComponent("libraries")
-      .appendingPathComponent(libraryId)
-      .appendingPathComponent("backup")
-      .appendingPathComponent("notify-deleted")
-    var req = URLRequest(url: url)
-    req.httpMethod = "POST"
-    req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-    req.setValue(deviceId, forHTTPHeaderField: "X-Maple-Device-Id")
-    let body = ["phasset_local_ids": phids]
-    req.httpBody = try? JSONEncoder().encode(body)
-    // Authenticated like the other backup calls — notify-deleted is gated too (#855).
-    let transport = makeBackupTransport(server: serverBaseURL)
-    _ = try? await transport(req)
-  }
-
-  /// Returns true when the asset should be included in the backup based on
-  /// the current `settings`. Nonisolated so the off-main `walkPhotoKit`
-  /// can call it inside `enumerateObjects`.
-  ///
-  /// - Parameter sharedAlbumIDs: Pre-built set of PHAsset localIdentifiers
-  ///   that belong to at least one shared album. Pass an empty set when
-  ///   `settings.includeSharedAlbums` is true (no filtering needed).
-  nonisolated private static func shouldInclude(
-    _ asset: PHAsset, settings: BackupSettings,
-    sharedAlbumIDs: Set<String> = []
-  ) -> Bool {
-    // Bursts: only the representative frame unless includeBursts is true.
-    // `representsBurst` is the key frame chosen by iOS; non-representative
-    // burst frames have a non-nil burstIdentifier but representsBurst == false.
-    if !settings.includeBursts,
-      asset.burstIdentifier != nil,
-      !asset.representsBurst
-    {
-      return false
-    }
-
-    // iCloud Shared Library (iOS 16.1+): PHAsset.sourceType == .typeCloudShared
-    // identifies assets the user has been added to via iCloud Shared Library
-    // (the newer "shared with family/friends" feature, not shared albums).
-    if !settings.includeSharedLibrary,
-      asset.sourceType == .typeCloudShared
-    {
-      return false
-    }
-
-    // Shared Albums (the older invite-based albums with .albumCloudShared
-    // subtype): check membership in the pre-built set so each per-asset
-    // check is O(1).
-    if !settings.includeSharedAlbums,
-      sharedAlbumIDs.contains(asset.localIdentifier)
-    {
-      return false
-    }
-
     return true
   }
-
-  // Note: the local `sharedAlbumPHIDs()` helper was retired when
-  // `PhotoKitCatalog.shared.sharedAlbumIdentifiers()` shipped on main —
-  // the catalog gives us a process-wide cached answer that invalidates
-  // through the same change-observer fan-out, so every consumer agrees.
 }
