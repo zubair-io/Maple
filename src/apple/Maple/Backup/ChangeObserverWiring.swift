@@ -528,7 +528,7 @@ enum ChangeObserverWiring {
 
   /// Runs `write` over `tasks` 256 at a time, passing how many have been
   /// written once the batch lands. A failed write fails the walk.
-  static func writeInBatches(
+  private static func writeInBatches(
     _ tasks: [BackupTask], _ write: ([BackupTask], Int) async throws -> Void
   ) async -> Bool {
     for offset in stride(from: 0, to: tasks.count, by: 256) {
