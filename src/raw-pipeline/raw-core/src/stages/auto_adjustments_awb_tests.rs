@@ -11,6 +11,7 @@
 
 use super::*;
 use crate::color::illuminant::Illuminant;
+use crate::image::CfaPattern;
 use crate::stages::auto_adjustments::compute_auto_adjustments;
 
 fn flat_image(r: f32, g: f32, b: f32) -> Image {

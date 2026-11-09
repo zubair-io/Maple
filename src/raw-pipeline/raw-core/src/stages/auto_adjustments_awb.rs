@@ -77,7 +77,7 @@
 //! The white-patch eligibility, mean, blend and camera-prior bounds are retained.
 
 use crate::color::dcp::{self, ProfileSource};
-use crate::image::{CfaPattern, ColorSpace, Image, RawImage};
+use crate::image::{ColorSpace, Image, RawImage};
 use crate::math::Matrix3;
 use crate::stages::wb_camera::{self, SliderFrame};
 use crate::stages::white_balance::neutral_to_temp_tint;
@@ -177,16 +177,10 @@ impl ProbeSpace {
     /// Mirror of the develop chain's colour path for `probe_model`
     /// (`pipeline::develop`): BaselineExposure → AsShotNeutral pre-gain →
     /// camera-space WB gain → the DCP linear render matrix. The same tier
-    /// decision the chain makes (`skip_pre_gain`, `RawlerFallback`) selects
-    /// the generic space.
+    /// decision the chain makes (`RawlerFallback`) selects the generic space.
     pub(crate) fn resolve(raw: &RawImage, probe_model: &AdjustmentModel) -> Self {
         let neutral_clip = raw.baseline_exposure.exp2();
-        let skip_pre_gain = matches!(raw.cfa, CfaPattern::LinearRgb) && raw.white_level <= 255;
-        let camera = if skip_pre_gain {
-            None
-        } else {
-            Self::camera_tier(raw, probe_model, neutral_clip)
-        };
+        let camera = Self::camera_tier(raw, probe_model, neutral_clip);
         camera.unwrap_or(Self {
             to_space: Matrix3::IDENTITY,
             ceilings: [neutral_clip; 3],

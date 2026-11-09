@@ -246,7 +246,7 @@ fn linearraw_to_camera_rgb_passes_camera_rgb_through_unchanged() {
         height: 1,
         cfa: CfaPattern::LinearRgb,
         black_level: [0, 0, 0, 0],
-        // > 255 so we hit the high-bit-depth branch (not the lossy_8bit gamma path).
+        // High bit depth: the encoded value passes through unchanged (no OpcodeList2).
         white_level: 1000,
         raw_data: raw_data.clone(),
         as_shot_neutral: asn,

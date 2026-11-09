@@ -188,11 +188,7 @@ pub(in crate::pipeline) fn recover_sensor_highlights(
     prior: Option<&dyn crate::stages::highlight_recovery::ScenePrior>,
 ) {
     let active_area = highlight_active_area(raw, divisor);
-    let neutral = if raw.cfa == CfaPattern::LinearRgb && raw.white_level <= 255 {
-        [1.; 3]
-    } else {
-        raw.as_shot_neutral
-    };
+    let neutral = raw.as_shot_neutral;
     crate::stages::highlight_recovery::apply_in_sensor_space(
         image,
         mode,

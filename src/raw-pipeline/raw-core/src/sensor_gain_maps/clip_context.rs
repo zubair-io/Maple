@@ -6,7 +6,6 @@ pub(crate) struct ClipGainContext<'a> {
     raw: &'a RawImage,
     origin: (u32, u32),
     divisor: u32,
-    transfers: bool,
     minimum_scale: f32,
 }
 
@@ -14,16 +13,14 @@ impl<'a> ClipGainContext<'a> {
     /// `None` when no executed step moves a saturated sample off 1.
     pub(crate) fn new(raw: &'a RawImage, origin: (u32, u32), divisor: u32) -> Option<Self> {
         let maps = raw.sensor_gain_maps.as_ref()?;
-        let transfers = super::transfers_apply(raw) && maps.has_transfers();
-        if !maps.has_gains() && !transfers {
+        if !maps.has_gains() && !maps.has_transfers() {
             return None;
         }
-        let minimum = maps.saturation_floor(transfers);
+        let minimum = maps.saturation_floor();
         Some(Self {
             raw,
             origin,
             divisor: divisor.max(1),
-            transfers,
             minimum_scale: (minimum * (1. - 1e-6)).max(0.),
         })
     }
@@ -41,7 +38,7 @@ impl<'a> ClipGainContext<'a> {
             .into_par_iter()
             .map(|i| {
                 let (x, y) = (i as u32 % width, i as u32 / width);
-                maps.apply(self.origin.0 + x, self.origin.1 + y, 0, 1., self.transfers)
+                maps.apply(self.origin.0 + x, self.origin.1 + y, 0, 1.)
             })
             .collect()
     }
@@ -55,9 +52,9 @@ impl<'a> ClipGainContext<'a> {
         let x = self.origin.0 + index as u32 % width * self.divisor;
         let y = self.origin.1 + index as u32 / width * self.divisor;
         if self.raw.cfa == CfaPattern::LinearRgb {
-            return std::array::from_fn(|c| maps.apply(x, y, c as u32, 1., self.transfers));
+            return std::array::from_fn(|c| maps.apply(x, y, c as u32, 1.));
         }
-        let saturation = |x, y| maps.apply(x, y, 0, 1., self.transfers);
+        let saturation = |x, y| maps.apply(x, y, 0, 1.);
         let period = if self.raw.cfa.is_xtrans() { 6 } else { 2 };
         let mut sum = [0.; 3];
         let mut count = [0u32; 3];

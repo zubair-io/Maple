@@ -325,14 +325,9 @@ pub(crate) fn develop_sized_camera(
     dump_after("00a_baseline_exposure", &camera_rgb);
 
     // WB pre-gain (mirrors the unsized variant — see comment there).
-    let skip_pre_gain =
-        matches!(raw.cfa, crate::image::CfaPattern::LinearRgb) && raw.white_level <= 255;
-    if !skip_pre_gain {
-        stage("sized_white_balance::apply_pre_gain", || {
-            white_balance::apply_pre_gain(&mut camera_rgb, raw.as_shot_neutral)
-        });
-    }
-    // See unsized variant (ticket #325, skip_pre_gain identity branch).
+    stage("sized_white_balance::apply_pre_gain", || {
+        white_balance::apply_pre_gain(&mut camera_rgb, raw.as_shot_neutral)
+    });
     stage("sized_highlight_recovery", || {
         super::tile::recover_full_frame(&mut camera_rgb, raw, model, crop_divisor, cancel)
     })?;
@@ -397,7 +392,6 @@ pub(crate) fn develop_sized_camera(
         camera_rgb,
         profile,
         profile_source,
-        skip_pre_gain,
         whites_anchor_ev,
     })
 }
