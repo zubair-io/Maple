@@ -303,7 +303,7 @@ struct PreviewView: View {
         )
         .accessibilityIdentifier("preview-info")
       }
-      .padding(.top, 8)
+      .statusRowHeaderPlacement()
       .opacity(chromeOpacity)
     }
     // After the chrome overlays, so the reveal fades them.
