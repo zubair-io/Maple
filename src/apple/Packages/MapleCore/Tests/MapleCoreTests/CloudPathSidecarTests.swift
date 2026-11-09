@@ -38,6 +38,15 @@ final class CloudPathSidecarTests: XCTestCase {
       do {
         let url = try XCTUnwrap(request.url)
         let components = try XCTUnwrap(URLComponents(url: url, resolvingAgainstBaseURL: false))
+        if components.path == "/api/xmp/variant" {
+          XCTAssertEqual(request.httpMethod, "GET", "opening reads the history to rebuild Undo")
+          return (
+            try Data(contentsOf: xmp),
+            HTTPURLResponse(
+              url: url, statusCode: 200, httpVersion: nil,
+              headerFields: ["Content-Type": "application/xml"])!
+          )
+        }
         XCTAssertEqual(components.path, "/api/xmp")
         XCTAssertEqual(components.queryItems, [URLQueryItem(name: "path", value: path)])
         if request.httpMethod == "POST" {

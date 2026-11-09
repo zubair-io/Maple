@@ -129,7 +129,7 @@ final class BatchMetadataSessionSafetyTests: EditorTestCase {
     XCTAssertEqual(metadata.title, "Kept")
   }
 
-  func testLiveBatchReportsExternalSidecarConflict() async throws {
+  func testLiveBatchMergesAnExternalSidecarChangeAndRecordsIt() async throws {
     let raw = try makeRaw()
     try await saveSidecar(exposure: 0, stars: 1, title: "Original", beside: raw)
     let session = EditSession(asset: AssetRef(url: raw))
@@ -139,13 +139,14 @@ final class BatchMetadataSessionSafetyTests: EditorTestCase {
       model: AdjustmentModel(exposure: 2), culling: CullingState(stars: 3))
     try external.write(to: sidecar, atomically: true, encoding: .utf8)
 
-    do {
-      try await rate(4, [session.asset], sessions: [session.asset.id: session])
-      XCTFail("The batch must report an externally changed Primary sidecar")
-    } catch {
-      XCTAssertEqual(failedAssets(error), [session.asset.id])
-    }
-    XCTAssertEqual(try String(contentsOf: sidecar, encoding: .utf8), external)
+    try await rate(4, [session.asset], sessions: [session.asset.id: session])
+
+    let (model, culling, _) = try reparse(raw)
+    XCTAssertEqual(model.exposure, 2, accuracy: 1e-9, "the outside edit survives the batch")
+    XCTAssertEqual(culling.stars, 4)
+    let history = try WorkflowSidecarCore.read(xmp: String(contentsOf: sidecar, encoding: .utf8))?
+      .history
+    XCTAssertEqual(history?.map(\.action), ["external"])
   }
 
   func testUnreadableSidecarWithoutASessionIsAFailureNotADefaultsWrite() async throws {

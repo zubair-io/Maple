@@ -66,3 +66,11 @@ public actor PhotoKitSidecarStore: WorkflowSidecarStoreProtocol {
 
   public func errors() async -> AsyncStream<Error> { await writer.errors() }
 }
+
+extension PhotoKitSidecarStore: ReconcilingSidecarStoreProtocol {
+  public func reconciliations() async -> AsyncStream<ReconciledSidecar> {
+    await writer.reconciliations()
+  }
+
+  public func confirmAdoption(of xml: String) async { await writer.confirmAdoption(of: xml) }
+}

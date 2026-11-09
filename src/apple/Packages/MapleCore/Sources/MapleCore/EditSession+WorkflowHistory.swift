@@ -12,6 +12,7 @@ extension EditSession {
     return workflow.selectedStore ?? primarySidecarStore
   }
   func observeSidecarErrors() {
+    observeSidecarReconciliations()
     sidecarErrorTask?.cancel()
     guard let store = sidecarStore else { return }
     sidecarErrorTask = Task { [weak self, store] in

@@ -49,7 +49,7 @@ extension EditSession {
     announcer.announce("\(undo ? "Undo" : "Redo") \(transaction.description)")
   }
 
-  private func applyConfirmedWorkflowState(_ restored: (AdjustmentModel, CullingState)) {
+  func applyConfirmedWorkflowState(_ restored: (AdjustmentModel, CullingState)) {
     workflow.isApplying = true
     defer { workflow.isApplying = false }
     // `model.didSet` retains the normal render/cache invalidation. The XMP has

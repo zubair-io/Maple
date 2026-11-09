@@ -394,6 +394,7 @@ public final class EditSession {
   /// Owns pending preview/debounce/write lifetime; session guards remain here.
   @ObservationIgnored let previewPersistence: DisplayPreviewPersistence
   @ObservationIgnored var sidecarErrorTask: Task<Void, Never>?
+  @ObservationIgnored var sidecarReconciliationTask: Task<Void, Never>?
 
   /// The wgpu live-render driver (epic #925, P4b-apple / #1028). Created
   /// lazily ONLY when the runtime flag is on (`GpuLiveFlag.isEnabled` —
@@ -565,6 +566,7 @@ public final class EditSession {
 
   deinit {
     sidecarErrorTask?.cancel()
+    sidecarReconciliationTask?.cancel()
   }
 
 }
