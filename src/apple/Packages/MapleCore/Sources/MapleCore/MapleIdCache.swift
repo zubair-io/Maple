@@ -73,12 +73,34 @@ public struct MapleIdCacheEntry: Codable, Sendable, Equatable {
     /// every save, turning `isValid` into an always-stale check after the
     /// very first reload. Plain `Double` round-trips through JSON exactly.
     public let mtime: Double
+    /// Derivation rules the id was computed under
+    /// (`MapleIdDerivationVersion.current`, single-sourced from raw-core).
+    /// Rows written before versioning decode as 0 and never validate, so
+    /// ids derived by older rules re-derive once (#5106).
+    public let derivationVersion: Int
 
-    public init(path: String, mapleId: String, size: Int64, mtime: Double) {
+    public init(
+        path: String, mapleId: String, size: Int64, mtime: Double,
+        derivationVersion: Int = MapleIdDerivationVersion.current
+    ) {
         self.path = path
         self.mapleId = mapleId
         self.size = size
         self.mtime = mtime
+        self.derivationVersion = derivationVersion
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case path, mapleId, size, mtime, derivationVersion
+    }
+
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        path = try values.decode(String.self, forKey: .path)
+        mapleId = try values.decode(String.self, forKey: .mapleId)
+        size = try values.decode(Int64.self, forKey: .size)
+        mtime = try values.decode(Double.self, forKey: .mtime)
+        derivationVersion = try values.decodeIfPresent(Int.self, forKey: .derivationVersion) ?? 0
     }
 
     /// Whether this cached row is still valid for a file currently observed
@@ -88,6 +110,7 @@ public struct MapleIdCacheEntry: Codable, Sendable, Equatable {
     /// callers re-derive rather than silently reusing the old content's id.
     public func isValid(size: Int64, mtime: Double) -> Bool {
         self.size == size && self.mtime == mtime
+            && derivationVersion == MapleIdDerivationVersion.current
     }
 }
 
@@ -293,6 +316,7 @@ public actor MapleIdCacheStore {
         // already uses for cross-file duplicates, applied within one file.
         var entries: [String: MapleIdCacheEntry] = [:]
         for entry in file.entries {
+            guard entry.derivationVersion == MapleIdDerivationVersion.current else { continue }
             if let existing = entries[entry.path], existing.mtime >= entry.mtime {
                 continue
             }

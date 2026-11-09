@@ -49,6 +49,7 @@ mod ffi_status;
 mod filename;
 mod film_catalog;
 mod local_mask_wire;
+mod maple_id;
 mod ranked_window;
 mod raster_recipe;
 mod scope_targets;
@@ -116,6 +117,8 @@ enum Schema {
     ScopeTargets,
     /// Auto Profile fit return codes for the WinUI host (#5458).
     AutoFitCodes,
+    /// maple_id derivation version for device id caches (#5106).
+    MapleId,
     /// Culling metadata XMP vocabulary, with no pixel-processing behavior.
     ColorLabels,
     /// Portable filename vocabulary (#3990).
@@ -212,6 +215,12 @@ fn main() {
             eprintln!("canvas-overlay supports rust / wgsl");
             std::process::exit(2);
         }),
+        (Schema::MapleId, Target::Swift) => maple_id::emit_swift(),
+        (Schema::MapleId, Target::Ts) => maple_id::emit_ts(),
+        (Schema::MapleId, _) => {
+            eprintln!("maple-id supports swift / ts");
+            std::process::exit(2);
+        }
         (Schema::FfiStatus, Target::Ts) => ffi_status::emit_ts(),
         (Schema::FfiStatus, _) => {
             eprintln!("ffi-status supports ts");

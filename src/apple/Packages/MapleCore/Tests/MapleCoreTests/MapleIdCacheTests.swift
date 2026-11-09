@@ -69,6 +69,33 @@ final class MapleIdCacheTests: XCTestCase {
         XCTAssertEqual(freshHit, "01bbbbbb")
     }
 
+    func testLookupMissesOnRowFromOlderDerivationVersion() async throws {
+        let mapleDir = tmpDir.appendingPathComponent(".maple")
+        try FileManager.default.createDirectory(at: mapleDir, withIntermediateDirectories: true)
+        let legacy = #"{"version":1,"entries":[{"path":"a.dng","mapleId":"01legacy","size":100,"mtime":123.0}]}"#
+        try legacy.write(
+            to: mapleDir.appendingPathComponent("id-cache-apple.json"), atomically: true,
+            encoding: .utf8)
+        let store = MapleIdCacheStore(folderURL: tmpDir, writer: "apple")
+        let hit = await store.lookup(path: "a.dng", size: 100, mtime: 123.0)
+        XCTAssertNil(hit)
+    }
+
+    func testLookupMissesOnExplicitOldDerivationVersionAndHitsOnCurrent() async throws {
+        let mapleDir = tmpDir.appendingPathComponent(".maple")
+        try FileManager.default.createDirectory(at: mapleDir, withIntermediateDirectories: true)
+        let old = MapleIdCacheEntry(
+            path: "a.dng", mapleId: "01old", size: 100, mtime: 123.0, derivationVersion: 0)
+        let current = MapleIdCacheEntry(path: "b.dng", mapleId: "01new", size: 100, mtime: 123.0)
+        let data = try JSONEncoder().encode(MapleIdCacheFile(entries: [old, current]))
+        try data.write(to: mapleDir.appendingPathComponent("id-cache-web.json"))
+        let store = MapleIdCacheStore(folderURL: tmpDir, writer: "apple")
+        let oldHit = await store.lookup(path: "a.dng", size: 100, mtime: 123.0)
+        XCTAssertNil(oldHit)
+        let newHit = await store.lookup(path: "b.dng", size: 100, mtime: 123.0)
+        XCTAssertEqual(newHit, "01new")
+    }
+
     // MARK: - Persistence round-trip (a fresh store instance = a fresh process)
 
     func testEntryPersistsAcrossStoreInstances() async {
