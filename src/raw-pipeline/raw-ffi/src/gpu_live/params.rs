@@ -385,7 +385,7 @@ pub(super) unsafe fn inputs_from_params(
         // "no profile", which is the flat filter raw-core runs at
         // `noise_profile: None`.
         noise_profile: read_floats(p.noise_profile_ptr, p.noise_profile_len as usize),
-        iso: p.iso,
+        iso: crate::scene_linear_chain::host_iso(p.iso, p.input_shape == 0),
         // Film look (epic #2683, Task 8). `film_lut_or_off` is the single
         // gate: a null pointer, a zero size, OR a `len` that doesn't match
         // `size³·3` all collapse to "off" (empty data, size 0) rather than
@@ -556,3 +556,7 @@ mod tests {
 #[cfg(test)]
 #[path = "params_borrow_tests.rs"]
 mod borrow_tests;
+
+#[cfg(test)]
+#[path = "params_iso_tests.rs"]
+mod iso_tests;

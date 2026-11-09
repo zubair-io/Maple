@@ -156,7 +156,8 @@ pub struct MapleAdjustmentParams {
     /// profile is available (treated identically to a null pointer).
     pub noise_profile_len: u32,
     /// ISO speed at capture from `RawImage::iso`. 0 is treated as 100 on the
-    /// Rust side (the pre-fix hardcoded fallback). A stale host leaves this 0.
+    /// Rust side for RAW chains (the pre-fix hardcoded fallback; a stale host
+    /// leaves this 0) and stays unknown for `skip_agx` rasters (#4653).
     pub iso: u32,
     // --- WB slider frame (#1781) — the decode-exported `SliderFrame` data
     //     (`MapleSceneLinearBufferF32.wb_frame_*`, passed back verbatim by the

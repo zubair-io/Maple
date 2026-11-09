@@ -265,10 +265,7 @@ pub fn render_export_raster_cancellable(
         scene.width,
         scene.height,
         model,
-        &ChainOptions {
-            skip_agx: true,
-            ..Default::default()
-        },
+        &ChainOptions::uncalibrated_raster(),
         film,
         cancel,
     )?;

@@ -413,14 +413,15 @@ pub fn render_bytes_sized(
 /// Apple (there via `decodeSceneLinearNonRaw` + CoreImage instead of a
 /// browser canvas, same colour math).
 ///
-/// `skip_agx: true` always: non-RAW input is already display-tone-mapped by
-/// whatever camera or renderer produced it, so running it through AgX (a
-/// scene-referred view transform) would double-tone-map — see
+/// `ChainOptions::uncalibrated_raster()` always: non-RAW input is already
+/// display-tone-mapped by whatever camera or renderer produced it, so running
+/// it through AgX (a scene-referred view transform) would double-tone-map — see
 /// `ChainOptions::skip_agx`'s doc and `processSceneLinearNonRaw`'s comment
 /// for the same reasoning on Apple. The WB baseline is fixed at the decode
 /// default (6500 K / 0 tint) — a developed image carries no camera As-Shot
 /// metadata, so (like Apple) the WB slider's own default IS the identity
-/// point.
+/// point. For the same reason it has no sensor ISO, so NR sees unknown ISO 0
+/// exactly as the native raster paths do (#4653).
 ///
 /// Returns the SAME `MapleRender` shape `render_bytes` does (u8 RGB, full
 /// size == develop size — there is no separate "native" size for an
@@ -435,10 +436,7 @@ pub fn develop_non_raw(
 ) -> Result<MapleRender, JsError> {
     let model = crate::mask_registry::parse_model(xmp.as_deref())
         .map_err(|e| JsError::new(&e.to_string()))?;
-    let opts = raw_core::pipeline::ChainOptions {
-        skip_agx: true,
-        ..Default::default()
-    };
+    let opts = raw_core::pipeline::ChainOptions::uncalibrated_raster();
     let chained =
         raw_core::pipeline::apply_scene_linear_chain_f32(in_f32_rgba, width, height, &model, &opts)
             .map_err(|e| JsError::new(&e.to_string()))?;

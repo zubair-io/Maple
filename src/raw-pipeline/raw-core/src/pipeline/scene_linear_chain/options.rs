@@ -45,8 +45,8 @@ pub struct ChainOptions<'a> {
     /// scene-noise-adaptive NR.
     pub noise_profile: Option<&'a [f32]>,
     /// ISO speed at capture (`RawImage::iso`), used with `noise_profile`
-    /// to derive the per-channel sigma. 100 = the hardcoded fallback that
-    /// predates noise-profile plumbing.
+    /// to derive the per-channel sigma. 0 = unknown: a developed raster has no
+    /// sensor ISO (#4653).
     pub iso: u32,
     /// #3875 output pixels per developed full-frame pixel; native crops use 1.
     pub nr_sampling_scale: f32,
@@ -69,6 +69,19 @@ pub struct ChainOptions<'a> {
     pub creative: Option<&'a crate::pipeline::CreativeStage>,
 }
 
+impl ChainOptions<'_> {
+    /// Developed raster pixels carry no scene-linear sensor noise calibration,
+    /// so every raster path shares unknown ISO 0 with the native raster GPU
+    /// callers rather than the generic RAW default of ISO 100.
+    pub fn uncalibrated_raster() -> Self {
+        Self {
+            skip_agx: true,
+            iso: 0,
+            ..Self::default()
+        }
+    }
+}
+
 impl Default for ChainOptions<'_> {
     fn default() -> Self {
         ChainOptions {
@@ -85,5 +98,20 @@ impl Default for ChainOptions<'_> {
             haze_map: None,
             creative: None,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ChainOptions;
+
+    #[test]
+    fn an_uncalibrated_raster_has_unknown_iso_where_the_raw_default_is_100() {
+        let raster = ChainOptions::uncalibrated_raster();
+        assert!(raster.skip_agx);
+        assert_eq!(raster.iso, 0);
+        assert!(raster.noise_profile.is_none());
+        assert_eq!(ChainOptions::default().iso, 100);
+        assert!(!ChainOptions::default().skip_agx);
     }
 }
