@@ -125,32 +125,34 @@ describe('one image extent for the zoom model and the draw (#5746)', () => {
     wrap.dispatchEvent(event);
   }
 
-  /** The first frame of a two-finger pinch about the wrap centre: m = 1.001. */
+  const FIRST_FRAME_MAGNIFICATION = 1.001;
+  /** The first frame of a two-finger pinch about the wrap centre. */
   function firstPinchFrame(): void {
     pointer('pointerdown', 1, 500);
     pointer('pointerdown', 2, 700);
     pointer('pointermove', 2, 700.2);
   }
 
-  it('a small image: the first pinch frame keeps the fitted size', async () => {
+  it('a small image: the first pinch frame continues from the fitted size', async () => {
     await open({ filename: 'a.jpg', width: 800, height: 600 });
     canvasSvc.nativeDimensions.set({ w: 800, h: 600 });
     canvasSvc.paintedAspect.set({ w: 800, h: 600 });
-    const fitted = drawnWidth();
-    expect(fitted).toBe(1067);
+    const fittedWidth = (800 * 800) / 600;
+    expect(drawnWidth()).toBe(Math.round(fittedWidth));
     expect(fixture.componentInstance.zoomLabel()).toBe('267%');
     firstPinchFrame();
-    expect(drawnWidth()).toBe(fitted);
+    expect(drawnWidth()).toBe(Math.round(fittedWidth * FIRST_FRAME_MAGNIFICATION));
   });
 
-  it('a pinch before the native size lands keeps the fitted size, and so does the landing', async () => {
+  it('a pinch before the native size lands continues from the fitted size, and the landing keeps it', async () => {
     await open({ width: 6000, height: 4000 });
     canvasSvc.paintedAspect.set({ w: 1600, h: 1067 });
     expect(drawnWidth()).toBe(1200);
     firstPinchFrame();
-    expect(drawnWidth()).toBe(1200);
+    const pinched = Math.round(1200 * FIRST_FRAME_MAGNIFICATION);
+    expect(drawnWidth()).toBe(pinched);
     canvasSvc.nativeDimensions.set({ w: 6000, h: 4000 });
-    expect(drawnWidth()).toBe(1200);
+    expect(drawnWidth()).toBe(pinched);
   });
 
   it('with a crop applied, a fast or refine landing never resizes the photo', async () => {
