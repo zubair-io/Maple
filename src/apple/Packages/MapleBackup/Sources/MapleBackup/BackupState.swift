@@ -65,6 +65,7 @@ public actor BackupStateStore {
             """,
           arguments: [BackupState.failedRetry.rawValue, BackupState.pending.rawValue])
       }
+      try Self.addCompanionRepairColumn(in: db, columns: columns)
       // The local-edit revision each asset's sidecar upload last delivered
       // (#4719). The edit itself stays in AppSupportSidecarStore; this row is
       // what tells a newer local edit apart from the one already uploaded.
