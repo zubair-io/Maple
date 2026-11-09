@@ -85,6 +85,7 @@ fn chain_inputs_carry_a_registered_bitmap_raster() {
         &bytes,
         ext,
         &model,
+        16,
         None,
         0,
         super::develop_capture_prefix_rgba(&raw_img, &bytes, ext, &model, 16)
@@ -112,6 +113,7 @@ fn chain_inputs_carry_a_registered_bitmap_raster() {
         &bytes,
         ext,
         &unresolved,
+        16,
         None,
         0,
         super::develop_capture_prefix_rgba(&raw_img, &bytes, ext, &unresolved, 16)

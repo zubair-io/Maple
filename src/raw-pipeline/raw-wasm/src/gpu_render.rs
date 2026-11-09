@@ -404,8 +404,16 @@ async fn render_gpu_core_with_status(
     let prefix = develop_capture_prefix_rgba(raw_img, raw, ext, model, target)?;
     let (rgba, w, h) = (&prefix.rgba, prefix.width, prefix.height);
     // Film looks are session-resident; one-shot renders have no uploaded LUT.
-    let (mut inputs, auto_fit) =
-        chain_inputs_with_status(raw_img, raw, ext, model, None, 0, prefix.whites_anchor_ev);
+    let (mut inputs, auto_fit) = chain_inputs_with_status(
+        raw_img,
+        raw,
+        ext,
+        model,
+        target,
+        None,
+        0,
+        prefix.whites_anchor_ev,
+    );
     prefix.creative.apply(model, &mut inputs)?;
     inputs.nr_sampling_scale = prefix.nr_sampling_scale;
 

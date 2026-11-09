@@ -503,6 +503,7 @@ impl WebLiveSession {
                 &self.raw,
                 &self.ext,
                 model,
+                self.target_long_edge,
                 self.film_lut.as_ref(),
                 self.film_lut_key,
                 self.whites_anchor_ev,

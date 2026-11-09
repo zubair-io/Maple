@@ -103,6 +103,7 @@ impl Preparation {
             &self.bytes,
             &self.ext,
             &self.model,
+            self.edge,
             capture.whites_anchor_ev,
         )?;
         let auto_fit = auto_will_fit(&self.model, &self.bytes, &self.ext);

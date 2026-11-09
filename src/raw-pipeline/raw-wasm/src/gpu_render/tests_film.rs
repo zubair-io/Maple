@@ -58,8 +58,16 @@ fn chain_inputs_fold_film_lut_size_key_and_data() {
     let whites_anchor_ev = super::develop_capture_prefix_rgba(&raw_img, &bytes, ext, &model, 16)
         .expect("prefix anchor")
         .whites_anchor_ev;
-    let (no_look, _) =
-        super::chain_inputs_with_status(&raw_img, &bytes, ext, &model, None, 0, whites_anchor_ev);
+    let (no_look, _) = super::chain_inputs_with_status(
+        &raw_img,
+        &bytes,
+        ext,
+        &model,
+        16,
+        None,
+        0,
+        whites_anchor_ev,
+    );
     assert_eq!(no_look.whites_anchor_ev, whites_anchor_ev);
     assert_eq!(no_look.film_lut_size, 0, "no look ⇒ size 0");
     assert_eq!(no_look.film_lut_key, 0, "no look ⇒ key 0");
@@ -75,6 +83,7 @@ fn chain_inputs_fold_film_lut_size_key_and_data() {
         &bytes,
         ext,
         &model,
+        16,
         Some(&lut),
         4242,
         whites_anchor_ev,
@@ -90,8 +99,16 @@ fn chain_inputs_fold_film_lut_size_key_and_data() {
     // Clearing (the `set_film_lut(&[], _)` / `clear_film_lut` contract) must
     // reproduce the no-look inputs exactly — a session that loads then clears
     // a look renders identically to one that never loaded it.
-    let (cleared, _) =
-        super::chain_inputs_with_status(&raw_img, &bytes, ext, &model, None, 0, whites_anchor_ev);
+    let (cleared, _) = super::chain_inputs_with_status(
+        &raw_img,
+        &bytes,
+        ext,
+        &model,
+        16,
+        None,
+        0,
+        whites_anchor_ev,
+    );
     assert_eq!(cleared.film_lut_size, no_look.film_lut_size);
     assert_eq!(cleared.film_lut_key, no_look.film_lut_key);
     assert_eq!(cleared.film_lut_data, no_look.film_lut_data);
@@ -140,6 +157,7 @@ fn set_and_clear_film_lut_round_trips_through_the_same_session() {
             &bytes,
             ext,
             &model,
+            target,
             film,
             key,
             whites_anchor_ev,

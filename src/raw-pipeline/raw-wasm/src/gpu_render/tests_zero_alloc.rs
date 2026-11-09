@@ -201,12 +201,20 @@ fn exercise_auto_ticks(ctx: Option<&raw_gpu::GpuContext>) {
         }
         .write_to_bytes();
         let raw = raw_core::decode::decode_bytes(&bytes, "dng").unwrap();
-        let key = auto_profile::cache::CacheKey::from_bytes(&bytes, RenderQuality::Amaze);
-        if state > 0 {
-            auto_profile::cache::insert(key.clone(), auto_profile::curve::ProfileCurve::identity());
-        }
-        if state == 2 {
-            auto_profile::cache::insert_lut(key, auto_profile::lut::ColorLut::identity(3));
+        let standalone = auto_profile::cache::CacheKey::from_bytes(&bytes, RenderQuality::Amaze);
+        let render = standalone
+            .clone()
+            .with_origin(auto_profile::cache::FitOrigin::Render(None));
+        for key in [standalone, render] {
+            if state > 0 {
+                auto_profile::cache::insert(
+                    key.clone(),
+                    auto_profile::curve::ProfileCurve::identity(),
+                );
+            }
+            if state == 2 {
+                auto_profile::cache::insert_lut(key, auto_profile::lut::ColorLut::identity(3));
+            }
         }
         let mut model = AdjustmentModel {
             color_curve_hue_vs_hue: raw_core::types::adjustment::ToneCurve::new(vec![
@@ -222,7 +230,7 @@ fn exercise_auto_ticks(ctx: Option<&raw_gpu::GpuContext>) {
                 raw_gpu::LiveSession::new(ctx, &capture.rgba, capture.width, capture.height);
             (ctx, session.unwrap())
         });
-        let mut cached = LiveProfile::new(&raw, &bytes, "dng", &model, None, 0, anchor);
+        let mut cached = LiveProfile::new(&raw, &bytes, "dng", &model, 64, None, 0, anchor);
         capture.creative.apply(&model, &mut cached.inputs).unwrap();
         // A curve-only entry is Auto 2's cache marker: nothing is applied, so
         // the achieved outcome is unfitted (#5000).
@@ -261,7 +269,7 @@ fn exercise_auto_ticks(ctx: Option<&raw_gpu::GpuContext>) {
             assert_eq!(session.pool_alloc_count(ctx), before.unwrap());
         }
         let (mut oracle, status) =
-            super::chain_inputs_with_status(&raw, &bytes, "dng", &model, None, 0, anchor);
+            super::chain_inputs_with_status(&raw, &bytes, "dng", &model, 64, None, 0, anchor);
         capture.creative.apply(&model, &mut oracle).unwrap();
         assert_eq!(cached.auto_fit, status);
         assert_eq!(cached.inputs.profile_curve_flat, oracle.profile_curve_flat);
@@ -288,8 +296,16 @@ fn exercise_auto_ticks(ctx: Option<&raw_gpu::GpuContext>) {
         cached.update(&model);
         capture.creative.apply(&model, &mut cached.inputs).unwrap();
         assert_eq!(cached.inputs.film_lut_data.as_ref(), film.data.as_slice());
-        let (mut film_oracle, _) =
-            super::chain_inputs_with_status(&raw, &bytes, "dng", &model, Some(&film), 17, anchor);
+        let (mut film_oracle, _) = super::chain_inputs_with_status(
+            &raw,
+            &bytes,
+            "dng",
+            &model,
+            64,
+            Some(&film),
+            17,
+            anchor,
+        );
         capture.creative.apply(&model, &mut film_oracle).unwrap();
         if let Some((ctx, session)) = &gpu {
             assert_eq!(
@@ -344,7 +360,7 @@ fn exercise_auto_ticks(ctx: Option<&raw_gpu::GpuContext>) {
                 prefix,
                 cached.effective_ae(&changed)
             ));
-            let rebuilt = LiveProfile::new(&raw, &bytes, "dng", &changed, None, 0, anchor);
+            let rebuilt = LiveProfile::new(&raw, &bytes, "dng", &changed, 64, None, 0, anchor);
             assert_eq!(
                 rebuilt.auto_fit,
                 (changed.profile == Profile::Auto).then_some(achieved(state))

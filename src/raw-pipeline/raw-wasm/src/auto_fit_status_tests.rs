@@ -2,6 +2,7 @@
 use raw_core::view::auto_profile::AutoFitOutcome;
 use raw_core::xmp::{AdjustmentModel, Profile};
 
+const FIT_EDGE: u32 = 4096;
 #[test]
 #[ignore = "requires physical RAW; explicit invocation fails if absent"]
 fn actual_gpu_fit_status_physical_4096() {
@@ -14,10 +15,12 @@ fn actual_gpu_fit_status_physical_4096() {
         let raw = raw_core::decode::decode_bytes(&bytes, "dng").expect("physical decode");
         let auto = AdjustmentModel::default();
         let (curve_flat, lut_size, lut_data, status) =
-            crate::gpu_render::fit_profile_artifacts_with_status(&raw, &bytes, "dng", &auto);
+            crate::gpu_render::fit_profile_artifacts_with_status(
+                &raw, &bytes, "dng", &auto, FIT_EDGE,
+            );
         assert_eq!(status, Some(expected), "{name}");
         let mut resident = raw_core::gpu_host::live_profile::LiveProfile::new(
-            &raw, &bytes, "dng", &auto, None, 0, 0.0,
+            &raw, &bytes, "dng", &auto, FIT_EDGE, None, 0, 0.0,
         );
         assert_eq!(resident.auto_fit, status);
         assert_eq!(
@@ -54,7 +57,7 @@ fn actual_gpu_fit_status_physical_4096() {
 
         // Regression test (#4092): WebGPU helper must return the exact same physical Auto
         // artifacts (curve and residual LUT) as the browser CPU / export AMaZE route.
-        let (cpu_curve, cpu_lut) = raw_core::pipeline::fit_auto_profile_from_raw(
+        let (cpu_curve, cpu_lut) = raw_core::pipeline::fit_auto_profile_from_raw_at_cap(
             &raw,
             &auto,
             raw_core::pipeline::RenderQuality::Amaze,
@@ -62,6 +65,7 @@ fn actual_gpu_fit_status_physical_4096() {
                 bytes: &bytes,
                 ext: "dng",
             },
+            raw_core::pipeline::FitCap::Render(FIT_EDGE),
         )
         .unwrap_or((None, None));
         let expected_curve_flat = cpu_curve.map(|c| c.to_flat()).unwrap_or_default();
@@ -92,8 +96,9 @@ fn actual_gpu_fit_status_physical_4096() {
             profile: Profile::Neutral,
             ..auto
         };
-        let (curve, _, _, status) =
-            crate::gpu_render::fit_profile_artifacts_with_status(&raw, &bytes, "dng", &neutral);
+        let (curve, _, _, status) = crate::gpu_render::fit_profile_artifacts_with_status(
+            &raw, &bytes, "dng", &neutral, FIT_EDGE,
+        );
         assert_eq!(status, None);
         assert!(curve.is_empty(), "Neutral must carry no fitted curve");
         assert_eq!(std::fs::read(path).expect("original reread"), bytes);
@@ -111,11 +116,11 @@ fn amaze_fit_matches_cpu_export_and_discriminates_full() {
 
     // WebGPU helper with AMaZE (#4092)
     let (gpu_curve, gpu_lut_sz, gpu_lut, status) =
-        crate::gpu_render::fit_profile_artifacts_with_status(&raw, &bytes, "dng", &auto);
+        crate::gpu_render::fit_profile_artifacts_with_status(&raw, &bytes, "dng", &auto, FIT_EDGE);
     assert_eq!(status, Some(AutoFitOutcome::Applied));
 
     // Browser CPU export route with AMaZE
-    let (cpu_curve, cpu_lut) = raw_core::pipeline::fit_auto_profile_from_raw(
+    let (cpu_curve, cpu_lut) = raw_core::pipeline::fit_auto_profile_from_raw_at_cap(
         &raw,
         &auto,
         raw_core::pipeline::RenderQuality::Amaze,
@@ -123,6 +128,7 @@ fn amaze_fit_matches_cpu_export_and_discriminates_full() {
             bytes: &bytes,
             ext: "dng",
         },
+        raw_core::pipeline::FitCap::Render(FIT_EDGE),
     )
     .expect("AMaZE fit");
     let cpu_curve_flat = cpu_curve.map(|c| c.to_flat()).unwrap_or_default();
@@ -171,7 +177,7 @@ fn missing_fit_yields_absent_artifacts_not_identity() {
     // The synthetic grey DNG carries no embedded preview: Auto cannot fit.
     let auto = AdjustmentModel::default();
     let (curve, size, data, status) =
-        crate::gpu_render::fit_profile_artifacts_with_status(&raw, &bytes, "dng", &auto);
+        crate::gpu_render::fit_profile_artifacts_with_status(&raw, &bytes, "dng", &auto, FIT_EDGE);
     assert_eq!(
         status,
         Some(AutoFitOutcome::NoPreview),
@@ -190,8 +196,9 @@ fn missing_fit_yields_absent_artifacts_not_identity() {
         profile: Profile::Neutral,
         ..auto
     };
-    let (curve, size, data, status) =
-        crate::gpu_render::fit_profile_artifacts_with_status(&raw, &bytes, "dng", &neutral);
+    let (curve, size, data, status) = crate::gpu_render::fit_profile_artifacts_with_status(
+        &raw, &bytes, "dng", &neutral, FIT_EDGE,
+    );
     assert_eq!(status, None);
     assert!(curve.is_empty(), "Neutral must leave the curve absent");
     assert_eq!(size, 0, "Neutral must leave the LUT size 0");
