@@ -48,8 +48,9 @@ async function nativeValue(
     | 'workflowCheckpointXmp'
     | 'workflowCommitXmp'
     | 'workflowSnapshotXmp'
-    | 'workflowRestoreXmp',
-  args: [string] | [string, string],
+    | 'workflowRestoreXmp'
+    | 'workflowReconcileXmp',
+  args: [string] | [string, string] | [string, string, string, string],
   signal?: AbortSignal,
 ): Promise<string> {
   const result = await callNativeRetrying(method, args, signal);
@@ -241,7 +242,23 @@ export function commitWorkflowVariant(
     rawPath,
     id,
     expectedXmp,
-    async (current) => {
+    async (current, stale) => {
+      if (stale && current !== null) {
+        const existing = await record(current, signal);
+        if (existing?.history.some((item) => item.id === entry.id)) return current;
+        const base = expectedXmp === null ? null : await record(expectedXmp, signal);
+        const merged = await nativeValue(
+          'workflowReconcileXmp',
+          [expectedXmp ?? '', current, xmp, String(Date.now())],
+          signal,
+        );
+        const rewritten = {
+          ...entry,
+          adjustmentXmp: await nativeValue('workflowCheckpointXmp', [merged], signal),
+          parentId: base?.history.at(-1)?.id ?? '',
+        };
+        return nativeValue('workflowCommitXmp', [merged, JSON.stringify(rewritten)], signal);
+      }
       const checkpoint = await nativeValue('workflowCheckpointXmp', [xmp], signal);
       const existing = current === null ? null : await record(current, signal);
       const candidate =
@@ -252,6 +269,7 @@ export function commitWorkflowVariant(
     },
     signal,
     admissionScope,
+    true,
   );
 }
 export function snapshotWorkflowVariant(
@@ -305,21 +323,24 @@ async function mutateVariant(
   rawPath: string,
   id: string,
   expectedXmp: string | null,
-  convert: (current: string | null) => Promise<string>,
+  convert: (current: string | null, stale: boolean) => Promise<string>,
   signal?: AbortSignal,
   admissionScope?: SidecarWriteScope,
+  reconcileStale = false,
 ): Promise<string> {
   return serializeSidecarWrite(
     admissionDestination(rawPath, id),
     async (destination) => {
       signal?.throwIfAborted();
       const current = await readWorkflowVariant(rawPath, id, signal);
-      if (current !== expectedXmp)
+      const stale = current !== expectedXmp;
+      if (stale && (!reconcileStale || current === null))
         throw new WorkflowVariantError(
           409,
           'Variant changed. Reopen it before saving this action.',
         );
-      const output = await convert(current);
+      const output = await convert(current, stale);
+      if (output === current) return output;
       requireIdentity(await record(output, signal), id, path.basename(destination));
       const result =
         current === null

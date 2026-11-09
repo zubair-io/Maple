@@ -640,11 +640,14 @@ Presets are **not** stored in XMP. A preset is a named, schema-versioned _sparse
 Selected-variant stores also provide confirmed semantic commit, immutable
 snapshot and restore operations (#4045). Each requires the exact complete XMP
 last observed by the caller, with explicit `null` for an absent primary. A stale
-writer fails before publication. A successful response is the complete XML
+snapshot or restore fails before publication; a stale commit is reconciled (see
+"Edit history, lineage and conflicts") instead of refused, except against a
+deleted file. A successful response is the complete XML
 actually written; reopening reconstructs its snapshots and bounded history.
 Commit merges new adjustment XML with the currently stored authoring record.
 Apple coordinates cooperating store instances with `NSFileCoordinator`, Hosted
-Web uses Web Locks, and Self Hosted serializes writers by resolved sidecar path.
+Web uses Web Locks, and Self Hosted serializes writers by resolved sidecar path
+and reconciles a stale commit inside that barrier (`POST /api/xmp/variant/commit`).
 These coordination contracts do not promise compare-and-swap against unrelated
 applications that write outside them. Editor transaction hooks and one-step
 Undo remain under #2437.
@@ -774,7 +777,8 @@ inside it. Failed captured actions remain queued for flush or subsequent preview
 save; changing folders cannot redirect a previous gesture's sidecar. Named records
 in a primary sidecar and unsupported Workflow records fail without publication.
 Server primary ordinary and selected semantic saves share one canonical-path
-sequencing barrier (#4051). Ordinary saves retain the latest persisted Workflow
+sequencing barrier (#4051); a stale commit reconciles on the server inside it
+(#4983). Ordinary saves retain the latest persisted Workflow
 record even if incoming XML carries an older copy. Successful selected-primary
 write, commit, snapshot and restore operations publish the library sidecar state
 and change feed; named-variant operations leave the primary index unchanged.
