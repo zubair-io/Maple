@@ -52,9 +52,18 @@ public actor BackupStateStore {
       // Set while a photo's Live Photo video or edited render is still owed to
       // the server. Only the engine delivering them clears it, so a walk that
       // finds the original already on the server cannot settle the row (#5777).
+      // An earlier version could have left any failed or retrying row with its
+      // original on the server and its companions undelivered, so those start
+      // owing; the next delivery or Retry clears what was never owed.
       if !columns.contains("companions_owed") {
         try db.execute(
           sql: "ALTER TABLE tasks ADD COLUMN companions_owed INTEGER NOT NULL DEFAULT 0")
+        try db.execute(
+          sql: """
+            UPDATE tasks SET companions_owed = 1
+             WHERE state = ? OR (state = ? AND retry_count > 0)
+            """,
+          arguments: [BackupState.failedRetry.rawValue, BackupState.pending.rawValue])
       }
       // The local-edit revision each asset's sidecar upload last delivered
       // (#4719). The edit itself stays in AppSupportSidecarStore; this row is

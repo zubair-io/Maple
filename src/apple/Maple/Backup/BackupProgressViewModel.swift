@@ -144,17 +144,18 @@ public final class BackupProgressViewModel {
   /// How many distinct assets we've observed enqueued in this session.
   /// Resets if `.start(queue:)` is called against a different queue.
   public private(set) var totalEnqueued: Int = 0
-  /// How many have had their bytes land (`.completed`). Per #701 this is the
-  /// photo-success signal — companions land best-effort afterward. It is NOT
-  /// the "fully done" count; subtract the companions-pending set for that.
+  /// How many have landed (`.completed`): the original plus its rendered twin
+  /// and Live Photo video. Per #701 this is the photo-success signal — only
+  /// the edit sidecar lands best-effort afterward. It is NOT the "fully done"
+  /// count; subtract the companions-pending set for that.
   public private(set) var totalCompleted: Int = 0
   /// How many have hit the max-retry ceiling and stopped retrying.
   public private(set) var totalFailed: Int = 0
 
-  /// Tasks whose bytes landed but which still have ≥1 best-effort companion
-  /// (sidecar / rendered / live-mov) outstanding in its bounded retry path
-  /// (#702). Driven by `.companionPending` / `.companionsResolved`. Used to
-  /// split `totalCompleted` into "done" vs "uploaded — companions pending".
+  /// Tasks that landed but whose best-effort edit sidecar is still in its
+  /// bounded retry path (#702). Driven by `.companionPending` /
+  /// `.companionsResolved`. Used to split `totalCompleted` into "done" vs
+  /// "uploaded — companions pending".
   private var pendingCompanions: Set<BackupTaskID> = []
 
   /// Photos fully landed — bytes AND all companions. Disjoint from

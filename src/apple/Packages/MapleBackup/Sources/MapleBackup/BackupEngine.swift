@@ -9,10 +9,10 @@ import os
 
 public actor BackupEngine {
 
-  /// Diagnostics for the best-effort companion path (#700). Surfaces which
-  /// companion (sidecar / rendered / live-mov) is retrying or has exhausted
-  /// its bounded budget, so a stranded artifact is visible in Console.app
-  /// without failing the (already-uploaded) photo.
+  /// Diagnostics for the best-effort edit-sidecar path (#700). Surfaces a
+  /// sidecar that is retrying or has exhausted its bounded budget, so a
+  /// stranded edit is visible in Console.app without failing the
+  /// (already-uploaded) photo.
   static let companionLog = Logger(
     subsystem: "app.justmaple.aperture", category: "backup.companion")
 
@@ -416,16 +416,16 @@ public actor BackupEngine {
     // best-effort: an inline first attempt, then a bounded detached retry.
     // It never throws out of here and never emits `.failed`, which would
     // double-count the photo in the progress VM (already `.completed`).
-    await uploadCompanionsBestEffort(task: task, read: read, result: result)
+    await sendEditSidecarBestEffort(task: task, read: read, result: result)
   }
 
-  // MARK: - Best-effort companions (#700)
+  // MARK: - Best-effort edit sidecar (#700)
 
   /// Upload the local-edit sidecar for a photo that has already landed. The
   /// inline attempt is followed by a bounded detached retry on failure, and
   /// the delivered revision is tracked separately (#4719). Nothing here can
   /// fail the photo or re-upload the bytes.
-  private func uploadCompanionsBestEffort(
+  private func sendEditSidecarBestEffort(
     task: BackupTask,
     read: AssetReadResult,
     result: UploadClient.Result
@@ -463,7 +463,6 @@ public actor BackupEngine {
           id: task.id, targetRelPath: result.targetRelPath, mapleId: read.mapleId)
       }
     }
-
   }
 
   /// `read` with its deferred companions' bytes filled in. A companion that
