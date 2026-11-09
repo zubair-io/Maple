@@ -21,6 +21,42 @@ public enum VideoCaptureDate {
     return captureDate(fromMoov: moov)
   }
 
+  /// The same date read through ranged reads: top-level box headers are
+  /// walked without touching `mdat`, then only the `moov` payload is read —
+  /// the server's `readTopLevelBox`. Throws only what `reader` throws.
+  public static func iso8601UTC(from reader: ByteRangeReader) async throws -> String? {
+    guard let moov = try await moovPayload(in: reader) else { return nil }
+    return captureDate(fromMoov: moov)
+  }
+
+  private static func moovPayload(in reader: ByteRangeReader) async throws -> Data? {
+    var offset: UInt64 = 0
+    while offset + 8 <= reader.size {
+      let header = try await reader.read(offset: offset, length: 16)
+      guard header.count >= 8 else { return nil }
+      let declared = u32(header, 0)
+      var size = UInt64(declared)
+      var headerLength: UInt64 = 8
+      if declared == 1 {
+        guard header.count >= 16 else { return nil }
+        size = u64(header, 8)
+        headerLength = 16
+      } else if declared == 0 {
+        size = reader.size - offset
+      }
+      guard size >= headerLength, size <= reader.size - offset else { return nil }
+      if String(decoding: header[header.startIndex + 4..<header.startIndex + 8], as: UTF8.self)
+        == "moov"
+      {
+        let payloadLength = Int(size - headerLength)
+        let payload = try await reader.read(offset: offset + headerLength, length: payloadLength)
+        return payload.count == payloadLength ? payload : nil
+      }
+      offset += size
+    }
+    return nil
+  }
+
   private static func captureDate(fromMoov moov: Data) -> String? {
     let boxes = children(of: moov)
     let mvhdDate = boxes.last(where: { $0.type == "mvhd" }).flatMap { mvhdISO($0.payload) }

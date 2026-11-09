@@ -1,10 +1,12 @@
 import { test, expect } from 'bun:test';
 import { mkdtemp, writeFile, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { extname, join } from 'node:path';
 import vectors from '../../../test-fixtures/ids/parser.json';
 import * as api from '../src/indexer/id.ts';
 import { readExif } from '../src/indexer/exif.ts';
+import { VIDEO_EXTS } from '../src/indexer/media-types.ts';
+import { videoCaptureDate } from '../../web/projects/maple-common/src/lib/addressing/video-capture-date.ts';
 import * as web from '../../web/projects/maple-common/src/lib/addressing/maple-id-parser.ts';
 import { MAPLE_ID_DERIVATION_VERSION } from '../src/generated/maple-id-derivation-version.generated.ts';
 
@@ -20,7 +22,7 @@ for (const [name, implementation] of Object.entries({ api, web })) {
 }
 
 test('maple_id derivation version is single-sourced from raw-core', () => {
-  expect(MAPLE_ID_DERIVATION_VERSION).toBe(1);
+  expect(MAPLE_ID_DERIVATION_VERSION).toBe(2);
 });
 
 test('70,001-byte golden preserves primary and the full-file fallback on the server, browser and native paths', async () => {
@@ -40,36 +42,32 @@ test('70,001-byte golden preserves primary and the full-file fallback on the ser
   }
 });
 
-// #5001: a dated QuickTime file. The server reads the creationdate key (it
-// wins over mvhd, and its offset is converted to UTC) and hashes the primary
-// form; the device reader (VideoCaptureDate.swift) and raw-core pin the same
-// date and id from this same file.
-test('dated-video golden: QuickTime creationdate drives the primary id', async () => {
-  const path = new URL('../../../test-fixtures/ids/dated-video.mov', import.meta.url).pathname;
-  const exif = await readExif(path);
-  expect(exif?.captured_at).toBe('2026-04-05T18:26:20.000Z');
-  const bytes = new Uint8Array(await readFile(path));
-  expect(api.primary(bytes, exif!.captured_at!, null, null).hex).toBe(
-    '01b176338229c1cb8b9ddfc6235e829d',
-  );
-});
+// The shared derivation corpus (#5079): the server's reader, the web port and
+// every device client must agree on each file's capture date and id. The Swift
+// (MapleIdDerivationContractTests), raw-core (maple_id_derivation_corpus.rs) and web
+// (maple-id-derivation-contract.spec.ts) suites pin the same `derivation.json`.
+const derivation = JSON.parse(
+  await readFile(new URL('../../../test-fixtures/ids/derivation.json', import.meta.url), 'utf8'),
+) as { cases: { file: string; capturedAt: string | null; id: string }[] };
 
-test('placeholder original-date stills: the server falls back to CreateDate or rolls the zero date', async () => {
-  const goldens = {
-    'still-blank-original-date.jpg': [
-      '2024-06-01T12:34:56.000Z',
-      '01b070aac318b20a45cf629b2d2f1709',
-    ],
-    'still-zero-original-date.jpg': [
-      '1899-11-30T00:00:00.000Z',
-      '012f4ad811f9fb08900967db02879d0d',
-    ],
-  };
-  for (const [name, [capturedAt, id]] of Object.entries(goldens)) {
-    const file = join(import.meta.dir, '../../../test-fixtures/ids', name);
-    const exif = await readExif(file);
-    expect(exif?.captured_at).toBe(capturedAt);
-    const head = new Uint8Array(await readFile(file)).subarray(0, 65536);
-    expect(api.deriveId(head, capturedAt, null, null).hex).toBe(id);
+for (const { file, capturedAt, id } of derivation.cases) {
+  test(`derivation corpus: the server dates and hashes ${file}`, async () => {
+    const path = new URL(`../../../test-fixtures/ids/${file}`, import.meta.url).pathname;
+    expect((await readExif(path))?.captured_at ?? null).toBe(capturedAt);
+    const bytes = new Uint8Array(await readFile(path));
+    const derived =
+      capturedAt === null
+        ? api.fallback(bytes, bytes.length)
+        : api.primary(bytes, capturedAt, null, null);
+    expect(derived.hex).toBe(id);
+  });
+
+  if (VIDEO_EXTS.has(extname(file))) {
+    test(`derivation corpus: the web moov reader dates ${file} as the server does`, async () => {
+      const blob = Bun.file(
+        new URL(`../../../test-fixtures/ids/${file}`, import.meta.url).pathname,
+      );
+      expect(await videoCaptureDate(blob)).toBe(capturedAt);
+    });
   }
-});
+}

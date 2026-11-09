@@ -236,6 +236,13 @@ Describe and video-describe accumulate reported provider charges in their respec
 
 The server and every client that mints a maple_id (Apple Filesystem, SMB and PhotoKit backup sources, the browser's Hosted mode) must date a file identically, because the primary form hashes the capture time. The rules that choose that date are versioned by `raw_core::id::MAPLE_ID_DERIVATION_VERSION`, which `tools/codegen.sh` emits as `MapleIdDerivationVersion.current` (Swift) and `MAPLE_ID_DERIVATION_VERSION` (API and web TypeScript). Device id caches (`.maple/id-cache-apple.json`, the browser's `maple-id-cache` IndexedDB store) stamp every row with the version and treat a row from another version as a miss, so ids derived by older rules re-derive once (#5106). Bump the constant in the same change that alters which date a client reads for any file type. The hash forms themselves are unversioned.
 
+Which date a client reads, by file type:
+
+- **Video** (`VIDEO_EXTS`, `SidecarPath.videoExtensions`, the web's `VIDEO_EXTENSIONS`): the QuickTime `moov` atom's `com.apple.quicktime.creationdate` key, else `mvhd` creation time, never EXIF (`indexer/video-metadata.ts`, `VideoCaptureDate.swift`, `video-capture-date.ts`). A file with no `moov` has no date and takes the fallback form (#5079, version 2).
+- **Everything else**: `asIsoDate(DateTimeOriginal) ?? asIsoDate(CreateDate)` over the raw EXIF strings (`ExifCaptureDate.swift`, `captured-at.ts`, #5082).
+
+`test-fixtures/ids/derivation.json` lists files with the capture date and id the server derives; the API (`maple-id-contract.test.ts`), raw-core (`maple_id_derivation_corpus.rs`), MapleCore (`MapleIdDerivationContractTests`) and web (`maple-id-derivation-contract.spec.ts`) suites all pin it, so a client that dates a file differently fails its own suite.
+
 ### On-demand previews
 
 A cold-cache `GET /api/preview/:slug/*` renders the preview in the API process, ahead of the `preview` stage's backlog (#5433, `indexer/ondemand-preview.ts`):

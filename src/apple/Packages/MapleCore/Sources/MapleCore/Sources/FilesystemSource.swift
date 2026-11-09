@@ -332,9 +332,9 @@ extension FilesystemSource: ImageSource {
         refs.reserveCapacity(_assets.count)
         for fa in _assets {
             let id = await mapleId(for: fa) ?? fa.url.path
-            let captureDate = index?.entries[fa.url.lastPathComponent]?.dateTimeOriginal
-                .flatMap { ExifCaptureDate.iso8601UTC(fromExifString: $0) }
-                .flatMap { ISO8601FlexibleDateDecoding.date(from: $0) }
+            let captureDate = await captureDate(
+                for: fa,
+                indexedDateTimeOriginal: index?.entries[fa.url.lastPathComponent]?.dateTimeOriginal)
             refs.append(ImageRef(
                 id: id,
                 displayName: fa.name,

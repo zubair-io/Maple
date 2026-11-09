@@ -194,4 +194,50 @@ final class VideoCaptureDateTests: XCTestCase {
     XCTAssertNil(VideoCaptureDate.iso8601UTC(fromVideoBytes: Data(box("ftyp", [0, 0, 0, 0]))))
     XCTAssertNil(VideoCaptureDate.iso8601UTC(fromVideoBytes: Data([0x00, 0x01])))
   }
+
+  // MARK: - Ranged reads (#5079)
+
+  func testRangedReaderAgreesWithTheInMemoryReader() async throws {
+    let truncated = Data(video(mvhd(unix: 1_700_000_000)).prefix(30))
+    let files = [
+      try Data(contentsOf: goldenURL()),
+      video(mvhd(unix: 1_700_000_000)),
+      video(mvhd(unix: 1_700_000_000) + meta(creationDate: "2024-03-01T10:00:00+0100")),
+      video(meta(creationDate: "not a date")),
+      Data(box("ftyp", [0, 0, 0, 0])),
+      Data([0x00, 0x01]),
+      truncated,
+    ]
+    for file in files {
+      let ranged = try await VideoCaptureDate.iso8601UTC(from: .data(file))
+      XCTAssertEqual(ranged, VideoCaptureDate.iso8601UTC(fromVideoBytes: file))
+    }
+  }
+
+  func testRangedReaderSeeksPastMdatToTheMoovAtTheEnd() async throws {
+    let bytes = Data(
+      box("ftyp", Array("qt  ".utf8) + u32(0))
+        + box("mdat", [UInt8](repeating: 7, count: 1_000_000))
+        + box("moov", mvhd(unix: 1_700_000_000)))
+    var bytesRead = 0
+    let reader = ByteRangeReader(size: UInt64(bytes.count)) { offset, length in
+      bytesRead += length
+      return try await ByteRangeReader.data(bytes).read(offset: offset, length: length)
+    }
+    let date = try await VideoCaptureDate.iso8601UTC(from: reader)
+    XCTAssertEqual(date, "2023-11-14T22:13:20.000Z")
+    XCTAssertLessThan(bytesRead, 1_000, "only box headers and the moov payload are read")
+  }
+
+  func testRangedReaderPropagatesAReadFailure() async {
+    struct Unreadable: Error {}
+    let reader = ByteRangeReader(size: 64) { _, _ in throw Unreadable() }
+    do {
+      _ = try await VideoCaptureDate.iso8601UTC(from: reader)
+      XCTFail("a read failure must not look like an undated video")
+    } catch is Unreadable {
+    } catch {
+      XCTFail("unexpected \(error)")
+    }
+  }
 }
