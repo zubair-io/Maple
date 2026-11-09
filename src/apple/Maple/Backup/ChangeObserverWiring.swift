@@ -325,17 +325,17 @@ enum ChangeObserverWiring {
     // Server PHID reconciliation: only what the server recorded since the
     // last walk, unless this walk needs the full set.
     progress.setWalkPhase(.checkingServer)
-    let (serverKnownPhids, serverHeld, maxServerFirstSeen) = await fetchServerState(
+    let server = await fetchServerState(
       deviceId: deviceId, libraryId: libraryId, serverBaseURL: serverBaseURL,
       since: cursor.serverSince(fullScan: isFullScan, hasUndeliveredEdits: hasUndeliveredEdits))
+    let serverKnownPhids = server.knownPhids
     guard !Task.isCancelled else { return }
 
     // A server-held original whose companions are still owed is not backed up.
     let owingCompanions = (try? await state.phidsOwingCompanions(deviceId: deviceId)) ?? []
     let serverBackedUp = serverKnownPhids.subtracting(owingCompanions)
-    progress.recordLibrarySnapshot(
-      photoIDs: libraryPhotoIDs,
-      backedUpIDs: local.backedUpPhids.union(serverBackedUp).intersection(libraryPhotoIDs))
+    let backedUpIDs = local.backedUpPhids.union(serverBackedUp).intersection(libraryPhotoIDs)
+    progress.recordLibrarySnapshot(photoIDs: libraryPhotoIDs, backedUpIDs: backedUpIDs)
     progress.removePendingPhotoIDs(serverBackedUp)
 
     // Server-held photos are recorded only when they are in the library, so
@@ -358,8 +358,21 @@ enum ChangeObserverWiring {
           await queue.cancel(settled)
         })
     else { return }
-    if let maxServerFirstSeen {
+    if let maxServerFirstSeen = server.maxFirstSeen {
       try? await state.updateServerReconciledAt(deviceId: deviceId, since: maxServerFirstSeen)
+    }
+
+    // Photos recorded as uploaded may still lack a companion an earlier
+    // version dropped; only a full scan sees the server's whole listing.
+    let repair: Set<String>? =
+      isFullScan
+      ? await repairMissingCompanions(
+        outcome.assets, deviceId: deviceId, settings: settings,
+        serverCompanions: server.companions, state: state, queue: queue) : []
+    guard let repaired = repair else { return }
+    if !repaired.isEmpty {
+      progress.recordLibrarySnapshot(
+        photoIDs: libraryPhotoIDs, backedUpIDs: backedUpIDs.subtracting(repaired))
     }
 
     let datesToBackfill = capturedAtByPhid.filter {
@@ -418,13 +431,13 @@ enum ChangeObserverWiring {
     }
 
     log.info(
-      "walk done: enqueued=\(newTasks.count) retried=\(retriedCount) reconciled-uploaded=\(serverHeldTasks.count) totalEligible=\(libraryPhotoIDs.count)"
+      "walk done: enqueued=\(newTasks.count) retried=\(retriedCount) companion-repairs=\(repaired.count) reconciled-uploaded=\(serverHeldTasks.count) totalEligible=\(libraryPhotoIDs.count)"
     )
 
     // Photos the server already holds can still carry a newer local edit than
     // the one they were uploaded with; send those on top (#4719).
-    if let engine = EngineHost.shared.engine, !serverHeld.isEmpty {
-      await engine.resendNewerEdits(serverHeld)
+    if let engine = EngineHost.shared.engine, !server.held.isEmpty {
+      await engine.resendNewerEdits(server.held)
     }
 
     guard !Task.isCancelled else { return }
@@ -435,7 +448,7 @@ enum ChangeObserverWiring {
     progress.recordWalkSummary(
       BackupProgressViewModel.WalkSummary(
         enumerated: libraryPhotoIDs.count,
-        enqueued: newTasks.count + retriedCount,
+        enqueued: newTasks.count + retriedCount + repaired.count,
         failedPermanently: failedPermanently,
         finishedAt: Date()))
   }
@@ -465,9 +478,22 @@ enum ChangeObserverWiring {
     }
   }
 
+  /// What the server's backup listing says about this device's photos.
+  private struct ServerState {
+    let knownPhids: Set<String>
+    let held: [ServerHeldAsset]
+    let maxFirstSeen: String?
+    /// The companions held beside each original, for photos the server
+    /// reports them for.
+    let companions: [String: BackupCompanions]
+
+    static let unavailable = ServerState(
+      knownPhids: [], held: [], maxFirstSeen: nil, companions: [:])
+  }
+
   private static func fetchServerState(
     deviceId: String, libraryId: String, serverBaseURL: URL, since: String?
-  ) async -> (Set<String>, [ServerHeldAsset], String?) {
+  ) async -> ServerState {
     let stateClient = BackupStateClient(
       baseURL: LocalNetworkResolver.shared.effectiveURL(for: serverBaseURL),
       libraryId: libraryId, deviceId: deviceId,
@@ -483,22 +509,26 @@ enum ChangeObserverWiring {
             targetRelPath: $0, mapleId: asset.mapleId)
         }
       }
+      let companions = Dictionary(
+        known.compactMap { asset in asset.companions.map { (asset.phassetLocalId, $0) } },
+        uniquingKeysWith: { first, second in first.union(second) })
       log.info(
         "walk server-state reconciliation: server returned \(phids.count) phids (since=\(since ?? "nil", privacy: .public))"
       )
-      return (phids, held, maxFirstSeen)
+      return ServerState(
+        knownPhids: phids, held: held, maxFirstSeen: maxFirstSeen, companions: companions)
     } catch {
       if !Task.isCancelled {
         BackupIssueStatus.log(
           .warning, "Backup server check unavailable; using local records: \(error)")
       }
-      return ([], [], nil)
+      return .unavailable
     }
   }
 
   /// Runs `write` over `tasks` 256 at a time, passing how many have been
   /// written once the batch lands. A failed write fails the walk.
-  private static func writeInBatches(
+  static func writeInBatches(
     _ tasks: [BackupTask], _ write: ([BackupTask], Int) async throws -> Void
   ) async -> Bool {
     for offset in stride(from: 0, to: tasks.count, by: 256) {

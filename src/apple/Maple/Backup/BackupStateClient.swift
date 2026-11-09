@@ -9,7 +9,9 @@
 // reinstalling the local SQLite state makes a restart re-upload every photo.
 //
 // Server contract: src/api/src/routes/backup-state.ts
-//   200 { assets: [ { phasset_local_id, first_seen, maple_id, rel_path }, ... ] }
+//   200 { assets: [ { phasset_local_id, first_seen, maple_id, rel_path,
+//                     has_live_video, has_rendered }, ... ] }
+// The companion fields are absent from servers that predate #5778.
 //
 // Network errors propagate so the caller can choose to skip reconciliation
 // (and fall back to local-state-only behaviour) rather than block the walk.
@@ -27,12 +29,26 @@ actor BackupStateClient {
     let firstSeen: String?
     let mapleId: String?
     let relPath: String?
+    let hasLiveVideo: Bool?
+    let hasRendered: Bool?
+
+    /// The companions the server holds beside the original, or nil when the
+    /// server does not report them.
+    var companions: BackupCompanions? {
+      guard let hasLiveVideo, let hasRendered else { return nil }
+      return BackupCompanions([
+        hasLiveVideo ? .liveVideo : [],
+        hasRendered ? .rendered : [],
+      ])
+    }
 
     enum CodingKeys: String, CodingKey {
       case phassetLocalId = "phasset_local_id"
       case firstSeen = "first_seen"
       case mapleId = "maple_id"
       case relPath = "rel_path"
+      case hasLiveVideo = "has_live_video"
+      case hasRendered = "has_rendered"
     }
   }
 

@@ -18,6 +18,9 @@ private let discoveryLog = Logger(
 struct DiscoveredAsset: Sendable, Hashable {
   let phid: String
   let capturedAt: Date?
+  /// What the asset's subtype and edit state say it may carry beside the
+  /// original; the companion repair confirms these against its resources.
+  let possibleCompanions: BackupCompanions
 }
 
 /// Every eligible asset after a full scan, or only those PhotoKit reports
@@ -154,7 +157,10 @@ extension ChangeObserverWiring {
         return
       }
       cacheUpdate[asset.localIdentifier] = asset
-      out.append(DiscoveredAsset(phid: asset.localIdentifier, capturedAt: asset.creationDate))
+      out.append(
+        DiscoveredAsset(
+          phid: asset.localIdentifier, capturedAt: asset.creationDate,
+          possibleCompanions: possibleCompanions(of: asset)))
     }
     PhotoKitCatalog.shared.mergeAssetCache(cacheUpdate)
     return out
