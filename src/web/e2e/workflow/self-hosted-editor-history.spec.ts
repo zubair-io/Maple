@@ -50,7 +50,7 @@ for (const [scenario, expected] of Object.entries(expectations)) {
 }
 
 const corpus = JSON.parse(
-  readFileSync(resolve('../../test-fixtures/workflow/contract-v1.json'), 'utf8'),
+  readFileSync(resolve('../../test-fixtures/workflow/contract.json'), 'utf8'),
 );
 test('Self Hosted creates absent primary sidecar through actual semantic commits', async ({
   page,

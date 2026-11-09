@@ -61,7 +61,7 @@ impl SidecarWorkflow {
         record.committed(entry)?.embed_compacted(&checkpoint)
     }
 
-    fn matches_checkpoint(captured: &str, current: &str) -> Result<bool, String> {
+    pub(super) fn matches_checkpoint(captured: &str, current: &str) -> Result<bool, String> {
         if captured == current {
             return Ok(true);
         }
@@ -74,7 +74,7 @@ impl SidecarWorkflow {
         Ok(Self::checkpoint_xmp(&embedded)? == current)
     }
 
-    fn embed_compacted(&self, xmp: &str) -> Result<String, String> {
+    pub(super) fn embed_compacted(&self, xmp: &str) -> Result<String, String> {
         // Both the record's JSON and the outer XML must fit. Escaped authored
         // masks may hit the XML bound first; retain the newest independent
         // checkpoint and all snapshots, dropping only oldest history entries.

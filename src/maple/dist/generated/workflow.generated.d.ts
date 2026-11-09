@@ -1,11 +1,12 @@
-export declare const WORKFLOW_VERSION = 1;
+export declare const WORKFLOW_VERSION = 2;
 export declare const WORKFLOW_HISTORY_LIMIT = 32;
 export declare const WORKFLOW_MAX_BYTES = 262144;
+export declare const WORKFLOW_WRITER_MAX_BYTES = 64;
 export declare const PRIMARY_VARIANT_ID = "primary";
 export declare const WORKFLOW_MAX_TIMESTAMP_MS = 9007199254740991;
 export declare const WORKFLOW_MARKUP_PATTERN = "<(?:[^<\\s:]+:)?Workflow(?=[\\s/>])";
 export declare const WORKFLOW_UUID_PATTERN = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
-export declare const WORKFLOW_ACTIONS: readonly ["adjustment", "preset", "paste", "reset", "snapshot-restore", "history-restore", "undo", "redo", "variant-create"];
+export declare const WORKFLOW_ACTIONS: readonly ["adjustment", "preset", "paste", "reset", "snapshot-restore", "history-restore", "undo", "redo", "variant-create", "external"];
 export interface WorkflowSnapshot {
     readonly id: string;
     readonly name: string;
@@ -17,6 +18,8 @@ export interface WorkflowHistoryEntry {
     readonly createdAtMs: number;
     readonly action: string;
     readonly label: string;
+    readonly parentId?: string;
+    readonly writer?: string;
     readonly adjustmentXmp: string;
 }
 export interface SidecarWorkflow {

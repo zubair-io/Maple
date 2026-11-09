@@ -7,7 +7,7 @@ const XMP: &str = include_str!(concat!(
 fn workflow() -> SidecarWorkflow {
     let json = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../../../test-fixtures/workflow/contract-v1.json"
+        "/../../../test-fixtures/workflow/contract.json"
     ));
     let rows: Vec<serde_json::Value> = serde_json::from_str(json).unwrap();
     SidecarWorkflow::parse(&rows[1].to_string()).unwrap()
@@ -51,7 +51,7 @@ fn checkpoint_removes_only_validated_owned_region_and_preserves_exact_foreign_by
 fn checkpoint_capture_refuses_future_malformed_or_rebound_owned_content() {
     let embedded = workflow().embed_in_xmp(XMP).unwrap();
     for xml in [
-        embedded.replace("<papp:SchemaVersion>1", "<papp:SchemaVersion>2"),
+        embedded.replace("<papp:SchemaVersion>2", "<papp:SchemaVersion>3"),
         embedded.replace("<papp:VariantId>", "<papp:UnknownId>"),
         embedded.replace("http://ns.justmaple.app/photo/1.0/", "urn:future"),
         embedded
@@ -131,13 +131,13 @@ fn unsupported_future_duplicate_or_unknown_workflow_is_never_replaced() {
         &format!("</papp:Workflow><papp:Workflow{region}</papp:Workflow>"),
     );
     for invalid in [
-        xml.replace("<papp:SchemaVersion>1", "<papp:SchemaVersion>2"),
+        xml.replace("<papp:SchemaVersion>2", "<papp:SchemaVersion>3"),
         xml.replace("<papp:VariantName>", "<papp:FutureName>")
             .replace("</papp:VariantName>", "</papp:FutureName>"),
         xml.replace("rdf:parseType=\"Resource\"", "papp:Future=\"value\""),
         xml.replace(
-            "<papp:SchemaVersion>1</papp:SchemaVersion>",
-            "<papp:SchemaVersion>1</papp:SchemaVersion><papp:SchemaVersion>1</papp:SchemaVersion>",
+            "<papp:SchemaVersion>2</papp:SchemaVersion>",
+            "<papp:SchemaVersion>2</papp:SchemaVersion><papp:SchemaVersion>2</papp:SchemaVersion>",
         ),
         xml.replace(
             "<papp:VariantName>",

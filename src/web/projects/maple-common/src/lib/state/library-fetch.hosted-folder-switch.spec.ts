@@ -40,6 +40,7 @@ import { WorkflowVariantStoreService } from '../xmp/workflow-variant-store.servi
 import { WorkflowXmpService } from '../xmp/workflow-xmp.service';
 import {
   parseSidecarWorkflow,
+  WORKFLOW_VERSION,
   type SidecarWorkflow,
   type WorkflowHistoryEntry,
   type WorkflowSnapshot,
@@ -233,7 +234,7 @@ describe('Hosted openFolder with a stale focused asset (#4683)', () => {
     const variantId = '0f4e2b6a-7c3d-4e5f-8a9b-0c1d2e3f4a5b';
     const variantXml = workflow_embed_xmp(
       JSON.stringify({
-        schemaVersion: 1,
+        schemaVersion: WORKFLOW_VERSION,
         variantId,
         variantName: 'Edited',
         snapshots: [],
@@ -263,7 +264,7 @@ describe('Hosted openFolder with a stale focused asset (#4683)', () => {
       join(folderA.persistedKey!, variantName),
       workflow_embed_xmp(
         JSON.stringify({
-          schemaVersion: 1,
+          schemaVersion: WORKFLOW_VERSION,
           variantId,
           variantName: 'Edited',
           snapshots: [],

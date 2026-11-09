@@ -1,0 +1,474 @@
+<?xpacket begin="﻿" id="W5M0MpCehiHzreSzNTczkc9d"?>
+<x:xmpmeta xmlns:x="adobe:ns:meta/">
+  <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+    <rdf:Description rdf:about=""
+      xmlns:xmp="http://ns.adobe.com/xap/1.0/"
+      xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/"
+      xmlns:papp="http://ns.justmaple.app/photo/1.0/"
+      crs:Blacks2012="0"
+      crs:Clarity2012="0"
+      crs:ColorNoiseReduction="25"
+      crs:Contrast2012="0"
+      crs:Dehaze="0"
+      crs:Exposure2012="0"
+      crs:HasSettings="True"
+      crs:Highlights2012="0"
+      crs:LuminanceSmoothing="0"
+      crs:ProcessVersion="11.0"
+      crs:Saturation="0"
+      crs:Shadows2012="0"
+      crs:SharpenDetail="25"
+      crs:SharpenEdgeMasking="0"
+      crs:SharpenRadius="1"
+      crs:Sharpness="40"
+      crs:Temperature="5177.96"
+      crs:Texture="0"
+      crs:Tint="3.92"
+      crs:Version="11.0"
+      crs:Vibrance="0"
+      crs:WhiteBalance="Custom"
+      crs:Whites2012="0"
+      papp:CaptureSharpeningAmount="0"
+      papp:CaptureSharpeningSigma="1"
+      papp:Profile="Auto"
+      papp:WbScaleVersion="5">
+      <papp:SceneLinearToneCurve>
+        <rdf:Seq>
+          <rdf:li>0, 63.75</rdf:li>
+          <rdf:li>127.5, 127.5</rdf:li>
+          <rdf:li>191.25, 165.75</rdf:li>
+          <rdf:li>255, 165.75</rdf:li>
+        </rdf:Seq>
+      </papp:SceneLinearToneCurve>
+      <papp:Workflow xmlns:papp="http://ns.justmaple.app/photo/1.0/" xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" rdf:parseType="Resource">
+        <papp:SchemaVersion>1</papp:SchemaVersion>
+        <papp:VariantId>primary</papp:VariantId>
+        <papp:VariantName>Original</papp:VariantName>
+        <papp:Snapshots>
+          <rdf:Seq>
+          </rdf:Seq>
+        </papp:Snapshots>
+        <papp:History>
+          <rdf:Seq>
+            <rdf:li rdf:parseType="Resource">
+              <papp:Id>580162e7-ebb3-41f0-9484-9eca009ade8d</papp:Id>
+              <papp:CreatedAtMs>1791330425943</papp:CreatedAtMs>
+              <papp:Action>adjustment</papp:Action>
+              <papp:Label>Tone Curve</papp:Label>
+              <papp:AdjustmentXmp>&lt;?xpacket begin=&quot;﻿&quot; id=&quot;W5M0MpCehiHzreSzNTczkc9d&quot;?&gt;
+&lt;x:xmpmeta xmlns:x=&quot;adobe:ns:meta/&quot;&gt;
+  &lt;rdf:RDF xmlns:rdf=&quot;http://www.w3.org/1999/02/22-rdf-syntax-ns#&quot;&gt;
+    &lt;rdf:Description rdf:about=&quot;&quot;
+      xmlns:xmp=&quot;http://ns.adobe.com/xap/1.0/&quot;
+      xmlns:crs=&quot;http://ns.adobe.com/camera-raw-settings/1.0/&quot;
+      xmlns:papp=&quot;http://ns.justmaple.app/photo/1.0/&quot;
+      crs:Blacks2012=&quot;0&quot;
+      crs:Clarity2012=&quot;0&quot;
+      crs:ColorNoiseReduction=&quot;25&quot;
+      crs:Contrast2012=&quot;0&quot;
+      crs:Dehaze=&quot;0&quot;
+      crs:Exposure2012=&quot;0&quot;
+      crs:HasSettings=&quot;True&quot;
+      crs:Highlights2012=&quot;0&quot;
+      crs:LuminanceSmoothing=&quot;0&quot;
+      crs:ProcessVersion=&quot;11.0&quot;
+      crs:Saturation=&quot;0&quot;
+      crs:Shadows2012=&quot;0&quot;
+      crs:SharpenDetail=&quot;25&quot;
+      crs:SharpenEdgeMasking=&quot;0&quot;
+      crs:SharpenRadius=&quot;1&quot;
+      crs:Sharpness=&quot;40&quot;
+      crs:Temperature=&quot;5177.96&quot;
+      crs:Texture=&quot;0&quot;
+      crs:Tint=&quot;3.92&quot;
+      crs:Version=&quot;11.0&quot;
+      crs:Vibrance=&quot;0&quot;
+      crs:WhiteBalance=&quot;Custom&quot;
+      crs:Whites2012=&quot;0&quot;
+      papp:CaptureSharpeningAmount=&quot;0&quot;
+      papp:CaptureSharpeningSigma=&quot;1&quot;
+      papp:Profile=&quot;Auto&quot;
+      papp:WbScaleVersion=&quot;5&quot;&gt;
+      &lt;papp:SceneLinearToneCurve&gt;
+        &lt;rdf:Seq&gt;
+          &lt;rdf:li&gt;0, 0&lt;/rdf:li&gt;
+          &lt;rdf:li&gt;127.5, 127.5&lt;/rdf:li&gt;
+          &lt;rdf:li&gt;255, 255&lt;/rdf:li&gt;
+        &lt;/rdf:Seq&gt;
+      &lt;/papp:SceneLinearToneCurve&gt;
+    &lt;/rdf:Description&gt;
+  &lt;/rdf:RDF&gt;
+&lt;/x:xmpmeta&gt;
+&lt;?xpacket end=&quot;w&quot;?&gt;</papp:AdjustmentXmp>
+            </rdf:li>
+            <rdf:li rdf:parseType="Resource">
+              <papp:Id>59866660-9350-458b-a6f5-57b322f81429</papp:Id>
+              <papp:CreatedAtMs>1791330427868</papp:CreatedAtMs>
+              <papp:Action>adjustment</papp:Action>
+              <papp:Label>Tone Curve</papp:Label>
+              <papp:AdjustmentXmp>&lt;?xpacket begin=&quot;﻿&quot; id=&quot;W5M0MpCehiHzreSzNTczkc9d&quot;?&gt;
+&lt;x:xmpmeta xmlns:x=&quot;adobe:ns:meta/&quot;&gt;
+  &lt;rdf:RDF xmlns:rdf=&quot;http://www.w3.org/1999/02/22-rdf-syntax-ns#&quot;&gt;
+    &lt;rdf:Description rdf:about=&quot;&quot;
+      xmlns:xmp=&quot;http://ns.adobe.com/xap/1.0/&quot;
+      xmlns:crs=&quot;http://ns.adobe.com/camera-raw-settings/1.0/&quot;
+      xmlns:papp=&quot;http://ns.justmaple.app/photo/1.0/&quot;
+      crs:Blacks2012=&quot;0&quot;
+      crs:Clarity2012=&quot;0&quot;
+      crs:ColorNoiseReduction=&quot;25&quot;
+      crs:Contrast2012=&quot;0&quot;
+      crs:Dehaze=&quot;0&quot;
+      crs:Exposure2012=&quot;0&quot;
+      crs:HasSettings=&quot;True&quot;
+      crs:Highlights2012=&quot;0&quot;
+      crs:LuminanceSmoothing=&quot;0&quot;
+      crs:ProcessVersion=&quot;11.0&quot;
+      crs:Saturation=&quot;0&quot;
+      crs:Shadows2012=&quot;0&quot;
+      crs:SharpenDetail=&quot;25&quot;
+      crs:SharpenEdgeMasking=&quot;0&quot;
+      crs:SharpenRadius=&quot;1&quot;
+      crs:Sharpness=&quot;40&quot;
+      crs:Temperature=&quot;5177.96&quot;
+      crs:Texture=&quot;0&quot;
+      crs:Tint=&quot;3.92&quot;
+      crs:Version=&quot;11.0&quot;
+      crs:Vibrance=&quot;0&quot;
+      crs:WhiteBalance=&quot;Custom&quot;
+      crs:Whites2012=&quot;0&quot;
+      papp:CaptureSharpeningAmount=&quot;0&quot;
+      papp:CaptureSharpeningSigma=&quot;1&quot;
+      papp:Profile=&quot;Auto&quot;
+      papp:WbScaleVersion=&quot;5&quot;&gt;
+      &lt;papp:SceneLinearToneCurve&gt;
+        &lt;rdf:Seq&gt;
+          &lt;rdf:li&gt;0, 0&lt;/rdf:li&gt;
+          &lt;rdf:li&gt;127.5, 131.48&lt;/rdf:li&gt;
+          &lt;rdf:li&gt;255, 255&lt;/rdf:li&gt;
+        &lt;/rdf:Seq&gt;
+      &lt;/papp:SceneLinearToneCurve&gt;
+
+    &lt;/rdf:Description&gt;
+  &lt;/rdf:RDF&gt;
+&lt;/x:xmpmeta&gt;
+&lt;?xpacket end=&quot;w&quot;?&gt;</papp:AdjustmentXmp>
+            </rdf:li>
+            <rdf:li rdf:parseType="Resource">
+              <papp:Id>5b057ce4-a11c-420a-992c-05a9ddff5240</papp:Id>
+              <papp:CreatedAtMs>1791330429338</papp:CreatedAtMs>
+              <papp:Action>adjustment</papp:Action>
+              <papp:Label>Tone Curve</papp:Label>
+              <papp:AdjustmentXmp>&lt;?xpacket begin=&quot;﻿&quot; id=&quot;W5M0MpCehiHzreSzNTczkc9d&quot;?&gt;
+&lt;x:xmpmeta xmlns:x=&quot;adobe:ns:meta/&quot;&gt;
+  &lt;rdf:RDF xmlns:rdf=&quot;http://www.w3.org/1999/02/22-rdf-syntax-ns#&quot;&gt;
+    &lt;rdf:Description rdf:about=&quot;&quot;
+      xmlns:xmp=&quot;http://ns.adobe.com/xap/1.0/&quot;
+      xmlns:crs=&quot;http://ns.adobe.com/camera-raw-settings/1.0/&quot;
+      xmlns:papp=&quot;http://ns.justmaple.app/photo/1.0/&quot;
+      crs:Blacks2012=&quot;0&quot;
+      crs:Clarity2012=&quot;0&quot;
+      crs:ColorNoiseReduction=&quot;25&quot;
+      crs:Contrast2012=&quot;0&quot;
+      crs:Dehaze=&quot;0&quot;
+      crs:Exposure2012=&quot;0&quot;
+      crs:HasSettings=&quot;True&quot;
+      crs:Highlights2012=&quot;0&quot;
+      crs:LuminanceSmoothing=&quot;0&quot;
+      crs:ProcessVersion=&quot;11.0&quot;
+      crs:Saturation=&quot;0&quot;
+      crs:Shadows2012=&quot;0&quot;
+      crs:SharpenDetail=&quot;25&quot;
+      crs:SharpenEdgeMasking=&quot;0&quot;
+      crs:SharpenRadius=&quot;1&quot;
+      crs:Sharpness=&quot;40&quot;
+      crs:Temperature=&quot;5177.96&quot;
+      crs:Texture=&quot;0&quot;
+      crs:Tint=&quot;3.92&quot;
+      crs:Version=&quot;11.0&quot;
+      crs:Vibrance=&quot;0&quot;
+      crs:WhiteBalance=&quot;Custom&quot;
+      crs:Whites2012=&quot;0&quot;
+      papp:CaptureSharpeningAmount=&quot;0&quot;
+      papp:CaptureSharpeningSigma=&quot;1&quot;
+      papp:Profile=&quot;Auto&quot;
+      papp:WbScaleVersion=&quot;5&quot;&gt;
+      &lt;papp:SceneLinearToneCurve&gt;
+        &lt;rdf:Seq&gt;
+          &lt;rdf:li&gt;0, 0&lt;/rdf:li&gt;
+          &lt;rdf:li&gt;127.5, 135.47&lt;/rdf:li&gt;
+          &lt;rdf:li&gt;255, 255&lt;/rdf:li&gt;
+        &lt;/rdf:Seq&gt;
+      &lt;/papp:SceneLinearToneCurve&gt;
+
+    &lt;/rdf:Description&gt;
+  &lt;/rdf:RDF&gt;
+&lt;/x:xmpmeta&gt;
+&lt;?xpacket end=&quot;w&quot;?&gt;</papp:AdjustmentXmp>
+            </rdf:li>
+            <rdf:li rdf:parseType="Resource">
+              <papp:Id>81584dda-6ef4-48f4-bc15-aac2114de555</papp:Id>
+              <papp:CreatedAtMs>1791330429765</papp:CreatedAtMs>
+              <papp:Action>adjustment</papp:Action>
+              <papp:Label>Tone Curve</papp:Label>
+              <papp:AdjustmentXmp>&lt;?xpacket begin=&quot;﻿&quot; id=&quot;W5M0MpCehiHzreSzNTczkc9d&quot;?&gt;
+&lt;x:xmpmeta xmlns:x=&quot;adobe:ns:meta/&quot;&gt;
+  &lt;rdf:RDF xmlns:rdf=&quot;http://www.w3.org/1999/02/22-rdf-syntax-ns#&quot;&gt;
+    &lt;rdf:Description rdf:about=&quot;&quot;
+      xmlns:xmp=&quot;http://ns.adobe.com/xap/1.0/&quot;
+      xmlns:crs=&quot;http://ns.adobe.com/camera-raw-settings/1.0/&quot;
+      xmlns:papp=&quot;http://ns.justmaple.app/photo/1.0/&quot;
+      crs:Blacks2012=&quot;0&quot;
+      crs:Clarity2012=&quot;0&quot;
+      crs:ColorNoiseReduction=&quot;25&quot;
+      crs:Contrast2012=&quot;0&quot;
+      crs:Dehaze=&quot;0&quot;
+      crs:Exposure2012=&quot;0&quot;
+      crs:HasSettings=&quot;True&quot;
+      crs:Highlights2012=&quot;0&quot;
+      crs:LuminanceSmoothing=&quot;0&quot;
+      crs:ProcessVersion=&quot;11.0&quot;
+      crs:Saturation=&quot;0&quot;
+      crs:Shadows2012=&quot;0&quot;
+      crs:SharpenDetail=&quot;25&quot;
+      crs:SharpenEdgeMasking=&quot;0&quot;
+      crs:SharpenRadius=&quot;1&quot;
+      crs:Sharpness=&quot;40&quot;
+      crs:Temperature=&quot;5177.96&quot;
+      crs:Texture=&quot;0&quot;
+      crs:Tint=&quot;3.92&quot;
+      crs:Version=&quot;11.0&quot;
+      crs:Vibrance=&quot;0&quot;
+      crs:WhiteBalance=&quot;Custom&quot;
+      crs:Whites2012=&quot;0&quot;
+      papp:CaptureSharpeningAmount=&quot;0&quot;
+      papp:CaptureSharpeningSigma=&quot;1&quot;
+      papp:Profile=&quot;Auto&quot;
+      papp:WbScaleVersion=&quot;5&quot;&gt;
+      &lt;papp:SceneLinearToneCurve&gt;
+        &lt;rdf:Seq&gt;
+          &lt;rdf:li&gt;0, 0&lt;/rdf:li&gt;
+          &lt;rdf:li&gt;127.5, 139.45&lt;/rdf:li&gt;
+          &lt;rdf:li&gt;255, 255&lt;/rdf:li&gt;
+        &lt;/rdf:Seq&gt;
+      &lt;/papp:SceneLinearToneCurve&gt;
+
+    &lt;/rdf:Description&gt;
+  &lt;/rdf:RDF&gt;
+&lt;/x:xmpmeta&gt;
+&lt;?xpacket end=&quot;w&quot;?&gt;</papp:AdjustmentXmp>
+            </rdf:li>
+            <rdf:li rdf:parseType="Resource">
+              <papp:Id>e86b60a1-5dbe-4e4e-8813-b27db5557117</papp:Id>
+              <papp:CreatedAtMs>1791330430181</papp:CreatedAtMs>
+              <papp:Action>adjustment</papp:Action>
+              <papp:Label>Tone Curve</papp:Label>
+              <papp:AdjustmentXmp>&lt;?xpacket begin=&quot;﻿&quot; id=&quot;W5M0MpCehiHzreSzNTczkc9d&quot;?&gt;
+&lt;x:xmpmeta xmlns:x=&quot;adobe:ns:meta/&quot;&gt;
+  &lt;rdf:RDF xmlns:rdf=&quot;http://www.w3.org/1999/02/22-rdf-syntax-ns#&quot;&gt;
+    &lt;rdf:Description rdf:about=&quot;&quot;
+      xmlns:xmp=&quot;http://ns.adobe.com/xap/1.0/&quot;
+      xmlns:crs=&quot;http://ns.adobe.com/camera-raw-settings/1.0/&quot;
+      xmlns:papp=&quot;http://ns.justmaple.app/photo/1.0/&quot;
+      crs:Blacks2012=&quot;0&quot;
+      crs:Clarity2012=&quot;0&quot;
+      crs:ColorNoiseReduction=&quot;25&quot;
+      crs:Contrast2012=&quot;0&quot;
+      crs:Dehaze=&quot;0&quot;
+      crs:Exposure2012=&quot;0&quot;
+      crs:HasSettings=&quot;True&quot;
+      crs:Highlights2012=&quot;0&quot;
+      crs:LuminanceSmoothing=&quot;0&quot;
+      crs:ProcessVersion=&quot;11.0&quot;
+      crs:Saturation=&quot;0&quot;
+      crs:Shadows2012=&quot;0&quot;
+      crs:SharpenDetail=&quot;25&quot;
+      crs:SharpenEdgeMasking=&quot;0&quot;
+      crs:SharpenRadius=&quot;1&quot;
+      crs:Sharpness=&quot;40&quot;
+      crs:Temperature=&quot;5177.96&quot;
+      crs:Texture=&quot;0&quot;
+      crs:Tint=&quot;3.92&quot;
+      crs:Version=&quot;11.0&quot;
+      crs:Vibrance=&quot;0&quot;
+      crs:WhiteBalance=&quot;Custom&quot;
+      crs:Whites2012=&quot;0&quot;
+      papp:CaptureSharpeningAmount=&quot;0&quot;
+      papp:CaptureSharpeningSigma=&quot;1&quot;
+      papp:Profile=&quot;Auto&quot;
+      papp:WbScaleVersion=&quot;5&quot;&gt;
+      &lt;papp:SceneLinearToneCurve&gt;
+        &lt;rdf:Seq&gt;
+          &lt;rdf:li&gt;0, 0&lt;/rdf:li&gt;
+          &lt;rdf:li&gt;127.5, 143.44&lt;/rdf:li&gt;
+          &lt;rdf:li&gt;255, 255&lt;/rdf:li&gt;
+        &lt;/rdf:Seq&gt;
+      &lt;/papp:SceneLinearToneCurve&gt;
+
+    &lt;/rdf:Description&gt;
+  &lt;/rdf:RDF&gt;
+&lt;/x:xmpmeta&gt;
+&lt;?xpacket end=&quot;w&quot;?&gt;</papp:AdjustmentXmp>
+            </rdf:li>
+            <rdf:li rdf:parseType="Resource">
+              <papp:Id>7568dea8-72f3-4e40-a119-fecca80baabd</papp:Id>
+              <papp:CreatedAtMs>1791330432211</papp:CreatedAtMs>
+              <papp:Action>undo</papp:Action>
+              <papp:Label>Undo Tone Curve</papp:Label>
+              <papp:AdjustmentXmp>&lt;?xpacket begin=&quot;﻿&quot; id=&quot;W5M0MpCehiHzreSzNTczkc9d&quot;?&gt;
+&lt;x:xmpmeta xmlns:x=&quot;adobe:ns:meta/&quot;&gt;
+  &lt;rdf:RDF xmlns:rdf=&quot;http://www.w3.org/1999/02/22-rdf-syntax-ns#&quot;&gt;
+    &lt;rdf:Description rdf:about=&quot;&quot;
+      xmlns:xmp=&quot;http://ns.adobe.com/xap/1.0/&quot;
+      xmlns:crs=&quot;http://ns.adobe.com/camera-raw-settings/1.0/&quot;
+      xmlns:papp=&quot;http://ns.justmaple.app/photo/1.0/&quot;
+      crs:Blacks2012=&quot;0&quot;
+      crs:Clarity2012=&quot;0&quot;
+      crs:ColorNoiseReduction=&quot;25&quot;
+      crs:Contrast2012=&quot;0&quot;
+      crs:Dehaze=&quot;0&quot;
+      crs:Exposure2012=&quot;0&quot;
+      crs:HasSettings=&quot;True&quot;
+      crs:Highlights2012=&quot;0&quot;
+      crs:LuminanceSmoothing=&quot;0&quot;
+      crs:ProcessVersion=&quot;11.0&quot;
+      crs:Saturation=&quot;0&quot;
+      crs:Shadows2012=&quot;0&quot;
+      crs:SharpenDetail=&quot;25&quot;
+      crs:SharpenEdgeMasking=&quot;0&quot;
+      crs:SharpenRadius=&quot;1&quot;
+      crs:Sharpness=&quot;40&quot;
+      crs:Temperature=&quot;5177.96&quot;
+      crs:Texture=&quot;0&quot;
+      crs:Tint=&quot;3.92&quot;
+      crs:Version=&quot;11.0&quot;
+      crs:Vibrance=&quot;0&quot;
+      crs:WhiteBalance=&quot;Custom&quot;
+      crs:Whites2012=&quot;0&quot;
+      papp:CaptureSharpeningAmount=&quot;0&quot;
+      papp:CaptureSharpeningSigma=&quot;1&quot;
+      papp:Profile=&quot;Auto&quot;
+      papp:WbScaleVersion=&quot;5&quot;&gt;
+      &lt;papp:SceneLinearToneCurve&gt;
+        &lt;rdf:Seq&gt;
+          &lt;rdf:li&gt;0, 0&lt;/rdf:li&gt;
+          &lt;rdf:li&gt;127.5, 139.45&lt;/rdf:li&gt;
+          &lt;rdf:li&gt;255, 255&lt;/rdf:li&gt;
+        &lt;/rdf:Seq&gt;
+      &lt;/papp:SceneLinearToneCurve&gt;
+
+    &lt;/rdf:Description&gt;
+  &lt;/rdf:RDF&gt;
+&lt;/x:xmpmeta&gt;
+&lt;?xpacket end=&quot;w&quot;?&gt;</papp:AdjustmentXmp>
+            </rdf:li>
+            <rdf:li rdf:parseType="Resource">
+              <papp:Id>bf8ba0a0-8910-4608-b0f8-0f1557fcf73e</papp:Id>
+              <papp:CreatedAtMs>1791330434520</papp:CreatedAtMs>
+              <papp:Action>adjustment</papp:Action>
+              <papp:Label>Tone Curve</papp:Label>
+              <papp:AdjustmentXmp>&lt;?xpacket begin=&quot;﻿&quot; id=&quot;W5M0MpCehiHzreSzNTczkc9d&quot;?&gt;
+&lt;x:xmpmeta xmlns:x=&quot;adobe:ns:meta/&quot;&gt;
+  &lt;rdf:RDF xmlns:rdf=&quot;http://www.w3.org/1999/02/22-rdf-syntax-ns#&quot;&gt;
+    &lt;rdf:Description rdf:about=&quot;&quot;
+      xmlns:xmp=&quot;http://ns.adobe.com/xap/1.0/&quot;
+      xmlns:crs=&quot;http://ns.adobe.com/camera-raw-settings/1.0/&quot;
+      xmlns:papp=&quot;http://ns.justmaple.app/photo/1.0/&quot;
+      crs:Blacks2012=&quot;0&quot;
+      crs:Clarity2012=&quot;0&quot;
+      crs:ColorNoiseReduction=&quot;25&quot;
+      crs:Contrast2012=&quot;0&quot;
+      crs:Dehaze=&quot;0&quot;
+      crs:Exposure2012=&quot;0&quot;
+      crs:HasSettings=&quot;True&quot;
+      crs:Highlights2012=&quot;0&quot;
+      crs:LuminanceSmoothing=&quot;0&quot;
+      crs:ProcessVersion=&quot;11.0&quot;
+      crs:Saturation=&quot;0&quot;
+      crs:Shadows2012=&quot;0&quot;
+      crs:SharpenDetail=&quot;25&quot;
+      crs:SharpenEdgeMasking=&quot;0&quot;
+      crs:SharpenRadius=&quot;1&quot;
+      crs:Sharpness=&quot;40&quot;
+      crs:Temperature=&quot;5177.96&quot;
+      crs:Texture=&quot;0&quot;
+      crs:Tint=&quot;3.92&quot;
+      crs:Version=&quot;11.0&quot;
+      crs:Vibrance=&quot;0&quot;
+      crs:WhiteBalance=&quot;Custom&quot;
+      crs:Whites2012=&quot;0&quot;
+      papp:CaptureSharpeningAmount=&quot;0&quot;
+      papp:CaptureSharpeningSigma=&quot;1&quot;
+      papp:Profile=&quot;Auto&quot;
+      papp:WbScaleVersion=&quot;5&quot;&gt;
+      &lt;papp:SceneLinearToneCurve&gt;
+        &lt;rdf:Seq&gt;
+          &lt;rdf:li&gt;0, 0&lt;/rdf:li&gt;
+          &lt;rdf:li&gt;131.48, 139.45&lt;/rdf:li&gt;
+          &lt;rdf:li&gt;255, 255&lt;/rdf:li&gt;
+        &lt;/rdf:Seq&gt;
+      &lt;/papp:SceneLinearToneCurve&gt;
+
+    &lt;/rdf:Description&gt;
+  &lt;/rdf:RDF&gt;
+&lt;/x:xmpmeta&gt;
+&lt;?xpacket end=&quot;w&quot;?&gt;</papp:AdjustmentXmp>
+            </rdf:li>
+            <rdf:li rdf:parseType="Resource">
+              <papp:Id>ffcf3628-fa9b-4afe-bc83-a1e87cc91901</papp:Id>
+              <papp:CreatedAtMs>1791330436805</papp:CreatedAtMs>
+              <papp:Action>adjustment</papp:Action>
+              <papp:Label>Tone Curve</papp:Label>
+              <papp:AdjustmentXmp>&lt;?xpacket begin=&quot;﻿&quot; id=&quot;W5M0MpCehiHzreSzNTczkc9d&quot;?&gt;
+&lt;x:xmpmeta xmlns:x=&quot;adobe:ns:meta/&quot;&gt;
+  &lt;rdf:RDF xmlns:rdf=&quot;http://www.w3.org/1999/02/22-rdf-syntax-ns#&quot;&gt;
+    &lt;rdf:Description rdf:about=&quot;&quot;
+      xmlns:xmp=&quot;http://ns.adobe.com/xap/1.0/&quot;
+      xmlns:crs=&quot;http://ns.adobe.com/camera-raw-settings/1.0/&quot;
+      xmlns:papp=&quot;http://ns.justmaple.app/photo/1.0/&quot;
+      crs:Blacks2012=&quot;0&quot;
+      crs:Clarity2012=&quot;0&quot;
+      crs:ColorNoiseReduction=&quot;25&quot;
+      crs:Contrast2012=&quot;0&quot;
+      crs:Dehaze=&quot;0&quot;
+      crs:Exposure2012=&quot;0&quot;
+      crs:HasSettings=&quot;True&quot;
+      crs:Highlights2012=&quot;0&quot;
+      crs:LuminanceSmoothing=&quot;0&quot;
+      crs:ProcessVersion=&quot;11.0&quot;
+      crs:Saturation=&quot;0&quot;
+      crs:Shadows2012=&quot;0&quot;
+      crs:SharpenDetail=&quot;25&quot;
+      crs:SharpenEdgeMasking=&quot;0&quot;
+      crs:SharpenRadius=&quot;1&quot;
+      crs:Sharpness=&quot;40&quot;
+      crs:Temperature=&quot;5177.96&quot;
+      crs:Texture=&quot;0&quot;
+      crs:Tint=&quot;3.92&quot;
+      crs:Version=&quot;11.0&quot;
+      crs:Vibrance=&quot;0&quot;
+      crs:WhiteBalance=&quot;Custom&quot;
+      crs:Whites2012=&quot;0&quot;
+      papp:CaptureSharpeningAmount=&quot;0&quot;
+      papp:CaptureSharpeningSigma=&quot;1&quot;
+      papp:Profile=&quot;Auto&quot;
+      papp:WbScaleVersion=&quot;5&quot;&gt;
+      &lt;papp:SceneLinearToneCurve&gt;
+        &lt;rdf:Seq&gt;
+          &lt;rdf:li&gt;0, 0&lt;/rdf:li&gt;
+          &lt;rdf:li&gt;131.48, 135.47&lt;/rdf:li&gt;
+          &lt;rdf:li&gt;255, 255&lt;/rdf:li&gt;
+        &lt;/rdf:Seq&gt;
+      &lt;/papp:SceneLinearToneCurve&gt;
+
+    &lt;/rdf:Description&gt;
+  &lt;/rdf:RDF&gt;
+&lt;/x:xmpmeta&gt;
+&lt;?xpacket end=&quot;w&quot;?&gt;</papp:AdjustmentXmp>
+            </rdf:li>
+          </rdf:Seq>
+        </papp:History>
+      </papp:Workflow>
+    </rdf:Description>
+  </rdf:RDF>
+</x:xmpmeta>
+<?xpacket end="w"?>

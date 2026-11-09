@@ -39,7 +39,8 @@ final class PrimaryWorkflowIdentityTests: XCTestCase {
 
   private func record(id: String = "primary") -> SidecarWorkflow {
     SidecarWorkflow(
-      schemaVersion: 1, variantId: id, variantName: "Study", snapshots: [], history: [])
+      schemaVersion: WorkflowContract.version, variantId: id, variantName: "Study", snapshots: [],
+      history: [])
   }
 
   private func invalidDocuments() throws -> [String] {
@@ -47,7 +48,7 @@ final class PrimaryWorkflowIdentityTests: XCTestCase {
     let named = try WorkflowSidecarCore.embed(
       record(id: UUID().uuidString.lowercased()), in: source())
     return [
-      primary.replacingOccurrences(of: "<papp:SchemaVersion>1", with: "<papp:SchemaVersion>2"),
+      primary.replacingOccurrences(of: "<papp:SchemaVersion>2", with: "<papp:SchemaVersion>3"),
       named,
     ]
   }

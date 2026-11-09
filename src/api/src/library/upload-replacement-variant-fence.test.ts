@@ -21,7 +21,7 @@ for (const operation of ['ordinary', 'semantic', 'create'] as const) {
     const primary = path.join(path.dirname(source), 'photo.xmp');
     const corpus = JSON.parse(
       await fs.readFile(
-        new URL('../../../../test-fixtures/workflow/contract-v1.json', import.meta.url),
+        new URL('../../../../test-fixtures/workflow/contract.json', import.meta.url),
         'utf8',
       ),
     );

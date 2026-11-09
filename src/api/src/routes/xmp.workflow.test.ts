@@ -11,7 +11,7 @@ import { WORKFLOW_MAX_BYTES, WORKFLOW_MAX_TIMESTAMP_MS } from '../generated/work
 
 const corpus = JSON.parse(
   await readFile(
-    new URL('../../../../test-fixtures/workflow/contract-v1.json', import.meta.url),
+    new URL('../../../../test-fixtures/workflow/contract.json', import.meta.url),
     'utf8',
   ),
 );
@@ -114,8 +114,8 @@ test('API uses real Rust and atomic sidecar files while preserving authored WB/c
 test('future/malformed records leave the exact on-disk sidecar and original untouched', async () => {
   expect((await patch(corpus[0])).status).toBe(200);
   const future = (await readFile(join(directory, 'photo.xmp'), 'utf8')).replace(
-    '<papp:SchemaVersion>1',
     '<papp:SchemaVersion>2',
+    '<papp:SchemaVersion>3',
   );
   await writeFile(join(directory, 'photo.xmp'), future);
   expect((await patch(corpus[1])).status).toBe(422);
@@ -229,7 +229,7 @@ test('missing, future and mismatched selected variants reject without fallback o
   expect((await variantRequest(route, 'POST', first)).status).toBe(201);
   const filename = join(directory, `photo.v${first.variantId}.xmp`);
   const saved = await readFile(filename, 'utf8');
-  const future = saved.replace('<papp:SchemaVersion>1', '<papp:SchemaVersion>2');
+  const future = saved.replace('<papp:SchemaVersion>2', '<papp:SchemaVersion>3');
   await writeFile(filename, future);
   const selected = 'variant?' + variantQuery() + '&variantId=' + first.variantId;
   expect((await variantRequest(selected, 'PUT', xml)).status).toBe(422);

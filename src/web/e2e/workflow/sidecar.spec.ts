@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 const corpus = JSON.parse(
-  readFileSync(resolve('../../test-fixtures/workflow/contract-v1.json'), 'utf8'),
+  readFileSync(resolve('../../test-fixtures/workflow/contract.json'), 'utf8'),
 );
 const xml = readFileSync(
   resolve('../../test-fixtures/local-adjustments/lightroom-group-add.xmp'),

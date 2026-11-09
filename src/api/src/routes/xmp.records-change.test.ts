@@ -164,7 +164,7 @@ describe('path-keyed XMP routes — change emission (#3563)', () => {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          schemaVersion: 1,
+          schemaVersion: 2,
           variantId: id,
           variantName: 'Alternate',
           snapshots: [],

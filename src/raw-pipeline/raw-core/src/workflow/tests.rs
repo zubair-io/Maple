@@ -19,6 +19,8 @@ fn entry(n: u64) -> WorkflowHistoryEntry {
         created_at_ms: n,
         action: "adjustment".into(),
         label: "Exposure +1".into(),
+        parent_id: String::new(),
+        writer: String::new(),
         adjustment_xmp: XMP.into(),
     }
 }
@@ -113,7 +115,7 @@ fn snapshots_reject_duplicate_identity_and_recursive_workflow_payload() {
 #[test]
 fn unsupported_versions_unknown_fields_and_missing_fields_cannot_be_silently_lost() {
     let value = serde_json::to_value(SidecarWorkflow::primary()).unwrap();
-    for version in [0, 2, u32::MAX] {
+    for version in [0, 1, 3, u32::MAX] {
         let mut invalid = value.clone();
         invalid["schemaVersion"] = json!(version);
         assert!(SidecarWorkflow::parse(&invalid.to_string()).is_err());
@@ -218,7 +220,7 @@ fn byte_compaction_retains_latest_checkpoint_and_never_drops_named_snapshots() {
 fn shared_contract_corpus_preserves_foreign_masks_and_authored_wb_states() {
     let json = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../../../test-fixtures/workflow/contract-v1.json"
+        "/../../../test-fixtures/workflow/contract.json"
     ));
     let rows: Vec<serde_json::Value> = serde_json::from_str(json).unwrap();
     let workflows: Vec<_> = rows

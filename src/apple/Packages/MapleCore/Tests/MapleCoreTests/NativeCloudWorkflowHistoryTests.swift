@@ -17,7 +17,7 @@ import XCTest
         [SidecarWorkflow].self,
         from: Data(
           contentsOf:
-            WorkflowFixture.root().appending(path: "workflow/contract-v1.json")))
+            WorkflowFixture.root().appending(path: "workflow/contract.json")))
     }
 
     private func xml(_ source: NativeWorkflowHTTPFixture.Source) throws -> String {

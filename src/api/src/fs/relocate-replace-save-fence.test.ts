@@ -129,7 +129,7 @@ test('a new workflow variant waits for Replace and cannot attach to the replacem
   const { createWorkflowVariant } = await import('./workflow-variants');
   const corpus = JSON.parse(
     await readFile(
-      new URL('../../../../test-fixtures/workflow/contract-v1.json', import.meta.url),
+      new URL('../../../../test-fixtures/workflow/contract.json', import.meta.url),
       'utf8',
     ),
   );
