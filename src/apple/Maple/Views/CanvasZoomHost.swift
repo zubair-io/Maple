@@ -63,6 +63,10 @@ struct CanvasZoomHost<CanvasLeaf: View, Fallback: View>: View {
   /// inspector, dock, filmstrip). With `safeAreaFrame` they define the
   /// visible area that fit, fill and the centred position resolve inside.
   var coverFrames: [CGRect] = []
+  /// False until the chrome has reported `coverFrames`, a layout pass after
+  /// the canvas measured its viewport. The photo is drawn once the
+  /// controller has them, so it is first drawn where it rests (#5769).
+  var chromeMeasured = true
   /// Preview's pager: hears every drag, with the part the pan left over.
   var paging: CanvasPagingHooks? = nil
   /// The canvas leaf (CIImage raster / GPU layer). The host frames it to the resolved display frame.
@@ -128,7 +132,7 @@ struct CanvasZoomHost<CanvasLeaf: View, Fallback: View>: View {
   var body: some View {
     GeometryReader { geo in
       ZStack {
-        if canvasReady, let frame = controller.displayFrameInPoints {
+        if canvasReady, controller.isChromeMeasured, let frame = controller.displayFrameInPoints {
           // Live pinch (iOS): scale the frozen frame about its centre in the
           // compositor (cheap, no re-decode), offset by the live pan (the
           // focal anchor). A settle adds its own transform over the settled
@@ -148,7 +152,7 @@ struct CanvasZoomHost<CanvasLeaf: View, Fallback: View>: View {
               FullImageViewVM.imageRectAccessibilityValue(
                 containerSize: geo.size, imageSize: shown?.displayFrame ?? frame,
                 panOffset: shown?.panOffset ?? controller.panOffset))
-        } else {
+        } else if controller.isChromeMeasured {
           fallback()
         }
       }
@@ -184,7 +188,8 @@ struct CanvasZoomHost<CanvasLeaf: View, Fallback: View>: View {
       .focusedSceneValue(\.canvasZoomController, canvasReady ? controller : nil)
       .onAppear {
         controller.viewportChanged(
-          points: geo.size, displayScale: displayScale, insets: visibleInsets(geo))
+          points: geo.size, displayScale: displayScale, insets: visibleInsets(geo),
+          chromeMeasured: chromeMeasured)
       }
       .onChange(of: geo.size) { _, newSize in
         settle = nil
@@ -192,11 +197,12 @@ struct CanvasZoomHost<CanvasLeaf: View, Fallback: View>: View {
         if isPinching { pendingInsets = insets }
         controller.viewportChanged(
           points: newSize, displayScale: displayScale,
-          insets: isPinching ? controller.viewportInsets : insets)
+          insets: isPinching ? controller.viewportInsets : insets, chromeMeasured: chromeMeasured)
         refreshLivePinch()
       }
-      .onChange(of: visibleInsets(geo)) { _, insets in
-        insetsChanged(insets)
+      .onChange(of: CanvasChrome(insets: visibleInsets(geo), measured: chromeMeasured)) {
+        _, chrome in
+        insetsChanged(chrome.insets)
       }
       .onChange(of: controller.restingFrame) { _, settled in
         retargetSettle(to: settled)
@@ -242,14 +248,16 @@ struct CanvasZoomHost<CanvasLeaf: View, Fallback: View>: View {
         // resolves fit to 1 — the image frames at 100% and cannot zoom out
         // (#3540). Report the live viewport to the newcomer.
         controller.viewportChanged(
-          points: geo.size, displayScale: displayScale, insets: visibleInsets(geo))
+          points: geo.size, displayScale: displayScale, insets: visibleInsets(geo),
+          chromeMeasured: chromeMeasured)
       }
       .onChange(of: displayScale) { _, newScale in
         // Window dragged to a display with a different backing
         // scale — same points, different real pixels. Re-resolve
         // so 100% stays pixel-perfect on the new screen.
         controller.viewportChanged(
-          points: geo.size, displayScale: newScale, insets: visibleInsets(geo))
+          points: geo.size, displayScale: newScale, insets: visibleInsets(geo),
+          chromeMeasured: chromeMeasured)
         refreshLivePinch()
       }
       .onChange(of: controller.session.effectiveImageSize) { _, _ in

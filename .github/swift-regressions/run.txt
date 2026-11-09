@@ -27,6 +27,7 @@ PreviewCanvasZoomTests
 PreviewCanvasPagingTests
 PreviewEditorHandoffTests
 EditorCanvasHandBackTests
+EditorFirstFrameTests
 GpuPrescaledExtentTests
 GpuReadbackFreshnessTests
 GpuExitPreviewCacheTests

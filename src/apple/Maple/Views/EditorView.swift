@@ -84,7 +84,9 @@ struct EditorSurface: View {
 
   /// Global frames of the header, controls and filmstrip floating over the
   /// canvas: the canvas fits and centres the photo in what they leave visible.
-  @State private var canvasCoverFrames: [CGRect] = []
+  /// `nil` until they first report, a layout pass after the canvas (#5769);
+  /// the canvas draws nothing until then, so the header must always report.
+  @State private var canvasCoverFrames: [CGRect]?
 
   /// Whether the vectorscope HUD is showing (#3277). Persisted so the
   /// choice survives app restarts; the HUD itself arms
