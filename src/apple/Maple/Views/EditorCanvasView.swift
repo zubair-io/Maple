@@ -7,8 +7,9 @@ struct EditorCanvasView: View {
   @Bindable var state: EditorState
   var filmstripSource: (any ImageSource)? = nil
   var wheelExclusionFrame: CGRect?
-  /// Global frames of the chrome floating over the canvas (#5749 visible area).
-  var coverFrames: [CGRect] = []
+  /// Global frames of the chrome floating over the canvas (#5749 visible
+  /// area); `nil` until the chrome has reported them (#5769).
+  var coverFrames: [CGRect]?
   var hasFilmstrip = false
   /// The seed still drawn as the canvas until real pixels land (#5755).
   var seedStore: EditorSeedStore { state.seed }
@@ -31,7 +32,8 @@ struct EditorCanvasView: View {
             wheelExcludedFrame: wheelExclusionFrame,
             badgeInsets: badgeInsets(in: geometry),
             safeAreaFrame: visibleSafeArea(in: geometry),
-            coverFrames: visibleCoverFrames
+            coverFrames: visibleCoverFrames,
+            chromeMeasured: coverFrames != nil
           ) {
             canvasLeaf
           } fallback: {
@@ -125,7 +127,7 @@ struct EditorCanvasView: View {
   /// The crop tool keeps its inset canvas; everywhere else the chrome over
   /// the canvas shapes the visible area fit and centring use.
   private var visibleCoverFrames: [CGRect] {
-    state.armedTool == .crop ? [] : coverFrames
+    state.armedTool == .crop ? [] : coverFrames ?? []
   }
 
   /// The full-bleed canvas reaches the screen corner, so the badge steps
