@@ -1,7 +1,7 @@
 // EditSessionPhotoKitSidecarTests.swift — regression coverage for #2555:
 // edits made through EditSession on a `.photoKit`-provenance asset must
 // round-trip through AppSupportSidecarStore, the same store
-// BackupEngine.uploadCompanionsBestEffort reads via
+// BackupEngine.sendEditSidecarBestEffort reads via
 // `sidecars.read(phassetLocalId:)` to prefer a real local edit over the
 // synthetic Apple-metadata XMP.
 //

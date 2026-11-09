@@ -4,6 +4,7 @@
 // whether a walk needs the server's full list. Real SQLite and AppSupport XMP
 // files in a temp dir; only the HTTP transport is stubbed.
 import Foundation
+import GRDB
 import XCTest
 
 @testable import MapleBackup
@@ -253,14 +254,10 @@ final class BackupWalkReconcileTests: XCTestCase {
     await queue.enqueue(requeued, priority: nil)
     try await engine.processOne()
 
-    let companionUploads = {
-      StubURLProtocol.recordedRequests.filter { $0.url?.path.contains("backup/rendered") == true }
+    let companionUploads = StubURLProtocol.recordedRequests.filter {
+      $0.url?.path.contains("backup/rendered") == true
     }
-    let deadline = Date().addingTimeInterval(2)
-    while Date() < deadline, companionUploads().count < 2 {
-      try await Task.sleep(nanoseconds: 10_000_000)
-    }
-    XCTAssertEqual(companionUploads().count, 2, "rendered and Live Photo twins land on the retry")
+    XCTAssertEqual(companionUploads.count, 2, "rendered and Live Photo twins land on the retry")
     let delivered = try await state.find(lastAttempt.id)
     XCTAssertEqual(delivered?.state, .uploaded)
     let stillOwing = try await state.phidsOwingCompanions(deviceId: "d")
@@ -356,5 +353,96 @@ final class BackupWalkReconcileTests: XCTestCase {
     XCTAssertEqual(delivered?.state, .uploaded)
     let stillOwing = try await state.phidsOwingCompanions(deviceId: "d")
     XCTAssertEqual(stillOwing, [])
+  }
+
+  private func failLastAttempt(
+    reading reader: any AssetReader
+  ) async throws -> (BackupStateStore, URL) {
+    StubURLProtocol.stub = .status(500)
+    let (engine, queue, state, _, tmpRoot) =
+      try freshHarness(companionBackoff: { _ in 0 }, reader: reader)
+    let lastAttempt = BackupTask(
+      id: id("P1"), state: .pending, priority: .background, retryCount: 7)
+    try await state.upsert(lastAttempt)
+    await queue.enqueue(lastAttempt, priority: .background)
+    do {
+      try await engine.processOne()
+      XCTFail("the original upload fails")
+    } catch {}
+    let row = try await state.find(lastAttempt.id)
+    XCTAssertEqual(row?.state, .failedRetry)
+    return (state, tmpRoot)
+  }
+
+  func testPhotoWithoutCompanionsIsNotFlaggedAndAWalkCanSettleIt() async throws {
+    let (state, tmpRoot) = try await failLastAttempt(reading: StubAssetReader())
+    defer { try? FileManager.default.removeItem(at: tmpRoot) }
+
+    let owing = try await state.phidsOwingCompanions(deviceId: "d")
+    XCTAssertEqual(owing, [])
+    _ = try await state.markServerHeld([held("P1")])
+    let row = try await state.find(id("P1"))
+    XCTAssertEqual(row?.state, .uploaded, "the server holding the original is the whole photo")
+  }
+
+  func testLivePhotoVideoReadWithTheOriginalIsOwed() async throws {
+    let (state, tmpRoot) = try await failLastAttempt(reading: LivePhotoAssetReader())
+    defer { try? FileManager.default.removeItem(at: tmpRoot) }
+
+    let owing = try await state.phidsOwingCompanions(deviceId: "d")
+    XCTAssertEqual(owing, ["P1"])
+    _ = try await state.markServerHeld([held("P1")])
+    let row = try await state.find(id("P1"))
+    XCTAssertEqual(row?.state, .failedRetry)
+  }
+
+  func testUpgradeMarksRowsAnOlderVersionMayHaveLeftOwingCompanions() async throws {
+    let url = FileManager.default.temporaryDirectory
+      .appendingPathComponent("backup-upgrade-\(UUID().uuidString).sqlite")
+    defer { try? FileManager.default.removeItem(at: url) }
+    let rows: [(phid: String, state: BackupState, retries: Int)] = [
+      ("failed", .failedRetry, 8),
+      ("retrying", .pending, 2),
+      ("fresh", .pending, 0),
+      ("done", .uploaded, 0),
+    ]
+    let legacy = try DatabaseQueue(path: url.path)
+    try await legacy.write { db in
+      try db.execute(
+        sql: """
+          CREATE TABLE tasks (
+            device_id TEXT NOT NULL, phasset_local_id TEXT NOT NULL,
+            state TEXT NOT NULL, priority INTEGER NOT NULL,
+            retry_count INTEGER NOT NULL DEFAULT 0, last_error TEXT,
+            enqueued_at DOUBLE NOT NULL, captured_at DOUBLE,
+            PRIMARY KEY (device_id, phasset_local_id))
+          """)
+      for row in rows {
+        try db.execute(
+          sql: """
+            INSERT INTO tasks (device_id, phasset_local_id, state, priority, retry_count, enqueued_at)
+            VALUES ('d', ?, ?, 0, ?, 0)
+            """,
+          arguments: [row.phid, row.state.rawValue, row.retries])
+      }
+    }
+    try legacy.close()
+
+    let store = try BackupStateStore(databaseURL: url)
+
+    let owing = try await store.phidsOwingCompanions(deviceId: "d")
+    XCTAssertEqual(owing, ["failed", "retrying"])
+    let settled = try await store.markServerHeld(rows.map { held($0.phid) })
+    XCTAssertEqual(settled, [id("fresh")])
+    let failed = try await store.find(id("failed"))
+    XCTAssertEqual(failed?.state, .failedRetry)
+    let retrying = try await store.find(id("retrying"))
+    XCTAssertEqual(retrying?.state, .pending)
+
+    try await store.upsert(
+      BackupTask(id: id("later"), state: .failedRetry, priority: .background, retryCount: 8))
+    let reopened = try BackupStateStore(databaseURL: url)
+    let owingAfterReopen = try await reopened.phidsOwingCompanions(deviceId: "d")
+    XCTAssertEqual(owingAfterReopen, ["failed", "retrying"], "the backfill runs only once")
   }
 }
