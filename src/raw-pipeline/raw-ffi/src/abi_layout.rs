@@ -296,10 +296,17 @@ pub(crate) fn describe(name: &str) -> Option<String> {
             width,
             height,
         })),
+        "MapleCanvasInsets" => Some(layout!(crate::canvas_zoom_insets::MapleCanvasInsets {
+            top,
+            left,
+            bottom,
+            right,
+        })),
         "MapleCanvasZoomContext" => Some(layout!(crate::canvas_zoom::MapleCanvasZoomContext {
             viewport_points,
             native_image_size,
             display_scale,
+            insets,
         })),
         "MapleCanvasZoomState" => Some(layout!(crate::canvas_zoom::MapleCanvasZoomState {
             pixel_scale,
@@ -313,6 +320,10 @@ pub(crate) fn describe(name: &str) -> Option<String> {
             pinch_start_centroid,
             pinch_last_centroid,
             fills_viewport,
+            pinch_start_magnification,
+            pinch_last_magnification,
+            has_drag_last_translation,
+            drag_last_translation,
         })),
         "MapleCanvasZoomTransition" => {
             Some(layout!(crate::canvas_zoom::MapleCanvasZoomTransition {

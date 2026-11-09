@@ -10,10 +10,11 @@ namespace Maple.WinUI.Services
 
     /// <summary>
     /// The viewer's zoom state over the shared Rust model (#5714): every rule
-    /// — fit / fill / 100% stops, the 0.5×fit … 8 range, detents, steps,
-    /// anchored wheel and pinch zoom, the pan clamp — runs in raw-core through
-    /// raw_ffi.dll. This class only holds the state value between calls and
-    /// translates Windows input units into the model's.
+    /// — fit / fill / 100% stops, the 0.5×fit … 8 range, release detents,
+    /// steps, anchored wheel and pinch zoom, the pan clamp, continuity across
+    /// geometry changes — runs in raw-core through raw_ffi.dll. This class
+    /// only holds the state value between calls and translates Windows input
+    /// units into the model's.
     /// </summary>
     public sealed class CanvasZoomController
     {
@@ -66,10 +67,12 @@ namespace Maple.WinUI.Services
         /// <summary>
         /// Feed the current viewport (points), the displayed image's extent and
         /// the points→pixels factor. The extent's pixels change meaning when one
-        /// stand-in replaces another (thumbnail → preview → source size), so
-        /// when the extent changes a free scale (and a pinch in progress) is
-        /// converted to keep the image's on-screen size; a viewport-only
-        /// change keeps the pixel scale. Fill re-resolves and the pan re-clamps.
+        /// stand-in replaces another (thumbnail → preview → source size), so an
+        /// extent change keeps the image's on-screen rect; a viewport or
+        /// display-scale change carries the zoom across. Either way fill
+        /// re-resolves, the pan re-clamps and a live pinch or drag continues
+        /// from the frame on screen, so a sync mid-pinch never pulls a
+        /// below-fit pinch back to centre.
         /// </summary>
         public void UpdateGeometry(double viewportWidth, double viewportHeight,
             double extentWidth, double extentHeight, double displayScale)
@@ -84,26 +87,15 @@ namespace Maple.WinUI.Services
             _context = next;
             var extentChanged = previous.native_image_size.width != next.native_image_size.width
                 || previous.native_image_size.height != next.native_image_size.height;
-            if (extentChanged && HasExtent(previous) && HasExtent(next))
-            {
-                var sameViewport = previous with { native_image_size = next.native_image_size };
-                var ratio = RawFfi.maple_canvas_zoom_fit_scale(sameViewport)
-                    / RawFfi.maple_canvas_zoom_fit_scale(previous);
-                if (double.IsFinite(ratio) && ratio > 0)
-                {
-                    if (CurrentStop == RawFfi.MAPLE_CANVAS_ZOOM_STOP_NONE && _state.pixel_scale > 0)
-                        _state.pixel_scale *= ratio;
-                    if (_state.has_pinch_start_scale != 0)
-                        _state.pinch_start_scale *= ratio;
-                }
-            }
-            _state = RawFfi.maple_canvas_zoom_reclamp_pan(_state, _context);
+            _state = extentChanged
+                ? RawFfi.maple_canvas_zoom_image_extent_resolved(_state, previous, next)
+                : RawFfi.maple_canvas_zoom_geometry_changed(_state, previous, next);
         }
 
-        public void ResetToFit() => _state = RawFfi.maple_canvas_zoom_reset_to_fit(_state);
+        public void ResetToFit() => _state = RawFfi.maple_canvas_zoom_reset_to_fit(_state, _context);
 
         /// <summary>Ctrl+1: 100%, re-centred.</summary>
-        public void ZoomToActualSize() => _state = RawFfi.maple_canvas_zoom_to_scale(_state, 1);
+        public void ZoomToActualSize() => _state = RawFfi.maple_canvas_zoom_to_scale(_state, 1, _context);
 
         /// <summary>Whether the viewport and image extent are known; before
         /// that, fit resolves against a stand-in and any relative zoom would

@@ -28,9 +28,10 @@ namespace Maple.WinUI.Native
             RequireSize(sizeof(MapleCanvasSize), 16, "MapleCanvasSize", "canvas_math.rs");
             RequireSize(sizeof(MapleCanvasPoint), 16, "MapleCanvasPoint", "canvas_math.rs");
             RequireSize(sizeof(MapleCanvasRect), 32, "MapleCanvasRect", "canvas_math.rs");
-            RequireSize(sizeof(MapleCanvasZoomContext), 40, "MapleCanvasZoomContext", "canvas_zoom.rs");
-            RequireSize(sizeof(MapleCanvasZoomState), 136, "MapleCanvasZoomState", "canvas_zoom.rs");
-            RequireSize(sizeof(MapleCanvasZoomTransition), 144, "MapleCanvasZoomTransition", "canvas_zoom.rs");
+            RequireSize(sizeof(MapleCanvasInsets), 32, "MapleCanvasInsets", "canvas_zoom_insets.rs");
+            RequireSize(sizeof(MapleCanvasZoomContext), 72, "MapleCanvasZoomContext", "canvas_zoom.rs");
+            RequireSize(sizeof(MapleCanvasZoomState), 176, "MapleCanvasZoomState", "canvas_zoom.rs");
+            RequireSize(sizeof(MapleCanvasZoomTransition), 184, "MapleCanvasZoomTransition", "canvas_zoom.rs");
             RequireSize(sizeof(MapleCanvasMathInput), 64, "MapleCanvasMathInput", "canvas_math.rs");
             RequireSize(sizeof(MapleCanvasMathResult), 152, "MapleCanvasMathResult", "canvas_math.rs");
         }
