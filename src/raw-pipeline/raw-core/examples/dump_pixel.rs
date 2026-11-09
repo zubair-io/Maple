@@ -67,30 +67,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     let camera_rgb_pre_wb = camera_rgb.clone();
 
-    // Mirror pipeline/develop.rs § "skip_pre_gain" decision — apply WB
-    // pre-gain (divide camera RGB by AsShotNeutral) so a neutral patch reads
-    // (1, 1, 1) into DCP, EXCEPT for 8-bit lossy LinearRaw DNGs.
-    let skip_pre_gain = is_linear_rgb && raw.white_level <= 255;
-    if !skip_pre_gain {
-        let asn = raw.as_shot_neutral;
-        for p in &mut camera_rgb.pixels {
-            if asn[0] > 1e-6 {
-                p[0] /= asn[0];
-            }
-            if asn[1] > 1e-6 {
-                p[1] /= asn[1];
-            }
-            if asn[2] > 1e-6 {
-                p[2] /= asn[2];
-            }
+    // Mirror pipeline/develop.rs — apply WB pre-gain (divide camera RGB by
+    // AsShotNeutral) so a neutral patch reads (1, 1, 1) into DCP.
+    let asn = raw.as_shot_neutral;
+    for p in &mut camera_rgb.pixels {
+        if asn[0] > 1e-6 {
+            p[0] /= asn[0];
+        }
+        if asn[1] > 1e-6 {
+            p[1] /= asn[1];
+        }
+        if asn[2] > 1e-6 {
+            p[2] /= asn[2];
         }
     }
 
     let profile = dcp::profile_for(&raw)?;
-    println!(
-        "skip_pre_gain: {} (white_level <= 255 ∧ LinearRgb)",
-        skip_pre_gain
-    );
     println!("wb_already_baked: {}", profile.wb_already_baked);
     println!("scene_cct: {:.0} K", profile.scene_cct);
     println!(
