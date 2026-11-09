@@ -132,6 +132,14 @@ import XCTest
           app.descendants(matching: .any)
             .matching(identifier: "editor-group-tabs").firstMatch.exists)
         XCTAssertFalse(app.buttons["editor-dock-tool-crop"].exists)
+        // The rail stands beside the header, never stacked above it (#5770).
+        let header = app.descendants(matching: .any)
+          .matching(identifier: "editor-pill-header").firstMatch
+        XCTAssertTrue(header.exists, "Editor header is missing")
+        XCTAssertGreaterThanOrEqual(
+          light.frame.minX, header.frame.maxX, "Group rail overlaps the header row")
+        XCTAssertGreaterThan(
+          light.frame.minY, header.frame.minY, "Group rail sits above the header row")
         for (group, firstTool) in [
           ("light", "exposure"), ("color", "temp"),
           ("effects", "clarity"), ("detail", "sharpen"),
@@ -154,7 +162,7 @@ import XCTest
       guard verticalBar.waitForExistence(timeout: 10) else {
         throw XCTSkip("The open Duo posture requires an iPhone Duo simulator")
       }
-      XCTAssertFalse(light.exists, "The open Duo shows no system tool rail")
+      XCTAssertFalse(light.exists, "The open Duo shows no side group rail")
       XCTAssertFalse(
         app.descendants(matching: .any)
           .matching(identifier: "editor-tool-dock").firstMatch.exists)
