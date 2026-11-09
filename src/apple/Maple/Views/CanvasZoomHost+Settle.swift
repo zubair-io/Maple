@@ -10,6 +10,12 @@
 import MapleCore
 import SwiftUI
 
+/// The visible area's insets and whether the chrome has reported them yet.
+struct CanvasChrome: Equatable {
+  let insets: CanvasViewportInsets
+  let measured: Bool
+}
+
 extension CanvasZoomHost {
   // MARK: - Visible area and settling
 
@@ -110,7 +116,8 @@ extension CanvasZoomHost {
 
   /// A bar shown or hidden, the inspector resized: re-resolve the visible
   /// area and animate any move it causes from what is on screen. Deferred
-  /// while a pinch is live (#5736); not animated before the photo is drawn.
+  /// while a pinch is live (#5736); not animated before the photo is drawn,
+  /// which includes the chrome's first report (#5769).
   func insetsChanged(_ insets: CanvasViewportInsets) {
     guard !isPinching else {
       pendingInsets = insets
@@ -119,8 +126,8 @@ extension CanvasZoomHost {
     pendingInsets = nil
     let shown = settle?.shown(at: Date()) ?? controller.restingFrame
     settle = nil
-    controller.viewportInsetsChanged(insets)
-    if canvasReady { beginSettle(from: shown) }
+    let movedOnScreen = controller.viewportInsetsChanged(insets, chromeMeasured: chromeMeasured)
+    if canvasReady, movedOnScreen { beginSettle(from: shown) }
   }
 
   /// Release: commit, apply any chrome change held during the pinch, then
@@ -129,7 +136,7 @@ extension CanvasZoomHost {
     commit()
     if let pending = pendingInsets {
       pendingInsets = nil
-      controller.viewportInsetsChanged(pending)
+      controller.viewportInsetsChanged(pending, chromeMeasured: chromeMeasured)
     }
     beginSettle(from: shown)
   }

@@ -102,7 +102,7 @@ public final class EditorState {
     self.armedGroup = armedGroup
     self.armedToolStorage = armedTool
     self.subParamMemory = memory
-    self.zoom = CanvasZoomController(session: session)
+    self.zoom = CanvasZoomController(session: session, chromeMeasured: false)
     self.whiteBalancePicker = WhiteBalancePicker(session: session)
     self.maskRangePicker = MaskRangePicker(session: session)
     self.colorCurvePicker = ColorCurvePicker(session: session)

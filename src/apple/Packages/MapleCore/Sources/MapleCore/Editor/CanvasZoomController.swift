@@ -50,6 +50,12 @@ public final class CanvasZoomController {
   /// Parts of the viewport the host's chrome covers. Fit, fill and the
   /// centred position resolve inside what is left.
   public internal(set) var viewportInsets: CanvasViewportInsets = .zero
+  /// Whether the host has measured the chrome over the canvas, so the zoom
+  /// resolves in the visible area the photo rests in. The host draws the
+  /// photo only from then on: the chrome reports its frames a layout pass
+  /// after the canvas measures its viewport, and a photo drawn before that
+  /// would move once they land (#5769).
+  public private(set) var isChromeMeasured: Bool
   /// The extent the canvas lays the photo out with until the real one is
   /// known (`setProvisionalImageSize`); `nil` once `nativeImageSizeChanged`
   /// carries the zoom into the real size. Layout keeps reading it until
@@ -77,9 +83,12 @@ public final class CanvasZoomController {
   /// still's resolution, so opening and paging never decode (#5762).
   public internal(set) var rendersSession: Bool
 
-  public init(session: EditSession, rendersSession: Bool = true) {
+  /// `chromeMeasured` is false for a canvas whose chrome reports its frames
+  /// after the canvas measures its viewport (the editor).
+  public init(session: EditSession, rendersSession: Bool = true, chromeMeasured: Bool = true) {
     self.session = session
     self.rendersSession = rendersSession
+    self.isChromeMeasured = chromeMeasured
   }
 
   // MARK: - Derived geometry
@@ -163,28 +172,42 @@ public final class CanvasZoomController {
   /// recomputed visible source rect — the visible rect depends on the
   /// viewport, so a resize that skipped the commit would leave
   /// deep-zoom consumers acting on a stale region (#1125 review).
+  /// `chromeMeasured` is false while the chrome over the canvas has not
+  /// reported its frames yet, so `insets` may still miss some of it.
   public func viewportChanged(
-    points: CGSize, displayScale: CGFloat, insets: CanvasViewportInsets = .zero
+    points: CGSize, displayScale: CGFloat, insets: CanvasViewportInsets = .zero,
+    chromeMeasured: Bool = true
   ) {
     guard points.width > 0, points.height > 0 else { return }
     self.viewportPoints = points
     self.displayScale = displayScale
     self.viewportInsets = insets
+    if chromeMeasured { isChromeMeasured = true }
     carryIntoCurrentGeometry()
     pushViewportToSession()
     commitToSession()
   }
 
   /// The chrome covering the canvas changed (a bar shown or hidden, the
-  /// inspector resized). A zoomed image keeps its place unless the new
-  /// visible area leaves it outside the resting range; at fit it re-fits in
-  /// the new visible area. The host animates from what it showed.
-  public func viewportInsetsChanged(_ insets: CanvasViewportInsets) {
-    guard insets != viewportInsets else { return }
+  /// inspector resized), or reported its frames for the first time. A zoomed
+  /// image keeps its place unless the new visible area leaves it outside the
+  /// resting range; at fit it re-fits in the new visible area.
+  ///
+  /// Returns whether a photo already on screen moved, so the host animates
+  /// from what it showed. Insets that complete the canvas's first
+  /// measurement return false: nothing was drawn before them.
+  @discardableResult
+  public func viewportInsetsChanged(
+    _ insets: CanvasViewportInsets, chromeMeasured: Bool = true
+  ) -> Bool {
+    let wasOnScreen = isChromeMeasured
+    if chromeMeasured { isChromeMeasured = true }
+    guard insets != viewportInsets else { return false }
     viewportInsets = insets
-    guard viewportPoints != .zero else { return }
+    guard viewportPoints != .zero else { return false }
     carryIntoCurrentGeometry()
     commitToSession()
+    return wasOnScreen
   }
 
   /// Hold the frame the host is showing mid-animation as the resting state,
