@@ -344,7 +344,7 @@ fn a_viewport_change_mid_drag_continues_from_the_clamped_pan() {
 }
 
 #[test]
-fn a_viewport_change_mid_pinch_at_fill_continues_from_the_new_fill() {
+fn a_viewport_change_mid_pinch_at_fill_continues_from_the_frame_on_screen() {
     let image = (2000.0, 1000.0);
     let mut state = [0.0; STATE_LEN];
     zoom(&mut state, OP_ADVANCE_STOP, [0.0; 4], image);
@@ -369,8 +369,8 @@ fn a_viewport_change_mid_pinch_at_fill_continues_from_the_new_fill() {
             image.1,
         );
     }
-    let fill = decode(&state).pixel_scale;
-    assert_eq!(fill, 1.0);
+    let shown = decode(&state).pixel_scale;
+    assert_eq!(shown, 0.75, "the old fill stays until the release");
     // SAFETY: as above.
     unsafe {
         maple_android_canvas_zoom(
@@ -386,7 +386,7 @@ fn a_viewport_change_mid_pinch_at_fill_continues_from_the_new_fill() {
             image.1,
         );
     }
-    assert!((decode(&state).pixel_scale - fill * 1.1).abs() < 1e-9);
+    assert!((decode(&state).pixel_scale - shown * 1.1).abs() < 1e-9);
 }
 
 #[test]

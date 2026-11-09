@@ -10,21 +10,30 @@
 
 use super::*;
 
-/// `model` re-resolved at rest under `context`, with any live gesture
-/// continuing from it. The re-capture holds a pinch's scale to the new floor
-/// and cap without touching the committed frame; Android draws the committed
-/// frame during a pinch, so it becomes the frame the pinch's next identical
-/// input draws.
+/// `model` under `context`, with any live gesture continuing from it. At
+/// rest the zoom re-resolves for the new geometry. A live pinch instead keeps
+/// the frame Android is drawing (the committed one) as it stands, outside the
+/// resting range and below fit alike, held only to the pinch's floor and cap,
+/// as the shared model's `geometry_changed` carries a live pinch; its release
+/// settles. The re-capture makes that frame the one the pinch's next
+/// identical input draws.
 pub(super) fn continued(model: CanvasZoomModel, context: &CanvasZoomContext) -> CanvasZoomModel {
-    let rested = model.reclamp_pan(context);
-    match rested.pinch_start_scale {
-        Some(_) => rested.pinch_changed(
-            rested.pinch_last_magnification,
-            rested.pinch_last_centroid,
-            context,
-        ),
-        None => rested,
+    if model.pinch_start_scale.is_none() {
+        return model.reclamp_pan(context);
     }
+    let magnification = model.pinch_last_magnification;
+    let centroid = model.pinch_last_centroid;
+    // A pinch frame with no start captures the frame as it stands (#5737);
+    // repeating the input then commits the frame that capture draws.
+    let recaptured = CanvasZoomModel {
+        pinch_start_scale: None,
+        ..model
+    }
+    .pinch_changed(magnification, centroid, context);
+    if recaptured.pinch_start_scale.is_none() {
+        return model;
+    }
+    recaptured.pinch_changed(magnification, centroid, context)
 }
 
 /// `model` re-resolved and re-captured for `geometry` when it differs from the

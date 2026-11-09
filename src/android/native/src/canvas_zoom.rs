@@ -145,7 +145,7 @@ fn apply(
             &context,
         ),
         OP_ADVANCE_STOP => model.advance_stop(&context),
-        OP_RECLAMP => model.reclamp_pan(&context),
+        OP_RECLAMP => continued(model, &context),
         OP_ADOPT_IMAGE => {
             let previous = Geometry {
                 image: Size::new(a, b),
