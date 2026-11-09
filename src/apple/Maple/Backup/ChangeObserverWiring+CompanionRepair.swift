@@ -23,10 +23,8 @@ extension ChangeObserverWiring {
   /// during discovery, so the repair inspects resources only for the few
   /// assets the server lacks something for.
   nonisolated static func possibleCompanions(of asset: PHAsset) -> BackupCompanions {
-    BackupCompanions([
-      asset.mediaSubtypes.contains(.photoLive) ? .liveVideo : [],
-      asset.hasAdjustments ? .rendered : [],
-    ])
+    BackupCompanions(
+      liveVideo: asset.mediaSubtypes.contains(.photoLive), rendered: asset.hasAdjustments)
   }
 
   /// Re-queues uploaded photos whose Live Photo video or edited render the
@@ -74,23 +72,20 @@ extension ChangeObserverWiring {
     of phids: Set<String>, includeLivePhotos: Bool
   ) -> [String: BackupCompanions] {
     let ids = Array(phids)
-    return stride(from: 0, to: ids.count, by: 500).reduce(into: [:]) { found, offset in
+    let batches = stride(from: 0, to: ids.count, by: 500).map {
+      Array(ids[$0..<min($0 + 500, ids.count)])
+    }
+    return batches.reduce(into: [:]) { found, batch in
       guard !Task.isCancelled else { return }
-      let result = PHAsset.fetchAssets(
-        withLocalIdentifiers: Array(ids[offset..<min(offset + 500, ids.count)]), options: nil)
-      result.enumerateObjects { asset, _, stop in
-        if Task.isCancelled {
-          stop.pointee = true
-          return
-        }
+      let result = PHAsset.fetchAssets(withLocalIdentifiers: batch, options: nil)
+      for asset in (0..<result.count).map(result.object(at:)) {
+        guard !Task.isCancelled else { return }
         let types = Set(PHAssetResource.assetResources(for: asset).map(\.type))
         let liveVideo =
           includeLivePhotos && asset.mediaSubtypes.contains(.photoLive)
           && types.contains(.pairedVideo)
-        found[asset.localIdentifier] = BackupCompanions([
-          liveVideo ? .liveVideo : [],
-          types.contains(.fullSizePhoto) ? .rendered : [],
-        ])
+        found[asset.localIdentifier] = BackupCompanions(
+          liveVideo: liveVideo, rendered: types.contains(.fullSizePhoto))
       }
     }
   }
