@@ -295,14 +295,19 @@ See [pipeline](pipeline.md) for the develop chain the tile path is a subset of, 
 
 ## Linux native canvas (#4317)
 
-Linux follows the same zoom rules as Apple's editor. Zoom runs from half of
-fit to 800%, with stops at fit, fill and 100%: the Fit, Fill and 100% controls
-and the F / Z keys select them, and double-click toggles fit and 100% anchored
-at the click. Ctrl-wheel and trackpad pinch zoom around the pointer. Zooming
-out continues below fit, where the photo stays centred and cannot be panned;
-zooming back in stops once at fit, and any zoom toward fit that lands within
-4% of it settles there. Fill covers the viewport, only the overflowing axis
-pans, and a window resize re-resolves it. Fit is resolved from the native
+Linux follows the same zoom rules as Apple's editor, with no chrome insets:
+the visible area is the whole canvas. Zoom runs from half of fit to 800%, with
+stops at fit, fill and 100%: the Fit, Fill and 100% controls and the F / Z keys
+select them, and double-click toggles fit and 100% anchored at the click.
+Ctrl-wheel and trackpad pinch zoom around the pointer. Both are wheel zooms in
+the model, so a pinch follows the wheel's rules rather than Apple's pinch
+release: it can rest below fit and has no fill detent. Zooming out continues
+below fit, where the photo stays centred and cannot be panned; zooming back in
+stops once at fit, and any zoom toward fit that lands within 4% of it settles
+there. Fill covers the viewport, only the overflowing axis pans, and a window
+resize re-resolves it: each frame re-resolves the zoom against the laid-out
+geometry (`reclamp_pan`), so the pan is kept inside its range rather than
+carried as `geometry_changed` would carry it. Fit is resolved from the native
 DefaultCrop/EXIF-oriented dimensions, and 100% is one source pixel per physical
 pixel. Focused text fields retain their keyboard input.
 
