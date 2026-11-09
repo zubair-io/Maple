@@ -158,7 +158,12 @@ public actor BackupEngine {
     let wake = retryWake
     let observer = Task {
       for await event in events {
-        if case .enqueued = event { await wake.signal() }
+        switch event {
+        case .enqueued, .enqueuedBatch:
+          await wake.signal()
+        default:
+          break
+        }
       }
     }
     defer { observer.cancel() }
@@ -464,11 +469,23 @@ public actor BackupEngine {
       }
     }
 
+    let deferred: CompanionReadResult? =
+      if read.hasDeferredCompanions, read.renderedBytes == nil, read.liveVideoBytes == nil {
+        try? await reader.readCompanions(
+          phassetLocalId: task.id.phassetLocalId, onStatus: { _ in })
+      } else {
+        nil
+      }
+    let effectiveRenderedBytes = read.renderedBytes ?? deferred?.renderedBytes
+    let effectiveRenderedExt =
+      read.renderedFilenameExtension ?? deferred?.renderedFilenameExtension
+    let effectiveLiveBytes = read.liveVideoBytes ?? deferred?.liveVideoBytes
+
     // Apple-rendered companion, when present. Re-derivable → light retry.
-    if let renderedBytes = read.renderedBytes, !renderedBytes.isEmpty {
+    if let renderedBytes = effectiveRenderedBytes, !renderedBytes.isEmpty {
       let originalExt = (result.targetRelPath as NSString).pathExtension
       let renderedExt =
-        read.renderedFilenameExtension ?? (originalExt.isEmpty ? "jpeg" : originalExt)
+        effectiveRenderedExt ?? (originalExt.isEmpty ? "jpeg" : originalExt)
       await runCompanion(
         taskId: task.id, label: "rendered",
         maxAttempts: Self.derivedCompanionRetries
@@ -485,7 +502,7 @@ public actor BackupEngine {
 
     // Live Photo .mov twin, when present. Lands as `<base>.mov` (no
     // .rendered. infix) via suffix-override. Re-derivable → light retry.
-    if let liveBytes = read.liveVideoBytes, !liveBytes.isEmpty {
+    if let liveBytes = effectiveLiveBytes, !liveBytes.isEmpty {
       await runCompanion(
         taskId: task.id, label: "live-mov",
         maxAttempts: Self.derivedCompanionRetries

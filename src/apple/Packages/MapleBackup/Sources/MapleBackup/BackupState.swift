@@ -19,7 +19,7 @@ public struct DeliveredSidecar: Sendable, Equatable {
 
 public actor BackupStateStore {
 
-  private let dbQueue: DatabaseQueue
+  let dbQueue: DatabaseQueue
 
   public init(databaseURL: URL) throws {
     var configuration = Configuration()
@@ -49,6 +49,10 @@ public actor BackupStateStore {
       if !columns.contains("captured_at") {
         try db.execute(sql: "ALTER TABLE tasks ADD COLUMN captured_at DOUBLE")
       }
+      try db.create(
+        index: "tasks_device_state_captured_idx",
+        on: "tasks", columns: ["device_id", "state", "captured_at"],
+        ifNotExists: true)
       // The local-edit revision each asset's sidecar upload last delivered
       // (#4719). The edit itself stays in AppSupportSidecarStore; this row is
       // what tells a newer local edit apart from the one already uploaded.
@@ -65,6 +69,7 @@ public actor BackupStateStore {
         try db.execute(
           sql: "ALTER TABLE uploaded_sidecars ADD COLUMN canonical_name INTEGER NOT NULL DEFAULT 0")
       }
+      try Self.createCursorsTable(in: db)
     }
   }
 
@@ -135,9 +140,10 @@ public actor BackupStateStore {
               retry_count=excluded.retry_count,
               last_error=excluded.last_error,
               enqueued_at=excluded.enqueued_at,
-              captured_at=excluded.captured_at
+              captured_at=COALESCE(excluded.captured_at, tasks.captured_at)
             """)
       }
+      try Self.recordUploadedWatermarks(for: tasks, in: db)
     }
   }
 
@@ -171,6 +177,9 @@ public actor BackupStateStore {
              WHERE device_id=\(id.deviceId)
                AND phasset_local_id=\(id.phassetLocalId)
             """)
+      }
+      if state == .uploaded {
+        try Self.recordUploadedWatermark(for: id, in: db)
       }
     }
   }
@@ -215,7 +224,7 @@ public actor BackupStateStore {
     }
   }
 
-  private static func decode(_ row: Row) -> BackupTask {
+  static func decode(_ row: Row) -> BackupTask {
     BackupTask(
       id: BackupTaskID(deviceId: row["device_id"], phassetLocalId: row["phasset_local_id"]),
       state: BackupState(rawValue: row["state"]) ?? .observed,

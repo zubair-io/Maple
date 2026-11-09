@@ -8,6 +8,10 @@ public protocol AssetReader: Actor {
     phassetLocalId: String,
     onStatus: @escaping @Sendable (String) async -> Void
   ) async throws -> AssetReadResult
+  func readCompanions(
+    phassetLocalId: String,
+    onStatus: @escaping @Sendable (String) async -> Void
+  ) async throws -> CompanionReadResult
 }
 
 extension AssetReader {
@@ -16,6 +20,29 @@ extension AssetReader {
     onStatus: @escaping @Sendable (String) async -> Void
   ) async throws -> AssetReadResult {
     try await read(phassetLocalId: phassetLocalId)
+  }
+
+  public func readCompanions(
+    phassetLocalId: String,
+    onStatus: @escaping @Sendable (String) async -> Void
+  ) async throws -> CompanionReadResult {
+    CompanionReadResult()
+  }
+}
+
+public struct CompanionReadResult: Sendable {
+  public let renderedBytes: Data?
+  public let renderedFilenameExtension: String?
+  public let liveVideoBytes: Data?
+
+  public init(
+    renderedBytes: Data? = nil,
+    renderedFilenameExtension: String? = nil,
+    liveVideoBytes: Data? = nil
+  ) {
+    self.renderedBytes = renderedBytes
+    self.renderedFilenameExtension = renderedFilenameExtension
+    self.liveVideoBytes = liveVideoBytes
   }
 }
 
@@ -33,12 +60,16 @@ public struct AssetReadResult: Sendable {
   public let liveVideoFilename: String?
   public let sidecar: PayloadAssembler.SidecarInput
   public let mapleId: String
+  /// True when rendered or Live Photo companion bytes exist in PhotoKit and
+  /// should be fetched lazily via `readCompanions` after the primary upload lands.
+  public let hasDeferredCompanions: Bool
 
   public init(
     originalBytes: Data, renderedBytes: Data?,
     renderedFilenameExtension: String? = nil,
     liveVideoBytes: Data? = nil, liveVideoFilename: String? = nil,
-    sidecar: PayloadAssembler.SidecarInput, mapleId: String
+    sidecar: PayloadAssembler.SidecarInput, mapleId: String,
+    hasDeferredCompanions: Bool = false
   ) {
     self.originalBytes = originalBytes
     self.renderedBytes = renderedBytes
@@ -47,5 +78,6 @@ public struct AssetReadResult: Sendable {
     self.liveVideoFilename = liveVideoFilename
     self.sidecar = sidecar
     self.mapleId = mapleId
+    self.hasDeferredCompanions = hasDeferredCompanions
   }
 }

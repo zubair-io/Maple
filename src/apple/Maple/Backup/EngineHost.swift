@@ -205,6 +205,11 @@ public final class EngineHost {
       // in totalEnqueued. Subscribing after rehydration causes the
       // progress VM to miss those events and undercount on restart.
       await progress.start(queue: queue)
+      if let snap = try? await state.startupSnapshot(deviceId: deviceId) {
+        progress.recordLibrarySnapshot(
+          photoIDs: snap.libraryPhotoIDs,
+          backedUpIDs: snap.backedUpPhotoIDs)
+      }
 
       guard generation == self.generation, runGate.mayRun else { return }
       try await state.rehydrate(into: queue)
@@ -223,7 +228,8 @@ public final class EngineHost {
 
       let reader: any AssetReader = PhotoKitAssetReader(
         deviceId: deviceId,
-        geocode: GeocodeClient(baseURL: effectiveServerURL))
+        geocode: GeocodeClient(baseURL: effectiveServerURL),
+        includeLivePhotos: settings.includeLivePhotos)
 
       let engine = BackupEngine(
         queue: queue,

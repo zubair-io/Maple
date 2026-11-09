@@ -108,6 +108,45 @@ final class InProcessBackupQueueTests: XCTestCase {
     }
     XCTAssertEqual(cancelledId, id)
   }
+
+  func testBatchEnqueueAndCancelEmitBatchEventsAndDrainNewestFirst() async throws {
+    let q = InProcessBackupQueue()
+    let stream = await q.observe()
+    var iterator = stream.makeAsyncIterator()
+    let t1 = BackupTask(
+      id: BackupTaskID(deviceId: "d", phassetLocalId: "old"),
+      state: .pending, priority: .background,
+      capturedAt: Date(timeIntervalSince1970: 100))
+    let t2 = BackupTask(
+      id: BackupTaskID(deviceId: "d", phassetLocalId: "mid"),
+      state: .pending, priority: .background,
+      capturedAt: Date(timeIntervalSince1970: 200))
+    let t3 = BackupTask(
+      id: BackupTaskID(deviceId: "d", phassetLocalId: "new"),
+      state: .pending, priority: .background,
+      capturedAt: Date(timeIntervalSince1970: 300))
+
+    await q.enqueue([t1, t2, t3], priority: .background)
+    let enqueueEvent = await iterator.next()
+    guard case .enqueuedBatch(let batch) = enqueueEvent else {
+      XCTFail("expected .enqueuedBatch event, got \(String(describing: enqueueEvent))")
+      return
+    }
+    XCTAssertEqual(batch.count, 3)
+
+    await q.cancel([t1.id, t2.id])
+    let cancelEvent = await iterator.next()
+    guard case .cancelledBatch(let cancelledIds) = cancelEvent else {
+      XCTFail("expected .cancelledBatch event, got \(String(describing: cancelEvent))")
+      return
+    }
+    XCTAssertEqual(cancelledIds, [t1.id, t2.id])
+
+    let remaining = await q.dequeue()
+    XCTAssertEqual(remaining?.id, t3.id)
+    let none = await q.dequeue()
+    XCTAssertNil(none)
+  }
 }
 
 // MARK: - Newest-first within a priority (#3388)
