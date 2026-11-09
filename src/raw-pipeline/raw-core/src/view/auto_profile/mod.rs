@@ -38,6 +38,7 @@ pub mod preview_coverage;
 mod preview_raf_color;
 mod preview_sources;
 mod solve;
+mod toe;
 
 pub use apply::{apply_curve, compress_input};
 pub use apply_pipeline::apply_auto_profile;

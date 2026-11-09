@@ -207,6 +207,9 @@ fn fit_via_acr2(
             residual = Some(candidate);
         }
     }
+    if let Some(lut) = residual.as_mut() {
+        super::toe::soften_black_toe(lut);
+    }
     if let (Some(key), Some(c), Some(l)) = (cache_key, curve.as_ref(), residual.as_ref()) {
         cache::insert(key.clone(), c.clone());
         cache::insert_lut(key.clone(), l.clone());
