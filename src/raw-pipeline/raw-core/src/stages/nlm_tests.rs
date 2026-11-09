@@ -157,7 +157,7 @@ fn preset_cancel_returns_input_unchanged_before_any_shift() {
         CancelToken::new(&flag2),
         &plane,
         None,
-        100,
+        0,
         false,
     );
     assert!(
@@ -264,5 +264,55 @@ fn fast_neg_exp_weight_never_exceeds_one_for_any_input() {
             );
         }
         prev = w;
+    }
+}
+
+/// #4638: a known ISO without a NoiseProfile selects the ISO-only noise model
+/// on the general and the tiled dispatch alike; it matches the same model
+/// encoded as an explicit one-pair profile, and differs from the flat filter
+/// that unknown ISO 0 keeps.
+#[test]
+fn absent_profile_with_known_iso_uses_the_iso_fallback_model() {
+    for (w, h) in [(64, 48), (257, 65)] {
+        let plane: Vec<f32> = (0..w * h)
+            .map(|i| 0.2 + ((i * 179 + i / w * 31) % 1024) as f32 / 8192.0)
+            .collect();
+        let guide: Vec<f32> = (0..w * h).map(|i| (i % w) as f32 / w as f32).collect();
+        let params = NlmParams {
+            patch_radius: 2,
+            search_radius: 2,
+            h: 0.02,
+        };
+        let run = |profile: Option<&[f32]>, iso| {
+            denoise_plane_cancellable(
+                &plane,
+                w,
+                h,
+                params,
+                CancelToken::never(),
+                &guide,
+                profile,
+                iso,
+                false,
+            )
+        };
+        let (slope, offset) = fallback_noise_params(1600);
+        let routed = run(None, 1600);
+        let encoded = run(Some(&[slope, offset]), 1600);
+        let flat = run(None, 0);
+        let worst = |a: &[f32], b: &[f32]| {
+            a.iter()
+                .zip(b)
+                .map(|(x, y)| (x - y).abs())
+                .fold(0.0, f32::max)
+        };
+        assert!(
+            worst(&routed, &encoded) < 1e-5,
+            "{w}x{h}: absent profile at ISO 1600 must equal the encoded ISO fallback"
+        );
+        assert!(
+            worst(&routed, &flat) > 1e-4,
+            "{w}x{h}: a known ISO must not run the flat filter"
+        );
     }
 }

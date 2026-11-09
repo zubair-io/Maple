@@ -281,6 +281,7 @@ pub fn decode_bytes(bytes: &[u8], ext: &str) -> Result<RawImage> {
         .as_ref()
         .and_then(|dec| dec.raw_metadata(&source, &params).ok())
         .and_then(|md| md.exif.iso_speed_ratings.map(|v| v as u32))
+        .filter(|&iso| iso > 0)
         .unwrap_or(100);
 
     let reconstructed_canon_rgb = crate::black_level::is_reconstructed_canon_rgb(

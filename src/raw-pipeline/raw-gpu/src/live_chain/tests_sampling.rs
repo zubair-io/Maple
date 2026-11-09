@@ -65,7 +65,7 @@ fn live_chain_forwards_nr_sampling_scale() {
         75.0,
         raw_core::cancel::CancelToken::never(),
         None,
-        100,
+        inputs.iso,
         0.25,
     );
     let prepared: Vec<f32> = image

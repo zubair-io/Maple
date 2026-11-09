@@ -60,7 +60,7 @@ use crate::context::GpuContext;
 use crate::dehaze::compute_airlight;
 use crate::full_chain::oracle::{
     cpu_oracle, max_abs_diff, moved, nonidentity_curve, nonidentity_lut, random_film_lut,
-    scene_linear_rgba, Case,
+    scene_linear_rgba, Case, CASE_ISO,
 };
 use crate::image::GpuImage;
 use crate::PROFILE_CURVE_FLAT_LEN;
@@ -272,14 +272,19 @@ fn cpu_oracle_limit(input: &[f32], w: u32, h: u32, case: &Case, limit: usize) ->
             &mut img,
             case.model.nr_luminance,
             None,
-            100,
+            CASE_ISO,
         );
     }
     stage_idx += 1;
 
     // Stage 13: NLM color
     if stage_idx <= limit {
-        raw_core::stages::noise_reduction::apply_color(&mut img, case.model.nr_color, None, 100);
+        raw_core::stages::noise_reduction::apply_color(
+            &mut img,
+            case.model.nr_color,
+            None,
+            CASE_ISO,
+        );
     }
     stage_idx += 1;
 

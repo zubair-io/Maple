@@ -382,8 +382,8 @@ pub(super) unsafe fn inputs_from_params(
         },
         // The frame's DNG NoiseProfile + ISO (#1714) — what the NR stages'
         // per-pixel modulation is derived from. A null pointer / zero length is
-        // "no profile", which is the flat filter raw-core runs at
-        // `noise_profile: None`.
+        // "no profile": raw-core's `noise_profile: None`, the ISO-only fallback
+        // at a known ISO and the flat filter at ISO 0.
         noise_profile: read_floats(p.noise_profile_ptr, p.noise_profile_len as usize),
         iso: crate::scene_linear_chain::host_iso(p.iso, p.input_shape == 0),
         // Film look (epic #2683, Task 8). `film_lut_or_off` is the single

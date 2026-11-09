@@ -50,7 +50,7 @@
 //!
 //! # Parallelism
 //!
-//! Constant-h five-tap patches on larger planes run in cache-local tiles;
+//! Profile-free five-tap patches on larger planes run in cache-local tiles;
 //! shifts keep the reference addition order and ARM64 vectorizes accumulation.
 //! Other parameters retain the full-plane squared differences and parallel
 //! horizontal strips with periodically re-seeded running sums.
@@ -90,7 +90,7 @@ const FAST_EXP_TABLE_SIZE: usize = 512;
 const RESEED_STRIDE: usize = 256;
 
 /// Bound vertical running-sum drift and scratch size in the general kernel.
-/// Five-tap constant-h patches use cache-local tiles instead.
+/// Profile-free five-tap patches use cache-local tiles instead.
 const VSTRIP_ROWS: usize = 256;
 
 #[inline(always)]
@@ -207,7 +207,15 @@ pub fn denoise_plane_cancellable(
     }
     let p = params.patch_radius;
     if p == 2 && noise_profile.is_none() && n >= 16384 {
-        return tiled::denoise(plane, w, h, params, cancel);
+        let model = (iso > 0).then(|| {
+            let (slope, offset) = get_noise_params(None, iso, is_chroma);
+            tiled::NoiseModel {
+                guide: l_plane,
+                slope,
+                offset,
+            }
+        });
+        return tiled::denoise(plane, w, h, params, cancel, model);
     }
 
     let (local_s_plane, local_inv_norm_plane) =
@@ -220,7 +228,7 @@ pub fn denoise_plane_cancellable(
         cancel,
         &local_s_plane,
         &local_inv_norm_plane,
-        noise_profile.is_some(),
+        noise_profile.is_some() || iso > 0,
     )
 }
 
