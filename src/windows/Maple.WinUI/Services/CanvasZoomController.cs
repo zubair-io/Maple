@@ -30,6 +30,8 @@ namespace Maple.WinUI.Services
 
         private MapleCanvasZoomState _state;
         private MapleCanvasZoomContext _context = new() { display_scale = 1 };
+        private MapleCanvasSize _picture;
+        private MapleCanvasSize _crop = new(1, 1);
 
         public MapleCanvasZoomState State => _state;
 
@@ -65,32 +67,49 @@ namespace Maple.WinUI.Services
         public MapleCanvasRect VisibleSourceRect => Resolve().visible_source_rect;
 
         /// <summary>
-        /// Feed the current viewport (points), the displayed image's extent and
-        /// the points→pixels factor. The extent's pixels change meaning when one
-        /// stand-in replaces another (thumbnail → preview → source size), so an
-        /// extent change keeps the image's on-screen rect; a viewport or
-        /// display-scale change carries the zoom across. Either way fill
-        /// re-resolves, the pan re-clamps and a live pinch or drag continues
-        /// from the frame on screen, so a sync mid-pinch never pulls a
-        /// below-fit pinch back to centre.
+        /// Feed the current viewport (points), the picture's extent, the
+        /// committed crop's share of it and the points→pixels factor. The
+        /// picture's pixels change meaning when one stand-in replaces another
+        /// (thumbnail → preview → source size), so a picture-extent change
+        /// keeps the image's on-screen rect. A crop applied, changed or
+        /// cleared is a different extent of the same pixels, so like a
+        /// viewport or display-scale change it carries 100% and a free zoom
+        /// at their pixel scale. Either way fill re-resolves, the pan
+        /// re-clamps and a live pinch or drag continues from the frame on
+        /// screen, so a sync mid-pinch never pulls a below-fit pinch back to
+        /// centre.
         /// </summary>
         public void UpdateGeometry(double viewportWidth, double viewportHeight,
-            double extentWidth, double extentHeight, double displayScale)
+            double pictureWidth, double pictureHeight, double displayScale,
+            double cropWidthFraction, double cropHeightFraction)
         {
-            var next = RawFfi.maple_canvas_zoom_context_sanitize(new MapleCanvasZoomContext
+            var picture = new MapleCanvasSize(pictureWidth, pictureHeight);
+            var crop = new MapleCanvasSize(cropWidthFraction, cropHeightFraction);
+            var previous = _context;
+            var resolved = ZoomContext(viewportWidth, viewportHeight, picture, _crop, displayScale);
+            var next = ZoomContext(viewportWidth, viewportHeight, picture, crop, displayScale);
+            var carried = SameSize(picture, _picture)
+                ? RawFfi.maple_canvas_zoom_geometry_changed(_state, previous, resolved)
+                : RawFfi.maple_canvas_zoom_image_extent_resolved(_state, previous, resolved);
+            _state = SameSize(crop, _crop)
+                ? carried
+                : RawFfi.maple_canvas_zoom_geometry_changed(carried, resolved, next);
+            _picture = picture;
+            _crop = crop;
+            _context = next;
+        }
+
+        private static MapleCanvasZoomContext ZoomContext(double viewportWidth, double viewportHeight,
+            MapleCanvasSize picture, MapleCanvasSize crop, double displayScale) =>
+            RawFfi.maple_canvas_zoom_context_sanitize(new MapleCanvasZoomContext
             {
                 viewport_points = new MapleCanvasSize(viewportWidth, viewportHeight),
-                native_image_size = new MapleCanvasSize(extentWidth, extentHeight),
+                native_image_size = new MapleCanvasSize(picture.width * crop.width, picture.height * crop.height),
                 display_scale = displayScale,
             });
-            var previous = _context;
-            _context = next;
-            var extentChanged = previous.native_image_size.width != next.native_image_size.width
-                || previous.native_image_size.height != next.native_image_size.height;
-            _state = extentChanged
-                ? RawFfi.maple_canvas_zoom_image_extent_resolved(_state, previous, next)
-                : RawFfi.maple_canvas_zoom_geometry_changed(_state, previous, next);
-        }
+
+        private static bool SameSize(MapleCanvasSize a, MapleCanvasSize b) =>
+            a.width == b.width && a.height == b.height;
 
         public void ResetToFit() => _state = RawFfi.maple_canvas_zoom_reset_to_fit(_state, _context);
 
