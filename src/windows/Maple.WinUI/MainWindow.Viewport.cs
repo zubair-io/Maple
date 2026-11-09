@@ -97,11 +97,12 @@ namespace Maple.WinUI
         private CanvasZoomView _appliedZoomView;
         private Windows.Foundation.Point? _mouseDragStart;
 
-        /// <summary>The displayed image's extent for the zoom model: source
-        /// pixels once the source size is read, the current stand-in frame's
-        /// pixels until then, narrowed to a committed crop (the crop display
-        /// scales the crop itself to fit).</summary>
-        private (double Width, double Height) CanvasZoomExtent()
+        /// <summary>The picture's extent for the zoom model — source pixels
+        /// once the source size is read, the current stand-in frame's pixels
+        /// until then — and the committed crop's share of it (the crop
+        /// display scales the crop itself to fit). They stay separate so the
+        /// model can tell the picture resolving from a crop change.</summary>
+        private (double Width, double Height, double CropWidthFraction, double CropHeightFraction) CanvasZoomExtent()
         {
             var source = ReferenceEquals(_nativeGeometryPhoto, ViewModel.SelectedPhoto) ? _nativeGeometry : null;
             var (width, height) = source is { } geometry
@@ -109,8 +110,8 @@ namespace Maple.WinUI
                 : DisplayedFrameDims();
             var crop = ViewModel.Adjustments.Crop;
             return !_cropArmed && !crop.IsIdentity && crop.RectIsValid
-                ? (width * (crop.Right - crop.Left), height * (crop.Bottom - crop.Top))
-                : (width, height);
+                ? (width, height, crop.Right - crop.Left, crop.Bottom - crop.Top)
+                : (width, height, 1, 1);
         }
 
         /// <summary>Feed the live viewport and extent to the zoom model and
@@ -118,9 +119,9 @@ namespace Maple.WinUI
         private void SyncCanvasZoom(bool refreshDetail = true)
         {
             if (ViewerViewport == null) return;
-            var (width, height) = CanvasZoomExtent();
+            var (width, height, cropWidthFraction, cropHeightFraction) = CanvasZoomExtent();
             _canvasZoom.UpdateGeometry(ViewerViewport.ActualWidth, ViewerViewport.ActualHeight,
-                width, height, DisplayScale);
+                width, height, DisplayScale, cropWidthFraction, cropHeightFraction);
             ApplyCanvasZoom(refreshDetail);
         }
 
