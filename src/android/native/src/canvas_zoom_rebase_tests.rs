@@ -4,6 +4,7 @@
 //! live gesture.
 
 use super::*;
+use raw_core::canvas::pinch_scale;
 
 const VIEWPORT: (f64, f64) = (1000.0, 750.0);
 const IMAGE: (f64, f64) = (4000.0, 3000.0);
@@ -134,6 +135,14 @@ fn live_gesture(name: &str, image: (f64, f64)) -> ([f64; STATE_LEN], Frame) {
             &mut state,
             &[pinch(1.0, (500.0, 375.0)), pinch(0.01, (500.0, 375.0))],
         ),
+        "pinch captured at 100%" => {
+            at_actual_size(&mut state);
+            frames(&mut state, &[pinch(1.0, (400.0, 300.0))])
+        }
+        "pinch below fit off-centre" => frames(
+            &mut state,
+            &[pinch(1.0, (300.0, 200.0)), pinch(0.7, (260.0, 190.0))],
+        ),
         "free pinch just above fit" => frames(
             &mut state,
             &[pinch(1.0, (500.0, 375.0)), pinch(1.1, (520.0, 380.0))],
@@ -156,11 +165,13 @@ fn live_gesture(name: &str, image: (f64, f64)) -> ([f64; STATE_LEN], Frame) {
     (state, frame)
 }
 
-const GESTURES: [&str; 8] = [
+const GESTURES: [&str; 10] = [
     "pinch at 100%",
+    "pinch captured at 100%",
     "pinch off-centre",
     "pinch at the cap",
     "pinch at the floor",
+    "pinch below fit off-centre",
     "free pinch just above fit",
     "free drag",
     "drag at the limit",
@@ -218,6 +229,37 @@ fn a_reclamp_for_new_geometry_rebases_every_live_gesture() {
             send(&mut state, OP_RECLAMP, [0.0; 4], layout);
             let label = format!("{name}, reclamped for {layout:?}");
             assert_identical_frame_changes_nothing(state, frame, layout, &label);
+        }
+    }
+}
+
+/// Review on #5722: a new viewport mid-pinch re-resolved the zoom at rest
+/// first, so a pinch below fit away from the centre snapped back to it. The
+/// frame on screen stays, held only to the pinch's floor and cap there.
+#[test]
+fn new_geometry_mid_pinch_keeps_the_frame_on_screen() {
+    for name in GESTURES
+        .into_iter()
+        .filter(|name| name.starts_with("pinch"))
+    {
+        for layout in LAYOUT_CHANGES {
+            let (mut state, _) = live_gesture(name, IMAGE);
+            let (scale, pan) = visible(&state, START);
+            send(&mut state, OP_RECLAMP, [0.0; 4], layout);
+            let fit = Geometry::new(
+                layout.viewport.0,
+                layout.viewport.1,
+                layout.image.0,
+                layout.image.1,
+            )
+            .context()
+            .fit_scale();
+            let label = format!("{name}, reclamped for {layout:?}");
+            assert_same_view(
+                visible(&state, layout),
+                (pinch_scale(scale, 1.0, fit), pan),
+                &label,
+            );
         }
     }
 }
