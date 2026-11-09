@@ -18,6 +18,11 @@ import { readHeicExifTiff } from './heic-exif.ts';
 import { readWebpExifTiff } from './webp-exif.ts';
 import { VIDEO_EXTS, STUB_IMAGE_EXTS, AUDIO_EXTS } from './media-types.ts';
 import { readVideoMetadata } from './video-metadata.ts';
+import {
+  blobReader,
+  readRawCaptureDates,
+  type RawCaptureDates,
+} from '../../../web/projects/maple-common/src/lib/addressing/exif-capture-dates.ts';
 
 /** HEIC/HEIF containers — exifr's `canHandle` rejects modern (>50-byte ftyp)
  * variants, so these go through our own box walker in `heic-exif.ts`, which
@@ -140,7 +145,7 @@ function asNumber(v: unknown): number | null {
  * [#2154]: the `Date` branch below had the exact same class of bug one
  * layer up. Every `Date` that reaches this function is one exifr itself
  * revived from a bare EXIF wall-clock string via local-timezone setters
- * (see `EXIFR_DATE_ONLY_OPTS`'s doc comment above) — `withRawCaptureDates`
+ * (see `EXIFR_DATE_ONLY_OPTS`'s doc comment above) — `normalizeWithRawDates`
  * replaces that revived `Date` with the raw, un-revived string for every
  * tag it can re-parse, so this branch is only reached as its fallback (the
  * re-parse came back without the tag). Calling `.toISOString()` on that
@@ -262,7 +267,7 @@ const EXIFR_PARSE_OPTS = {
  *
  * A blanket `reviveValues: false` on `EXIFR_PARSE_OPTS` would also turn off
  * GPS coordinate conversion and the other tag formatting this stage relies
- * on, so instead `withRawCaptureDates` below fires a second, narrowly-scoped
+ * on, so instead `normalizeWithRawDates` below fires a second, narrowly-scoped
  * parse for just the two date tags with revival off, and splices those raw
  * (unbiased) strings back into the main parse's result before
  * `normalizeExif` ever sees it — every other tag keeps going through the
@@ -273,16 +278,41 @@ const EXIFR_DATE_ONLY_OPTS = {
   reviveValues: false,
 };
 
-/** See `EXIFR_DATE_ONLY_OPTS`'s doc comment. `input` must be the same source
- * (buffer or path) the caller already parsed into `raw`, so the re-parse
- * reads the identical bytes. */
-async function withRawCaptureDates(input: string | Buffer, raw: LooseRecord): Promise<LooseRecord> {
-  const rawDates = (await exifr.parse(input, EXIFR_DATE_ONLY_OPTS)) as LooseRecord | undefined;
-  if (rawDates) {
-    if ('DateTimeOriginal' in rawDates) raw.DateTimeOriginal = rawDates.DateTimeOriginal;
-    if ('CreateDate' in rawDates) raw.CreateDate = rawDates.CreateDate;
-  }
-  return raw;
+/**
+ * The two raw capture-date strings for `input`, the same source (buffer or
+ * path) the caller already parsed. JPEG and TIFF-family inputs (every RAW, and
+ * the TIFF block HEIC and WebP carry) are read by the shared tag reader, which
+ * follows IFD offsets through ranged reads — exifr's chunked reader drops the
+ * ExifIFD of a 100 MP DNG that keeps it at the end of the file, leaving the
+ * maple_id on the fallback form while the device dates the same file (#5090).
+ * Other containers (PNG) keep exifr's own read.
+ */
+async function readCaptureDateStrings(input: string | Buffer): Promise<RawCaptureDates> {
+  const walked = await readRawCaptureDates(
+    blobReader(typeof input === 'string' ? Bun.file(input) : new Blob([Uint8Array.from(input)])),
+  );
+  if (walked) return walked;
+  const parsed = (await exifr.parse(input, EXIFR_DATE_ONLY_OPTS)) as LooseRecord | undefined;
+  const dates: RawCaptureDates = {};
+  if (typeof parsed?.DateTimeOriginal === 'string')
+    dates.DateTimeOriginal = parsed.DateTimeOriginal;
+  if (typeof parsed?.CreateDate === 'string') dates.CreateDate = parsed.CreateDate;
+  return dates;
+}
+
+/** `normalizeExif` over `raw` with its capture dates replaced by the raw
+ * strings (see `EXIFR_DATE_ONLY_OPTS`); null when the file has no EXIF at all. */
+async function normalizeWithRawDates(
+  input: string | Buffer,
+  raw: LooseRecord | undefined,
+): Promise<AssetExif | null> {
+  const dates = await readCaptureDateStrings(input);
+  if (!raw && !dates.DateTimeOriginal && !dates.CreateDate) return null;
+  return normalizeExif({
+    ...raw,
+    DateTimeOriginal: dates.DateTimeOriginal,
+    CreateDate: dates.CreateDate,
+  });
 }
 
 /**
@@ -341,9 +371,10 @@ export async function readExif(absPath: string): Promise<AssetExif | null> {
     // ourselves, then let exifr parse that as a bare TIFF.
     const tiff = await readHeicExifTiff(absPath);
     if (!tiff) return null;
-    const raw = (await exifr.parse(tiff, EXIFR_PARSE_OPTS)) as LooseRecord | undefined;
-    if (!raw) return null;
-    return normalizeExif(await withRawCaptureDates(tiff, raw));
+    return normalizeWithRawDates(
+      tiff,
+      (await exifr.parse(tiff, EXIFR_PARSE_OPTS)) as LooseRecord | undefined,
+    );
   }
 
   if (WEBP_EXTS.has(ext)) {
@@ -351,12 +382,14 @@ export async function readExif(absPath: string): Promise<AssetExif | null> {
     // ourselves, then let exifr parse that as a bare TIFF.
     const tiff = await readWebpExifTiff(absPath);
     if (!tiff) return null;
-    const raw = (await exifr.parse(tiff, EXIFR_PARSE_OPTS)) as LooseRecord | undefined;
-    if (!raw) return null;
-    return normalizeExif(await withRawCaptureDates(tiff, raw));
+    return normalizeWithRawDates(
+      tiff,
+      (await exifr.parse(tiff, EXIFR_PARSE_OPTS)) as LooseRecord | undefined,
+    );
   }
 
-  const raw = (await exifr.parse(absPath, EXIFR_PARSE_OPTS)) as LooseRecord | undefined;
-  if (!raw) return null;
-  return normalizeExif(await withRawCaptureDates(absPath, raw));
+  return normalizeWithRawDates(
+    absPath,
+    (await exifr.parse(absPath, EXIFR_PARSE_OPTS)) as LooseRecord | undefined,
+  );
 }

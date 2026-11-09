@@ -185,8 +185,8 @@ actor PhotoKitAssetReader: AssetReader {
 
   /// Compute the 32-character spec-form `maple_id` for an asset's
   /// original bytes. Reads the capture date the way the indexer's
-  /// `readExif` does — the EXIF dates for stills (#5082), the QuickTime
-  /// `moov` date for videos (#5001) — and feeds the primary derivation
+  /// `readExif` does (`MapleIdDerivation.capturedAt`: the raw EXIF tags for
+  /// stills, the QuickTime `moov` date for videos) and feeds the primary derivation
   /// when present; otherwise falls back to full-bytes hash plus filesize.
   ///
   /// Camera serial and shutter count are passed as nil/0 to match the
@@ -199,8 +199,7 @@ actor PhotoKitAssetReader: AssetReader {
     -> String?
   {
     let capturedAt = try? await MapleIdDerivation.capturedAt(
-      fileExtension: (filename as NSString).pathExtension, reader: .data(originalBytes),
-      stillDates: { ImageMetadataReader.readRawCaptureDateStrings(from: originalBytes) })
+      fileExtension: (filename as NSString).pathExtension, reader: .data(originalBytes))
     if let ts = capturedAt {
       // Cap the head slice at the spec's 64 KB. Hashing the whole
       // file is wasted work — `MapleId::primary` ignores everything

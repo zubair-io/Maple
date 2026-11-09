@@ -14,6 +14,7 @@ final class MapleIdDerivationContractTests: XCTestCase {
       let file: String
       let capturedAt: String?
       let id: String
+      let optional: Bool?
     }
     let cases: [Case]
   }
@@ -24,13 +25,18 @@ final class MapleIdDerivationContractTests: XCTestCase {
   }
 
   func testFilesystemSourceMintsTheCorpusIds() async throws {
-    let corpus = try corpus()
+    // The source lists only the extensions it browses; a WebP is dated by
+    // `testCapturedAtMatchesTheCorpusDates` instead.
+    let listed = try corpus().cases.filter {
+      $0.optional != true
+        && SupportedImageExtensions.all.contains(($0.file as NSString).pathExtension.lowercased())
+    }
     let folder = FileManager.default.temporaryDirectory
       .appendingPathComponent("maple-id-derivation-contract-\(UUID().uuidString)")
     try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
     defer { try? FileManager.default.removeItem(at: folder) }
     let fixtures = try WorkflowFixture.root().appendingPathComponent("ids")
-    for entry in corpus.cases {
+    for entry in listed {
       try FileManager.default.copyItem(
         at: fixtures.appendingPathComponent(entry.file),
         to: folder.appendingPathComponent(entry.file))
@@ -39,9 +45,11 @@ final class MapleIdDerivationContractTests: XCTestCase {
     let source = FilesystemSource()
     try await source.open(folderURL: folder)
     let ids = Dictionary(
-      uniqueKeysWithValues: try await source.images().map { ($0.url?.lastPathComponent ?? "", $0.id) })
+      uniqueKeysWithValues: try await source.images().map {
+        ($0.url?.lastPathComponent ?? "", $0.id)
+      })
 
-    for entry in corpus.cases {
+    for entry in listed {
       XCTAssertEqual(ids[entry.file], entry.id, entry.file)
     }
   }
@@ -50,10 +58,10 @@ final class MapleIdDerivationContractTests: XCTestCase {
     let fixtures = try WorkflowFixture.root().appendingPathComponent("ids")
     for entry in try corpus().cases {
       let url = fixtures.appendingPathComponent(entry.file)
+      // Optional cases are gitignored RAWs; skip them when they are absent.
+      if entry.optional == true, !FileManager.default.fileExists(atPath: url.path) { continue }
       let capturedAt = try await ByteRangeReader.withFile(at: url) { reader in
-        try await MapleIdDerivation.capturedAt(
-          fileExtension: url.pathExtension, reader: reader,
-          stillDates: { ImageMetadataReader.readRawCaptureDateStrings(from: url) })
+        try await MapleIdDerivation.capturedAt(fileExtension: url.pathExtension, reader: reader)
       }
       XCTAssertEqual(capturedAt, entry.capturedAt, entry.file)
     }

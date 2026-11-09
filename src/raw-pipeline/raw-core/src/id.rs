@@ -38,7 +38,7 @@ pub const SHA1_HEAD_BYTES: usize = 64 * 1024;
 /// those rules change on any client; device id caches stamp rows with it
 /// and treat rows from another version as misses (#5106). The hash forms
 /// themselves are unversioned — they have never changed.
-pub const MAPLE_ID_DERIVATION_VERSION: u32 = 2;
+pub const MAPLE_ID_DERIVATION_VERSION: u32 = 3;
 
 /// Which derivation produced a [`MapleId`].
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]

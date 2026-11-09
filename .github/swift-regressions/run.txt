@@ -217,6 +217,7 @@ MapViewportTests
 MapleEnumeratorMapleDirTests
 MapleIdDerivationTests
 MapleIdDerivationContractTests
+RawExifDatesTests
 MapleItemCapabilitiesTests
 MapleItemTests
 MapleSidecarPathsTests

@@ -327,9 +327,7 @@ enum AgentBrowseService {
       let claimed = scope?.startAccessingSecurityScopedResource() ?? false
       defer { if claimed { scope?.stopAccessingSecurityScopedResource() } }
       return try? await ByteRangeReader.withFile(at: url) { reader in
-        try await MapleIdDerivation.capturedAt(
-          fileExtension: url.pathExtension, reader: reader,
-          stillDates: { ImageMetadataReader.readRawCaptureDateStrings(from: url) })
+        try await MapleIdDerivation.capturedAt(fileExtension: url.pathExtension, reader: reader)
       }
     }.value
   }

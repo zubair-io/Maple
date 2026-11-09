@@ -59,8 +59,7 @@ extension FilesystemSource {
         let capturedAt: String?
         do {
             capturedAt = try await MapleIdDerivation.capturedAt(
-                fileExtension: asset.url.pathExtension, reader: reader,
-                stillDates: { ImageMetadataReader.readRawCaptureDateStrings(from: asset.url) })
+                fileExtension: asset.url.pathExtension, reader: reader)
         } catch {
             return nil
         }

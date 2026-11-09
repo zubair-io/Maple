@@ -53,7 +53,10 @@ const exifStage = defineStage({
   // wrote western-hemisphere longitudes as positive. Bumping forces re-extract.
   // v3: dateless rows still holding the legacy head-only 0x02 id are re-derived
   // to the full-file fallback (#4728).
-  targetVersion: 3,
+  // v4: capture dates are read by the shared tag reader, so a RAW whose ExifIFD
+  // exifr's chunked reader dropped (100 MP DNGs keep it at the end of the file)
+  // gains its date and upgrades from the fallback id to the primary one (#5090).
+  targetVersion: 4,
   dependsOn: [],
   // Reads the original file — an ENOENT means it vanished from disk, so the
   // runner tags `missing_since` for the missing-reaper.

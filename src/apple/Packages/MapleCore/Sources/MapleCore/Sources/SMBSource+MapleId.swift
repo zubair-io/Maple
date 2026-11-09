@@ -40,12 +40,11 @@ extension SMBSource {
   }
 
   /// Derive a maple_id from scratch over SMB: a single bounded range read
-  /// (`0..<64KB`) supplies BOTH the primary-form head hash input and the
-  /// EXIF extraction buffer (real camera RAWs — all TIFF-based — keep
-  /// their EXIF IFD near the start of the file, well within 64 KB; when
-  /// that assumption doesn't hold for a given file, EXIF extraction simply
-  /// finds nothing and this correctly falls through to fallback form
-  /// rather than mis-deriving). Only when primary form isn't viable does
+  /// (`0..<64KB`) supplies the primary-form head hash input, and the capture
+  /// date is read by ranged reads of its own (`MapleIdDerivation.capturedAt`:
+  /// the EXIF tag bytes of a still wherever its IFDs sit, the `moov` atom of
+  /// a video), so a file whose metadata lies past the head is dated exactly
+  /// as the server dates it. Only when primary form isn't viable does
   /// this stream the WHOLE file — via AMSMB2's native
   /// `AsyncThrowingStream` range-read API, never materialised as one
   /// buffer — through `FallbackFormHasher`.
@@ -62,8 +61,7 @@ extension SMBSource {
     let capturedAt: String?
     do {
       capturedAt = try await MapleIdDerivation.capturedAt(
-        fileExtension: (asset.path as NSString).pathExtension, reader: reader,
-        stillDates: { ImageMetadataReader.readRawCaptureDateStrings(from: headBytes) })
+        fileExtension: (asset.path as NSString).pathExtension, reader: reader)
     } catch {
       return nil
     }
