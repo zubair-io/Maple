@@ -10,6 +10,7 @@ struct EditorControls: View {
   var showsScope = false
   @Environment(\.mapleLayout) private var layout
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
+  @Environment(\.statusRegions) private var statusRegions
 
   var body: some View {
     GeometryReader { geometry in
@@ -57,7 +58,7 @@ struct EditorControls: View {
     let bottomPanelHeight = shortCrop ? 96 : min(360, geometry.size.height * 0.40)
     let usesVerticalBar = fitsVerticalBar && !isBottom
     if usesVerticalBar {
-      let top = EditorVerticalControlBar.top(in: geometry)
+      let top = EditorVerticalControlBar.top(in: geometry, statusRegions: statusRegions)
       EditorVerticalControlBar(
         state: state, onPresetsTap: onPresetsTap, showsScope: showsScope,
         maximumHeight: max(geometry.size.height - top - 12, 1)

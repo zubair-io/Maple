@@ -146,7 +146,7 @@ struct MapleApp: App {
       if ProcessInfo.processInfo.environment["MAPLE_GPU_DEBUG"] == "1" {
         GpuDebugView()
       } else {
-        appShell
+        appShell.providesStatusRegions()
       }
     }
     .commands { CanvasZoomCommands() }
