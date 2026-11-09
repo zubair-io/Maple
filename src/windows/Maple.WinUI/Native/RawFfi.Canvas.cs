@@ -2,10 +2,10 @@ using System.Runtime.InteropServices;
 
 namespace Maple.WinUI.Native
 {
-    /// <summary>The shared canvas zoom model (raw-ffi canvas_zoom.rs /
-    /// canvas_math.rs, #5714). Values in, values out: no pointers, no
-    /// allocation, nothing held in Rust between calls. A panic inside Rust
-    /// returns the input state unchanged.</summary>
+    /// <summary>The shared canvas zoom model (raw-ffi canvas_zoom.rs,
+    /// canvas_zoom_continuity.rs, canvas_math.rs, #5714). Values in, values
+    /// out: no pointers, no allocation, nothing held in Rust between calls.
+    /// A panic inside Rust returns the input state unchanged.</summary>
     public static partial class RawFfi
     {
         public const uint MAPLE_CANVAS_DOUBLE_TAP_RESET_TO_FIT = 0;
@@ -70,10 +70,12 @@ namespace Maple.WinUI.Native
             MapleCanvasZoomContext context);
 
         [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
-        public static extern MapleCanvasZoomState maple_canvas_zoom_reset_to_fit(MapleCanvasZoomState state);
+        public static extern MapleCanvasZoomState maple_canvas_zoom_reset_to_fit(
+            MapleCanvasZoomState state, MapleCanvasZoomContext context);
 
         [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
-        public static extern MapleCanvasZoomState maple_canvas_zoom_to_scale(MapleCanvasZoomState state, double scale);
+        public static extern MapleCanvasZoomState maple_canvas_zoom_to_scale(
+            MapleCanvasZoomState state, double scale, MapleCanvasZoomContext context);
 
         [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
         public static extern MapleCanvasZoomState maple_canvas_zoom_to_fill(
@@ -87,9 +89,18 @@ namespace Maple.WinUI.Native
         public static extern MapleCanvasZoomState maple_canvas_zoom_step_out(
             MapleCanvasZoomState state, MapleCanvasZoomContext context);
 
+        /// <summary>The viewport or display scale changed from
+        /// `previous` (canvas_zoom_continuity.rs): the zoom carries across and
+        /// a live pinch or drag continues from the frame on screen.</summary>
         [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
-        public static extern MapleCanvasZoomState maple_canvas_zoom_reclamp_pan(
-            MapleCanvasZoomState state, MapleCanvasZoomContext context);
+        public static extern MapleCanvasZoomState maple_canvas_zoom_geometry_changed(
+            MapleCanvasZoomState state, MapleCanvasZoomContext previous, MapleCanvasZoomContext context);
+
+        /// <summary>The picture's extent replaced a stand-in's: the photo
+        /// keeps its rect on screen.</summary>
+        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+        public static extern MapleCanvasZoomState maple_canvas_zoom_image_extent_resolved(
+            MapleCanvasZoomState state, MapleCanvasZoomContext previous, MapleCanvasZoomContext context);
 
         /// <summary>`MAPLE_CANVAS_ZOOM_STOP_*`.</summary>
         [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]

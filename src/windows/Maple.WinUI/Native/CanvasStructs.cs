@@ -3,7 +3,7 @@ using System.Runtime.InteropServices;
 namespace Maple.WinUI.Native
 {
     // C-ABI mirrors of raw-ffi's canvas zoom values (canvas_math.rs,
-    // canvas_zoom.rs, #5714). Every Rust `u8` flag and `bool` is a C# `byte`
+    // canvas_zoom.rs, canvas_zoom_insets.rs, #5714). Every Rust `u8` flag and `bool` is a C# `byte`
     // so the structs stay blittable and byte-for-byte equal to the Rust
     // layout; RawFfiLayoutTests checks each field offset.
 
@@ -42,14 +42,27 @@ namespace Maple.WinUI.Native
         public double height;
     }
 
-    /// <summary>Viewport (points), oriented source extent (zero until known)
-    /// and points→pixels factor; Rust sanitizes it on every call.</summary>
+    /// <summary>Points of the viewport the host's chrome covers from each
+    /// edge; fit, fill and the centred pan resolve inside the rest.</summary>
+    [StructLayout(LayoutKind.Sequential)]
+    public struct MapleCanvasInsets
+    {
+        public double top;
+        public double left;
+        public double bottom;
+        public double right;
+    }
+
+    /// <summary>Viewport (points), oriented source extent (zero until known),
+    /// points→pixels factor and chrome insets; Rust sanitizes it on every
+    /// call.</summary>
     [StructLayout(LayoutKind.Sequential)]
     public struct MapleCanvasZoomContext
     {
         public MapleCanvasSize viewport_points;
         public MapleCanvasSize native_image_size;
         public double display_scale;
+        public MapleCanvasInsets insets;
     }
 
     /// <summary>The zoom state the host keeps between transitions; all-zero
@@ -68,6 +81,10 @@ namespace Maple.WinUI.Native
         public MapleCanvasPoint pinch_start_centroid;
         public MapleCanvasPoint pinch_last_centroid;
         public byte fills_viewport;
+        public double pinch_start_magnification;
+        public double pinch_last_magnification;
+        public byte has_drag_last_translation;
+        public MapleCanvasSize drag_last_translation;
     }
 
     [StructLayout(LayoutKind.Sequential)]

@@ -161,6 +161,27 @@ public sealed class CanvasZoomControllerNativeTests(ITestOutputHelper output)
     }
 
     [Fact]
+    public void A_pinch_below_fit_follows_the_fingers_and_a_geometry_sync_leaves_it_there()
+    {
+        if (!Armed()) return;
+        var zoom = Controller();
+        zoom.PinchChanged(1, 300, 200);
+        zoom.PinchChanged(0.7, 300, 200);
+        var live = zoom.View;
+        Assert.Equal(0.7, live.ScaleToFit, 12);
+        Assert.Equal(-60, live.PanX, 9);
+        Assert.Equal(-60, live.PanY, 9);
+
+        zoom.UpdateGeometry(1000, 800, 4000, 2000, 1);
+        zoom.PinchChanged(0.7, 300, 200);
+        Assert.Equal(live, zoom.View);
+
+        zoom.PinchEnded(0.7);
+        Assert.True(zoom.IsFit);
+        Assert.Equal(new CanvasZoomView(1, 0, 0), zoom.View);
+    }
+
+    [Fact]
     public void Reading_the_source_size_keeps_a_free_zoom_s_on_screen_size()
     {
         if (!Armed()) return;
