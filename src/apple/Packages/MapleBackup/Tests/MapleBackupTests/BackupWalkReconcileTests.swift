@@ -311,4 +311,50 @@ final class BackupWalkReconcileTests: XCTestCase {
     XCTAssertEqual(owing?.state, .pending)
     XCTAssertEqual(owing?.retryCount, 0)
   }
+
+  func testExhaustedCompanionUploadsLeaveThePhotoFailedUntilARetryDeliversThem() async throws {
+    let ingest = StubURLProtocol.Stub.ok(
+      json: #"{"maple_id":"hash-P1","target_rel_path":"2024/03/15/IMG.heic"}"#)
+    StubURLProtocol.stub = .sequence([
+      ingest, .status(500),
+      ingest, .ok(json: #"{"target_rel_path":"2024/03/15/IMG.rendered.jpeg"}"#),
+    ])
+    let (engine, queue, state, _, tmpRoot) =
+      try freshHarness(companionBackoff: { _ in 0 }, reader: RenderedAssetReader())
+    defer { try? FileManager.default.removeItem(at: tmpRoot) }
+    let lastAttempt = BackupTask(
+      id: id("P1"), state: .pending, priority: .background, retryCount: 7)
+    try await state.upsert(lastAttempt)
+    await queue.enqueue(lastAttempt, priority: .background)
+
+    do {
+      try await engine.processOne()
+      XCTFail("a failed render upload fails the last attempt")
+    } catch {}
+
+    let failed = try await state.find(lastAttempt.id)
+    XCTAssertEqual(failed?.state, .failedRetry, "out of retries with the render undelivered")
+    let owing = try await state.phidsOwingCompanions(deviceId: "d")
+    XCTAssertEqual(owing, ["P1"])
+    let settled = try await state.markServerHeld([held("P1")])
+    XCTAssertEqual(settled, [])
+    let afterWalk = try await state.find(lastAttempt.id)
+    XCTAssertEqual(afterWalk?.state, .failedRetry, "the server holding the original is not enough")
+
+    let requeued = try await state.requeueFailed([
+      BackupTask(id: lastAttempt.id, state: .pending, priority: .background)
+    ])
+    XCTAssertEqual(requeued.map(\.id), [lastAttempt.id])
+    await queue.enqueue(requeued, priority: nil)
+    try await engine.processOne()
+
+    let renderUploads = StubURLProtocol.recordedRequests.filter {
+      $0.url?.path.contains("backup/rendered") == true
+    }
+    XCTAssertEqual(renderUploads.count, 2, "the failed render and its successful retry")
+    let delivered = try await state.find(lastAttempt.id)
+    XCTAssertEqual(delivered?.state, .uploaded)
+    let stillOwing = try await state.phidsOwingCompanions(deviceId: "d")
+    XCTAssertEqual(stillOwing, [])
+  }
 }

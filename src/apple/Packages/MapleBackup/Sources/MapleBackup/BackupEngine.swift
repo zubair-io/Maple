@@ -1,7 +1,8 @@
 // Concurrent device backup workers. A live host keeps run(keepAlive: true)
 // subscribed to new queue work; finite batch callers drain and return.
-// Original bytes remain authoritative; companions retain their existing
-// independent retry policy. See BackupEngine+Companions.swift.
+// A photo is uploaded once its original and its Live Photo video and edited
+// render have all landed; only the edit sidecar keeps its own retry policy.
+// See BackupEngine+Companions.swift.
 
 import Foundation
 import os
@@ -103,12 +104,6 @@ public actor BackupEngine {
   /// gets the same number of attempts the whole-task retry loop used to give
   /// it before #700 decoupled companions from the bytes upload.
   private static let localEditCompanionRetries = 8
-
-  /// Bounded retry budget for re-derivable companions (generated sidecar,
-  /// Apple-rendered twin, Live Photo .mov). These can be regenerated from
-  /// PHAsset state on a future walk, so they retry lightly and are dropped
-  /// on exhaustion rather than stranding a concurrency slot.
-  private static let derivedCompanionRetries = 2
 
   public init(
     queue: any BackupQueue,
@@ -301,7 +296,7 @@ public actor BackupEngine {
         await queue.emit(.preparing(task.id, message: message))
       }
       try Task.checkCancellation()
-      if !primary.deferredCompanions.isEmpty {
+      if primary.hasCompanions {
         try await state.markCompanionsOwed(task.id)
       }
 
@@ -310,12 +305,11 @@ public actor BackupEngine {
       let queueRef = queue
       let taskId = task.id
 
-      // The PRIMARY bytes upload and the deferred companion reads decide
-      // photo success. Their retry/backoff/busy-elsewhere semantics are the
-      // task's: a failure here falls into the catch blocks below, which
-      // schedule a retry (or busy re-enqueue) and rethrow. Companion uploads
-      // are handled AFTER this do/catch — they never reach these catch
-      // blocks, so a companion upload failure can't fail the photo.
+      // The original, the companion reads, and the Live Photo video and
+      // edited render uploads decide photo success. Their retry/backoff/
+      // busy-elsewhere semantics are the task's: a failure here falls into the
+      // catch blocks below, which schedule a retry (or busy re-enqueue) and
+      // rethrow. Only the edit sidecar is sent after this do/catch.
       await queue.emit(.progress(task.id, sent: 0, total: Int64(primary.originalBytes.count)))
       result = try await upload.upload(
         phassetLocalId: task.id.phassetLocalId,
@@ -330,10 +324,8 @@ public actor BackupEngine {
           await queueRef.emit(.progress(taskId, sent: sent, total: total))
         })
       read = try await readingDeferredCompanions(of: primary, id: task.id)
+      try await uploadDerivedCompanions(of: read, id: task.id, original: result)
 
-      // Bytes landed and companions read — the photo counts as uploaded.
-      // Persist + emit before uploading any companion so a companion upload
-      // hiccup can never revert this.
       try await state.transition(task.id, to: .uploaded, error: nil)
       await queue.emit(.completed(task.id, mapleId: result.mapleId))
     } catch is CancellationError {
@@ -419,24 +411,20 @@ public actor BackupEngine {
       throw error
     }
 
-    // Reached only when the bytes upload above succeeded (every catch
-    // rethrows). The photo is already `.uploaded` + `.completed`. Upload
-    // the companions best-effort: an inline first attempt (so request
-    // ordering + the sidecar-delete-on-success invariant happen before
-    // this call returns, which the synchronous tests rely on), then a
-    // bounded detached retry per companion on failure. Companions never
-    // throw out of here and never emit `.failed` — a companion exhausting
-    // its budget would otherwise double-count the photo in the progress VM
-    // (already `.completed`) as failed.
+    // Reached only when everything above succeeded (every catch rethrows).
+    // The photo is already `.uploaded` + `.completed`. The edit sidecar goes
+    // best-effort: an inline first attempt, then a bounded detached retry.
+    // It never throws out of here and never emits `.failed`, which would
+    // double-count the photo in the progress VM (already `.completed`).
     await uploadCompanionsBestEffort(task: task, read: read, result: result)
   }
 
   // MARK: - Best-effort companions (#700)
 
-  /// Upload the sidecar, Apple-rendered twin, and Live Photo .mov twin for a
-  /// photo whose bytes have already landed. Each companion is attempted inline
-  /// once; on failure it schedules its own bounded detached retry. Nothing
-  /// here can fail the photo or re-upload the bytes.
+  /// Upload the local-edit sidecar for a photo that has already landed. The
+  /// inline attempt is followed by a bounded detached retry on failure, and
+  /// the delivered revision is tracked separately (#4719). Nothing here can
+  /// fail the photo or re-upload the bytes.
   private func uploadCompanionsBestEffort(
     task: BackupTask,
     read: AssetReadResult,
@@ -476,42 +464,6 @@ public actor BackupEngine {
       }
     }
 
-    // Apple-rendered companion, when present. Re-derivable → light retry.
-    if let renderedBytes = read.renderedBytes, !renderedBytes.isEmpty {
-      let originalExt = (result.targetRelPath as NSString).pathExtension
-      let renderedExt =
-        read.renderedFilenameExtension ?? (originalExt.isEmpty ? "jpeg" : originalExt)
-      await runCompanion(
-        taskId: task.id, label: "rendered",
-        maxAttempts: Self.derivedCompanionRetries
-      ) { [self] in
-        try await upload.uploadRendered(
-          phassetLocalId: task.id.phassetLocalId,
-          targetRelPath: result.targetRelPath,
-          filenameExt: renderedExt,
-          bytes: renderedBytes,
-          mapleId: result.mapleId,
-          phassetCloudId: read.sidecar.phassetCloudId)
-      }
-    }
-
-    // Live Photo .mov twin, when present. Lands as `<base>.mov` (no
-    // .rendered. infix) via suffix-override. Re-derivable → light retry.
-    if let liveBytes = read.liveVideoBytes, !liveBytes.isEmpty {
-      await runCompanion(
-        taskId: task.id, label: "live-mov",
-        maxAttempts: Self.derivedCompanionRetries
-      ) { [self] in
-        try await upload.uploadRendered(
-          phassetLocalId: task.id.phassetLocalId,
-          targetRelPath: result.targetRelPath,
-          filenameExt: "mov",
-          bytes: liveBytes,
-          mapleId: result.mapleId,
-          suffixOverride: "mov",
-          phassetCloudId: read.sidecar.phassetCloudId)
-      }
-    }
   }
 
   /// `read` with its deferred companions' bytes filled in. A companion that
