@@ -51,20 +51,15 @@ actor PhotoKitAssetReader: AssetReader {
       onStatus: onStatus)
   }
 
-  func readCompanions(
-    phassetLocalId: String,
-    onStatus: @escaping @Sendable (String) async -> Void
-  ) async throws -> CompanionReadResult {
-    try await Self.performReadCompanions(
-      phassetLocalId: phassetLocalId,
-      includeLivePhotos: includeLivePhotos,
-      onStatus: onStatus)
+  func readCompanion(_ kind: CompanionKind, phassetLocalId: String) async throws -> Data? {
+    try await Self.performReadCompanion(
+      kind, phassetLocalId: phassetLocalId, includeLivePhotos: includeLivePhotos)
   }
 
   /// Nonisolated primary read so concurrent `BackupEngine` workers do not
   /// serialize PhotoKit resource queries or BLAKE3 hashing on the actor.
   /// Companion resources (`fullSizePhoto` and `pairedVideo`) are deferred to
-  /// `readCompanions` after the primary bytes upload completes.
+  /// `readCompanion` after the primary bytes upload completes.
   nonisolated private static func performRead(
     phassetLocalId: String,
     deviceId: String,
@@ -130,38 +125,27 @@ actor PhotoKitAssetReader: AssetReader {
       liveVideoFilename: liveVideoFilename,
       sidecar: sidecar,
       mapleId: mapleId,
-      hasDeferredCompanions: renderedResource != nil || liveVideoResource != nil)
+      deferredCompanions: Set(
+        [
+          renderedResource.map { _ in CompanionKind.rendered },
+          liveVideoResource.map { _ in CompanionKind.liveVideo },
+        ].compactMap { $0 }))
   }
 
-  nonisolated private static func performReadCompanions(
-    phassetLocalId: String,
-    includeLivePhotos: Bool,
-    onStatus: @escaping @Sendable (String) async -> Void
-  ) async throws -> CompanionReadResult {
-    guard let asset = PhotoKitCatalog.shared.asset(localId: phassetLocalId) else {
-      return CompanionReadResult()
-    }
-    let resources = PHAssetResource.assetResources(for: asset)
-    let (renderedResource, liveVideoResource) = Self.companionResources(
-      for: asset, resources: resources, includeLivePhotos: includeLivePhotos)
-
-    let renderedBytes: Data? =
-      if let renderedResource {
-        try? await Self.readAllBytes(of: renderedResource, onStatus: onStatus)
-      } else {
-        nil
+  nonisolated private static func performReadCompanion(
+    _ kind: CompanionKind, phassetLocalId: String, includeLivePhotos: Bool
+  ) async throws -> Data? {
+    guard let asset = PhotoKitCatalog.shared.asset(localId: phassetLocalId) else { return nil }
+    let companions = Self.companionResources(
+      for: asset, resources: PHAssetResource.assetResources(for: asset),
+      includeLivePhotos: includeLivePhotos)
+    let resource =
+      switch kind {
+      case .rendered: companions.rendered
+      case .liveVideo: companions.liveVideo
       }
-    let liveVideoBytes: Data? =
-      if let liveVideoResource {
-        try? await Self.readAllBytes(of: liveVideoResource, onStatus: onStatus)
-      } else {
-        nil
-      }
-
-    return CompanionReadResult(
-      renderedBytes: renderedBytes,
-      renderedFilenameExtension: renderedResource.flatMap(Self.filenameExtension(of:)),
-      liveVideoBytes: liveVideoBytes)
+    guard let resource else { return nil }
+    return try await Self.readAllBytes(of: resource)
   }
 
   nonisolated private static func companionResources(

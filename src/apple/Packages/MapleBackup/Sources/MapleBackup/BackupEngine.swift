@@ -292,41 +292,45 @@ public actor BackupEngine {
     let result: UploadClient.Result
     let read: AssetReadResult
     do {
-      try await state.transition(task.id, to: .uploading)
+      guard try await state.claimForUpload(task.id) else {
+        await queue.emit(.cancelled(task.id))
+        return
+      }
       let queue = self.queue
-      let readResult = try await reader.read(phassetLocalId: task.id.phassetLocalId) { message in
+      let primary = try await reader.read(phassetLocalId: task.id.phassetLocalId) { message in
         await queue.emit(.preparing(task.id, message: message))
       }
       try Task.checkCancellation()
-      read = readResult
 
       // Capture local references for the progress closure (actor-isolated
       // captures aren't permitted directly inside the async closure below).
       let queueRef = queue
       let taskId = task.id
 
-      // The PRIMARY bytes upload is the only step that decides photo
-      // success. Its retry/backoff/busy-elsewhere semantics are unchanged:
-      // a failure here falls into the catch blocks below, which schedule
-      // a retry (or busy re-enqueue) and rethrow. Companions are handled
-      // AFTER this do/catch — they never reach these catch blocks, so a
-      // companion failure can't fail the photo or re-upload the bytes.
-      await queue.emit(.progress(task.id, sent: 0, total: Int64(read.originalBytes.count)))
+      // The PRIMARY bytes upload and the deferred companion reads decide
+      // photo success. Their retry/backoff/busy-elsewhere semantics are the
+      // task's: a failure here falls into the catch blocks below, which
+      // schedule a retry (or busy re-enqueue) and rethrow. Companion uploads
+      // are handled AFTER this do/catch — they never reach these catch
+      // blocks, so a companion upload failure can't fail the photo.
+      await queue.emit(.progress(task.id, sent: 0, total: Int64(primary.originalBytes.count)))
       result = try await upload.upload(
         phassetLocalId: task.id.phassetLocalId,
-        filename: read.sidecar.originalFilename,
-        captureDate: read.sidecar.captureDate,
-        lat: read.sidecar.latitude,
-        lon: read.sidecar.longitude,
-        bytes: read.originalBytes,
-        mapleId: read.mapleId,
-        phassetCloudId: read.sidecar.phassetCloudId,
+        filename: primary.sidecar.originalFilename,
+        captureDate: primary.sidecar.captureDate,
+        lat: primary.sidecar.latitude,
+        lon: primary.sidecar.longitude,
+        bytes: primary.originalBytes,
+        mapleId: primary.mapleId,
+        phassetCloudId: primary.sidecar.phassetCloudId,
         onProgress: { sent, total in
           await queueRef.emit(.progress(taskId, sent: sent, total: total))
         })
+      read = try await readingDeferredCompanions(of: primary, id: task.id)
 
-      // Bytes landed — the photo counts as uploaded. Persist + emit before
-      // touching any companion so a companion hiccup can never revert this.
+      // Bytes landed and companions read — the photo counts as uploaded.
+      // Persist + emit before uploading any companion so a companion upload
+      // hiccup can never revert this.
       try await state.transition(task.id, to: .uploaded, error: nil)
       await queue.emit(.completed(task.id, mapleId: result.mapleId))
     } catch is CancellationError {
@@ -469,23 +473,11 @@ public actor BackupEngine {
       }
     }
 
-    let deferred: CompanionReadResult? =
-      if read.hasDeferredCompanions, read.renderedBytes == nil, read.liveVideoBytes == nil {
-        try? await reader.readCompanions(
-          phassetLocalId: task.id.phassetLocalId, onStatus: { _ in })
-      } else {
-        nil
-      }
-    let effectiveRenderedBytes = read.renderedBytes ?? deferred?.renderedBytes
-    let effectiveRenderedExt =
-      read.renderedFilenameExtension ?? deferred?.renderedFilenameExtension
-    let effectiveLiveBytes = read.liveVideoBytes ?? deferred?.liveVideoBytes
-
     // Apple-rendered companion, when present. Re-derivable → light retry.
-    if let renderedBytes = effectiveRenderedBytes, !renderedBytes.isEmpty {
+    if let renderedBytes = read.renderedBytes, !renderedBytes.isEmpty {
       let originalExt = (result.targetRelPath as NSString).pathExtension
       let renderedExt =
-        effectiveRenderedExt ?? (originalExt.isEmpty ? "jpeg" : originalExt)
+        read.renderedFilenameExtension ?? (originalExt.isEmpty ? "jpeg" : originalExt)
       await runCompanion(
         taskId: task.id, label: "rendered",
         maxAttempts: Self.derivedCompanionRetries
@@ -502,7 +494,7 @@ public actor BackupEngine {
 
     // Live Photo .mov twin, when present. Lands as `<base>.mov` (no
     // .rendered. infix) via suffix-override. Re-derivable → light retry.
-    if let liveBytes = effectiveLiveBytes, !liveBytes.isEmpty {
+    if let liveBytes = read.liveVideoBytes, !liveBytes.isEmpty {
       await runCompanion(
         taskId: task.id, label: "live-mov",
         maxAttempts: Self.derivedCompanionRetries
@@ -517,6 +509,36 @@ public actor BackupEngine {
           phassetCloudId: read.sidecar.phassetCloudId)
       }
     }
+  }
+
+  /// `read` with its deferred companions' bytes filled in. A companion that
+  /// exists but cannot be read yet fails the task while its row is still
+  /// unfinished, so it retries on the task's budget and survives a relaunch.
+  private func readingDeferredCompanions(
+    of read: AssetReadResult, id: BackupTaskID
+  ) async throws -> AssetReadResult {
+    guard !read.deferredCompanions.isEmpty else { return read }
+    let rendered: Data? =
+      if read.deferredCompanions.contains(.rendered) {
+        try await reader.readCompanion(.rendered, phassetLocalId: id.phassetLocalId)
+      } else {
+        read.renderedBytes
+      }
+    let liveVideo: Data? =
+      if read.deferredCompanions.contains(.liveVideo) {
+        try await reader.readCompanion(.liveVideo, phassetLocalId: id.phassetLocalId)
+      } else {
+        read.liveVideoBytes
+      }
+    try Task.checkCancellation()
+    return AssetReadResult(
+      originalBytes: read.originalBytes,
+      renderedBytes: rendered,
+      renderedFilenameExtension: read.renderedFilenameExtension,
+      liveVideoBytes: liveVideo,
+      liveVideoFilename: read.liveVideoFilename,
+      sidecar: read.sidecar,
+      mapleId: read.mapleId)
   }
 
   /// Retire a finished retry and wake `run()` — in that order.

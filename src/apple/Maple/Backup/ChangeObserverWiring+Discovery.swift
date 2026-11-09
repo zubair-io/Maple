@@ -1,18 +1,10 @@
 // src/apple/Maple/Backup/ChangeObserverWiring+Discovery.swift
 //
-// Incremental and watermark-bounded PhotoKit discovery for ChangeObserverWiring.
-//
-// Uses a 3-tier strategy off the main actor:
-//   1. PHPersistentChangeToken fast path: when an initial scan has completed
-//      for the current settings fingerprint, queries PhotoKit for persistent
-//      asset changes since the saved token. Returns `.noChanges` in <1ms when
-//      no assets were inserted or deleted (e.g. during iCloud resource reads).
-//   2. Date-watermark window scan: when resuming an interrupted initial scan or
-//      when a persistent token has expired, queries only `creationDate > newest`
-//      and (if initial scan is incomplete) `creationDate <= oldest OR nil`,
-//      skipping the already-persisted middle range.
-//   3. Full scan: enumerates all eligible assets and captures `creationDate`
-//      off-main so `@MainActor` never triggers per-asset PhotoKit fetches.
+// Off-main PhotoKit discovery for ChangeObserverWiring. A walk either replays
+// PhotoKit's persistent changes since the token saved by the last walk, or
+// lists every eligible asset; `BackupCursor.discovery` picks which. Both
+// capture `creationDate` here so the main actor never fetches assets one by
+// one. A token PhotoKit can no longer replay falls back to the full listing.
 
 import Foundation
 import MapleBackup
@@ -28,248 +20,128 @@ struct DiscoveredAsset: Sendable, Hashable {
   let capturedAt: Date?
 }
 
-enum DiscoveryOutcome: Sendable {
-  /// Persistent change token reported zero asset insertions and zero deletions.
-  case noChanges(newToken: Data?)
-  /// Incremental discovery via persistent change token or date-watermark bounds.
-  case incremental(
-    inserted: [DiscoveredAsset],
-    deletedPhids: Set<String>,
-    newToken: Data?,
-    fingerprint: String,
-    completedInitialScan: Bool
-  )
-  /// Full library enumeration (cold start, settings changed, or retryFailed).
-  case fullScan(
-    assets: [DiscoveredAsset],
-    newToken: Data?,
-    fingerprint: String
-  )
+/// Every eligible asset after a full scan, or only those PhotoKit reports
+/// inserted since the saved token, with the ones it reports deleted.
+struct DiscoveryOutcome: Sendable {
+  let assets: [DiscoveredAsset]
+  let deletedPhids: Set<String>
+  let newToken: Data?
+  let isFullScan: Bool
 }
 
 extension ChangeObserverWiring {
 
-  nonisolated static func settingsFingerprint(_ settings: BackupSettings) -> String {
-    "v1:videos=\(settings.includeVideos),bursts=\(settings.includeBursts),sharedLib=\(settings.includeSharedLibrary),sharedAlbums=\(settings.includeSharedAlbums)"
+  /// What a full scan's listing depends on: the inclusion settings, and
+  /// whether Photos access covers the whole library or only selected photos.
+  nonisolated static func settingsFingerprint(
+    _ settings: BackupSettings, fullLibraryAccess: Bool
+  ) -> String {
+    "v1:videos=\(settings.includeVideos),bursts=\(settings.includeBursts),sharedLib=\(settings.includeSharedLibrary),sharedAlbums=\(settings.includeSharedAlbums),fullAccess=\(fullLibraryAccess)"
   }
 
+  /// The token is taken before PhotoKit is queried, so a change racing the
+  /// query is replayed by the next walk rather than lost.
   nonisolated static func discoverAssets(
-    cursor: BackupCursor,
-    settings: BackupSettings,
-    retryFailed: Bool
+    _ discovery: BackupDiscovery, settings: BackupSettings
   ) -> DiscoveryOutcome {
-    let fingerprint = settingsFingerprint(settings)
-    // Snapshot the library's change token before querying so any mutation that
-    // races with our fetch is observed on the next token diff.
     let newToken = currentChangeTokenData()
-
-    let fingerprintMatches =
-      cursor.settingsFingerprint == nil || cursor.settingsFingerprint == fingerprint
-
-    // Tier 1: PHPersistentChangeToken delta when initial scan already completed.
-    if !retryFailed,
-      cursor.initialScanCompleted,
-      cursor.settingsFingerprint == fingerprint,
-      let tokenData = cursor.phChangeToken,
-      let token = unarchiveChangeToken(tokenData)
+    if case .changesSince(let token) = discovery,
+      let changes = persistentChanges(since: token, settings: settings)
     {
-      do {
-        let changes = try PHPhotoLibrary.shared().fetchPersistentChanges(since: token)
-        var insertedIDs = Set<String>()
-        var deletedIDs = Set<String>()
-        for change in changes {
-          let details = try change.changeDetails(for: .asset)
-          insertedIDs.formUnion(details.insertedLocalIdentifiers)
-          deletedIDs.formUnion(details.deletedLocalIdentifiers)
-        }
-        insertedIDs.subtract(deletedIDs)
-        if insertedIDs.isEmpty && deletedIDs.isEmpty {
-          return .noChanges(newToken: newToken)
-        }
-        let inserted = fetchAssetsByLocalIdentifiers(Array(insertedIDs), settings: settings)
-        discoveryLog.info(
-          "persistent token delta: inserted=\(inserted.count) deleted=\(deletedIDs.count)")
-        return .incremental(
-          inserted: inserted,
-          deletedPhids: deletedIDs,
-          newToken: newToken,
-          fingerprint: fingerprint,
-          completedInitialScan: true)
-      } catch {
-        discoveryLog.info(
-          "persistent token unavailable (\(String(describing: error), privacy: .public)); falling back to date watermarks"
-        )
-      }
+      return DiscoveryOutcome(
+        assets: changes.inserted, deletedPhids: changes.deleted, newToken: newToken,
+        isFullScan: false)
     }
-
-    // Tier 2: Date-watermark window scan (expired token after completed scan,
-    // or resuming an interrupted initial scan without re-checking the middle).
-    let newestUpper = cursor.newestScannedAt ?? cursor.newestBackedUpAt
-    let oldestLower = cursor.oldestScannedAt ?? cursor.oldestBackedUpAt
-    if !retryFailed, fingerprintMatches, let newestUpper {
-      if cursor.initialScanCompleted && cursor.settingsFingerprint == fingerprint {
-        let newer = fetchAssetsMatching(
-          predicate: NSPredicate(format: "creationDate > %@", newestUpper as NSDate),
-          settings: settings)
-        discoveryLog.info("watermark delta (newer-only): found=\(newer.count)")
-        return .incremental(
-          inserted: newer,
-          deletedPhids: [],
-          newToken: newToken,
-          fingerprint: fingerprint,
-          completedInitialScan: true)
-      } else if let oldestLower {
-        let newer = fetchAssetsMatching(
-          predicate: NSPredicate(format: "creationDate > %@", newestUpper as NSDate),
-          settings: settings)
-        guard !Task.isCancelled else {
-          return .incremental(
-            inserted: [], deletedPhids: [], newToken: nil,
-            fingerprint: fingerprint, completedInitialScan: false)
-        }
-        let older = fetchAssetsMatching(
-          predicate: NSPredicate(
-            format: "creationDate <= %@ OR creationDate == nil", oldestLower as NSDate),
-          settings: settings)
-        let combined = combineNewestFirst(newer, older)
-        discoveryLog.info(
-          "watermark resume scan: newer=\(newer.count) older=\(older.count) combined=\(combined.count)"
-        )
-        return .incremental(
-          inserted: combined,
-          deletedPhids: [],
-          newToken: newToken,
-          fingerprint: fingerprint,
-          completedInitialScan: true)
-      }
-    }
-
-    // Tier 3: Full library enumeration.
-    let allAssets = walkPhotoKit(settings: settings)
-    return .fullScan(assets: allAssets, newToken: newToken, fingerprint: fingerprint)
+    return DiscoveryOutcome(
+      assets: walkPhotoKit(settings: settings), deletedPhids: [], newToken: newToken,
+      isFullScan: true)
   }
 
-  // MARK: - Persistent Change Token Helpers
-
-  nonisolated static func currentChangeTokenData() -> Data? {
-    let token = PHPhotoLibrary.shared().currentChangeToken
-    return try? NSKeyedArchiver.archivedData(
-      withRootObject: token, requiringSecureCoding: true)
+  nonisolated private static func persistentChanges(
+    since tokenData: Data, settings: BackupSettings
+  ) -> (inserted: [DiscoveredAsset], deleted: Set<String>)? {
+    guard
+      let token = try? NSKeyedUnarchiver.unarchivedObject(
+        ofClass: PHPersistentChangeToken.self, from: tokenData)
+    else { return nil }
+    do {
+      let details = try PHPhotoLibrary.shared().fetchPersistentChanges(since: token)
+        .map { try $0.changeDetails(for: .asset) }
+      // Changes arrive unordered, so a photo deleted and then restored from
+      // Recently Deleted is reported deleted; only ones still missing count.
+      let reportedDeleted = Set(details.flatMap(\.deletedLocalIdentifiers))
+      let deleted = reportedDeleted.subtracting(existingIdentifiers(Array(reportedDeleted)))
+      let inserted = Set(details.flatMap(\.insertedLocalIdentifiers)).subtracting(deleted)
+      let assets = fetchAssets(localIdentifiers: Array(inserted), settings: settings)
+      discoveryLog.info(
+        "persistent changes: inserted=\(assets.count) deleted=\(deleted.count)")
+      return (assets, deleted)
+    } catch {
+      discoveryLog.info(
+        "persistent changes unavailable (\(String(describing: error), privacy: .public)); listing the full library"
+      )
+      return nil
+    }
   }
 
-  nonisolated static func unarchiveChangeToken(_ data: Data) -> PHPersistentChangeToken? {
-    try? NSKeyedUnarchiver.unarchivedObject(
-      ofClass: PHPersistentChangeToken.self, from: data)
+  nonisolated private static func existingIdentifiers(_ ids: [String]) -> Set<String> {
+    guard !ids.isEmpty else { return [] }
+    let result = PHAsset.fetchAssets(withLocalIdentifiers: ids, options: nil)
+    return Set((0..<result.count).map { result.object(at: $0).localIdentifier })
+  }
+
+  nonisolated private static func currentChangeTokenData() -> Data? {
+    try? NSKeyedArchiver.archivedData(
+      withRootObject: PHPhotoLibrary.shared().currentChangeToken,
+      requiringSecureCoding: true)
   }
 
   // MARK: - Off-Main PhotoKit Enumeration
 
-  /// Full PhotoKit enumeration returning eligible assets with their capture
-  /// dates sorted newest-first (`nil` dates last).
-  nonisolated static func walkPhotoKit(settings: BackupSettings) -> [DiscoveredAsset] {
-    let sharedAlbumIDs: Set<String> =
-      settings.includeSharedAlbums
-      ? []
-      : PhotoKitCatalog.shared.sharedAlbumIdentifiers()
-
-    var assets: [DiscoveredAsset] = []
-    let imageIDs = PhotoKitCatalog.shared.imageIdentifiers()
-    assets.reserveCapacity(imageIDs.count)
-    for phid in imageIDs {
-      guard !Task.isCancelled else { return [] }
-      guard let asset = PhotoKitCatalog.shared.asset(localId: phid),
-        shouldInclude(asset, settings: settings, sharedAlbumIDs: sharedAlbumIDs)
-      else { continue }
-      assets.append(DiscoveredAsset(phid: phid, capturedAt: asset.creationDate))
-    }
-
-    if settings.includeVideos {
-      let videoIDs = PhotoKitCatalog.shared.videoIdentifiers()
-      var videos: [DiscoveredAsset] = []
-      videos.reserveCapacity(videoIDs.count)
-      for phid in videoIDs {
-        guard !Task.isCancelled else { return [] }
-        guard let asset = PhotoKitCatalog.shared.asset(localId: phid),
-          shouldInclude(asset, settings: settings, sharedAlbumIDs: sharedAlbumIDs)
-        else { continue }
-        videos.append(DiscoveredAsset(phid: phid, capturedAt: asset.creationDate))
-      }
-      if !videos.isEmpty {
-        assets = combineNewestFirst(assets, videos)
-      }
-    }
-    return assets
+  /// Every eligible asset with its capture date, newest first (`nil` dates last).
+  nonisolated private static func walkPhotoKit(settings: BackupSettings) -> [DiscoveredAsset] {
+    let sharedAlbumIDs = sharedAlbumIDsToExclude(settings)
+    let images = fetchMediaType(.image, settings: settings, sharedAlbumIDs: sharedAlbumIDs)
+    guard !Task.isCancelled else { return [] }
+    let videos =
+      settings.includeVideos
+      ? fetchMediaType(.video, settings: settings, sharedAlbumIDs: sharedAlbumIDs) : []
+    guard !Task.isCancelled else { return [] }
+    return sortNewestFirst(images + videos)
   }
 
-  nonisolated private static func fetchAssetsByLocalIdentifiers(
-    _ ids: [String], settings: BackupSettings
+  nonisolated private static func fetchAssets(
+    localIdentifiers ids: [String], settings: BackupSettings
   ) -> [DiscoveredAsset] {
     guard !ids.isEmpty else { return [] }
-    let sharedAlbumIDs: Set<String> =
-      settings.includeSharedAlbums
-      ? []
-      : PhotoKitCatalog.shared.sharedAlbumIdentifiers()
-
     let opts = PHFetchOptions()
-    opts.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: false)]
-    if settings.includeVideos {
-      opts.predicate = NSPredicate(
+    opts.predicate =
+      settings.includeVideos
+      ? NSPredicate(
         format: "mediaType == %d OR mediaType == %d",
-        PHAssetMediaType.image.rawValue,
-        PHAssetMediaType.video.rawValue)
-    } else {
-      opts.predicate = NSPredicate(format: "mediaType == %d", PHAssetMediaType.image.rawValue)
-    }
-    let result = PHAsset.fetchAssets(withLocalIdentifiers: ids, options: opts)
-    var out: [DiscoveredAsset] = []
-    out.reserveCapacity(result.count)
-    var cacheUpdate: [String: PHAsset] = [:]
-    result.enumerateObjects { asset, _, stop in
-      if Task.isCancelled {
-        stop.pointee = true
-        return
-      }
-      guard shouldInclude(asset, settings: settings, sharedAlbumIDs: sharedAlbumIDs) else {
-        return
-      }
-      let phid = asset.localIdentifier
-      cacheUpdate[phid] = asset
-      out.append(DiscoveredAsset(phid: phid, capturedAt: asset.creationDate))
-    }
-    if !cacheUpdate.isEmpty {
-      PhotoKitCatalog.shared.mergeAssetCache(cacheUpdate)
-    }
-    return sortNewestFirst(out)
-  }
-
-  nonisolated private static func fetchAssetsMatching(
-    predicate: NSPredicate, settings: BackupSettings
-  ) -> [DiscoveredAsset] {
-    let sharedAlbumIDs: Set<String> =
-      settings.includeSharedAlbums
-      ? []
-      : PhotoKitCatalog.shared.sharedAlbumIdentifiers()
-
-    let images = fetchMediaType(
-      .image, predicate: predicate, settings: settings, sharedAlbumIDs: sharedAlbumIDs)
-    guard !Task.isCancelled else { return [] }
-    guard settings.includeVideos else { return images }
-    let videos = fetchMediaType(
-      .video, predicate: predicate, settings: settings, sharedAlbumIDs: sharedAlbumIDs)
-    guard !Task.isCancelled else { return [] }
-    return videos.isEmpty ? images : combineNewestFirst(images, videos)
+        PHAssetMediaType.image.rawValue, PHAssetMediaType.video.rawValue)
+      : NSPredicate(format: "mediaType == %d", PHAssetMediaType.image.rawValue)
+    return sortNewestFirst(
+      eligible(
+        PHAsset.fetchAssets(withLocalIdentifiers: ids, options: opts),
+        settings: settings, sharedAlbumIDs: sharedAlbumIDsToExclude(settings)))
   }
 
   nonisolated private static func fetchMediaType(
-    _ mediaType: PHAssetMediaType,
-    predicate: NSPredicate,
-    settings: BackupSettings,
-    sharedAlbumIDs: Set<String>
+    _ mediaType: PHAssetMediaType, settings: BackupSettings, sharedAlbumIDs: Set<String>
   ) -> [DiscoveredAsset] {
     let opts = PHFetchOptions()
-    opts.predicate = predicate
     opts.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: false)]
-    let result = PHAsset.fetchAssets(with: mediaType, options: opts)
+    return eligible(
+      PHAsset.fetchAssets(with: mediaType, options: opts),
+      settings: settings, sharedAlbumIDs: sharedAlbumIDs)
+  }
+
+  /// Filters `result` by the inclusion settings and seeds the catalog's asset
+  /// cache, so the reader's later per-asset lookups need no PhotoKit fetch.
+  nonisolated private static func eligible(
+    _ result: PHFetchResult<PHAsset>, settings: BackupSettings, sharedAlbumIDs: Set<String>
+  ) -> [DiscoveredAsset] {
     var out: [DiscoveredAsset] = []
     out.reserveCapacity(result.count)
     var cacheUpdate: [String: PHAsset] = [:]
@@ -281,19 +153,24 @@ extension ChangeObserverWiring {
       guard shouldInclude(asset, settings: settings, sharedAlbumIDs: sharedAlbumIDs) else {
         return
       }
-      let phid = asset.localIdentifier
-      cacheUpdate[phid] = asset
-      out.append(DiscoveredAsset(phid: phid, capturedAt: asset.creationDate))
+      cacheUpdate[asset.localIdentifier] = asset
+      out.append(DiscoveredAsset(phid: asset.localIdentifier, capturedAt: asset.creationDate))
     }
-    if !cacheUpdate.isEmpty {
-      PhotoKitCatalog.shared.mergeAssetCache(cacheUpdate)
-    }
+    PhotoKitCatalog.shared.mergeAssetCache(cacheUpdate)
     return out
   }
 
-  nonisolated static func shouldInclude(
-    _ asset: PHAsset, settings: BackupSettings,
-    sharedAlbumIDs: Set<String> = []
+  nonisolated private static func sharedAlbumIDsToExclude(
+    _ settings: BackupSettings
+  ) -> Set<String> {
+    settings.includeSharedAlbums ? [] : PhotoKitCatalog.shared.sharedAlbumIdentifiers()
+  }
+
+  /// Applies the inclusion settings: videos, non-representative burst
+  /// frames, iCloud Shared Library assets and iCloud Shared Album members are
+  /// each skipped when their setting is off.
+  nonisolated private static func shouldInclude(
+    _ asset: PHAsset, settings: BackupSettings, sharedAlbumIDs: Set<String>
   ) -> Bool {
     if !settings.includeBursts,
       asset.burstIdentifier != nil,
@@ -314,22 +191,6 @@ extension ChangeObserverWiring {
     return true
   }
 
-  nonisolated private static func combineNewestFirst(
-    _ first: [DiscoveredAsset], _ second: [DiscoveredAsset]
-  ) -> [DiscoveredAsset] {
-    var seen = Set<String>()
-    seen.reserveCapacity(first.count + second.count)
-    var combined: [DiscoveredAsset] = []
-    combined.reserveCapacity(first.count + second.count)
-    for item in first where seen.insert(item.phid).inserted {
-      combined.append(item)
-    }
-    for item in second where seen.insert(item.phid).inserted {
-      combined.append(item)
-    }
-    return sortNewestFirst(combined)
-  }
-
   nonisolated private static func sortNewestFirst(
     _ assets: [DiscoveredAsset]
   ) -> [DiscoveredAsset] {
@@ -346,7 +207,7 @@ extension ChangeObserverWiring {
   /// Notify the server that the given phasset localIdentifiers were deleted
   /// from Apple Photos. The server sets `deleted_from_photos: true` on the
   /// matching AssetDoc entries. Best-effort: network failures are silently
-  /// swallowed — the next walk will retry the diff.
+  /// swallowed.
   static func notifyDeleted(
     deviceId: String, libraryId: String,
     serverBaseURL: URL, phids: [String]

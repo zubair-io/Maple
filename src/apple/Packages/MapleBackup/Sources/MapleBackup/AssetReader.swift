@@ -8,10 +8,10 @@ public protocol AssetReader: Actor {
     phassetLocalId: String,
     onStatus: @escaping @Sendable (String) async -> Void
   ) async throws -> AssetReadResult
-  func readCompanions(
-    phassetLocalId: String,
-    onStatus: @escaping @Sendable (String) async -> Void
-  ) async throws -> CompanionReadResult
+  /// Reads one of an earlier `read`'s `deferredCompanions`. Returns nil
+  /// when the asset or resource no longer exists; throws when it exists but
+  /// could not be read, so the task retries.
+  func readCompanion(_ kind: CompanionKind, phassetLocalId: String) async throws -> Data?
 }
 
 extension AssetReader {
@@ -22,28 +22,15 @@ extension AssetReader {
     try await read(phassetLocalId: phassetLocalId)
   }
 
-  public func readCompanions(
-    phassetLocalId: String,
-    onStatus: @escaping @Sendable (String) async -> Void
-  ) async throws -> CompanionReadResult {
-    CompanionReadResult()
+  public func readCompanion(_ kind: CompanionKind, phassetLocalId: String) async throws -> Data? {
+    nil
   }
 }
 
-public struct CompanionReadResult: Sendable {
-  public let renderedBytes: Data?
-  public let renderedFilenameExtension: String?
-  public let liveVideoBytes: Data?
-
-  public init(
-    renderedBytes: Data? = nil,
-    renderedFilenameExtension: String? = nil,
-    liveVideoBytes: Data? = nil
-  ) {
-    self.renderedBytes = renderedBytes
-    self.renderedFilenameExtension = renderedFilenameExtension
-    self.liveVideoBytes = liveVideoBytes
-  }
+/// A companion resource uploaded after the primary bytes land.
+public enum CompanionKind: Sendable, Hashable {
+  case rendered
+  case liveVideo
 }
 
 public struct AssetReadResult: Sendable {
@@ -60,16 +47,16 @@ public struct AssetReadResult: Sendable {
   public let liveVideoFilename: String?
   public let sidecar: PayloadAssembler.SidecarInput
   public let mapleId: String
-  /// True when rendered or Live Photo companion bytes exist in PhotoKit and
-  /// should be fetched lazily via `readCompanions` after the primary upload lands.
-  public let hasDeferredCompanions: Bool
+  /// Companions that exist but were not read with the original; the engine
+  /// reads each through `readCompanion` once the primary bytes land.
+  public let deferredCompanions: Set<CompanionKind>
 
   public init(
     originalBytes: Data, renderedBytes: Data?,
     renderedFilenameExtension: String? = nil,
     liveVideoBytes: Data? = nil, liveVideoFilename: String? = nil,
     sidecar: PayloadAssembler.SidecarInput, mapleId: String,
-    hasDeferredCompanions: Bool = false
+    deferredCompanions: Set<CompanionKind> = []
   ) {
     self.originalBytes = originalBytes
     self.renderedBytes = renderedBytes
@@ -78,6 +65,6 @@ public struct AssetReadResult: Sendable {
     self.liveVideoFilename = liveVideoFilename
     self.sidecar = sidecar
     self.mapleId = mapleId
-    self.hasDeferredCompanions = hasDeferredCompanions
+    self.deferredCompanions = deferredCompanions
   }
 }

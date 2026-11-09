@@ -49,10 +49,6 @@ public actor BackupStateStore {
       if !columns.contains("captured_at") {
         try db.execute(sql: "ALTER TABLE tasks ADD COLUMN captured_at DOUBLE")
       }
-      try db.create(
-        index: "tasks_device_state_captured_idx",
-        on: "tasks", columns: ["device_id", "state", "captured_at"],
-        ifNotExists: true)
       // The local-edit revision each asset's sidecar upload last delivered
       // (#4719). The edit itself stays in AppSupportSidecarStore; this row is
       // what tells a newer local edit apart from the one already uploaded.
@@ -143,7 +139,6 @@ public actor BackupStateStore {
               captured_at=COALESCE(excluded.captured_at, tasks.captured_at)
             """)
       }
-      try Self.recordUploadedWatermarks(for: tasks, in: db)
     }
   }
 
@@ -177,9 +172,6 @@ public actor BackupStateStore {
              WHERE device_id=\(id.deviceId)
                AND phasset_local_id=\(id.phassetLocalId)
             """)
-      }
-      if state == .uploaded {
-        try Self.recordUploadedWatermark(for: id, in: db)
       }
     }
   }

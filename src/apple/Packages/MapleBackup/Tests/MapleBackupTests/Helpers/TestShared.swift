@@ -1,7 +1,6 @@
 // Tests/MapleBackupTests/Helpers/TestShared.swift
 import Foundation
 import XCTest
-
 @testable import MapleBackup
 
 // MARK: - BackupEngine test harness
@@ -9,28 +8,24 @@ import XCTest
 /// Shared `BackupEngine` construction, split out of `BackupEngineTests` so
 /// `BackupEngineSidecarTests` (and any other split-out suite) can build the
 /// same harness without duplicating it.
-func freshHarness() throws -> (
-  BackupEngine, InProcessBackupQueue, BackupStateStore, AppSupportSidecarStore, StubAssetReader, URL
-) {
-  let tmpRoot = FileManager.default.temporaryDirectory
-    .appendingPathComponent("engine-test-\(UUID().uuidString)", isDirectory: true)
-  try FileManager.default.createDirectory(at: tmpRoot, withIntermediateDirectories: true)
-  let stateURL = tmpRoot.appendingPathComponent("state.sqlite")
-  let sidecarRoot = tmpRoot.appendingPathComponent("sidecars", isDirectory: true)
-  try FileManager.default.createDirectory(at: sidecarRoot, withIntermediateDirectories: true)
+func freshHarness() throws -> (BackupEngine, InProcessBackupQueue, BackupStateStore, AppSupportSidecarStore, StubAssetReader, URL) {
+    let tmpRoot = FileManager.default.temporaryDirectory
+        .appendingPathComponent("engine-test-\(UUID().uuidString)", isDirectory: true)
+    try FileManager.default.createDirectory(at: tmpRoot, withIntermediateDirectories: true)
+    let stateURL = tmpRoot.appendingPathComponent("state.sqlite")
+    let sidecarRoot = tmpRoot.appendingPathComponent("sidecars", isDirectory: true)
+    try FileManager.default.createDirectory(at: sidecarRoot, withIntermediateDirectories: true)
 
-  let queue = InProcessBackupQueue()
-  let state = try BackupStateStore(databaseURL: stateURL)
-  let sidecars = AppSupportSidecarStore(root: sidecarRoot)
-  let reader = StubAssetReader()
-  let upload = UploadClient(
-    baseURL: URL(string: "https://server.example")!,
-    libraryId: "lib", deviceId: "d",
-    transport: stubTransport())
-  let engine = BackupEngine(
-    queue: queue, state: state, upload: upload,
-    sidecars: sidecars, reader: reader)
-  return (engine, queue, state, sidecars, reader, tmpRoot)
+    let queue = InProcessBackupQueue()
+    let state = try BackupStateStore(databaseURL: stateURL)
+    let sidecars = AppSupportSidecarStore(root: sidecarRoot)
+    let reader = StubAssetReader()
+    let upload = UploadClient(baseURL: URL(string: "https://server.example")!,
+                              libraryId: "lib", deviceId: "d",
+                              transport: stubTransport())
+    let engine = BackupEngine(queue: queue, state: state, upload: upload,
+                              sidecars: sidecars, reader: reader)
+    return (engine, queue, state, sidecars, reader, tmpRoot)
 }
 
 /// Variant exposing the #700 `companionBackoff` injection point. Returns the
@@ -38,164 +33,164 @@ func freshHarness() throws -> (
 /// `StubAssetReader`; pass e.g. `RenderedAssetReader()` to exercise a
 /// companion that's always attempted regardless of local-edit state.
 func freshHarness(
-  companionBackoff: @escaping @Sendable (Int) -> TimeInterval,
-  reader: any AssetReader = StubAssetReader()
+    companionBackoff: @escaping @Sendable (Int) -> TimeInterval,
+    reader: any AssetReader = StubAssetReader()
 ) throws -> (BackupEngine, InProcessBackupQueue, BackupStateStore, AppSupportSidecarStore, URL) {
-  let tmpRoot = FileManager.default.temporaryDirectory
-    .appendingPathComponent("engine-test-\(UUID().uuidString)", isDirectory: true)
-  try FileManager.default.createDirectory(at: tmpRoot, withIntermediateDirectories: true)
-  let stateURL = tmpRoot.appendingPathComponent("state.sqlite")
-  let sidecarRoot = tmpRoot.appendingPathComponent("sidecars", isDirectory: true)
-  try FileManager.default.createDirectory(at: sidecarRoot, withIntermediateDirectories: true)
+    let tmpRoot = FileManager.default.temporaryDirectory
+        .appendingPathComponent("engine-test-\(UUID().uuidString)", isDirectory: true)
+    try FileManager.default.createDirectory(at: tmpRoot, withIntermediateDirectories: true)
+    let stateURL = tmpRoot.appendingPathComponent("state.sqlite")
+    let sidecarRoot = tmpRoot.appendingPathComponent("sidecars", isDirectory: true)
+    try FileManager.default.createDirectory(at: sidecarRoot, withIntermediateDirectories: true)
 
-  let queue = InProcessBackupQueue()
-  let state = try BackupStateStore(databaseURL: stateURL)
-  let sidecars = AppSupportSidecarStore(root: sidecarRoot)
-  let upload = UploadClient(
-    baseURL: URL(string: "https://server.example")!,
-    libraryId: "lib", deviceId: "d",
-    transport: stubTransport())
-  let engine = BackupEngine(
-    queue: queue, state: state, upload: upload,
-    sidecars: sidecars, reader: reader,
-    companionBackoff: companionBackoff)
-  return (engine, queue, state, sidecars, tmpRoot)
+    let queue = InProcessBackupQueue()
+    let state = try BackupStateStore(databaseURL: stateURL)
+    let sidecars = AppSupportSidecarStore(root: sidecarRoot)
+    let upload = UploadClient(baseURL: URL(string: "https://server.example")!,
+                              libraryId: "lib", deviceId: "d",
+                              transport: stubTransport())
+    let engine = BackupEngine(queue: queue, state: state, upload: upload,
+                              sidecars: sidecars, reader: reader,
+                              companionBackoff: companionBackoff)
+    return (engine, queue, state, sidecars, tmpRoot)
 }
 
 /// Convenience: a sequence stub for the standard two-request happy path
 /// (ingest → 200+JSON, sidecar → 200 naming the stored sidecar).
-func ingestAndSidecarStub(
-  mapleId: String = "hash-P1",
-  relPath: String = "2024/03/15/IMG.heic"
-) -> StubURLProtocol.Stub {
-  .sequence([
-    .ok(json: #"{"maple_id":"\#(mapleId)","target_rel_path":"\#(relPath)"}"#),
-    .status(200),
-  ])
+func ingestAndSidecarStub(mapleId: String = "hash-P1",
+                          relPath: String = "2024/03/15/IMG.heic") -> StubURLProtocol.Stub {
+    .sequence([
+        .ok(json: #"{"maple_id":"\#(mapleId)","target_rel_path":"\#(relPath)"}"#),
+        .status(200)
+    ])
 }
 
 actor StubAssetReader: AssetReader {
-  var readCount = 0
-  func read(phassetLocalId: String) async throws -> AssetReadResult {
-    readCount += 1
-    return AssetReadResult(
-      originalBytes: Data(count: 256),
-      renderedBytes: nil,
-      sidecar: PayloadAssembler.SidecarInput(
-        phassetLocalId: phassetLocalId,
-        deviceId: "d",
-        captureDate: Date(timeIntervalSince1970: 1_700_000_000),
-        latitude: nil, longitude: nil,
-        favorite: false, caption: nil,
-        keywords: [], tags: [],
-        livePhotoCompanion: nil, burstStackId: nil,
-        originalFilename: "IMG.heic",
-        mtime: 0),
-      mapleId: "hash-\(phassetLocalId)")
-  }
+    var readCount = 0
+    func read(phassetLocalId: String) async throws -> AssetReadResult {
+        readCount += 1
+        return AssetReadResult(
+            originalBytes: Data(count: 256),
+            renderedBytes: nil,
+            sidecar: PayloadAssembler.SidecarInput(
+                phassetLocalId: phassetLocalId,
+                deviceId: "d",
+                captureDate: Date(timeIntervalSince1970: 1_700_000_000),
+                latitude: nil, longitude: nil,
+                favorite: false, caption: nil,
+                keywords: [], tags: [],
+                livePhotoCompanion: nil, burstStackId: nil,
+                originalFilename: "IMG.heic",
+                mtime: 0),
+            mapleId: "hash-\(phassetLocalId)")
+    }
 }
 
 actor FailingAssetReader: AssetReader {
-  enum FailError: Error { case forced }
-  func read(phassetLocalId: String) async throws -> AssetReadResult {
-    throw FailError.forced
-  }
+    enum FailError: Error { case forced }
+    func read(phassetLocalId: String) async throws -> AssetReadResult {
+        throw FailError.forced
+    }
 }
 
 /// Supplies non-empty `renderedBytes` (Apple-rendered JPEG twin) — the
 /// rendered companion is attempted unconditionally whenever it's present, so
 /// this reader lets tests exercise that companion path without a local edit.
 actor RenderedAssetReader: AssetReader {
-  func read(phassetLocalId: String) async throws -> AssetReadResult {
-    return AssetReadResult(
-      originalBytes: Data(count: 256),
-      renderedBytes: Data(count: 64),
-      renderedFilenameExtension: "jpeg",
-      sidecar: PayloadAssembler.SidecarInput(
-        phassetLocalId: phassetLocalId,
-        deviceId: "d",
-        captureDate: Date(timeIntervalSince1970: 1_700_000_000),
-        latitude: nil, longitude: nil,
-        favorite: false, caption: nil,
-        keywords: [], tags: [],
-        livePhotoCompanion: nil, burstStackId: nil,
-        originalFilename: "IMG.heic",
-        mtime: 0),
-      mapleId: "hash-\(phassetLocalId)")
-  }
+    func read(phassetLocalId: String) async throws -> AssetReadResult {
+        return AssetReadResult(
+            originalBytes: Data(count: 256),
+            renderedBytes: Data(count: 64),
+            renderedFilenameExtension: "jpeg",
+            sidecar: PayloadAssembler.SidecarInput(
+                phassetLocalId: phassetLocalId,
+                deviceId: "d",
+                captureDate: Date(timeIntervalSince1970: 1_700_000_000),
+                latitude: nil, longitude: nil,
+                favorite: false, caption: nil,
+                keywords: [], tags: [],
+                livePhotoCompanion: nil, burstStackId: nil,
+                originalFilename: "IMG.heic",
+                mtime: 0),
+            mapleId: "hash-\(phassetLocalId)")
+    }
 }
 
 actor LivePhotoAssetReader: AssetReader {
-  func read(phassetLocalId: String) async throws -> AssetReadResult {
-    return AssetReadResult(
-      originalBytes: Data(count: 256),
-      renderedBytes: nil,
-      liveVideoBytes: Data(count: 128),
-      liveVideoFilename: "IMG.mov",
-      sidecar: PayloadAssembler.SidecarInput(
-        phassetLocalId: phassetLocalId,
-        deviceId: "d",
-        captureDate: Date(timeIntervalSince1970: 1_700_000_000),
-        latitude: nil, longitude: nil,
-        favorite: false, caption: nil,
-        keywords: [], tags: [],
-        livePhotoCompanion: "IMG.mov", burstStackId: nil,
-        originalFilename: "IMG.heic",
-        mtime: 0),
-      mapleId: "hash-\(phassetLocalId)")
-  }
+    func read(phassetLocalId: String) async throws -> AssetReadResult {
+        return AssetReadResult(
+            originalBytes: Data(count: 256),
+            renderedBytes: nil,
+            liveVideoBytes: Data(count: 128),
+            liveVideoFilename: "IMG.mov",
+            sidecar: PayloadAssembler.SidecarInput(
+                phassetLocalId: phassetLocalId,
+                deviceId: "d",
+                captureDate: Date(timeIntervalSince1970: 1_700_000_000),
+                latitude: nil, longitude: nil,
+                favorite: false, caption: nil,
+                keywords: [], tags: [],
+                livePhotoCompanion: "IMG.mov", burstStackId: nil,
+                originalFilename: "IMG.heic",
+                mtime: 0),
+            mapleId: "hash-\(phassetLocalId)")
+    }
 }
 
+/// Defers a rendered twin and a Live Photo .mov past the primary read, the way
+/// `PhotoKitAssetReader` does. The first `failingReads` companion reads, of
+/// any kind, throw, as an interrupted iCloud download would.
 actor DeferredCompanionAssetReader: AssetReader {
-  private(set) var readCompanionsCalls = 0
+    private var failuresLeft: Int
+    private(set) var reads: [CompanionKind: Int] = [:]
 
-  func read(phassetLocalId: String) async throws -> AssetReadResult {
-    AssetReadResult(
-      originalBytes: Data(count: 256),
-      renderedBytes: nil,
-      renderedFilenameExtension: "jpeg",
-      liveVideoBytes: nil,
-      liveVideoFilename: "IMG.mov",
-      sidecar: PayloadAssembler.SidecarInput(
-        phassetLocalId: phassetLocalId,
-        deviceId: "d",
-        captureDate: Date(timeIntervalSince1970: 1_700_000_000),
-        latitude: nil, longitude: nil,
-        favorite: false, caption: nil,
-        keywords: [], tags: [],
-        livePhotoCompanion: "IMG.mov", burstStackId: nil,
-        originalFilename: "IMG.heic",
-        mtime: 0),
-      mapleId: "hash-\(phassetLocalId)",
-      hasDeferredCompanions: true)
-  }
+    init(failingReads: Int) {
+        failuresLeft = failingReads
+    }
 
-  func readCompanions(
-    phassetLocalId: String,
-    onStatus: @escaping @Sendable (String) async -> Void
-  ) async throws -> CompanionReadResult {
-    readCompanionsCalls += 1
-    return CompanionReadResult(
-      renderedBytes: Data(count: 64),
-      renderedFilenameExtension: "jpeg",
-      liveVideoBytes: Data(count: 128))
-  }
+    func read(phassetLocalId: String) async throws -> AssetReadResult {
+        AssetReadResult(
+            originalBytes: Data(count: 256),
+            renderedBytes: nil,
+            renderedFilenameExtension: "jpeg",
+            liveVideoFilename: "IMG.mov",
+            sidecar: PayloadAssembler.SidecarInput(
+                phassetLocalId: phassetLocalId,
+                deviceId: "d",
+                captureDate: Date(timeIntervalSince1970: 1_700_000_000),
+                latitude: nil, longitude: nil,
+                favorite: false, caption: nil,
+                keywords: [], tags: [],
+                livePhotoCompanion: "IMG.mov", burstStackId: nil,
+                originalFilename: "IMG.heic",
+                mtime: 0),
+            mapleId: "hash-\(phassetLocalId)",
+            deferredCompanions: [.rendered, .liveVideo])
+    }
+
+    func readCompanion(_ kind: CompanionKind, phassetLocalId: String) async throws -> Data? {
+        reads[kind, default: 0] += 1
+        guard failuresLeft == 0 else {
+            failuresLeft -= 1
+            throw URLError(.networkConnectionLost)
+        }
+        return Data(count: kind == .rendered ? 64 : 128)
+    }
 }
 
 /// Thread-safe "resume exactly once" gate for racing two unstructured Tasks
 /// past a single `CheckedContinuation` — see `awaitBounded(_:timeout:)`.
 final class ResumeOnceGate: @unchecked Sendable {
-  private let lock = NSLock()
-  private var claimed = false
-  /// Returns `true` for the first caller only; every later caller gets
-  /// `false`, so a slow winner racing a timeout can't double-resume.
-  func claim() -> Bool {
-    lock.lock()
-    defer { lock.unlock() }
-    guard !claimed else { return false }
-    claimed = true
-    return true
-  }
+    private let lock = NSLock()
+    private var claimed = false
+    /// Returns `true` for the first caller only; every later caller gets
+    /// `false`, so a slow winner racing a timeout can't double-resume.
+    func claim() -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        guard !claimed else { return false }
+        claimed = true
+        return true
+    }
 }
 
 /// Await an async `operation` or give up after `timeout`, returning `nil` on
@@ -211,48 +206,42 @@ final class ResumeOnceGate: @unchecked Sendable {
 /// on. Racing two independent, unstructured `Task`s past a single
 /// `resume`-once continuation avoids that: whichever fires first wins, and
 /// the loser is simply abandoned rather than awaited.
-func awaitBounded<T: Sendable>(
-  timeout: TimeInterval,
-  _ operation: @escaping @Sendable () async -> T
-) async -> T? {
-  let gate = ResumeOnceGate()
-  return await withCheckedContinuation { (continuation: CheckedContinuation<T?, Never>) in
-    Task {
-      let result = await operation()
-      if gate.claim() { continuation.resume(returning: result) }
+func awaitBounded<T: Sendable>(timeout: TimeInterval,
+                               _ operation: @escaping @Sendable () async -> T) async -> T? {
+    let gate = ResumeOnceGate()
+    return await withCheckedContinuation { (continuation: CheckedContinuation<T?, Never>) in
+        Task {
+            let result = await operation()
+            if gate.claim() { continuation.resume(returning: result) }
+        }
+        Task {
+            try? await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
+            if gate.claim() { continuation.resume(returning: nil) }
+        }
     }
-    Task {
-      try? await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
-      if gate.claim() { continuation.resume(returning: nil) }
-    }
-  }
 }
 
 /// Thread-safe sink that drains a queue's event stream into a list so a test
 /// can assert which companion-lifecycle events fired and in what order.
 final class EventSink: @unchecked Sendable {
-  private let lock = NSLock()
-  private var events: [BackupQueueEvent] = []
-  private var task: Task<Void, Never>?
+    private let lock = NSLock()
+    private var events: [BackupQueueEvent] = []
+    private var task: Task<Void, Never>?
 
-  func attach(to queue: InProcessBackupQueue) async {
-    let stream = await queue.observe()
-    task = Task { [weak self] in
-      for await event in stream {
-        guard let self else { return }
-        self.lock.lock()
-        self.events.append(event)
-        self.lock.unlock()
-      }
+    func attach(to queue: InProcessBackupQueue) async {
+        let stream = await queue.observe()
+        task = Task { [weak self] in
+            for await event in stream {
+                guard let self else { return }
+                self.lock.lock(); self.events.append(event); self.lock.unlock()
+            }
+        }
     }
-  }
-  func stop() { task?.cancel() }
-  var snapshot: [BackupQueueEvent] {
-    lock.lock()
-    defer { lock.unlock() }
-    return events
-  }
-  func count(where pred: (BackupQueueEvent) -> Bool) -> Int {
-    snapshot.filter(pred).count
-  }
+    func stop() { task?.cancel() }
+    var snapshot: [BackupQueueEvent] {
+        lock.lock(); defer { lock.unlock() }; return events
+    }
+    func count(where pred: (BackupQueueEvent) -> Bool) -> Int {
+        snapshot.filter(pred).count
+    }
 }
