@@ -244,3 +244,78 @@ fn shared_contract_corpus_preserves_foreign_masks_and_authored_wb_states() {
         );
     }
 }
+
+#[test]
+fn lineage_is_stored_exactly_as_given_and_validated() {
+    let first = WorkflowHistoryEntry {
+        writer: "apple".into(),
+        ..entry(1)
+    };
+    let second = WorkflowHistoryEntry {
+        parent_id: id(1),
+        writer: "web".into(),
+        ..entry(2)
+    };
+    // A fork: the third entry names the first as its base, not the second.
+    let third = WorkflowHistoryEntry {
+        parent_id: id(1),
+        ..entry(3)
+    };
+    let value = [first.clone(), second.clone(), third.clone()]
+        .into_iter()
+        .fold(SidecarWorkflow::primary(), |value, entry| {
+            value.committed(entry).unwrap()
+        });
+    assert_eq!(value.history, [first, second, third]);
+    assert_eq!(
+        SidecarWorkflow::parse(&value.to_json().unwrap()).unwrap(),
+        value
+    );
+    for invalid in [
+        WorkflowHistoryEntry {
+            parent_id: "not-a-uuid".into(),
+            ..entry(4)
+        },
+        WorkflowHistoryEntry {
+            parent_id: id(4),
+            ..entry(4)
+        },
+        WorkflowHistoryEntry {
+            writer: "\n".into(),
+            ..entry(4)
+        },
+        WorkflowHistoryEntry {
+            writer: "w".repeat(WRITER_MAX_BYTES + 1),
+            ..entry(4)
+        },
+    ] {
+        assert!(value.committed(invalid).is_err());
+    }
+    // A parent still in the history must precede its child.
+    let backwards = SidecarWorkflow {
+        history: vec![
+            WorkflowHistoryEntry {
+                parent_id: id(2),
+                ..entry(1)
+            },
+            entry(2),
+        ],
+        ..SidecarWorkflow::primary()
+    };
+    assert!(backwards.validate().is_err());
+}
+
+#[test]
+fn hosts_may_leave_lineage_out_of_a_record_they_build() {
+    let mut value =
+        serde_json::to_value(SidecarWorkflow::primary().committed(entry(1)).unwrap()).unwrap();
+    let history = value["history"][0].as_object_mut().unwrap();
+    history.remove("parentId");
+    history.remove("writer");
+    let parsed = SidecarWorkflow::parse(&value.to_string()).unwrap();
+    assert_eq!(parsed.history[0].parent_id, "");
+    assert_eq!(parsed.history[0].writer, "");
+    // Only the two lineage fields are optional.
+    value["history"][0].as_object_mut().unwrap().remove("label");
+    assert!(SidecarWorkflow::parse(&value.to_string()).is_err());
+}
