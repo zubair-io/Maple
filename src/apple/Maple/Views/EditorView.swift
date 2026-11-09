@@ -154,7 +154,7 @@ struct EditorSurface: View {
 
       // The open landscape Duo uses the vertical control bar. Its closed
       // display keeps the compact slider controls but moves group selection
-      // into the system rail. EditorState survives either reflow.
+      // into the trailing side rail. EditorState survives either reflow.
       Group {
         if usesPhoneControls {
           GeometryReader { geometry in
@@ -216,6 +216,11 @@ struct EditorSurface: View {
       .padding(.top, 8)
       .frame(maxWidth: .infinity)
       .ignoresSafeArea(edges: .bottom)
+      #if os(iOS)
+        if sideRailCarriesGroups {
+          EditorSideGroupRail(state: state)
+        }
+      #endif
       // Keep per-frame rendering observations inside the status leaf.
       EditorRenderStatus(session: state.session)
 
@@ -288,14 +293,7 @@ struct EditorSurface: View {
       // (EditorView leaves the view hierarchy and its modifier disappears).
       .toolbar(.hidden, for: .windowToolbar)
     #elseif os(iOS)
-      .toolbar(systemRailCarriesGroups ? .visible : .hidden, for: .navigationBar)
-      .toolbarBackground(.hidden, for: .navigationBar)
-      .navigationBarBackButtonHidden(systemRailCarriesGroups)
-      .toolbar {
-        if systemRailCarriesGroups {
-          EditorDuoToolRail(state: state)
-        }
-      }
+      .toolbar(.hidden, for: .navigationBar)
     #endif
     // Editor key commands (arrows, compare, nudge, filmstrip navigation)
     // are routed by one shared scope so a focused slider or text field can
@@ -304,10 +302,11 @@ struct EditorSurface: View {
     .id(ObjectIdentifier(state.session))
   }
 
-  /// The closed Duo's compact controls hand group selection to the system
-  /// side rail. The open Duo carries it in the header row instead, so its
-  /// navigation bar never pushes the header down a level (#5710).
-  private var systemRailCarriesGroups: Bool { usesDuoToolRail && usesPhoneControls }
+  /// The closed Duo's compact controls hand group selection to the trailing
+  /// side rail (#5770). The open Duo carries it in the header row instead
+  /// (#5710). Neither uses the navigation bar, which would push the header
+  /// down a level.
+  private var sideRailCarriesGroups: Bool { usesDuoToolRail && usesPhoneControls }
   private var headerCarriesGroups: Bool { usesDuoToolRail && !usesPhoneControls }
 
   private func navigateFilmstrip(_ direction: Int) {

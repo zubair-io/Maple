@@ -1,32 +1,41 @@
-// The closed Duo's dedicated side rail carries group selection; its compact
-// slider controls keep the tools. The open Duo carries the same switcher in
-// its header row, beside the vertical control bar.
-
 #if os(iOS)
 
   import MapleCore
   import MapleUI
   import SwiftUI
 
-  struct EditorDuoToolRail: ToolbarContent {
+  /// The closed Duo's group switcher, in the trailing safe-area column
+  /// below the clock (#5770).
+  struct EditorSideGroupRail: View {
     @Bindable var state: EditorState
 
-    var body: some ToolbarContent {
-      ToolbarItemGroup(placement: .topBarTrailing) {
-        ForEach(ToolGroup.allCases, id: \.self) { group in
-          EditorGroupButton(state: state, group: group)
-        }
+    var body: some View {
+      GeometryReader { geometry in
+        EditorGroupSwitcher(state: state, axis: .vertical)
+          .accessibilityIdentifier("editor-side-groups")
+          .padding(.vertical, 4)
+          .modifier(PhotoHeaderGlass())
+          .frame(width: geometry.safeAreaInsets.trailing)
+          .padding(.top, EditorVerticalControlBar.top(in: geometry))
+          .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+          .ignoresSafeArea(.container, edges: .trailing)
       }
     }
   }
 
-  /// The open Duo's group switcher, carried in the header row so every
-  /// top control shares one level at the top safe area (#5710).
+  /// The Duo's group switcher: a row in the open Duo's header (#5710), a
+  /// column in the closed Duo's side rail (#5770).
   struct EditorGroupSwitcher: View {
     @Bindable var state: EditorState
+    var axis: Axis = .horizontal
+
+    private var stack: AnyLayout {
+      axis == .horizontal
+        ? AnyLayout(HStackLayout(spacing: 0)) : AnyLayout(VStackLayout(spacing: 0))
+    }
 
     var body: some View {
-      HStack(spacing: 0) {
+      stack {
         ForEach(ToolGroup.allCases, id: \.self) { group in
           EditorGroupButton(state: state, group: group)
             .frame(width: 44, height: 44)
@@ -34,7 +43,6 @@
       }
       .buttonStyle(.plain)
       .accessibilityElement(children: .contain)
-      .accessibilityIdentifier("editor-header-groups")
     }
   }
 
