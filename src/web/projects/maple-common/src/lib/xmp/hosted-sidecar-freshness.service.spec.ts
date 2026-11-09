@@ -12,21 +12,9 @@ import {
 } from '../folder-access/fs-access-backend';
 import { DiskDirectory } from '../editor/copy-paste/testing/batch-test-files';
 import { defaultAdjustmentModel } from '../models/adjustment-model';
-import {
-  initSync,
-  workflow_checkpoint_xmp,
-  workflow_commit_xmp,
-  workflow_embed_xmp,
-  workflow_read_xmp,
-  workflow_snapshot_xmp,
-  workflow_variant_filename,
-} from '../raw-pipeline/pkg/raw_wasm';
-import {
-  parseSidecarWorkflow,
-  type WorkflowHistoryEntry,
-  type SidecarWorkflow,
-  type WorkflowSnapshot,
-} from '../generated/workflow.generated';
+import { initSync, workflow_checkpoint_xmp, workflow_read_xmp } from '../raw-pipeline/pkg/raw_wasm';
+import type { WorkflowSnapshot } from '../generated/workflow.generated';
+import { inProcessWorkflowXmp } from './testing/in-process-workflow-xmp';
 import { SidecarSaveStateService } from './sidecar-save-state.service';
 import {
   HostedSidecarConflictError,
@@ -46,30 +34,7 @@ const culling = (rating: number) => ({
   keywords: [],
 });
 
-/** The real Rust workflow converter, in-process because jsdom has no Worker. */
-class InProcessWorkflowXmp {
-  async read(xmp: string): Promise<SidecarWorkflow | null> {
-    const value: unknown = JSON.parse(workflow_read_xmp(xmp));
-    return value === null ? null : parseSidecarWorkflow(value);
-  }
-  async variantFilename(primaryName: string, variantId: string): Promise<string> {
-    return workflow_variant_filename(primaryName, variantId);
-  }
-  async checkpoint(xmp: string): Promise<string> {
-    return workflow_checkpoint_xmp(xmp);
-  }
-  async embed(workflow: SidecarWorkflow, xmp: string): Promise<string> {
-    return workflow_embed_xmp(JSON.stringify(parseSidecarWorkflow(workflow)), xmp);
-  }
-  async snapshot(snapshot: WorkflowSnapshot, xmp: string): Promise<string> {
-    return workflow_snapshot_xmp(xmp, JSON.stringify(snapshot));
-  }
-  async commit(entry: WorkflowHistoryEntry, xmp: string): Promise<string> {
-    return workflow_commit_xmp(xmp, JSON.stringify(entry));
-  }
-}
-
-describe('Hosted sidecar external-change protection', () => {
+describe('Hosted sidecar external-change handling', () => {
   const originalLocks = Object.getOwnPropertyDescriptor(navigator, 'locks');
   const raw = new Uint8Array([0x49, 0x49, 0x2a, 0x00, 0xde, 0xad, 0xbe, 0xef]);
   let root: string;
@@ -107,7 +72,7 @@ describe('Hosted sidecar external-change protection', () => {
     );
     TestBed.configureTestingModule({
       providers: [
-        { provide: WorkflowXmpService, useClass: InProcessWorkflowXmp },
+        { provide: WorkflowXmpService, useValue: inProcessWorkflowXmp },
         {
           provide: FolderAccessService,
           useValue: {
@@ -134,20 +99,33 @@ describe('Hosted sidecar external-change protection', () => {
     else Reflect.deleteProperty(navigator, 'locks');
   });
 
-  it('preserves an external edit, reports an unsaved conflict, then saves after reload', async () => {
+  it('merges a save onto an external edit and records the edit instead of refusing', async () => {
     const external = sidecar(4);
     await fs.writeFile(path(), external);
     store.scheduleWrite('asset', folder, 'photo.dng', defaultAdjustmentModel(), culling(2));
+    await store.flushAll();
+    const final = await fs.readFile(path(), 'utf8');
+    expect(final).toContain('xmp:Rating="2"');
+    const record = JSON.parse(workflow_read_xmp(final));
+    expect(record.history).toHaveLength(1);
+    expect(record.history[0]).toMatchObject({ action: 'external', parentId: '' });
+    expect(record.history[0].adjustmentXmp).toBe(workflow_checkpoint_xmp(external));
+    expect(writeFile).toHaveBeenCalledTimes(1);
+    expect(TestBed.inject(SidecarSaveStateService).phase()).toBe('saved');
+    expect(new Uint8Array(await fs.readFile(join(root, 'photo.dng')))).toEqual(raw);
+  });
+
+  it('still refuses to save over a sidecar removed outside Maple, then saves after reload', async () => {
+    await fs.rm(path());
+    store.scheduleWrite('asset', folder, 'photo.dng', defaultAdjustmentModel(), culling(2));
     await expect(store.flushAll()).rejects.toThrow('changed outside Maple');
-    expect(await fs.readFile(path(), 'utf8')).toBe(external);
     expect(writeFile).not.toHaveBeenCalled();
     expect(TestBed.inject(SidecarSaveStateService).phase()).toBe('error');
-    store.replaceLoadedDocuments(folder, new Map([['photo.xmp', external]]));
+    store.replaceLoadedDocuments(folder, new Map([['photo.xmp', null]]));
     store.scheduleWrite('asset', folder, 'photo.dng', defaultAdjustmentModel(), culling(3));
     await store.flushAll();
     expect(await fs.readFile(path(), 'utf8')).toContain('xmp:Rating="3"');
     expect(TestBed.inject(SidecarSaveStateService).phase()).toBe('saved');
-    expect(new Uint8Array(await fs.readFile(join(root, 'photo.dng')))).toEqual(raw);
   });
 
   it('distinguishes an unchanged absent sidecar from one removed outside Maple', async () => {
@@ -198,11 +176,10 @@ describe('Hosted sidecar external-change protection', () => {
       'slider',
       'Rejected edit',
     );
-    const external = sidecar(4);
-    await fs.writeFile(path(), external);
+    await fs.rm(path());
     store.scheduleWrite('asset', folder, 'photo.dng', defaultAdjustmentModel(), culling(2));
     await expect(store.flushAll()).rejects.toThrow('changed outside Maple');
-    store.replaceLoadedDocuments(folder, new Map([['photo.xmp', external]]));
+    store.replaceLoadedDocuments(folder, new Map([['photo.xmp', null]]));
     store.scheduleWrite('asset', folder, 'photo.dng', defaultAdjustmentModel(), culling(3));
     await store.flushAll();
     const final = await fs.readFile(path(), 'utf8');

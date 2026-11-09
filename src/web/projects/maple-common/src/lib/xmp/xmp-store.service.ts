@@ -1,5 +1,6 @@
 // Coordinates debounced sidecar writes and loaded XMP metadata for the Develop tab.
 import { Injectable, inject, DestroyRef } from '@angular/core';
+import { Subject } from 'rxjs';
 import type { AdjustmentModel } from '../models/adjustment-model';
 import type { XmpCulling, PassthroughBucket, XmpMetadata } from './xmp.types';
 import type { AssetId } from '../models/asset';
@@ -10,6 +11,7 @@ import {
   sameSidecar,
   settleWrites,
   type HostedSidecarBinding,
+  type MergedSidecar,
   type PendingSidecarWrite,
   type RetryableSidecarWrite,
   type SidecarSource,
@@ -41,6 +43,8 @@ export class XmpStoreService {
   private readonly freshness = inject(HostedSidecarFreshnessService);
   private readonly destroyRef = inject(DestroyRef, { optional: true });
   private readonly latestModels = new WeakMap<MapleFolderHandle, Map<AssetId, AdjustmentModel>>();
+  /** Saves that merged onto an outside edit; the live model adopts them without saving again. */
+  readonly merged = new Subject<MergedSidecar>();
 
   constructor() {
     this.destroyRef?.onDestroy(() => this.cancelPending());
@@ -117,12 +121,7 @@ export class XmpStoreService {
     this.freshness.replaceFolder(folder, documents);
   }
 
-  // ── Passthrough cache ───────────────────────────────────────────────────────
-
-  /**
-   * Store a passthrough bucket for an asset that was loaded externally
-   * (e.g. when LibraryStateService calls the parser directly).
-   */
+  /** Store a passthrough bucket for an asset that was loaded externally. */
   rememberPassthrough(assetId: AssetId, passthrough: PassthroughBucket): void {
     this._passthroughs.set(assetId, passthrough);
   }
@@ -151,11 +150,7 @@ export class XmpStoreService {
     }
   }
 
-  /**
-   * Look up the passthrough bucket previously stored for an asset (or undefined
-   * if none was ever loaded). Used by callers that bypass `loadSidecar` /
-   * `scheduleWrite` (e.g. the Self-Hosted API path in LibraryStateService).
-   */
+  /** The passthrough bucket last stored for an asset, for callers that bypass `scheduleWrite`. */
   passthroughFor(assetId: AssetId): PassthroughBucket | undefined {
     return this._passthroughs.get(assetId);
   }
@@ -221,8 +216,6 @@ export class XmpStoreService {
           variantId: PRIMARY_VARIANT_ID,
         };
   }
-
-  // ── Write ───────────────────────────────────────────────────────────────────
 
   /**
    * Schedule a debounced sidecar write for `assetId`.
@@ -452,8 +445,6 @@ export class XmpStoreService {
     );
   }
 
-  // ── Private ─────────────────────────────────────────────────────────────────
-
   private _startWrite(
     assetId: AssetId,
     folder: MapleFolderHandle,
@@ -551,7 +542,7 @@ export class XmpStoreService {
         ? source.metadata
         : this._metadata.get(assetId);
     try {
-      const written = await this.documents.write(
+      const { xml: written, reconciled } = await this.documents.write(
         binding,
         model,
         culling,
@@ -560,6 +551,14 @@ export class XmpStoreService {
         source?.document,
       );
       this._rememberWritten(assetId, written, currentSource());
+      if (reconciled && currentSource())
+        this.merged.next({
+          assetId,
+          binding,
+          xml: written,
+          saved: { model, culling },
+          pending: this._pendingWrites.has(assetId),
+        });
       this.saveState.saved(assetId, revision);
     } catch (e) {
       this.saveState.failed(assetId, revision, e);

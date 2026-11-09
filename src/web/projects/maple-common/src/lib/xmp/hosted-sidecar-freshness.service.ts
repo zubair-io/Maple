@@ -33,19 +33,27 @@ export class HostedSidecarFreshnessService {
     }
   }
 
+  /** The document the editor last read or published; the base of a reconciling write. */
+  baseline(
+    folder: MapleFolderHandle,
+    filename: string,
+    explicitSource?: string | null,
+  ): string | null {
+    const documents = this.loaded.get(folder);
+    if (explicitSource === undefined && !documents?.has(filename))
+      throw Error(
+        `Reload ${filename} before editing; its sidecar has not been read in this session.`,
+      );
+    return explicitSource === undefined ? (documents?.get(filename) ?? null) : explicitSource;
+  }
+
   assertUnchanged(
     folder: MapleFolderHandle,
     filename: string,
     current: string | null,
     explicitSource?: string | null,
   ): void {
-    const documents = this.loaded.get(folder);
-    if (explicitSource === undefined && !documents?.has(filename))
-      throw Error(
-        `Reload ${filename} before editing; its sidecar has not been read in this session.`,
-      );
-    const loaded = explicitSource === undefined ? documents!.get(filename) : explicitSource;
-    if (current !== loaded)
+    if (current !== this.baseline(folder, filename, explicitSource))
       throw new HostedSidecarConflictError(
         `The XMP sidecar for ${filename} changed outside Maple. Reload the folder before editing; the external change was preserved.`,
       );

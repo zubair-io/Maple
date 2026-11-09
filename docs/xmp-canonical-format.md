@@ -640,8 +640,8 @@ Presets are **not** stored in XMP. A preset is a named, schema-versioned _sparse
 Selected-variant stores also provide confirmed semantic commit, immutable
 snapshot and restore operations (#4045). Each requires the exact complete XMP
 last observed by the caller, with explicit `null` for an absent primary. A stale
-snapshot or restore fails before publication; a stale commit is reconciled (see
-"Edit history, lineage and conflicts") instead of refused, except against a
+snapshot or restore fails before publication; ordinary saves and gesture commits
+reconcile instead ("Edit history, lineage and conflicts"), except against a
 deleted file. A successful response is the complete XML
 actually written; reopening reconstructs its snapshots and bounded history.
 Commit merges new adjustment XML with the currently stored authoring record.
@@ -804,8 +804,9 @@ through current-source CAS before moving the ring; a failed publication retains
 the action and its retry identity. Checkpoints omit Workflow markup, so Undo never
 recursively captures history. The adjustment-diff wire version remains unchanged;
 complete XML is a local ring payload backed by the shared versioned Workflow schema.
-Reopening the editor reloads portable history and snapshots; its local Undo ring
-starts empty, as it does on every image binding. Copied single-file imports need
+Reopening the editor reloads portable history and snapshots and rebuilds its Undo
+ring from the retained history ("Edit history, lineage and conflicts"). Copied
+single-file imports need
 their writable source to use these controls. A first snapshot uses a null-XMP
 precondition plus its captured initial checkpoint; the initial primary and snapshot
 publish together, without a separate baseline write or invented history entry.
@@ -852,6 +853,8 @@ The head is the last history entry. A **fork** is an entry whose `parentId` is n
 The merge edits only the byte spans of properties that change in `current`; unknown attributes, unknown child elements and every byte outside the Description stay exactly as `current` holds them. Attribute order and layout follow the incoming writer for properties it adds. A merge that is not well-formed, or that strands a prefix from its namespace declaration, fails before publication and the writer keeps its pending edit. An `external` entry can also record another Maple writer's unfinished ordinary save; it costs one retained entry, never data.
 
 **Undo and redo across restarts.** The editor's stacks are a deterministic fold over the retained history (`SidecarWorkflow::cursor`, exposed as `cursor_xmp`): an `undo` or `redo` entry moves the head between the stacks, any other entry pushes the previous head and clears redo. A sidecar that no longer equals the head (an outside edit, a crash) makes the head one more undo step and empties redo. Every host rebuilds the same ring from the returned entry ids, up to the cap.
+
+**Web.** Hosted ordinary saves and gesture commits run under the per-sidecar Web Lock. A save whose sidecar differs from the document the editor last read or published reconciles instead of reporting that the sidecar changed outside Maple: the merged document is published atomically, becomes the editor's new base, and replaces the live model and culling without scheduling another save, so a stale in-memory model cannot overwrite it on the next one. An edit made while that save was in flight stays on top of the adopted document. Captured actions are appended on top of the merged document; the first names the head of the base's record as `parentId`, each next one the entry before it, and all carry `writer` `web`. A failed merge keeps the captured actions queued. Refusal remains only where there is nothing to merge onto, a sidecar removed outside Maple, and for the explicit snapshot, restore and Undo/Redo publications, which keep their strict compare-and-swap. Self Hosted gesture commits name the head of the record they read as `parentId` and take the document the API publishes as authoritative; one the API merged is adopted into the live model the same way. When the editor opens a photo, or selects one of its variants, it reads that sidecar's `cursor_xmp` and rebuilds the ring with the same two-complete-checkpoint entries a confirmed restore records, so Undo and Redo reach every retained state up to the cap. Preview ticks and no-op transactions never enter the history.
 
 **Versioning and migration.** A v1 record reads as v2 (`parentId` is the predecessor, `writer` is empty) and becomes v2 on its next commit. An older build reading v2 fails closed exactly as it does for any future schema, and never erases the record. Writers that do not understand `papp:Workflow` (Windows, Linux, Lightroom) keep it verbatim as an unknown child. `raw-core::workflow` owns the fields and `tools/codegen.sh` regenerates the Swift and TypeScript records and validators; the C-FFI, WASM and N-API bindings expose `reconcile_xmp` and `cursor_xmp` beside the existing converters. `test-fixtures/workflow/contract.json` is the shared v2 corpus and `test-fixtures/workflow/v1-sidecar.xmp` a real v1 sidecar for the migration.
 

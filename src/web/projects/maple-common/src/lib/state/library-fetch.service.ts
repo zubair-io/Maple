@@ -41,6 +41,7 @@ import { XmpSerializerService } from '../xmp/xmp-serializer.service';
 import { SidecarStore } from '../xmp/sidecar.store';
 import { SelfHostedWorkflowWriterService } from '../xmp/self-hosted-workflow-writer.service';
 import { PassthroughBucket, XmpCulling, XmpMetadata } from '../xmp/xmp.types';
+import { SidecarMergeAdoptionService } from './sidecar-merge-adoption.service';
 import { MapleFolderHandle } from '../folder-access/folder-access.types';
 import { IndexedAsset } from '../maple-cache/maple-cache.types';
 import { sha256Prefix16 } from '../maple-cache/sha';
@@ -191,6 +192,7 @@ export class LibraryFetch {
   private readonly folderCache = inject(FOLDER_LISTING_CACHE);
   private readonly sidecarSave = inject(SidecarSaveStateService);
   private readonly xmpRestore = inject(XmpAdjustmentRestoreService);
+  private readonly mergeAdoption = inject(SidecarMergeAdoptionService);
   private readonly slugRegistry = inject(LibrarySlugRegistry);
   private readonly singleFileXmp = inject(SingleFileXmpService);
   private readonly hostedFolderHandles = new Map<string, MapleFolderHandle>();
@@ -220,6 +222,7 @@ export class LibraryFetch {
       }
       this._apiXmpTimers.clear();
     });
+    this.mergeAdoption.follow((id, xml, model) => this.rememberWorkflowRestore(id, xml, model));
     // Debounced index write: re-fires 500ms after the last culling change.
     effect(() => {
       const assets = this.store.assets();
