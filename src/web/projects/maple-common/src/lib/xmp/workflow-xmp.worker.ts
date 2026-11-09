@@ -7,6 +7,8 @@ import init, {
   workflow_embed_xmp,
   workflow_checkpoint_xmp,
   workflow_variant_filename,
+  workflow_reconcile_xmp,
+  workflow_cursor_xmp,
 } from '../raw-pipeline/pkg/raw_wasm';
 import { RAW_WASM_URL } from '../raw-pipeline/wasm-asset-url';
 // Metadata needs neither pixel buffers nor Rayon. Never used for render ticks.
@@ -16,7 +18,16 @@ addEventListener(
   async (
     event: MessageEvent<{
       id: number;
-      operation: 'read' | 'embed' | 'checkpoint' | 'filename' | 'commit' | 'snapshot' | 'restore';
+      operation:
+        | 'read'
+        | 'embed'
+        | 'checkpoint'
+        | 'filename'
+        | 'commit'
+        | 'snapshot'
+        | 'restore'
+        | 'reconcile'
+        | 'cursor';
       xmp: string;
       json?: string;
     }>,
@@ -31,6 +42,12 @@ addEventListener(
             return workflow_snapshot_xmp(event.data.xmp, event.data.json!);
           case 'restore':
             return workflow_restore_xmp(event.data.xmp, event.data.json!);
+          case 'reconcile': {
+            const { base, incoming, nowMs } = JSON.parse(event.data.json!);
+            return workflow_reconcile_xmp(base, event.data.xmp, incoming, nowMs);
+          }
+          case 'cursor':
+            return workflow_cursor_xmp(event.data.xmp);
           case 'read':
             return workflow_read_xmp(event.data.xmp);
           case 'embed':

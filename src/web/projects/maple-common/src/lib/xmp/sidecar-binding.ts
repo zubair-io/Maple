@@ -20,6 +20,23 @@ export interface SidecarSource {
   readonly document?: string | null;
 }
 
+/** A published sidecar; `reconciled` when it merged onto a document changed since the writer read it (#4983). */
+export interface SidecarWrite {
+  readonly xml: string;
+  readonly reconciled: boolean;
+}
+
+/** What the live editor adopts after a reconciled save without scheduling another one. */
+export interface MergedSidecar {
+  readonly assetId: string;
+  readonly binding: HostedSidecarBinding;
+  readonly xml: string;
+  /** The model and culling this write published, before the merge. */
+  readonly saved: { readonly model: AdjustmentModel; readonly culling: XmpCulling };
+  /** A newer edit is queued; it must continue from the adopted document. */
+  readonly pending: boolean;
+}
+
 export interface PendingSidecarWrite {
   timeout: ReturnType<typeof setTimeout>;
   folder: MapleFolderHandle;

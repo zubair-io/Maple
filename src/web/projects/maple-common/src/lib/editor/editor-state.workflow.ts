@@ -1,6 +1,26 @@
+import type { AssetId } from '../models/asset';
+import { defaultAdjustmentModel } from '../models/adjustment-model';
 import type { EditorStateService } from './editor-state.service';
 import type { RestoreCommand } from './editor-workflow-commands.service';
 import { errorMessage } from '../util/errors';
+
+/** A reopened sidecar's retained history becomes the Undo/Redo ring again (#4983). */
+export async function reopenWorkflowRing(host: EditorStateService, id: AssetId): Promise<void> {
+  const generation = host.bindingGeneration;
+  try {
+    const source = host.workflowCommands.capture(
+      id,
+      host.currentAdjustment() ?? defaultAdjustmentModel(),
+    );
+    if (!source) return;
+    const { undo, redo } = await host.workflowCommands.ringSteps(source);
+    if (host.bindingGeneration !== generation || !host.workflowCommands.history.isCurrent(source))
+      return;
+    host.ring.seed(host.serializer, undo, redo);
+  } catch (error) {
+    if (host.bindingGeneration === generation) host.workflowError.set(errorMessage(error));
+  }
+}
 
 /** Failed publication keeps both the Undo action and its immutable retry identity. */
 export async function replayWorkflow(

@@ -30,7 +30,7 @@ import {
   EditorWorkflowCommandsService,
   type RestoreCommand,
 } from './editor-workflow-commands.service';
-import { replayWorkflow, restoreWorkflow } from './editor-state.workflow';
+import { replayWorkflow, reopenWorkflowRing, restoreWorkflow } from './editor-state.workflow';
 import type { AssetId } from '../models/asset';
 import { applyAutoInto } from './editor-state.auto';
 import { applyWhiteBalancePresetInto } from './editor-state.wb-preset';
@@ -218,6 +218,7 @@ export class EditorStateService {
     this.imageId.set(id);
     this.autoResult.set(null);
     this.ring.reset();
+    void untracked(() => reopenWorkflowRing(this, id));
     this._discardDeferred();
     if (armed) {
       this.armedGroup.set(armed.group);
