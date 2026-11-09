@@ -15,11 +15,21 @@ final class StatusRowHeaderPlacementTests: XCTestCase {
     StatusRowHeaderPlacement.statusRowInsets(occlusions: occlusions, size: size, safeArea: safeArea)
   }
 
-  func testOpenDuoHeaderCentresOnTheStatusItemsAndClearsThem() {
-    let status = CGRect(x: 500, y: -82, width: 169, height: 82)
+  /// The iPhone Duo simulator's open portrait status region.
+  func testOpenDuoSimulatorStatusRegionCentresTheRowAndClearsIt() {
+    let status = CGRect(x: 535, y: -82, width: 134, height: 82)
     let row = insets([status], size: openDuoPortrait, safeArea: openDuoSafeArea)
     XCTAssertEqual(row?.top, 19)
-    XCTAssertEqual(row?.trailing, 169)
+    XCTAssertEqual(row?.trailing, 134)
+  }
+
+  /// The owner's open Duo with a Focus icon stacked above the clock: the
+  /// status items span about x 547–642 pt and y 20–60 pt from the screen top.
+  func testOpenDuoFocusIconAboveTheClockCentresOnTheStackedItems() {
+    let focusAndClock = CGRect(x: 547, y: -62, width: 95, height: 40)
+    let row = insets([focusAndClock], size: openDuoPortrait, safeArea: openDuoSafeArea)
+    XCTAssertEqual(row?.top, 18)
+    XCTAssertEqual(row?.trailing, 122)
   }
 
   func testSeparateStatusItemsAreClearedTogether() {
