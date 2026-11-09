@@ -295,11 +295,9 @@ pub fn camera_key_for(raw: &RawImage) -> CameraKey {
 /// bundled profile is in use, since PTC/PLT were calibrated against the
 /// vendor's own matrices.
 pub fn to_dcp_profile(profile: &MapleProfile, raw: &RawImage) -> Option<DcpProfile> {
-    // Mirror dcp::profile_for's WB-baked decision so a neutral patch maps
-    // cleanly to (1,1,1) going into DCP (Phase 1.2 pre-gain semantics).
-    let skip_pre_gain =
-        matches!(raw.cfa, crate::image::CfaPattern::LinearRgb) && raw.white_level <= 255;
-    let wb_already_baked = !skip_pre_gain;
+    // The pipeline pre-gains every source, so a neutral patch maps cleanly
+    // to (1,1,1) going into DCP (Phase 1.2 pre-gain semantics).
+    let wb_already_baked = true;
 
     let cold = profile.illum1.and_then(|i| profile.cm1.map(|m| (i, m)));
     let warm = profile.illum2.and_then(|i| profile.cm2.map(|m| (i, m)));

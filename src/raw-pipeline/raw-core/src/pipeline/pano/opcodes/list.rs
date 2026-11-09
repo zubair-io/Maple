@@ -53,9 +53,6 @@ pub enum SkipReason {
     Malformed,
     /// The list framing broke here; this and every later entry are lost.
     Truncated,
-    /// Parsed and valid, but deliberately not executed on this image
-    /// (the 8-bit lossy transfer staging, #5081).
-    NotApplied,
 }
 
 /// One list entry Maple does not execute. `id` is `None` only when the list
