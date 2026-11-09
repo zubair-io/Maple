@@ -21,11 +21,15 @@ public struct BackupCompanions: OptionSet, Sendable, Hashable {
   public static let liveVideo = BackupCompanions(rawValue: 1 << 0)
   public static let rendered = BackupCompanions(rawValue: 1 << 1)
 
+  public init(liveVideo: Bool, rendered: Bool) {
+    self = [liveVideo ? .liveVideo : [], rendered ? .rendered : []]
+  }
+
   /// The companions a server's backup listing reports holding, or nil when it
   /// does not report them (a server that predates #5778).
   public init?(serverHasLiveVideo: Bool?, serverHasRendered: Bool?) {
     guard let serverHasLiveVideo, let serverHasRendered else { return nil }
-    self = [serverHasLiveVideo ? .liveVideo : [], serverHasRendered ? .rendered : []]
+    self.init(liveVideo: serverHasLiveVideo, rendered: serverHasRendered)
   }
 }
 
