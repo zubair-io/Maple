@@ -242,6 +242,21 @@ async function placeRenderedFile(
 }
 
 /**
+ * Whether a companion an earlier session placed at `relPath` can stand for
+ * this upload: its file is still in the library and no asset has since claimed
+ * the path as its own photo, which a Trash purge of this one would delete.
+ */
+async function landedCompanionIsReusable(
+  libraryId: ObjectId,
+  libraryRoot: string,
+  relPath: string,
+): Promise<boolean> {
+  const absPath = containedJoin(libraryRoot, relPath);
+  if (!absPath || !(await fs.stat(absPath).catch(() => null))) return false;
+  return !(await assetOwnsRelPath(libraryId, relPath));
+}
+
+/**
  * The cloud id a companion session claims, which is the photo's with a suffix.
  *
  * The suffix is what namespaces companion sessions apart from the original-asset
@@ -299,30 +314,36 @@ export const backupRenderedRoutes = new Elysia().post(
       phassetCloudId: renderedCloudId,
     });
     if (opened instanceof Response) return opened;
-    const { session, didReset, alreadyComplete } = opened;
+    const { session, alreadyComplete } = opened;
     const slot = companion === 'live' ? 'apple_live_video_path' : 'apple_rendered_path';
+    // A disambiguated upload completed under its sibling name; that, not the
+    // occupied path the device asked for, is where its bytes are.
+    const landed = session.resolved_rel_path ?? session.target_rel_path;
+    const reusable =
+      alreadyComplete && (await landedCompanionIsReusable(libraryId, folder.path, landed));
 
     // Same short-circuit as backup-ingest: when the rendered companion
     // already finished server-side, return 200 with the stored target path
     // so the client doesn't burn retry slots on an upload that's already
-    // landed on disk.
-    if (alreadyComplete) {
+    // landed on disk. A device re-sending a companion the asset has no record
+    // of (#5778) must still leave it recorded.
+    if (reusable && session.maple_id) {
       log.debug(
-        { phid, targetRelPath: session.target_rel_path },
+        { phid, targetRelPath: landed },
         'rendered ingest short-circuit (already complete)',
       );
-      // A disambiguated upload completed under its sibling name; hand that
-      // back, not the occupied path the device asked for.
-      const landed = session.resolved_rel_path ?? session.target_rel_path;
-      // A device re-sending a companion the asset has no record of (#5778)
-      // must leave it recorded, even when these bytes landed before.
-      const landedPath = containedJoin(folder.path, landed);
-      if (session.maple_id && landedPath && (await fs.stat(landedPath).catch(() => null))) {
-        await fillAppleCompanionPath(libraryId, session.maple_id, slot, landed);
-      }
+      await fillAppleCompanionPath(libraryId, session.maple_id, slot, landed);
       set.status = 200;
       return { target_rel_path: landed };
     }
+    // Bytes that finished once but are gone, or now belong to another asset,
+    // are accepted again rather than reported as delivered.
+    if (alreadyComplete) {
+      await uploadSessions.resetForRestart(session._id);
+      session.state = 'open';
+      session.received_bytes = 0;
+    }
+    const didReset = opened.didReset || alreadyComplete;
 
     const resolvedTargetRelPath = session.target_rel_path;
 

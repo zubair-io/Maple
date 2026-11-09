@@ -388,7 +388,7 @@ describe('POST /api/libraries/:id/backup/rendered', () => {
     expect(completedSessionId(`${phidLive}::rendered`)).toBe(renderedSession);
   });
 
-  test('re-sending a landed companion the asset has no record of records it again (#5778)', async () => {
+  test('a re-sent companion the asset has no record of is recorded, re-received when its file is gone or claimed (#5778)', async () => {
     const phidRepair = 'REND/L0/REPAIR';
     const mapleIdRepair = '02aa11bb22cc33dd44ee55ff66778899';
     const relPath = '2024/11/01/IMG_REPAIR.HEIC';
@@ -430,7 +430,18 @@ describe('POST /api/libraries/:id/backup/rendered', () => {
     clearSlot(null);
     await fs.rm(path.join(tmpLib, '2024/11/01/IMG_REPAIR.mov'));
     expect((await sendMov()).status).toBe(200);
-    expect(readAsset(live.db, assetId)?.apple_live_video_path).toBeNull();
+    expect(readAsset(live.db, assetId)?.apple_live_video_path).toBe('2024/11/01/IMG_REPAIR.mov');
+    expect((await fs.readFile(path.join(tmpLib, '2024/11/01/IMG_REPAIR.mov'))).byteLength).toBe(64);
+
+    clearSlot(null);
+    seedBackupAsset(live.db, {
+      mapleId: '02bb11bb22cc33dd44ee55ff66778899',
+      locations: [{ libraryId: libId, relPath: '2024/11/01/IMG_REPAIR.mov' }],
+    });
+    const reclaimed = await sendMov();
+    expect(reclaimed.status).toBe(200);
+    expect((await reclaimed.json()).target_rel_path).toBe('2024/11/01/IMG_REPAIR-1.mov');
+    expect(readAsset(live.db, assetId)?.apple_live_video_path).toBe('2024/11/01/IMG_REPAIR-1.mov');
   });
 
   test("rendered session de-dup: synthetic phid doesn't collide with original session", async () => {
