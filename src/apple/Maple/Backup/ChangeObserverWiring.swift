@@ -264,23 +264,6 @@ enum ChangeObserverWiring {
       "walk discovered \(outcome.assets.count) assets (fullScan=\(isFullScan)) in \(Int(Date().timeIntervalSince(walkStarted) * 1000))ms"
     )
 
-    // Delete reconciliation: PhotoKit's reported deletions, or on a full scan
-    // the diff against the previous walk this session.
-    let currentPhids = Set(outcome.assets.map(\.phid))
-    let deletedPhids =
-      isFullScan ? lastSeenPhids.subtracting(currentPhids) : outcome.deletedPhids
-    if !deletedPhids.isEmpty {
-      await notifyDeleted(
-        deviceId: deviceId, libraryId: libraryId,
-        serverBaseURL: serverBaseURL, phids: Array(deletedPhids))
-    }
-    guard !Task.isCancelled else { return }
-    if isFullScan {
-      lastSeenPhids = currentPhids
-    } else if !lastSeenPhids.isEmpty {
-      lastSeenPhids = lastSeenPhids.subtracting(deletedPhids).union(currentPhids)
-    }
-
     let local: LocalTaskIndex
     do {
       local = LocalTaskIndex(tasks: try await state.allTasks(), deviceId: deviceId)
@@ -291,13 +274,42 @@ enum ChangeObserverWiring {
       return
     }
     guard !Task.isCancelled else { return }
+    let owingCompanions = (try? await state.phidsOwingCompanions(deviceId: deviceId)) ?? []
 
-    // Rows for photos that left the library are forgotten, so the library
-    // count read back from local rows on later walks stays true.
-    let library = BackupWalkPlanner.planLibrary(
-      local: local, outcome: outcome, deletedPhids: deletedPhids,
-      fullLibraryAccess: fullLibraryAccess
-        && PhotoKitLibrary.authorizationStatus() == .authorized)
+    // A row is forgotten only for a photo PhotoKit no longer returns: one a
+    // setting merely excludes keeps its record of what the server holds.
+    let fullAccessNow = fullLibraryAccess && PhotoKitLibrary.authorizationStatus() == .authorized
+    let stillInPhotoKit = await identifiersStillInPhotoKit(
+      among: BackupWalkPlanner.unlisted(
+        local: local, outcome: outcome, fullLibraryAccess: fullAccessNow))
+    guard !Task.isCancelled else { return }
+    guard
+      let library = BackupWalkPlanner.planLibrary(
+        local: local, outcome: outcome, previouslySeen: lastSeenPhids,
+        stillInPhotoKit: stillInPhotoKit, owingCompanions: owingCompanions,
+        fullLibraryAccess: fullAccessNow)
+    else {
+      log.error(
+        "walk skipped: PhotoKit listed no photos while \(local.stateByPhid.count) local records exist; nothing forgotten, scan not recorded"
+      )
+      progress.setWalkPhase(.idle)
+      return
+    }
+
+    // Delete reconciliation: photos PhotoKit confirms gone, told to the server.
+    if !library.deleted.isEmpty {
+      await notifyDeleted(
+        deviceId: deviceId, libraryId: libraryId,
+        serverBaseURL: serverBaseURL, phids: Array(library.deleted))
+    }
+    guard !Task.isCancelled else { return }
+    let currentPhids = Set(outcome.assets.map(\.phid))
+    if isFullScan {
+      lastSeenPhids = currentPhids
+    } else if !lastSeenPhids.isEmpty {
+      lastSeenPhids = lastSeenPhids.subtracting(library.deleted).union(currentPhids)
+    }
+
     if !library.forget.isEmpty {
       let removedPending =
         (try? await state.removeDeleted(
@@ -318,7 +330,6 @@ enum ChangeObserverWiring {
     guard !Task.isCancelled else { return }
 
     // A server-held original whose companions are still owed is not backed up.
-    let owingCompanions = (try? await state.phidsOwingCompanions(deviceId: deviceId)) ?? []
     let reconcile = BackupWalkPlanner.planReconcile(
       local: local, library: library, outcome: outcome, deviceId: deviceId,
       serverKnownPhids: server.knownPhids, owingCompanions: owingCompanions,

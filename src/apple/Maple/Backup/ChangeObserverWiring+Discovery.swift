@@ -70,10 +70,30 @@ extension ChangeObserverWiring {
     }
   }
 
-  nonisolated private static func existingIdentifiers(_ ids: [String]) -> Set<String> {
+  /// The members of `ids` PhotoKit still has an asset for, whatever the
+  /// inclusion settings: a photo a setting excludes, a hidden one and a
+  /// non-representative burst frame all still exist.
+  static func identifiersStillInPhotoKit(among ids: Set<String>) async -> Set<String> {
     guard !ids.isEmpty else { return [] }
-    let result = PHAsset.fetchAssets(withLocalIdentifiers: ids, options: nil)
-    return Set((0..<result.count).map { result.object(at: $0).localIdentifier })
+    let lookup = Task.detached(priority: .utility) { existingIdentifiers(Array(ids)) }
+    return await withTaskCancellationHandler {
+      await lookup.value
+    } onCancel: {
+      lookup.cancel()
+    }
+  }
+
+  nonisolated private static func existingIdentifiers(_ ids: [String]) -> Set<String> {
+    let opts = PHFetchOptions()
+    opts.includeHiddenAssets = true
+    opts.includeAllBurstAssets = true
+    opts.includeAssetSourceTypes = [.typeUserLibrary, .typeCloudShared, .typeiTunesSynced]
+    return stride(from: 0, to: ids.count, by: 500).reduce(into: Set<String>()) { found, offset in
+      guard !Task.isCancelled else { return }
+      let result = PHAsset.fetchAssets(
+        withLocalIdentifiers: Array(ids[offset..<min(offset + 500, ids.count)]), options: opts)
+      found.formUnion((0..<result.count).map { result.object(at: $0).localIdentifier })
+    }
   }
 
   nonisolated private static func currentChangeTokenData() -> Data? {
