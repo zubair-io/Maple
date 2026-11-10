@@ -75,3 +75,28 @@ fn rotated_crop_uses_native_viewport_patch_and_preserves_imported_xmp() {
         assert_eq!(std::fs::read(path).unwrap(), bytes);
     }
 }
+
+#[test]
+fn a_density_change_keeps_the_centred_image_point_centred() {
+    let viewport = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(800.0, 600.0));
+    let at_density = |pixels_per_point| zoom::CanvasGeometry {
+        viewport,
+        source: egui::vec2(4000.0, 3000.0),
+        pixels_per_point,
+    };
+    let centred_source_point = |rect: egui::Rect| (viewport.center() - rect.min) / rect.size();
+    let mut zoom = zoom::ZoomCanvas::default();
+    zoom.image_rect(&at_density(2.0));
+    zoom.zoom_to(1.0);
+    zoom.image_rect(&at_density(2.0));
+    zoom.drag_started();
+    zoom.drag(egui::vec2(400.0, 0.0), &at_density(2.0));
+    zoom.drag_ended();
+    let before = centred_source_point(zoom.image_rect(&at_density(2.0)));
+    let after = centred_source_point(zoom.image_rect(&at_density(2.2)));
+    assert!(
+        (after - before).length() < 0.00001,
+        "the photo moved with no pointer motion: {before:?} -> {after:?}"
+    );
+    assert!((zoom.pan().x - 400.0 * 2.0 / 2.2).abs() < 0.001);
+}
