@@ -15,8 +15,6 @@
 //
 // Network errors propagate so the caller can choose to skip reconciliation
 // (and fall back to local-state-only behaviour) rather than block the walk.
-//
-// Spec: .archived-plans/specs/2026-05-09-photokit-backup-design.md §20.
 
 import Foundation
 import MapleBackup
@@ -74,7 +72,7 @@ actor BackupStateClient {
   /// to fetch only newly-recorded assets since that cursor.
   /// Throws on network failure or non-200 so the caller can fall back to
   /// local-state-only reconciliation.
-  func fetchKnownAssets(since: String? = nil) async throws -> [ServerAsset] {
+  func fetchKnownAssets(since: String?) async throws -> [ServerAsset] {
     let endpoint =
       baseURL
       .appendingPathComponent("api")

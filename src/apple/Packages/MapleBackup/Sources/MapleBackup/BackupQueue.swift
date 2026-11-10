@@ -23,7 +23,7 @@ public protocol BackupQueue: Actor {
 }
 
 extension BackupQueue {
-  public func enqueue(_ tasks: [BackupTask], priority: BackupPriority? = nil) async {
+  public func enqueue(_ tasks: [BackupTask], priority: BackupPriority?) async {
     for task in tasks {
       await enqueue(task, priority: priority ?? task.priority)
     }
@@ -73,7 +73,7 @@ public actor InProcessBackupQueue: BackupQueue {
     await emit(.enqueued(task))
   }
 
-  public func enqueue(_ tasks: [BackupTask], priority: BackupPriority? = nil) async {
+  public func enqueue(_ tasks: [BackupTask], priority: BackupPriority?) async {
     guard !tasks.isEmpty else { return }
     if tasks.count == 1 {
       await enqueue(tasks[0], priority: priority ?? tasks[0].priority)
