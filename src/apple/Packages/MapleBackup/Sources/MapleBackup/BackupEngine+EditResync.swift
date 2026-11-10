@@ -51,13 +51,11 @@ extension BackupEngine {
     do {
       let edited = try sidecars.storedSidecarFileNames()
       guard !edited.isEmpty else { return false }
-      let candidates = try await state.phids(in: .uploaded, deviceId: deviceId).filter {
-        edited.contains(sidecars.sidecarURL(phassetLocalId: $0).lastPathComponent)
-      }
-      for phid in candidates {
-        let id = BackupTaskID(deviceId: deviceId, phassetLocalId: phid)
-        guard let xmp = try? sidecars.read(phassetLocalId: phid) else { continue }
-        if try await state.deliveredCanonicalDigest(id) != Self.digest(of: xmp) { return true }
+      let candidates = try await state.uploadedPhotosWithEdits(
+        deviceId: deviceId, sidecarFileNames: edited)
+      for candidate in candidates {
+        guard let digest = try? sidecars.digest(phassetLocalId: candidate.phid) else { continue }
+        if candidate.deliveredDigest != digest { return true }
       }
       return false
     } catch {

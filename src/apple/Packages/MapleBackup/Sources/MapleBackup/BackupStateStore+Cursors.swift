@@ -135,7 +135,12 @@ extension BackupStateStore {
     }
   }
 
-  public func updatePhotoKitChangeToken(deviceId: String, token: Data?) throws {
+  /// Records the token a walk began at. A token equal to the stored one is not
+  /// written: a library change that leaves nothing to back up arrives often,
+  /// and each write is a transaction. Returns whether it wrote.
+  @discardableResult
+  public func updatePhotoKitChangeToken(deviceId: String, token: Data?) throws -> Bool {
+    guard try cursor(deviceId: deviceId).phChangeToken != token else { return false }
     try dbQueue.write { db in
       try db.execute(
         sql: """
@@ -146,5 +151,6 @@ extension BackupStateStore {
           """,
         arguments: [deviceId, token])
     }
+    return true
   }
 }
