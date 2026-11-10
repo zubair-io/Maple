@@ -14,6 +14,15 @@ extension EditSession {
       GpuPlaceholderPixels(image: image)
     }.value
     guard let pixels, !Task.isCancelled else { return }
-    await driver.showPlaceholder(pixels, viewportPx: previewSize)
+    if await driver.showPlaceholder(pixels, viewportPx: previewSize) {
+      canvasPlaceholderOnScreen = true
+    }
+  }
+
+  /// The canvas has a new, empty layer: nothing drawn into the last one,
+  /// rendered frame or placeholder, is on screen any more.
+  public func canvasLayerReplaced() {
+    gpuFramePresented = false
+    canvasPlaceholderOnScreen = false
   }
 }

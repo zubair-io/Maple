@@ -45,9 +45,7 @@ extension EditorCanvasView {
     )
   }
 
-  private var showCpuBackdrop: Bool {
-    state.session.isFullQualityDecoding || !state.session.gpuFramePresented
-  }
+  private var showCpuBackdrop: Bool { state.session.showsCpuBackdrop }
 
   private var straightenAngle: Double {
     guard state.armedTool == .crop else { return 0 }

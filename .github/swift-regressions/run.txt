@@ -23,6 +23,7 @@ EditSessionNativeSizeSeedTests
 EditSessionPreviewCeilingTests
 CanvasMathTests
 GpuCanvasPlaceholderTests
+CpuBackdropVisibilityTests
 PreviewCanvasZoomTests
 PreviewCanvasPagingTests
 PreviewEditorHandoffTests

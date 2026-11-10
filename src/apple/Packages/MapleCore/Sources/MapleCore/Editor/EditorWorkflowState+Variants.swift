@@ -198,6 +198,7 @@ extension EditSession {
     previewIsFullRender = false
     previewIsThumbnailSeed = false
     gpuFramePresented = false
+    canvasPlaceholderOnScreen = false
     clearNativeDetailPreview()
     disabledMaskIds = []
     selectedMaskId = nil

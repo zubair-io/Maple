@@ -456,6 +456,27 @@ extension EditSession {
     return gpuActive ? (gpuFramePresented || cpuFrameOnGlass) : hasRenderedPreview
   }
 
+  /// Whether the CPU backdrop is drawn over the GPU canvas. A thumbnail seed
+  /// stays hidden once the GPU placeholder is on screen: drawn above it, the
+  /// thumbnail would cover the display preview that replaces that placeholder.
+  public nonisolated static func showsCpuBackdrop(
+    isFullQualityDecoding: Bool,
+    gpuFramePresented: Bool,
+    backdropIsThumbnailSeed: Bool,
+    placeholderOnScreen: Bool
+  ) -> Bool {
+    guard !(backdropIsThumbnailSeed && placeholderOnScreen) else { return false }
+    return isFullQualityDecoding || !gpuFramePresented
+  }
+
+  public var showsCpuBackdrop: Bool {
+    Self.showsCpuBackdrop(
+      isFullQualityDecoding: isFullQualityDecoding,
+      gpuFramePresented: gpuFramePresented,
+      backdropIsThumbnailSeed: renderedPreview != nil && previewIsThumbnailSeed,
+      placeholderOnScreen: canvasPlaceholderOnScreen)
+  }
+
   /// Whether the cold-open loading indicator should be visible: while the
   /// cold-open is still resolving its first full-quality frame (so it stays up
   /// from open, through the sub-second preview AND the decode, until the real

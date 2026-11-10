@@ -552,6 +552,7 @@ public final class GpuLiveDriver {
   /// Memory-pressure eviction also invalidates replacements waiting on close,
   /// so a stale render cannot reopen an editor that has just been evicted.
   public func closeSession() async {
+    placeholderCancel?.requestCancel()
     sessionRevision &+= 1
     let revision = sessionRevision
     beginSessionTeardown()
