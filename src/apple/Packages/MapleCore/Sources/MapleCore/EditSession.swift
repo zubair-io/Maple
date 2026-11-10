@@ -205,6 +205,7 @@ public final class EditSession {
   /// describe (left set, the re-entry render kicks short-circuit and the
   /// CPU backdrop stays hidden: the black-canvas-on-reopen bug). See #1069.
   public var gpuFramePresented: Bool = false
+  public internal(set) var canvasPlaceholderOnScreen: Bool = false
   /// The long edge, in pixels, of the image the last GPU present drew (#5768).
   public internal(set) var gpuFrameLongEdgePixels: CGFloat = 0
 

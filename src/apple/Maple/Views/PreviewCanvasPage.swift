@@ -200,7 +200,7 @@ struct PreviewCanvasPage: View {
     else { return }
     // The GPU canvas about to mount brings a new, empty layer; a frame the
     // editor's layer presented must not reveal it before it presents.
-    if usesGpuCanvas(zoom.session) { zoom.session.gpuFramePresented = false }
+    if usesGpuCanvas(zoom.session) { zoom.session.canvasLayerReplaced() }
     zoom.startRenderingSession()
     if !usesGpuCanvas(zoom.session) { zoom.session.ensureRenderStarted() }
   }
