@@ -77,13 +77,16 @@ namespace Maple.WinUI.Services
         /// at their pixel scale. Either way fill re-resolves, the pan
         /// re-clamps and a live pinch or drag continues from the frame on
         /// screen, so a sync mid-pinch never pulls a below-fit pinch back to
-        /// centre.
+        /// centre. A stand-in still decoding reports no extent: the last
+        /// known one stands until the real one arrives, because an unknown
+        /// extent replacing a known one would reopen the photo at fit.
         /// </summary>
         public void UpdateGeometry(double viewportWidth, double viewportHeight,
             double pictureWidth, double pictureHeight, double displayScale,
             double cropWidthFraction, double cropHeightFraction)
         {
-            var picture = new MapleCanvasSize(pictureWidth, pictureHeight);
+            var reported = new MapleCanvasSize(pictureWidth, pictureHeight);
+            var picture = HasArea(reported) || !HasArea(_picture) ? reported : _picture;
             var crop = new MapleCanvasSize(cropWidthFraction, cropHeightFraction);
             var previous = _context;
             var resolved = ZoomContext(viewportWidth, viewportHeight, picture, _crop, displayScale);
@@ -107,6 +110,8 @@ namespace Maple.WinUI.Services
                 native_image_size = new MapleCanvasSize(picture.width * crop.width, picture.height * crop.height),
                 display_scale = displayScale,
             });
+
+        private static bool HasArea(MapleCanvasSize size) => size.width > 0 && size.height > 0;
 
         private static bool SameSize(MapleCanvasSize a, MapleCanvasSize b) =>
             a.width == b.width && a.height == b.height;

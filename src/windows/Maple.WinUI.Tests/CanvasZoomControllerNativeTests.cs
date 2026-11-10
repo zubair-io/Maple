@@ -383,4 +383,40 @@ public sealed class CanvasZoomControllerNativeTests(ITestOutputHelper output)
         zoom.ApplyTouch(touches.Move(7, 530, 390), dragPans: true);
         Assert.Equal((30.0, -10.0), (zoom.View.PanX, zoom.View.PanY));
     }
+
+    [Fact]
+    public void A_stand_in_still_decoding_does_not_drop_a_free_zoom_to_fit()
+    {
+        if (!Armed()) return;
+        var zoom = new CanvasZoomController();
+        zoom.UpdateGeometry(1000, 800, 1000, 500, 1, 1, 1);
+        zoom.StepIn();
+        zoom.StepIn();
+        var before = zoom.View;
+
+        zoom.UpdateGeometry(1000, 800, 0, 0, 1, 1, 1);
+        Assert.True(zoom.HasGeometry);
+        Assert.Equal(before, zoom.View);
+
+        zoom.UpdateGeometry(1000, 800, 2000, 1000, 1, 1, 1);
+        Assert.False(zoom.IsFit);
+        Assert.Equal(before.ScaleToFit, zoom.View.ScaleToFit, 12);
+    }
+
+    [Fact]
+    public void Another_photo_starts_with_no_extent_until_its_own_arrives()
+    {
+        if (!Armed()) return;
+        var zoom = Controller();
+        zoom.StepIn();
+
+        zoom.ResetForNewPicture();
+        zoom.UpdateGeometry(1000, 800, 0, 0, 1, 1, 1);
+        Assert.False(zoom.HasGeometry);
+        zoom.StepIn();
+
+        zoom.UpdateGeometry(1000, 800, 3000, 2000, 1, 1, 1);
+        Assert.True(zoom.IsFit);
+        Assert.Equal(1.0 / 3, zoom.EffectiveScale, 12);
+    }
 }
