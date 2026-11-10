@@ -70,8 +70,14 @@ public struct LocalTaskIndex: Sendable {
 
 /// Which photos are in the library after this walk, and which rows to forget.
 public struct BackupLibraryPlan: Sendable {
-  /// Rows for photos that left the library.
+  /// Rows to forget: photos that left Photos, and rows kept for nothing by a
+  /// photo the inclusion settings now exclude.
   public let forget: Set<String>
+  /// Photos that left Photos since the last walk this session, which the
+  /// server is told about.
+  public let deleted: Set<String>
+  /// The eligible library: what the walk sees, so photos excluded by a
+  /// setting stay out of the count.
   public let libraryPhotoIDs: Set<String>
   public let pendingPhotoIDs: Set<String>
   /// Photos the local rows alone record as uploaded.
@@ -96,29 +102,77 @@ public struct BackupReconcilePlan: Sendable {
 
 public enum BackupWalkPlanner {
 
-  /// `deletedPhids` are the photos known to have left Photos: PhotoKit's own
-  /// report on a replay, the diff against the last walk on a full scan. A full
-  /// listing under full access forgets every row it lacks; a listing under
-  /// limited (or since-revoked) access shows only part of the library, so it
-  /// forgets only what it saw deleted.
+  /// The rows a full scan under full access has no eligible photo for. Each is
+  /// either gone from Photos or excluded by a setting; the walk asks PhotoKit
+  /// which still exist. Empty for a replay and for a listing under limited
+  /// access, which shows only part of the library.
+  public static func unlisted(
+    local: LocalTaskIndex, outcome: DiscoveryOutcome, fullLibraryAccess: Bool
+  ) -> Set<String> {
+    guard outcome.isFullScan, fullLibraryAccess else { return [] }
+    return Set(local.stateByPhid.keys).subtracting(outcome.assets.map(\.phid))
+  }
+
+  /// A row is forgotten only for a photo PhotoKit no longer returns, so a
+  /// photo a setting merely excludes keeps the record that its original is on
+  /// the server, and the walk that includes it again does not upload it a
+  /// second time. An excluded photo's row that records nothing delivered goes:
+  /// a pending or failed row leaves the queue, as the setting asks. A row
+  /// owing companions stays whatever its state, because its mark is the only
+  /// record that the photo's Live Photo video or edited render never landed.
+  ///
+  /// `previouslySeen` is the library as of the last walk this session, empty
+  /// at launch; `stillInPhotoKit` the members of `unlisted` PhotoKit still
+  /// has. A listing under limited (or since-revoked) access shows only part of
+  /// the library, so it forgets only what this session saw and no longer
+  /// does.
+  ///
+  /// Returns nil for a full listing with nothing in it while local rows exist:
+  /// PhotoKit may be unable to show a library that is there (an offline macOS
+  /// library, a locked device), and forgetting every row on that evidence, or
+  /// recording the scan complete, would lose the library's whole record.
   public static func planLibrary(
-    local: LocalTaskIndex, outcome: DiscoveryOutcome, deletedPhids: Set<String>,
-    fullLibraryAccess: Bool
-  ) -> BackupLibraryPlan {
+    local: LocalTaskIndex, outcome: DiscoveryOutcome, previouslySeen: Set<String>,
+    stillInPhotoKit: Set<String>, owingCompanions: Set<String>, fullLibraryAccess: Bool
+  ) -> BackupLibraryPlan? {
     let listed = Set(outcome.assets.map(\.phid))
-    let listedWholeLibrary = outcome.isFullScan && fullLibraryAccess
-    let forget =
-      listedWholeLibrary ? Set(local.stateByPhid.keys).subtracting(listed) : deletedPhids
-    let libraryPhotoIDs =
-      outcome.isFullScan ? listed : local.allPhids.subtracting(forget).union(listed)
+    let deleted: Set<String>
+    let forget: Set<String>
+    if !outcome.isFullScan {
+      deleted = outcome.deletedPhids
+      forget = deleted
+    } else if listed.isEmpty && !local.stateByPhid.isEmpty {
+      return nil
+    } else if fullLibraryAccess {
+      let notListed = unlisted(local: local, outcome: outcome, fullLibraryAccess: true)
+      let gone = notListed.subtracting(stillInPhotoKit)
+      deleted = gone.intersection(previouslySeen)
+      forget = gone.union(
+        notListed.intersection(stillInPhotoKit).filter {
+          !owingCompanions.contains($0) && local.stateByPhid[$0].map(deliveredNothing) == true
+        })
+    } else {
+      deleted = previouslySeen.subtracting(listed)
+      forget = deleted
+    }
+    let baseline = previouslySeen.isEmpty ? local.allPhids : previouslySeen
+    let libraryPhotoIDs = outcome.isFullScan ? listed : baseline.subtracting(forget).union(listed)
     let discoveredPending = listed.filter {
       local.stateByPhid[$0] != .uploaded && local.stateByPhid[$0] != .skippedPolicy
     }
     return BackupLibraryPlan(
       forget: forget,
+      deleted: deleted,
       libraryPhotoIDs: libraryPhotoIDs,
-      pendingPhotoIDs: local.pendingPhids.subtracting(forget).union(discoveredPending),
+      pendingPhotoIDs: local.pendingPhids.intersection(libraryPhotoIDs).union(discoveredPending),
       backedUpPhotoIDs: local.backedUpPhids.intersection(libraryPhotoIDs))
+  }
+
+  private static func deliveredNothing(_ state: BackupState) -> Bool {
+    switch state {
+    case .uploaded, .uploading, .skippedPolicy: false
+    case .observed, .pending, .failedRetry, .localEditPending: true
+    }
   }
 
   /// `owingCompanions` are the photos whose Live Photo video or edited render
