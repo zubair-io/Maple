@@ -182,6 +182,12 @@ jobs:
       - name: Execute MapleMCP tests
         working-directory: src/apple/Packages/MapleMCP
         run: swift test
+      # The PhotoKit backup engine, its SQLite state store and the walk
+      # planner. The package depends only on GRDB, so it needs neither the Rust
+      # archive nor a staged header.
+      - name: Execute MapleBackup tests
+        working-directory: src/apple/Packages/MapleBackup
+        run: swift test
       - name: Check native icon exceptions
         run: python3 tools/check-apple-icons.py
 
