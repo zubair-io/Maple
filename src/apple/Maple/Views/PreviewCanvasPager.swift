@@ -110,11 +110,12 @@ struct PreviewCanvasPager: View {
   }
 
   /// A new photo gets a canvas that renders nothing until zoomed past its
-  /// still. The photo paged away from frees its decode if it rendered.
+  /// still. The photo paged away from frees its decode, which the editor may
+  /// have left behind even if this Preview never rendered it.
   private func adoptSession() {
     let adopted = session.flatMap { $0.asset.id == asset.id ? $0 : nil }
     guard zoom?.session !== adopted else { return }
-    if let previous = zoom, previous.rendersSession {
+    if let previous = zoom, previous.rendersSession || previous.session.asset.id != asset.id {
       previous.stopRenderingSession()
       Task { await previous.session.releaseTransientMemory() }
     }
