@@ -224,4 +224,22 @@ final class EditorCanvasHandBackTests: XCTestCase {
     preview.receive(handoff!)
     XCTAssertEqual(preview.effectivePixelScale, 1, accuracy: 0.0001)
   }
+
+  func testClosingTheEditorWithCropArmedHandsPreviewTheCroppedPhoto() {
+    let session = EditSession.preview()
+    session.nativeImageSize = CGSize(width: 6000, height: 4000)
+    session.model.crop.left = 0.25
+    session.model.crop.right = 0.75
+    let state = EditorState(session: session)
+    state.zoom.viewportChanged(points: CGSize(width: 402, height: 874), displayScale: 3)
+    state.arm(tool: .crop)
+    XCTAssertEqual(state.zoom.context.nativeImageSize.width, 6000, accuracy: 0.5)
+
+    state.handOffCanvas()
+    XCTAssertFalse(session.cropEditingActive)
+    let preview = CanvasZoomController(session: session, rendersSession: false)
+    preview.receive(session.takeCanvasHandoff()!)
+    XCTAssertEqual(preview.context.nativeImageSize.width, 3000, accuracy: 0.5)
+    XCTAssertFalse(preview.isZoomLocked)
+  }
 }
