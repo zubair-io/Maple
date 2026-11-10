@@ -70,7 +70,9 @@ extension BackupStateStore {
 
   /// Backfill missing `captured_at` dates on existing `.pending` rows (e.g.
   /// stores migrated from pre-#3388) and return the updated tasks so the
-  /// live queue can re-order them newest-first.
+  /// live queue can re-order them newest-first. A row waiting out a retry
+  /// backoff is left alone: the engine re-queues it itself, and queueing it
+  /// here as well would upload it twice.
   public func backfillPendingCapturedDates(
     _ datesByPhid: [String: Date], deviceId: String
   ) throws -> [BackupTask] {
@@ -80,7 +82,8 @@ extension BackupStateStore {
         db,
         sql: """
           SELECT * FROM tasks
-           WHERE device_id = ? AND state = 'pending' AND captured_at IS NULL
+           WHERE device_id = ? AND state = 'pending' AND retry_count = 0
+             AND captured_at IS NULL
           """,
         arguments: [deviceId])
       guard !nullPendingRows.isEmpty else { return [] }
