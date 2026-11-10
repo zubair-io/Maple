@@ -47,9 +47,22 @@ public final class AppSupportSidecarStore {
   }
 
   private let root: URL
+  private let rootPath: String
+
+  private struct FileStamp: Equatable {
+    let seconds: Int
+    let nanoseconds: Int
+    let size: off_t
+  }
+
+  private let digestLock = NSLock()
+  private var digests: [String: (stamp: FileStamp, digest: String)] = [:]
+  /// Files `digest(phassetLocalId:)` has read and hashed; tests read it.
+  private(set) var digestReads = 0
 
   public init(root: URL) {
     self.root = root
+    self.rootPath = root.path
   }
 
   /// PHAsset `localIdentifier` strings look like
@@ -65,8 +78,11 @@ public final class AppSupportSidecarStore {
   /// Canonical file identity for coordinated editor writes (#4047). Callers
   /// share this path rather than reproduce the PhotoKit identifier encoding.
   public func sidecarURL(phassetLocalId: String) -> URL {
-    let safe = phassetLocalId.replacingOccurrences(of: "/", with: "_")
-    return root.appendingPathComponent("\(safe).xmp")
+    root.appendingPathComponent(Self.fileName(phassetLocalId))
+  }
+
+  private static func fileName(_ phassetLocalId: String) -> String {
+    phassetLocalId.replacingOccurrences(of: "/", with: "_") + ".xmp"
   }
 
   /// File names of every stored edit, so a caller checking many photos can
@@ -74,6 +90,28 @@ public final class AppSupportSidecarStore {
   public func storedSidecarFileNames() throws -> Set<String> {
     guard FileManager.default.fileExists(atPath: root.path) else { return [] }
     return Set(try FileManager.default.contentsOfDirectory(atPath: root.path))
+  }
+
+  /// The digest of the stored edit (`BackupEngine.digest(of:)`), or nil when
+  /// the photo has none. The file is read and hashed again only when its size
+  /// or modification date differs from the last call's, so checking many
+  /// unchanged edits costs one `stat` each.
+  public func digest(phassetLocalId: String) throws -> String? {
+    var info = stat()
+    guard stat(rootPath + "/" + Self.fileName(phassetLocalId), &info) == 0 else { return nil }
+    let stamp = FileStamp(
+      seconds: info.st_mtimespec.tv_sec, nanoseconds: info.st_mtimespec.tv_nsec,
+      size: info.st_size)
+    if let hit = digestLock.withLock({ digests[phassetLocalId] }), hit.stamp == stamp {
+      return hit.digest
+    }
+    guard let xmp = try read(phassetLocalId: phassetLocalId) else { return nil }
+    let digest = BackupEngine.digest(of: xmp)
+    digestLock.withLock {
+      digests[phassetLocalId] = (stamp, digest)
+      digestReads += 1
+    }
+    return digest
   }
 
   /// Read the sidecar for `phassetLocalId`.

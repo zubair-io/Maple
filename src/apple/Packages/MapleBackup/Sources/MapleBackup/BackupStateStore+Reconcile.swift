@@ -136,26 +136,32 @@ extension BackupStateStore {
     }
   }
 
-  public func phids(in state: BackupState, deviceId: String) throws -> [String] {
-    try dbQueue.read { db in
-      try String.fetchAll(
-        db,
-        sql: "SELECT phasset_local_id FROM tasks WHERE device_id = ? AND state = ?",
-        arguments: [deviceId, state.rawValue])
-    }
-  }
-
-  /// The digest of the edit last delivered under the sidecar name the server
-  /// reads, or nil when none was.
-  public func deliveredCanonicalDigest(_ id: BackupTaskID) throws -> String? {
-    try dbQueue.read { db in
-      try String.fetchOne(
+  /// The photos recorded as uploaded whose edit is stored under one of
+  /// `fileNames`, each with the digest of the edit last delivered under the
+  /// sidecar name the server reads, or nil when none was. Chosen in SQL from
+  /// the stored edits, which are few, so a library of many photos never
+  /// loads. The file name is `AppSupportSidecarStore.sidecarURL`'s: the local
+  /// id with `/` replaced by `_`, plus `.xmp`.
+  public func uploadedPhotosWithEdits(
+    deviceId: String, sidecarFileNames fileNames: Set<String>
+  ) throws -> [(phid: String, deliveredDigest: String?)] {
+    guard !fileNames.isEmpty else { return [] }
+    let names = String(decoding: try JSONEncoder().encode(Array(fileNames)), as: UTF8.self)
+    return try dbQueue.read { db in
+      try Row.fetchAll(
         db,
         sql: """
-          SELECT digest FROM uploaded_sidecars
-           WHERE device_id = ? AND phasset_local_id = ? AND canonical_name = 1
+          SELECT t.phasset_local_id AS phid, s.digest AS digest
+            FROM tasks t
+            LEFT JOIN uploaded_sidecars s
+              ON s.device_id = t.device_id AND s.phasset_local_id = t.phasset_local_id
+             AND s.canonical_name = 1
+           WHERE t.device_id = ? AND t.state = ?
+             AND replace(t.phasset_local_id, '/', '_') || '.xmp'
+                 IN (SELECT value FROM json_each(?))
           """,
-        arguments: [id.deviceId, id.phassetLocalId])
+        arguments: [deviceId, BackupState.uploaded.rawValue, names]
+      ).map { (phid: $0["phid"], deliveredDigest: $0["digest"]) }
     }
   }
 
