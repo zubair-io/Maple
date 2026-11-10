@@ -15,23 +15,6 @@ import Photos
 private let discoveryLog = Logger(
   subsystem: "app.justmaple.aperture", category: "Backup.Discovery")
 
-struct DiscoveredAsset: Sendable, Hashable {
-  let phid: String
-  let capturedAt: Date?
-  /// What the asset's subtype and edit state say it may carry beside the
-  /// original; the companion repair confirms these against its resources.
-  let possibleCompanions: BackupCompanions
-}
-
-/// Every eligible asset after a full scan, or only those PhotoKit reports
-/// inserted since the saved token, with the ones it reports deleted.
-struct DiscoveryOutcome: Sendable {
-  let assets: [DiscoveredAsset]
-  let deletedPhids: Set<String>
-  let newToken: Data?
-  let isFullScan: Bool
-}
-
 extension ChangeObserverWiring {
 
   /// What a full scan's listing depends on: the inclusion settings, and

@@ -1,0 +1,258 @@
+// Tests/MapleBackupTests/BackupWalkPlannerTests.swift
+// What a library walk forgets, settles, retries and enqueues, planned from the
+// rows a real SQLite store holds and carried out with the store calls the app's
+// walk makes, in its order.
+import Foundation
+import XCTest
+
+@testable import MapleBackup
+
+final class BackupWalkPlannerTests: XCTestCase {
+
+  private let device = "d"
+
+  private func id(_ phid: String) -> BackupTaskID {
+    BackupTaskID(deviceId: device, phassetLocalId: phid)
+  }
+
+  private func freshStore() throws -> BackupStateStore {
+    try BackupStateStore(
+      databaseURL: FileManager.default.temporaryDirectory
+        .appendingPathComponent("backup-planner-\(UUID().uuidString).sqlite"))
+  }
+
+  private func row(_ phid: String, _ state: BackupState, retryCount: Int = 0) -> BackupTask {
+    BackupTask(id: id(phid), state: state, priority: .background, retryCount: retryCount)
+  }
+
+  private func asset(_ phid: String, capturedAt: Date? = nil) -> DiscoveredAsset {
+    DiscoveredAsset(phid: phid, capturedAt: capturedAt, possibleCompanions: [])
+  }
+
+  private func state(_ store: BackupStateStore, _ phid: String) async throws -> BackupState? {
+    try await store.find(id(phid))?.state
+  }
+
+  /// One walk the way the app runs it: plan the library, forget, plan against
+  /// the server's holdings, then settle, retry and enqueue. `deletedPhids` are
+  /// the deletions the walk knows of: the diff against the previous walk on a
+  /// full scan, PhotoKit's own report on a replay.
+  @discardableResult
+  private func walk(
+    _ store: BackupStateStore, listing: [DiscoveredAsset], isFullScan: Bool = true,
+    deletedPhids: Set<String> = [], fullLibraryAccess: Bool = true,
+    serverKnown: Set<String> = [], retryFailed: Bool = false
+  ) async throws -> (library: BackupLibraryPlan, reconcile: BackupReconcilePlan) {
+    let outcome = DiscoveryOutcome(
+      assets: listing, deletedPhids: isFullScan ? [] : deletedPhids, newToken: nil,
+      isFullScan: isFullScan)
+    let local = LocalTaskIndex(tasks: try await store.allTasks(), deviceId: device)
+    let library = BackupWalkPlanner.planLibrary(
+      local: local, outcome: outcome, deletedPhids: deletedPhids,
+      fullLibraryAccess: fullLibraryAccess)
+    _ = try await store.removeDeleted(library.forget.map(id))
+    let reconcile = BackupWalkPlanner.planReconcile(
+      local: local, library: library, outcome: outcome, deviceId: device,
+      serverKnownPhids: serverKnown,
+      owingCompanions: try await store.phidsOwingCompanions(deviceId: device),
+      retryFailed: retryFailed)
+    _ = try await store.markServerHeld(reconcile.settle)
+    _ = try await store.requeueFailed(reconcile.retry)
+    try await store.upsert(reconcile.enqueue)
+    return (library, reconcile)
+  }
+
+  func testIndexCoversOnlyThisDevicesTrackedRows() {
+    let other = BackupTask(
+      id: BackupTaskID(deviceId: "other", phassetLocalId: "O"), state: .uploaded,
+      priority: .background)
+    let index = LocalTaskIndex(
+      tasks: [
+        row("up", .uploaded), row("pend", .pending), row("fail", .failedRetry),
+        row("skip", .skippedPolicy),
+        BackupTask(
+          id: id("undated"), state: .pending, priority: .background, capturedAt: nil),
+        BackupTask(
+          id: id("dated"), state: .pending, priority: .background,
+          capturedAt: Date(timeIntervalSince1970: 1)),
+        other,
+      ], deviceId: device)
+
+    XCTAssertEqual(index.stateByPhid["skip"], .skippedPolicy)
+    XCTAssertNil(index.stateByPhid["O"])
+    XCTAssertEqual(index.allPhids, ["up", "pend", "fail", "undated", "dated"])
+    XCTAssertEqual(index.backedUpPhids, ["up"])
+    XCTAssertEqual(index.pendingPhids, ["pend", "fail", "undated", "dated"])
+    XCTAssertEqual(index.nullDatePendingPhids, ["pend", "undated"])
+  }
+
+  func testFullScanForgetsRowsTheListingLacksAndCancelsOnlyPendingOnes() async throws {
+    let store = try freshStore()
+    try await store.upsert([
+      row("keep", .uploaded), row("gone", .uploaded), row("queued", .pending),
+    ])
+
+    let plan = try await walk(store, listing: [asset("keep")]).library
+
+    XCTAssertEqual(plan.forget, ["gone", "queued"])
+    XCTAssertEqual(plan.libraryPhotoIDs, ["keep"])
+    XCTAssertEqual(plan.backedUpPhotoIDs, ["keep"])
+    XCTAssertEqual(plan.pendingPhotoIDs, [])
+    let gone = try await state(store, "gone")
+    XCTAssertNil(gone)
+    let kept = try await state(store, "keep")
+    XCTAssertEqual(kept, .uploaded)
+  }
+
+  func testLimitedAccessListingForgetsOnlyWhatItSawDeleted() async throws {
+    let store = try freshStore()
+    try await store.upsert([row("hidden", .uploaded), row("deleted", .uploaded)])
+
+    let plan = try await walk(
+      store, listing: [asset("visible")], deletedPhids: ["deleted"], fullLibraryAccess: false
+    ).library
+
+    XCTAssertEqual(plan.forget, ["deleted"])
+    let hidden = try await state(store, "hidden")
+    XCTAssertEqual(hidden, .uploaded, "a partial listing says nothing about photos it omits")
+    XCTAssertEqual(plan.libraryPhotoIDs, ["visible"])
+  }
+
+  func testReplayFoldsInsertionsAndDeletionsIntoTheLocalLibrary() async throws {
+    let store = try freshStore()
+    try await store.upsert([
+      row("old", .uploaded), row("deleted", .uploaded), row("busy", .pending),
+    ])
+
+    let plan = try await walk(
+      store, listing: [asset("new")], isFullScan: false, deletedPhids: ["deleted"]
+    ).library
+
+    XCTAssertEqual(plan.forget, ["deleted"])
+    XCTAssertEqual(plan.libraryPhotoIDs, ["old", "busy", "new"])
+    XCTAssertEqual(plan.backedUpPhotoIDs, ["old"])
+    XCTAssertEqual(plan.pendingPhotoIDs, ["busy", "new"])
+  }
+
+  func testSkippedPolicyPhotosAreNotPending() async throws {
+    let store = try freshStore()
+    try await store.upsert([row("skip", .skippedPolicy)])
+
+    let plan = try await walk(store, listing: [asset("skip")], isFullScan: false).library
+
+    XCTAssertEqual(plan.libraryPhotoIDs, ["skip"])
+    XCTAssertEqual(plan.pendingPhotoIDs, [])
+  }
+
+  func testNewPhotosAreEnqueuedOnceAndNotAgainOnTheNextWalk() async throws {
+    let store = try freshStore()
+    let shot = Date(timeIntervalSince1970: 1_700_000_000)
+
+    let first = try await walk(
+      store, listing: [asset("A", capturedAt: shot), asset("B")]
+    ).reconcile
+    let second = try await walk(store, listing: [asset("A", capturedAt: shot), asset("B")])
+      .reconcile
+
+    XCTAssertEqual(first.enqueue.map(\.id), [id("A"), id("B")])
+    XCTAssertEqual(first.enqueue.first?.capturedAt, shot)
+    XCTAssertEqual(second.enqueue, [])
+    let recorded = try await state(store, "A")
+    XCTAssertEqual(recorded, .pending)
+  }
+
+  func testServerHeldPhotosAreSettledNotEnqueued() async throws {
+    let store = try freshStore()
+    try await store.upsert([row("failed", .failedRetry), row("done", .uploaded)])
+
+    let plan = try await walk(
+      store, listing: [asset("failed"), asset("done"), asset("new"), asset("fresh")],
+      serverKnown: ["failed", "done", "new"]
+    ).reconcile
+
+    XCTAssertEqual(plan.settle.map(\.id), [id("failed"), id("new")])
+    XCTAssertEqual(plan.enqueue.map(\.id), [id("fresh")])
+    let failed = try await state(store, "failed")
+    XCTAssertEqual(failed, .uploaded)
+    let new = try await state(store, "new")
+    XCTAssertEqual(new, .uploaded)
+    let fresh = try await state(store, "fresh")
+    XCTAssertEqual(fresh, .pending)
+  }
+
+  func testServerPhotosOutsideTheLibraryAreNotRecorded() async throws {
+    let store = try freshStore()
+
+    let plan = try await walk(
+      store, listing: [asset("A")], serverKnown: ["A", "elsewhere"]
+    ).reconcile
+
+    XCTAssertEqual(plan.settle.map(\.id), [id("A")])
+    XCTAssertEqual(plan.backedUpPhotoIDs, ["A"])
+    let elsewhere = try await state(store, "elsewhere")
+    XCTAssertNil(elsewhere)
+  }
+
+  func testAPhotoOwingCompanionsIsNeverBackedUpOrSettledByTheServerHoldingItsOriginal()
+    async throws
+  {
+    let store = try freshStore()
+    try await store.upsert([row("owing", .failedRetry), row("plain", .failedRetry)])
+    try await store.markCompanionsOwed(id("owing"))
+
+    let plan = try await walk(
+      store, listing: [asset("owing"), asset("plain")], serverKnown: ["owing", "plain"]
+    ).reconcile
+
+    XCTAssertEqual(plan.serverBackedUpPhotoIDs, ["plain"])
+    XCTAssertEqual(plan.backedUpPhotoIDs, ["plain"])
+    let owing = try await state(store, "owing")
+    XCTAssertEqual(owing, .failedRetry)
+    let plain = try await state(store, "plain")
+    XCTAssertEqual(plain, .uploaded)
+  }
+
+  func testRetryRequeuesFailedPhotosOnlyWhenAsked() async throws {
+    let listing = ["failed", "pending", "done"].map { asset($0) }
+    let rows = [row("failed", .failedRetry), row("pending", .pending), row("done", .uploaded)]
+
+    let untouched = try freshStore()
+    try await untouched.upsert(rows)
+    let plain = try await walk(untouched, listing: listing).reconcile
+    XCTAssertEqual(plain.retry, [])
+    let stillFailed = try await state(untouched, "failed")
+    XCTAssertEqual(stillFailed, .failedRetry)
+
+    let restarted = try freshStore()
+    try await restarted.upsert(rows)
+    let plan = try await walk(restarted, listing: listing, retryFailed: true).reconcile
+    XCTAssertEqual(plan.retry.map(\.id), [id("failed")])
+    let failed = try await state(restarted, "failed")
+    XCTAssertEqual(failed, .pending)
+    let pending = try await state(restarted, "pending")
+    XCTAssertEqual(pending, .pending)
+    let done = try await state(restarted, "done")
+    XCTAssertEqual(done, .uploaded)
+  }
+
+  func testDatesAreBackfilledOnlyForUndatedPendingRowsTheServerLacks() async throws {
+    let store = try freshStore()
+    let shot = Date(timeIntervalSince1970: 1_700_000_000)
+    try await store.upsert([
+      BackupTask(id: id("undated"), state: .pending, priority: .background),
+      BackupTask(id: id("held"), state: .pending, priority: .background),
+      BackupTask(
+        id: id("dated"), state: .pending, priority: .background, capturedAt: shot),
+    ])
+
+    let plan = try await walk(
+      store,
+      listing: [
+        asset("undated", capturedAt: shot), asset("held", capturedAt: shot),
+        asset("dated", capturedAt: shot), asset("nodate"),
+      ], serverKnown: ["held"]
+    ).reconcile
+
+    XCTAssertEqual(plan.datesToBackfill, ["undated": shot])
+  }
+}
