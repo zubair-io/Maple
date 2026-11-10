@@ -166,4 +166,23 @@ final class BackupCursorTests: XCTestCase {
     let found = try await store.find(BackupTaskID(deviceId: "d", phassetLocalId: "p1"))
     XCTAssertEqual(found?.capturedAt, backfillDate)
   }
+
+  func testBackfillLeavesRowsWaitingOutARetryBackoffToTheEngine() async throws {
+    let store = try freshStore()
+    let asleep = BackupTaskID(deviceId: "d", phassetLocalId: "asleep")
+    try await store.upsert([
+      BackupTask(id: asleep, state: .pending, priority: .background, retryCount: 2),
+      BackupTask(
+        id: BackupTaskID(deviceId: "d", phassetLocalId: "fresh"),
+        state: .pending, priority: .background),
+    ])
+    let shot = Date(timeIntervalSince1970: 1_700_000_999)
+
+    let updated = try await store.backfillPendingCapturedDates(
+      ["asleep": shot, "fresh": shot], deviceId: "d")
+
+    XCTAssertEqual(updated.map(\.id.phassetLocalId), ["fresh"])
+    let found = try await store.find(asleep)
+    XCTAssertNil(found?.capturedAt)
+  }
 }
