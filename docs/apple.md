@@ -80,6 +80,8 @@ Before #5777, a photo could be marked uploaded after its Live Photo video or edi
 - It does nothing when a server is too old to report companions.
 - It re-queues a photo at most once per local store (`companion_repair_queued`). A repair that keeps failing ends in `.failedRetry`, like any other upload, and waits for the user's Retry.
 
+Each walk's decisions live in `BackupWalkPlanner` (MapleBackup), pure functions over the local rows, the discovery outcome and the server's holdings: which rows to forget, which server-held photos to settle, which failed ones to retry and which photos to enqueue. The app's `ChangeObserverWiring` fetches, plans and then applies each plan with the store calls, and `swift test` for MapleBackup runs in CI (`swift-ui` job in `.github/workflows/apple.yml`). The walk's `GET /backup/state` request waits up to 30 seconds, where it waited 10 before #5777, because a full scan's response lists every original the server holds for the device. A request that times out or fails leaves the walk on local records alone and logs a warning.
+
 `PhotoKitAssetReader` (in the app target) supplies the actual PhotoKit bytes; the engine takes it as an injected `AssetReader` so `swift test` can substitute synthetic data.
 
 ## Building the Rust core
