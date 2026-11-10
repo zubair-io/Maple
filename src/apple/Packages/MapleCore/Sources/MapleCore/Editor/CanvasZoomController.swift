@@ -411,55 +411,11 @@ public final class CanvasZoomController {
     commitToSession()
   }
 
-  // MARK: - Commands (toolbar / keyboard)
-
-  /// Option-arrow pan is discrete, bounded by the same geometry as a drag.
-  public func keyboardPan(delta: CGSize) {
-    guard model.isZoomedIn else { return }
-    command { $0.wheelPan(by: delta, context: context) }
-  }
-
-  /// Fit (⌘0).
-  public func resetToFit() {
-    command { $0.resetToFit(context: context) }
-  }
-
-  /// Fill — the image covers the whole viewport.
-  public func zoomToFill() {
-    command { $0.zoomToFill(context: context) }
-  }
-
-  /// Zoom badge: cycle `fit → fill → 100%` (a free scale returns to fit).
-  public func advanceZoomStop() {
-    command { $0.advanceStop(context: context) }
-  }
-
-  /// The badge's next stop, for its accessibility hint.
-  public var nextZoomStop: CanvasZoomModel.ZoomStop {
-    CanvasZoomModel.nextStop(
-      after: model.currentStop, in: CanvasZoomModel.badgeStops(context: context))
-  }
-
-  /// 100% (⌘1) — or any explicit scale.
-  public func zoomToScale(_ scale: CGFloat) {
-    command { $0.zoomToScale(scale, context: context) }
-  }
-
-  /// Zoom in one step (⌘=).
-  public func stepZoomIn() {
-    command { $0.stepZoomIn(context: context) }
-  }
-
-  /// Zoom out one step (⌘-).
-  public func stepZoomOut() {
-    command { $0.stepZoomOut(context: context) }
-  }
-
   // MARK: - Continuity
 
   /// A deliberate zoom: apply it, record the frame shown before so the host
   /// animates the move, and commit. A live gesture continues from the result.
-  private func command(_ transition: (inout CanvasZoomModel) -> Void) {
+  func command(_ transition: (inout CanvasZoomModel) -> Void) {
     guard !isZoomLocked else { return }
     recordTrackedPinch()
     let shown = restingFrame
