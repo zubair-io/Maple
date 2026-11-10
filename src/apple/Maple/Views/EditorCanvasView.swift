@@ -28,7 +28,7 @@ struct EditorCanvasView: View {
             onWheelEditing: { steps, unit in
               state.wheelNudge(steps: steps, unit: unit)
             },
-            canvasReady: canvasIsReady,
+            canvasReady: canvasIsReady || hasSeed,
             wheelExcludedFrame: wheelExclusionFrame,
             badgeInsets: badgeInsets(in: geometry),
             safeAreaFrame: visibleSafeArea(in: geometry),
