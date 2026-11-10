@@ -44,8 +44,16 @@ test('a crop handle keeps its drag', async ({ page }) => {
   await expect.poll(async () => (await frame.boundingBox())?.width).toBeLessThan(before.width - 50);
 });
 
-/** A two-finger touch pinch through the browser's own input pipeline. */
-async function touchPinch(page: Page, centre: { x: number; y: number }, from: number, to: number) {
+/**
+ * A two-finger touch pinch through the browser's own input pipeline, left
+ * held at its final spread. Resolves to the release.
+ */
+async function holdTouchPinch(
+  page: Page,
+  centre: { x: number; y: number },
+  from: number,
+  to: number,
+): Promise<() => Promise<void>> {
   const cdp = await page.context().newCDPSession(page);
   const points = (spread: number) => [
     { x: centre.x - spread / 2, y: centre.y, id: 1 },
@@ -56,7 +64,14 @@ async function touchPinch(page: Page, centre: { x: number; y: number }, from: nu
     const spread = from + ((to - from) * step) / 10;
     await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: points(spread) });
   }
-  await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+  return async () => {
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+  };
+}
+
+async function touchPinch(page: Page, centre: { x: number; y: number }, from: number, to: number) {
+  const release = await holdTouchPinch(page, centre, from, to);
+  await release();
 }
 
 /** The canvas's committed zoom, read through Angular's dev-mode debug API. */
@@ -117,7 +132,18 @@ test('a small image does not jump when a pinch starts', async ({ page }) => {
     .toBe(Math.round(Math.min(box.width / 800, box.height / 600) * 800));
   const fitted = (await drawnWidth(page))!;
 
-  await touchPinch(page, { x: box.x + box.width / 2, y: box.y + box.height / 2 }, 200, 202);
+  // Read while the fingers are still down: a 1% pinch is inside the fit
+  // detent, so the release settles on fit whatever the held frames drew.
+  const centre = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+  const release = await holdTouchPinch(page, centre, 200, 202);
+  await expect.poll(() => pixelScale(page)).toBeGreaterThan(0);
+  await expect
+    .poll(async () => Math.abs((await drawnWidth(page))! - fitted * 1.01))
+    .toBeLessThanOrEqual(2);
 
-  expect(Math.abs((await drawnWidth(page))! - fitted)).toBeLessThanOrEqual(2);
+  await release();
+  await expect.poll(() => pixelScale(page)).toBe(0);
+  await expect
+    .poll(async () => Math.abs((await drawnWidth(page))! - fitted))
+    .toBeLessThanOrEqual(2);
 });
