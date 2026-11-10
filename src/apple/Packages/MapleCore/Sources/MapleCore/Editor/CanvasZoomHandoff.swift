@@ -86,10 +86,18 @@ extension EditSession {
 extension EditorState {
   /// Leave the canvas as shown for Preview, which the editor closes back to.
   public func handOffCanvas() {
+    endCropEditing()
     let id = session.asset.id
     let still = seed.image(for: id).map {
       CanvasHandoffStill(image: $0, isDisplayPreview: seed.hasDisplayPreview(for: id))
     }
     session.canvasHandoff = zoom.handoff(still: still)
+  }
+
+  /// The session outlives this editor, and Preview draws the applied crop.
+  private func endCropEditing() {
+    guard session.cropEditingActive else { return }
+    session.cropEditingActive = false
+    zoom.lockZoomAtFit(false)
   }
 }
