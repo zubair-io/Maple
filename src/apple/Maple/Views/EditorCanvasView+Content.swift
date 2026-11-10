@@ -53,8 +53,19 @@ extension EditorCanvasView {
   }
 
   var canvasLeaf: some View {
-    canvasLeafContent
-      .rotationEffect(.degrees(straightenAngle))
+    ZStack {
+      canvasLeafContent
+      if !useGpuCanvas {
+        EditorSeedImage(
+          assetID: state.session.asset.id, visible: seedVisible, store: seedStore)
+      }
+    }
+    .rotationEffect(.degrees(straightenAngle))
+  }
+
+  /// A seed alone mounts the CPU leaf: the photo's frame is laid out from it.
+  var hasSeed: Bool {
+    !useGpuCanvas && seedVisible && seedStore.image(for: state.session.asset.id) != nil
   }
 
   var seedVisible: Bool {

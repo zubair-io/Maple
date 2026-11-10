@@ -16,7 +16,8 @@
 // final image is drawn in, and when the RAW lands only the pixels change.
 //
 // The fetch/decode lives in `EditorSeed+VM.swift` (pattern #192) and the
-// shared state in `EditorSeedStore`; this file is the loader.
+// shared state in `EditorSeedStore`; this file is the loader and the view a
+// canvas without the GPU placeholder falls back to.
 
 import MapleCore
 import SwiftUI
@@ -101,5 +102,31 @@ struct EditorSeedLoader: View {
           EditorCanvasSeed.provisionalImageSize(
             forSeedOfPixelSize: CGSize(width: seed.width, height: seed.height)))
       }
+  }
+}
+
+/// The seed drawn in the zoom host's leaf for a canvas the GPU placeholder
+/// cannot reach (a non-RAW photo, or the GPU canvas off).
+struct EditorSeedImage: View {
+  let assetID: AssetRef.ID
+  let visible: Bool
+  let store: EditorSeedStore
+
+  var body: some View {
+    ZStack {
+      if visible, let image = store.image(for: assetID) {
+        // Labelled, not `Image(decorative:)`: a decorative image is hidden
+        // from the accessibility tree, taking the UI-test identifier with it.
+        Image(image, scale: 1, label: Text("Loading preview"))
+          .resizable()
+          .interpolation(.high)
+          .aspectRatio(contentMode: .fit)
+          .transition(.opacity)
+          .accessibilityIdentifier("editor-seed-thumbnail")
+      }
+    }
+    .frame(maxWidth: .infinity, maxHeight: .infinity)
+    .animation(MapleTokens.Motion.chromeHide, value: visible)
+    .allowsHitTesting(false)
   }
 }
