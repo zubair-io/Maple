@@ -68,7 +68,7 @@ public sealed partial class MainWindow
         _nativeGeometryPhoto = null;
         _sourceGeometryError = null;
         // Zoom resets on navigation and on every mode change.
-        _canvasZoom.ResetToFit();
+        _canvasZoom.ResetForNewPicture();
         _canvasTouches.Reset();
         _mouseDragStart = null;
         ApplyCanvasZoom(refreshDetail: false);

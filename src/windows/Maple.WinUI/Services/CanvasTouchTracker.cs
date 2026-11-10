@@ -4,13 +4,17 @@ using System.Collections.Generic;
 namespace Maple.WinUI.Services
 {
     /// <summary>What one touch event means for the zoom model, applied in
-    /// field order: end the pinch, then a pinch frame, then a drag frame,
-    /// then the drag end.</summary>
+    /// this order: begin the drag, end the pinch, then a pinch frame, then a
+    /// drag frame, then the drag end.</summary>
     public readonly record struct CanvasTouchUpdate(
         double? PinchEndedMagnification,
         (double Magnification, double X, double Y)? Pinch,
         (double X, double Y)? DragTranslation,
-        bool DragEnded);
+        bool DragEnded)
+    {
+        /// <summary>The first contact of a new gesture went down.</summary>
+        public bool DragBegan { get; init; }
+    }
 
     /// <summary>
     /// Turns raw touch contacts (viewport points) into the gesture values the
@@ -51,7 +55,7 @@ namespace Maple.WinUI.Services
             {
                 _dragOrigin = (x, y);
                 _lastTranslation = (0, 0);
-                return default;
+                return new CanvasTouchUpdate { DragBegan = true };
             }
             return _contacts.Count == 2 ? BeginPinch() : default;
         }

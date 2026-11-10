@@ -102,6 +102,22 @@ namespace Maple.WinUI.Native
         public static extern MapleCanvasZoomState maple_canvas_zoom_image_extent_resolved(
             MapleCanvasZoomState state, MapleCanvasZoomContext previous, MapleCanvasZoomContext context);
 
+        /// <summary>A new drag gesture began: commits what a drag whose
+        /// release never arrived left on screen.</summary>
+        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+        public static extern MapleCanvasZoomState maple_canvas_zoom_drag_began(MapleCanvasZoomState state);
+
+        /// <summary>The drag ended without a release: it commits where it
+        /// is; a live pinch stays live.</summary>
+        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+        public static extern MapleCanvasZoomState maple_canvas_zoom_drag_cancelled(MapleCanvasZoomState state);
+
+        /// <summary>The pinch ended without a release: it ends at its last
+        /// input and settles as a release there would.</summary>
+        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+        public static extern MapleCanvasZoomState maple_canvas_zoom_pinch_cancelled(
+            MapleCanvasZoomState state, MapleCanvasZoomContext context);
+
         /// <summary>`MAPLE_CANVAS_ZOOM_STOP_*`.</summary>
         [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
         public static extern uint maple_canvas_zoom_current_stop(MapleCanvasZoomState state);

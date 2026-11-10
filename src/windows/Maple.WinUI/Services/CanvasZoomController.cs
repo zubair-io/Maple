@@ -113,6 +113,28 @@ namespace Maple.WinUI.Services
 
         public void ResetToFit() => _state = RawFfi.maple_canvas_zoom_reset_to_fit(_state, _context);
 
+        /// <summary>The host stopped tracking its pointers without a release
+        /// (navigation or a mode change mid-gesture): a live pinch settles at
+        /// its last input and a live drag commits where it is, so neither
+        /// outlives the contacts that drove it (#5739).</summary>
+        public void CancelGestures() =>
+            _state = RawFfi.maple_canvas_zoom_drag_cancelled(
+                RawFfi.maple_canvas_zoom_pinch_cancelled(_state, _context));
+
+        /// <summary>Another photo, or another mode's view of this one, takes
+        /// the canvas: live gestures end, the zoom returns to fit and the
+        /// extent is unknown again until the next
+        /// <see cref="UpdateGeometry"/> reports one.</summary>
+        public void ResetForNewPicture()
+        {
+            CancelGestures();
+            _picture = default;
+            _crop = new MapleCanvasSize(1, 1);
+            _context = ZoomContext(_context.viewport_points.width, _context.viewport_points.height,
+                _picture, _crop, _context.display_scale);
+            ResetToFit();
+        }
+
         /// <summary>Ctrl+1: 100%, re-centred.</summary>
         public void ZoomToActualSize() => _state = RawFfi.maple_canvas_zoom_to_scale(_state, 1, _context);
 
@@ -175,6 +197,11 @@ namespace Maple.WinUI.Services
             return true;
         }
 
+        /// <summary>A drag gesture starts: whatever a drag whose release never
+        /// arrived left on screen is committed first, so this one cannot jump
+        /// back by the lost drag's translation (#5739).</summary>
+        public void DragBegan() => _state = RawFfi.maple_canvas_zoom_drag_began(_state);
+
         /// <summary>One drag frame; translation is cumulative from the press.
         /// Returns whether the drag panned.</summary>
         public bool DragChanged(double translationX, double translationY)
@@ -203,6 +230,18 @@ namespace Maple.WinUI.Services
 
         public void PinchEnded(double magnification) =>
             _state = RawFfi.maple_canvas_zoom_pinch_ended(_state, magnification, _context);
+
+        /// <summary>One touch event's meaning, applied in the update's
+        /// order. <paramref name="dragPans"/> is false while a canvas tool
+        /// owns one-finger drags.</summary>
+        public void ApplyTouch(CanvasTouchUpdate update, bool dragPans)
+        {
+            if (update.DragBegan) DragBegan();
+            if (update.PinchEndedMagnification is { } magnification) PinchEnded(magnification);
+            if (update.Pinch is { } pinch) PinchChanged(pinch.Magnification, pinch.X, pinch.Y);
+            if (update.DragTranslation is { } translation && dragPans) DragChanged(translation.X, translation.Y);
+            if (update.DragEnded) DragEnded();
+        }
 
         private MapleCanvasMathResult Resolve() => RawFfi.maple_canvas_math_resolve(new MapleCanvasMathInput
         {

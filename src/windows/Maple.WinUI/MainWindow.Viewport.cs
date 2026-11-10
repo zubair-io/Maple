@@ -224,6 +224,7 @@ namespace Maple.WinUI
                 || !point.Properties.IsLeftButtonPressed || !_canvasZoom.CanPan)
                 return;
             _mouseDragStart = point.Position;
+            _canvasZoom.DragBegan();
             ViewerViewport.CapturePointer(e.Pointer);
         }
 
@@ -266,14 +267,7 @@ namespace Maple.WinUI
 
         private void ApplyTouch(CanvasTouchUpdate update)
         {
-            if (update.PinchEndedMagnification is { } magnification)
-                _canvasZoom.PinchEnded(magnification);
-            if (update.Pinch is { } pinch)
-                _canvasZoom.PinchChanged(pinch.Magnification, pinch.X, pinch.Y);
-            if (update.DragTranslation is { } translation && _activeGroup != "Heal" && !CanvasPickArmed)
-                _canvasZoom.DragChanged(translation.X, translation.Y);
-            if (update.DragEnded)
-                _canvasZoom.DragEnded();
+            _canvasZoom.ApplyTouch(update, dragPans: _activeGroup != "Heal" && !CanvasPickArmed);
             ApplyCanvasZoom();
         }
 

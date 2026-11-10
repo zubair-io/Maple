@@ -327,4 +327,60 @@ public sealed class CanvasZoomControllerNativeTests(ITestOutputHelper output)
         zoom.UpdateGeometry(1000, 800, 4000, 2000, 1, 1, 1);
         Assert.Equal(standInScale / 2, zoom.EffectiveScale, 12);
     }
+
+    [Fact]
+    public void Navigation_with_the_mouse_button_held_ends_the_drag_so_the_next_one_does_not_jump_back()
+    {
+        if (!Armed()) return;
+        var zoom = Controller();
+        zoom.ZoomToActualSize();
+        zoom.DragBegan();
+        Assert.True(zoom.DragChanged(120, 40));
+
+        zoom.ResetForNewPicture();
+        Assert.Equal(0, zoom.State.has_drag_translation_base);
+        Assert.Equal(0, zoom.State.has_drag_last_translation);
+
+        zoom.UpdateGeometry(1000, 800, 4000, 2000, 1, 1, 1);
+        zoom.ZoomToActualSize();
+        Assert.True(zoom.DragChanged(10, 0));
+        Assert.Equal((10.0, 0.0), (zoom.View.PanX, zoom.View.PanY));
+    }
+
+    [Fact]
+    public void A_new_drag_commits_what_a_drag_with_no_release_left_behind()
+    {
+        if (!Armed()) return;
+        var zoom = Controller();
+        zoom.ZoomToActualSize();
+        zoom.DragBegan();
+        Assert.True(zoom.DragChanged(120, 40));
+
+        zoom.DragBegan();
+        Assert.True(zoom.DragChanged(10, 0));
+        Assert.Equal((130.0, 40.0), (zoom.View.PanX, zoom.View.PanY));
+    }
+
+    [Fact]
+    public void Navigation_during_a_touch_pinch_ends_it_so_the_next_one_finger_drag_pans()
+    {
+        if (!Armed()) return;
+        var zoom = Controller();
+        var touches = new CanvasTouchTracker();
+        zoom.ApplyTouch(touches.Press(1, 400, 400), dragPans: true);
+        zoom.ApplyTouch(touches.Press(2, 600, 400), dragPans: true);
+        zoom.ApplyTouch(touches.Move(2, 800, 400), dragPans: true);
+        Assert.True(zoom.IsPinching);
+
+        zoom.ResetForNewPicture();
+        touches.Reset();
+        Assert.False(zoom.IsPinching);
+
+        zoom.UpdateGeometry(1000, 800, 4000, 2000, 1, 1, 1);
+        Assert.True(zoom.IsFit);
+        zoom.ZoomToActualSize();
+        zoom.ApplyTouch(touches.Press(7, 500, 400), dragPans: true);
+        zoom.ApplyTouch(touches.Move(7, 530, 390), dragPans: true);
+        Assert.Equal((30.0, -10.0), (zoom.View.PanX, zoom.View.PanY));
+    }
 }

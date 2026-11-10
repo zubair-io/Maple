@@ -9,7 +9,7 @@ public sealed class CanvasTouchTrackerTests
     public void One_finger_reports_its_translation_from_the_press_and_ends_the_drag_on_lift()
     {
         var tracker = new CanvasTouchTracker();
-        Assert.Equal(default(CanvasTouchUpdate), tracker.Press(1, 100, 100));
+        Assert.Equal(new CanvasTouchUpdate { DragBegan = true }, tracker.Press(1, 100, 100));
         var moved = tracker.Move(1, 130, 90);
         Assert.Equal((30.0, -10.0), moved.DragTranslation!.Value);
         Assert.Null(moved.Pinch);
@@ -110,6 +110,6 @@ public sealed class CanvasTouchTrackerTests
         Assert.False(tracker.IsPinching);
         Assert.Equal(0, tracker.Count);
         Assert.Equal(default(CanvasTouchUpdate), tracker.Move(2, 300, 0));
-        Assert.Equal(default(CanvasTouchUpdate), tracker.Press(3, 5, 5));
+        Assert.Equal(new CanvasTouchUpdate { DragBegan = true }, tracker.Press(3, 5, 5));
     }
 }
