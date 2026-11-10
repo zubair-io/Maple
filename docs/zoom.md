@@ -334,9 +334,10 @@ release: it can rest below fit and has no fill detent. Zooming out continues
 below fit, where the photo stays centred and cannot be panned; zooming back in
 stops once at fit, and any zoom toward fit that lands within 4% of it settles
 there. Fill covers the viewport, only the overflowing axis pans, and a window
-resize re-resolves it: each frame re-resolves the zoom against the laid-out
-geometry (`reclamp_pan`), so the pan is kept inside its range rather than
-carried as `geometry_changed` would carry it. Fit is resolved from the native
+resize re-resolves it: each frame carries the zoom from the previous frame's
+geometry into the laid-out one (`geometry_changed`), so a resize or a change of
+display density (another monitor, egui's own UI zoom) keeps the image point at
+the viewport centre there. Fit is resolved from the native
 DefaultCrop/EXIF-oriented dimensions, and 100% is one source pixel per physical
 pixel. Focused text fields retain their keyboard input.
 

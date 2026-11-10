@@ -202,13 +202,18 @@ impl ZoomCanvas {
         self.settle(next);
     }
 
-    /// Re-resolves the zoom against this frame's geometry (fill follows a
-    /// resize, pan stays inside the image) and returns the image's on-screen
-    /// rectangle.
+    /// Carries the zoom into this frame's geometry (fill follows a resize, a
+    /// density change keeps the centred image point centred, pan stays inside
+    /// the image) and returns the image's on-screen rectangle.
     pub fn image_rect(&mut self, geometry: &CanvasGeometry) -> egui::Rect {
         let context = geometry.context();
-        self.last_context = Some(context);
-        self.settle(self.model.reclamp_pan(&context));
+        let carried = match self.last_context.replace(context) {
+            Some(previous) if previous != context => {
+                self.model.geometry_changed(&previous, &context)
+            }
+            _ => self.model.reclamp_pan(&context),
+        };
+        self.settle(carried);
         let extent = context
             .display_frame_in_points(self.model.pixel_scale)
             .map_or(egui::Vec2::ZERO, |frame| {
