@@ -16,7 +16,8 @@
 // settings-screen tap freezes the UI until enumeration finishes, which
 // looks indistinguishable from a broken button.
 //
-// Spec: .archived-plans/specs/2026-05-09-photokit-backup-design.md §10.
+// What a walk forgets, settles, retries and enqueues is decided by
+// `BackupWalkPlanner` (MapleBackup, tested); this file applies the plan.
 
 import Foundation
 import MapleBackup
@@ -268,17 +269,17 @@ enum ChangeObserverWiring {
     let currentPhids = Set(outcome.assets.map(\.phid))
     let deletedPhids =
       isFullScan ? lastSeenPhids.subtracting(currentPhids) : outcome.deletedPhids
-    if isFullScan {
-      lastSeenPhids = currentPhids
-    } else if !lastSeenPhids.isEmpty {
-      lastSeenPhids = lastSeenPhids.subtracting(deletedPhids).union(currentPhids)
-    }
     if !deletedPhids.isEmpty {
       await notifyDeleted(
         deviceId: deviceId, libraryId: libraryId,
         serverBaseURL: serverBaseURL, phids: Array(deletedPhids))
     }
     guard !Task.isCancelled else { return }
+    if isFullScan {
+      lastSeenPhids = currentPhids
+    } else if !lastSeenPhids.isEmpty {
+      lastSeenPhids = lastSeenPhids.subtracting(deletedPhids).union(currentPhids)
+    }
 
     let local: LocalTaskIndex
     do {
@@ -291,36 +292,22 @@ enum ChangeObserverWiring {
     }
     guard !Task.isCancelled else { return }
 
-    // Rows for photos no longer in the eligible library are forgotten, so the
-    // library count read back from local rows on later walks stays true. A
-    // listing under limited (or since-revoked) access shows only part of the
-    // library, so it forgets nothing it did not see deleted.
-    let listedWholeLibrary =
-      isFullScan && fullLibraryAccess
-      && PhotoKitLibrary.authorizationStatus() == .authorized
-    let leftLibrary =
-      listedWholeLibrary ? Set(local.stateByPhid.keys).subtracting(currentPhids) : deletedPhids
-    if !leftLibrary.isEmpty {
+    // Rows for photos that left the library are forgotten, so the library
+    // count read back from local rows on later walks stays true.
+    let library = BackupWalkPlanner.planLibrary(
+      local: local, outcome: outcome, deletedPhids: deletedPhids,
+      fullLibraryAccess: fullLibraryAccess
+        && PhotoKitLibrary.authorizationStatus() == .authorized)
+    if !library.forget.isEmpty {
       let removedPending =
         (try? await state.removeDeleted(
-          leftLibrary.map { BackupTaskID(deviceId: deviceId, phassetLocalId: $0) })) ?? []
+          library.forget.map { BackupTaskID(deviceId: deviceId, phassetLocalId: $0) })) ?? []
       await queue.cancel(removedPending)
     }
     guard !Task.isCancelled else { return }
-
-    let libraryPhotoIDs: Set<String> =
-      isFullScan
-      ? currentPhids
-      : local.allPhids.subtracting(leftLibrary).union(currentPhids)
-
-    let discoveredPending = currentPhids.filter {
-      local.stateByPhid[$0] != .uploaded && local.stateByPhid[$0] != .skippedPolicy
-    }
-    progress.setPendingPhotoIDs(
-      local.pendingPhids.subtracting(leftLibrary).union(discoveredPending))
+    progress.setPendingPhotoIDs(library.pendingPhotoIDs)
     progress.recordLibrarySnapshot(
-      photoIDs: libraryPhotoIDs,
-      backedUpIDs: local.backedUpPhids.intersection(libraryPhotoIDs))
+      photoIDs: library.libraryPhotoIDs, backedUpIDs: library.backedUpPhotoIDs)
 
     // Server PHID reconciliation: only what the server recorded since the
     // last walk, unless this walk needs the full set.
@@ -328,31 +315,21 @@ enum ChangeObserverWiring {
     let server = await fetchServerState(
       deviceId: deviceId, libraryId: libraryId, serverBaseURL: serverBaseURL,
       since: cursor.serverSince(fullScan: isFullScan, hasUndeliveredEdits: hasUndeliveredEdits))
-    let serverKnownPhids = server.knownPhids
     guard !Task.isCancelled else { return }
 
     // A server-held original whose companions are still owed is not backed up.
     let owingCompanions = (try? await state.phidsOwingCompanions(deviceId: deviceId)) ?? []
-    let serverBackedUp = serverKnownPhids.subtracting(owingCompanions)
-    let backedUpIDs = local.backedUpPhids.union(serverBackedUp).intersection(libraryPhotoIDs)
-    progress.recordLibrarySnapshot(photoIDs: libraryPhotoIDs, backedUpIDs: backedUpIDs)
-    progress.removePendingPhotoIDs(serverBackedUp)
+    let reconcile = BackupWalkPlanner.planReconcile(
+      local: local, library: library, outcome: outcome, deviceId: deviceId,
+      serverKnownPhids: server.knownPhids, owingCompanions: owingCompanions,
+      retryFailed: retryFailed)
+    progress.recordLibrarySnapshot(
+      photoIDs: library.libraryPhotoIDs, backedUpIDs: reconcile.backedUpPhotoIDs)
+    progress.removePendingPhotoIDs(reconcile.serverBackedUpPhotoIDs)
 
-    // Server-held photos are recorded only when they are in the library, so
-    // photos gone from it never inflate the library count.
-    let capturedAtByPhid = Dictionary(
-      outcome.assets.compactMap { asset in asset.capturedAt.map { (asset.phid, $0) } },
-      uniquingKeysWith: { first, _ in first })
-    let serverHeldTasks = serverKnownPhids.intersection(libraryPhotoIDs).filter {
-      local.stateByPhid[$0] != .uploaded
-    }.map {
-      BackupTask(
-        id: BackupTaskID(deviceId: deviceId, phassetLocalId: $0),
-        state: .uploaded, priority: .background, capturedAt: capturedAtByPhid[$0])
-    }
     guard
       await writeInBatches(
-        serverHeldTasks,
+        reconcile.settle,
         { batch, _ in
           let settled = try await state.markServerHeld(batch)
           await queue.cancel(settled)
@@ -372,15 +349,13 @@ enum ChangeObserverWiring {
     guard let repaired = repair else { return }
     if !repaired.isEmpty {
       progress.recordLibrarySnapshot(
-        photoIDs: libraryPhotoIDs, backedUpIDs: backedUpIDs.subtracting(repaired))
+        photoIDs: library.libraryPhotoIDs,
+        backedUpIDs: reconcile.backedUpPhotoIDs.subtracting(repaired))
     }
 
-    let datesToBackfill = capturedAtByPhid.filter {
-      local.nullDatePendingPhids.contains($0.key) && !serverKnownPhids.contains($0.key)
-    }
-    if !datesToBackfill.isEmpty,
+    if !reconcile.datesToBackfill.isEmpty,
       let backfilled = try? await state.backfillPendingCapturedDates(
-        datesToBackfill, deviceId: deviceId),
+        reconcile.datesToBackfill, deviceId: deviceId),
       !backfilled.isEmpty
     {
       await queue.enqueue(backfilled, priority: nil)
@@ -388,17 +363,10 @@ enum ChangeObserverWiring {
 
     // Server-held failures were settled above unless they still owe companions;
     // the store re-queues only rows still failed.
-    let retryCandidates =
-      retryFailed
-      ? outcome.assets.filter { local.stateByPhid[$0.phid] == .failedRetry }.map {
-        BackupTask(
-          id: BackupTaskID(deviceId: deviceId, phassetLocalId: $0.phid),
-          state: .pending, priority: .background, capturedAt: $0.capturedAt)
-      } : []
     var retriedCount = 0
     guard
       await writeInBatches(
-        retryCandidates,
+        reconcile.retry,
         { batch, _ in
           let requeued = try await state.requeueFailed(batch)
           retriedCount += requeued.count
@@ -406,19 +374,13 @@ enum ChangeObserverWiring {
         })
     else { return }
 
-    let unknownToServer = outcome.assets.filter { !serverKnownPhids.contains($0.phid) }
-    let newTasks = unknownToServer.filter { local.stateByPhid[$0.phid] == nil }.map {
-      BackupTask(
-        id: BackupTaskID(deviceId: deviceId, phassetLocalId: $0.phid),
-        state: .pending, priority: .background, capturedAt: $0.capturedAt)
-    }
     guard
       await writeInBatches(
-        newTasks,
+        reconcile.enqueue,
         { batch, written in
           try await state.upsert(batch)
           await queue.enqueue(batch, priority: .background)
-          progress.setWalkPhase(.reconciling(checked: written, total: newTasks.count))
+          progress.setWalkPhase(.reconciling(checked: written, total: reconcile.enqueue.count))
         })
     else { return }
 
@@ -431,7 +393,7 @@ enum ChangeObserverWiring {
     }
 
     log.info(
-      "walk done: enqueued=\(newTasks.count) retried=\(retriedCount) companion-repairs=\(repaired.count) reconciled-uploaded=\(serverHeldTasks.count) totalEligible=\(libraryPhotoIDs.count)"
+      "walk done: enqueued=\(reconcile.enqueue.count) retried=\(retriedCount) companion-repairs=\(repaired.count) reconciled-uploaded=\(reconcile.settle.count) totalEligible=\(library.libraryPhotoIDs.count)"
     )
 
     // Photos the server already holds can still carry a newer local edit than
@@ -447,35 +409,10 @@ enum ChangeObserverWiring {
     guard !Task.isCancelled else { return }
     progress.recordWalkSummary(
       BackupProgressViewModel.WalkSummary(
-        enumerated: libraryPhotoIDs.count,
-        enqueued: newTasks.count + retriedCount + repaired.count,
+        enumerated: library.libraryPhotoIDs.count,
+        enqueued: reconcile.enqueue.count + retriedCount + repaired.count,
         failedPermanently: failedPermanently,
         finishedAt: Date()))
-  }
-
-  private struct LocalTaskIndex {
-    var stateByPhid: [String: BackupState] = [:]
-    var nullDatePendingPhids: Set<String> = []
-    var allPhids: Set<String> = []
-    var backedUpPhids: Set<String> = []
-    var pendingPhids: Set<String> = []
-
-    init(tasks: [BackupTask], deviceId: String) {
-      stateByPhid.reserveCapacity(tasks.count)
-      for task in tasks where task.id.deviceId == deviceId {
-        let phid = task.id.phassetLocalId
-        stateByPhid[phid] = task.state
-        if task.state != .skippedPolicy { allPhids.insert(phid) }
-        if task.state == .uploaded {
-          backedUpPhids.insert(phid)
-        } else if task.state != .skippedPolicy {
-          pendingPhids.insert(phid)
-        }
-        if task.state == .pending && task.capturedAt == nil {
-          nullDatePendingPhids.insert(phid)
-        }
-      }
-    }
   }
 
   /// What the server's backup listing says about this device's photos.
