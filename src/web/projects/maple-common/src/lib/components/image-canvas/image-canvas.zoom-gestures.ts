@@ -100,6 +100,12 @@ interface Point {
   y: number;
 }
 
+interface HostView {
+  readonly pixelScale: number;
+  readonly x: number;
+  readonly y: number;
+}
+
 const ORIGIN: Point = Object.freeze({ x: 0, y: 0 });
 
 function distance(a: Point, b: Point): number {
@@ -131,6 +137,14 @@ export class CanvasZoomGestures {
   private committedFill = false;
   /** True while the before/after divider owns the pointer stream. */
   private dividerDrag = false;
+  /**
+   * The host's zoom as of the last adopt or commit. Adopting resolves the
+   * written zoom against the geometry, so the model may hold a different
+   * frame than the host until its next commit; comparing the model with the
+   * host instead would re-adopt on every pointer move and hold a live drag
+   * at its baseline.
+   */
+  private syncedView: HostView | null = null;
 
   constructor(private readonly host: ZoomGestureHost) {}
 
@@ -283,7 +297,10 @@ export class CanvasZoomGestures {
     if (!tracked) return;
     tracked.x = e.clientX;
     tracked.y = e.clientY;
-    if (!this.pinchPair && this.editsAtZoom()) return;
+    if (!this.pinchPair && this.editsAtZoom()) {
+      this.restartDragAt(tracked);
+      return;
+    }
     const engine = this.engine();
     if (!engine) return;
     if (this.pinchPair) this.pinchMoved(engine, this.pinchPair);
@@ -298,6 +315,18 @@ export class CanvasZoomGestures {
     const centroid = this.viewportPoint((a.x + b.x) / 2, (a.y + b.y) / 2);
     engine.pinchChanged(this.pinchMagnification, centroid.x, centroid.y);
     this.commit(engine);
+  }
+
+  /**
+   * A move the editing surface took is not pan input: a pan that starts
+   * later in the same press measures from this point, on a model holding no
+   * drag of its own.
+   */
+  private restartDragAt(point: Point): void {
+    if (!this.dragOrigin) return;
+    this.dragOrigin = { x: point.x, y: point.y };
+    const engine = this.engine();
+    if (engine?.dragTracked) engine.dragEnded();
   }
 
   private dragMoved(
@@ -428,9 +457,23 @@ export class CanvasZoomGestures {
     this.engineInstance ??= new CanvasZoomEngine(module);
     const engine = this.engineInstance;
     engine.setGeometry(this.geometry());
-    const pan = this.host.pan();
-    engine.adopt(this.host.pixelScale(), pan.x, pan.y);
+    const view = this.hostView();
+    const synced = this.syncedView;
+    if (
+      !synced ||
+      synced.pixelScale !== view.pixelScale ||
+      synced.x !== view.x ||
+      synced.y !== view.y
+    ) {
+      engine.adopt(view.pixelScale, view.x, view.y);
+      this.syncedView = view;
+    }
     return engine;
+  }
+
+  private hostView(): HostView {
+    const pan = this.host.pan();
+    return { pixelScale: this.host.pixelScale(), x: pan.x, y: pan.y };
   }
 
   private geometry(): CanvasZoomGeometry {
@@ -485,5 +528,6 @@ export class CanvasZoomGestures {
       return;
     }
     this.host.commitView(engine.pixelScale, { x: engine.panX, y: engine.panY });
+    this.syncedView = this.hostView();
   }
 }

@@ -126,24 +126,34 @@ export class CanvasZoomEngine {
     return this.slots[this.module.glue.CanvasSlot.HasPinchStartScale] !== 0;
   }
 
+  /** True while a one-pointer drag's translation is recorded in the model. */
+  get dragTracked(): boolean {
+    const slot = this.module.glue.CanvasSlot;
+    return (
+      this.slots[slot.HasDragLastTranslation] !== 0 || this.slots[slot.HasDragTranslationBase] !== 0
+    );
+  }
+
   get glue(): CanvasZoomGlue {
     return this.module.glue;
   }
 
   /**
    * Adopt a zoom written outside the model (toolbar Fit / 1:1, a tool arming
-   * fit): replaces the state with that scale and pan, captures cleared.
+   * fit): takes that scale and pan as the resting frame, resolved against the
+   * geometry already set, and a live pinch or drag continues from it.
    * Returns whether the state was replaced.
    */
   adopt(pixelScale: number, panX: number, panY: number): boolean {
     const slot = this.module.glue.CanvasSlot;
     if (this.pixelScale === pixelScale && this.panX === panX && this.panY === panY) return false;
-    this.slots.fill(0, slot.PixelScale);
     this.slots[slot.PixelScale] = pixelScale;
     this.slots[slot.PanX] = panX;
     this.slots[slot.PanY] = panY;
     this.slots[slot.BasePanX] = panX;
     this.slots[slot.BasePanY] = panY;
+    this.slots[slot.FillsViewport] = 0;
+    this.reclampPan();
     return true;
   }
 
