@@ -159,10 +159,10 @@ extension BackupStateStore {
   }
 
   /// Returns parked rows of photos that are listed again to pending. Returns
-  /// the tasks resumed.
+  /// the stored tasks resumed, with the retry count they were parked with.
   public func resumeExcluded(_ tasks: [BackupTask]) throws -> [BackupTask] {
     try dbQueue.write { db in
-      try tasks.filter { task in
+      try tasks.compactMap { task in
         try db.execute(
           sql: """
             UPDATE tasks SET state = ?, priority = ?, captured_at = COALESCE(?, captured_at)
@@ -173,7 +173,11 @@ extension BackupStateStore {
             task.capturedAt?.timeIntervalSince1970, task.id.deviceId, task.id.phassetLocalId,
             BackupState.skippedPolicy.rawValue,
           ])
-        return db.changesCount > 0
+        guard db.changesCount > 0 else { return nil }
+        return try Row.fetchOne(
+          db, sql: "SELECT * FROM tasks WHERE device_id = ? AND phasset_local_id = ?",
+          arguments: [task.id.deviceId, task.id.phassetLocalId]
+        ).map(Self.decode)
       }
     }
   }

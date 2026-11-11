@@ -341,9 +341,12 @@ enum ChangeObserverWiring {
     guard !Task.isCancelled else { return }
 
     // A server-held original whose companions are still owed is not backed up.
+    // Read after the server answers: a worker may have marked a photo owing
+    // while the request was in flight.
+    let owingNow = (try? await state.phidsOwingCompanions(deviceId: deviceId)) ?? []
     let reconcile = BackupWalkPlanner.planReconcile(
       local: local, library: library, outcome: outcome, deviceId: deviceId,
-      serverKnownPhids: server.knownPhids, owingCompanions: owingCompanions,
+      serverKnownPhids: server.knownPhids, owingCompanions: owingNow,
       retryFailed: retryFailed)
     progress.recordLibrarySnapshot(
       photoIDs: library.libraryPhotoIDs, backedUpIDs: reconcile.backedUpPhotoIDs)
