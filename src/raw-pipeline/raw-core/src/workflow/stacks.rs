@@ -29,7 +29,9 @@ impl SidecarWorkflow {
         let mut head = 0;
         for (index, entry) in self.history.iter().enumerate().skip(1) {
             match entry.action.as_str() {
-                "undo" if !undo.is_empty() => {
+                "undo" => {
+                    // The first edit has no earlier retained state, so undoing
+                    // it leaves the undo stack empty.
                     undo.pop();
                     redo.push(head);
                 }
