@@ -73,6 +73,9 @@ public struct BackupLibraryPlan: Sendable {
   /// Rows to forget: photos that left Photos, and rows kept for nothing by a
   /// photo the inclusion settings now exclude.
   public let forget: Set<String>
+  /// Pending rows of excluded photos that owe companions: kept, but not
+  /// uploaded until the photo is listed again.
+  public let suspend: Set<String>
   /// Photos that left Photos since the last walk this session, which the
   /// server is told about.
   public let deleted: Set<String>
@@ -90,6 +93,8 @@ public struct BackupReconcilePlan: Sendable {
   public let settle: [BackupTask]
   /// Failed photos to re-queue with a fresh retry budget.
   public let retry: [BackupTask]
+  /// Suspended photos listed again, to queue where they left off.
+  public let resume: [BackupTask]
   /// Photos neither the local rows nor the server have.
   public let enqueue: [BackupTask]
   /// Capture dates for pending rows stored without one.
@@ -119,7 +124,9 @@ public enum BackupWalkPlanner {
   /// second time. An excluded photo's row that records nothing delivered goes:
   /// a pending or failed row leaves the queue, as the setting asks. A row
   /// owing companions stays whatever its state, because its mark is the only
-  /// record that the photo's Live Photo video or edited render never landed.
+  /// record that the photo's Live Photo video or edited render never landed;
+  /// one still pending is suspended so it cannot upload while excluded, and
+  /// resumed when the photo is listed again.
   ///
   /// `previouslySeen` is the library as of the last walk this session, empty
   /// at launch; `stillInPhotoKit` the members of `unlisted` PhotoKit still
@@ -141,22 +148,29 @@ public enum BackupWalkPlanner {
     let listed = Set(outcome.assets.map(\.phid))
     let deleted: Set<String>
     let forget: Set<String>
+    let suspend: Set<String>
     if !outcome.isFullScan {
       deleted = outcome.deletedPhids
       forget = deleted
+      suspend = []
     } else if listed.isEmpty && !local.stateByPhid.isEmpty && stillInPhotoKit.isEmpty {
       return nil
     } else if fullLibraryAccess {
       let notListed = unlisted(local: local, outcome: outcome, fullLibraryAccess: true)
       let gone = notListed.subtracting(stillInPhotoKit)
+      let excluded = notListed.intersection(stillInPhotoKit)
       deleted = gone.intersection(previouslySeen)
       forget = gone.union(
-        notListed.intersection(stillInPhotoKit).filter {
+        excluded.filter {
           !owingCompanions.contains($0) && local.stateByPhid[$0].map(deliveredNothing) == true
         })
+      suspend = excluded.filter {
+        owingCompanions.contains($0) && local.stateByPhid[$0] == .pending
+      }
     } else {
       deleted = previouslySeen.subtracting(listed)
       forget = deleted
+      suspend = []
     }
     let baseline = previouslySeen.isEmpty ? local.allPhids : previouslySeen
     let libraryPhotoIDs = outcome.isFullScan ? listed : baseline.subtracting(forget).union(listed)
@@ -165,6 +179,7 @@ public enum BackupWalkPlanner {
     }
     return BackupLibraryPlan(
       forget: forget,
+      suspend: suspend,
       deleted: deleted,
       libraryPhotoIDs: libraryPhotoIDs,
       pendingPhotoIDs: local.pendingPhids.intersection(libraryPhotoIDs).union(discoveredPending),
@@ -202,6 +217,11 @@ public enum BackupWalkPlanner {
         ? outcome.assets.filter { local.stateByPhid[$0.phid] == .failedRetry }
           .map { task($0.phid, .pending) }
         : [],
+      resume: outcome.assets
+        .filter {
+          local.stateByPhid[$0.phid] == .skippedPolicy && owingCompanions.contains($0.phid)
+        }
+        .map { task($0.phid, .pending) },
       enqueue: outcome.assets
         .filter { !serverKnownPhids.contains($0.phid) && local.stateByPhid[$0.phid] == nil }
         .map { task($0.phid, .pending) },

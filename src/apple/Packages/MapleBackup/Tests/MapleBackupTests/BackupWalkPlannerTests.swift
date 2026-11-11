@@ -56,11 +56,13 @@ final class BackupWalkPlannerTests: XCTestCase {
       fullLibraryAccess: fullLibraryAccess)
     let library = try XCTUnwrap(planned)
     _ = try await store.removeDeleted(library.forget.map(id))
+    _ = try await store.suspendExcluded(library.suspend.map(id))
     let reconcile = BackupWalkPlanner.planReconcile(
       local: local, library: library, outcome: outcome, deviceId: device,
       serverKnownPhids: serverKnown, owingCompanions: owing, retryFailed: retryFailed)
     _ = try await store.markServerHeld(reconcile.settle)
     _ = try await store.requeueFailed(reconcile.retry)
+    _ = try await store.resumeExcluded(reconcile.resume)
     try await store.upsert(reconcile.enqueue)
     return (library, reconcile)
   }
@@ -253,6 +255,37 @@ final class BackupWalkPlannerTests: XCTestCase {
     XCTAssertEqual(sent, .uploaded)
     let queued = try await state(store, "queued")
     XCTAssertNil(queued)
+  }
+
+  func testAnExcludedPendingRetryOwingCompanionsIsParkedUntilItsPhotoIsListedAgain() async throws {
+    let store = try freshStore()
+    try await store.upsert([row("retry", .pending, retryCount: 3)])
+    try await store.markCompanionsOwed(id("retry"))
+
+    let off = try await walk(
+      store, listing: [asset("other")], previouslySeen: ["other", "retry"], inPhotoKit: ["retry"])
+
+    XCTAssertEqual(off.library.suspend, ["retry"])
+    XCTAssertEqual(off.library.forget, [])
+    XCTAssertEqual(off.library.pendingPhotoIDs, ["other"], "a parked row is not pending work")
+    let parked = try await state(store, "retry")
+    XCTAssertEqual(parked, .skippedPolicy)
+    let claimed = try await store.claimForUpload(id("retry"))
+    XCTAssertFalse(claimed, "a retry already asleep in the engine must not upload it")
+    let queue = InProcessBackupQueue()
+    try await store.rehydrate(into: queue)
+    let queued = await queue.snapshot().map(\.id)
+    XCTAssertEqual(queued, [id("other")], "relaunch does not queue it either")
+    let owing = try await store.phidsOwingCompanions(deviceId: device)
+    XCTAssertEqual(owing, ["retry"])
+
+    let on = try await walk(
+      store, listing: [asset("other"), asset("retry")], previouslySeen: ["other"])
+
+    XCTAssertEqual(on.reconcile.resume.map(\.id), [id("retry")])
+    let resumed = try await store.find(id("retry"))
+    XCTAssertEqual(resumed?.state, .pending)
+    XCTAssertEqual(resumed?.retryCount, 3, "it picks up where it left off")
   }
 
   func testAnEmptyListingWithNoLocalRowsIsAnEmptyLibrary() async throws {

@@ -226,8 +226,13 @@ enum ChangeObserverWiring {
       (try? await state.cursor(deviceId: deviceId)) ?? BackupCursor(deviceId: deviceId)
     let fullLibraryAccess = PhotoKitLibrary.authorizationStatus() == .authorized
     let fingerprint = settingsFingerprint(settings, fullLibraryAccess: fullLibraryAccess)
+    // A replay counts the library as this session last saw it. Without that
+    // baseline, and with something excluded, the local rows would count
+    // excluded photos, so the walk lists the library once.
     let discovery = cursor.discovery(
-      settingsFingerprint: fingerprint, retryFailed: retryFailed, forceFullScan: forceFullScan)
+      settingsFingerprint: fingerprint, retryFailed: retryFailed, forceFullScan: forceFullScan,
+      hasEligibleBaseline: !lastSeenPhids.isEmpty
+        || !settingsExcludePhotos(settings, fullLibraryAccess: fullLibraryAccess))
     let hasWalked = progress.lastWalkSummary != nil
     if discovery == .fullScan || !hasWalked {
       progress.setWalkPhase(.enumerating)
@@ -316,6 +321,12 @@ enum ChangeObserverWiring {
           library.forget.map { BackupTaskID(deviceId: deviceId, phassetLocalId: $0) })) ?? []
       await queue.cancel(removedPending)
     }
+    if !library.suspend.isEmpty {
+      let suspended =
+        (try? await state.suspendExcluded(
+          library.suspend.map { BackupTaskID(deviceId: deviceId, phassetLocalId: $0) })) ?? []
+      await queue.cancel(suspended)
+    }
     guard !Task.isCancelled else { return }
     progress.setPendingPhotoIDs(library.pendingPhotoIDs)
     progress.recordLibrarySnapshot(
@@ -382,6 +393,15 @@ enum ChangeObserverWiring {
           let requeued = try await state.requeueFailed(batch)
           retriedCount += requeued.count
           await queue.enqueue(requeued, priority: nil)
+        })
+    else { return }
+
+    guard
+      await writeInBatches(
+        reconcile.resume,
+        { batch, _ in
+          let resumed = try await state.resumeExcluded(batch)
+          await queue.enqueue(resumed, priority: nil)
         })
     else { return }
 

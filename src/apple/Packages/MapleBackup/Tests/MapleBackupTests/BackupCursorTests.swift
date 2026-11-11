@@ -90,6 +90,23 @@ final class BackupCursorTests: XCTestCase {
       .fullScan)
   }
 
+  func testReplayNeedsABaselineOfTheEligibleLibraryWhenSomethingIsExcluded() async throws {
+    let store = try freshStore()
+    try await store.recordCompletedFullScan(
+      deviceId: "d", settingsFingerprint: "A", phChangeToken: token)
+    let cursor = try await store.cursor(deviceId: "d")
+    XCTAssertEqual(
+      cursor.discovery(
+        settingsFingerprint: "A", retryFailed: false, forceFullScan: false,
+        hasEligibleBaseline: false),
+      .fullScan)
+    XCTAssertEqual(
+      cursor.discovery(
+        settingsFingerprint: "A", retryFailed: false, forceFullScan: false,
+        hasEligibleBaseline: true),
+      .changesSince(token: token))
+  }
+
   func testWeekOldFullScanListsTheWholeLibraryAgain() async throws {
     let store = try freshStore()
     let finished = Date(timeIntervalSince1970: 1_800_000_000)
