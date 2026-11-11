@@ -79,8 +79,8 @@
         },
         {
           "source": "gpu_chain_parity_metal",
-          "status": "satisfied",
-          "detail": "satisfied"
+          "status": "stale_corpus",
+          "detail": "corpus changed since the record"
         },
         {
           "source": "apple_canvas_golden",
@@ -178,8 +178,8 @@
         },
         {
           "source": "gpu_chain_parity_metal",
-          "status": "satisfied",
-          "detail": "satisfied"
+          "status": "stale_corpus",
+          "detail": "corpus changed since the record"
         },
         {
           "source": "apple_canvas_golden",
@@ -313,8 +313,8 @@
         },
         {
           "source": "gpu_chain_parity_metal",
-          "status": "satisfied",
-          "detail": "satisfied"
+          "status": "stale_corpus",
+          "detail": "corpus changed since the record"
         },
         {
           "source": "apple_canvas_golden",
@@ -416,8 +416,8 @@
         },
         {
           "source": "gpu_chain_parity_metal",
-          "status": "satisfied",
-          "detail": "satisfied"
+          "status": "stale_corpus",
+          "detail": "corpus changed since the record"
         },
         {
           "source": "apple_canvas_golden",
@@ -478,8 +478,8 @@
         },
         {
           "source": "gpu_chain_parity_metal",
-          "status": "satisfied",
-          "detail": "satisfied"
+          "status": "stale_corpus",
+          "detail": "corpus changed since the record"
         },
         {
           "source": "apple_canvas_golden",
@@ -985,8 +985,8 @@
         "src/raw-pipeline/raw-wasm/src/gpu_render",
         "src/apple/MapleUITests/Fixtures/synthetic/grey-l018-rggb.dng"
       ],
-      "corpus_hash": "blake3:7204bdfb5c73dd1c44226abad44d420e61f71895cf9e2e24f76e4dbb7f9cac52",
-      "status": "satisfied",
+      "corpus_hash": "blake3:2433bb2f447f78937a4bce0db1b12b52c0e0d9c58ad9599874c1bab98f83d411",
+      "status": "stale_corpus",
       "record": {
         "backend": "metal",
         "corpus_hash": "blake3:7204bdfb5c73dd1c44226abad44d420e61f71895cf9e2e24f76e4dbb7f9cac52",
