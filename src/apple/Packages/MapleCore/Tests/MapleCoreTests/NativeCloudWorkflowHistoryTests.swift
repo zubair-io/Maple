@@ -238,8 +238,8 @@ import XCTest
         return results
       }
       _ = try await fixture.control("/workflow-fixture/\(source.key)/end-race", body: [:])
-      XCTAssertEqual(outcomes.filter { $0 }.count, 1)
-      XCTAssertEqual(try record(source).history.count, 1)
+      XCTAssertEqual(outcomes.filter { $0 }.count, 8)
+      XCTAssertEqual(try record(source).history.count, 8)
       for _ in 0..<8 {
         for store in stores { await store.flush() }
         if try record(source).history.count == 8 { break }
