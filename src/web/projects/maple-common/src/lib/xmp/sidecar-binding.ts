@@ -20,6 +20,19 @@ export interface SidecarSource {
   readonly document?: string | null;
 }
 
+/** The unknown content a write preserves: a batch target's own source, else what the store cached. */
+export function writtenSource(
+  source: SidecarSource | undefined,
+  cachedPassthrough: PassthroughBucket | undefined,
+  cachedMetadata: XmpMetadata | undefined,
+): SidecarSource {
+  const passthrough = source ? source.passthrough : cachedPassthrough;
+  return {
+    passthrough,
+    metadata: passthrough ? undefined : source ? source.metadata : cachedMetadata,
+  };
+}
+
 /** A published sidecar; `reconciled` when it merged onto a document changed since the writer read it (#4983). */
 export interface SidecarWrite {
   readonly xml: string;

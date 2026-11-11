@@ -87,16 +87,17 @@ export class WorkflowXmpService {
     const worker = new Worker(new URL('./workflow-xmp.worker', import.meta.url), {
       type: 'module',
     });
-    worker.onmessage = (event: MessageEvent<{ id: number; value?: string; error?: string }>) => {
-      const pending = this.pending.get(event.data.id);
-      this.pending.delete(event.data.id);
-      if (!pending) return;
-      if (event.data.value !== undefined) pending.resolve(event.data.value);
-      else pending.reject(new Error(event.data.error ?? 'Workflow conversion failed'));
-    };
+    worker.onmessage = (event: MessageEvent<{ id: number; value?: string; error?: string }>) =>
+      this.settle(event.data);
     worker.onerror = () => this.close();
     worker.onmessageerror = () => this.close();
     this.worker = worker;
+  }
+  private settle({ id, value, error }: { id: number; value?: string; error?: string }): void {
+    const request = this.pending.get(id);
+    this.pending.delete(id);
+    if (value !== undefined) request?.resolve(value);
+    else request?.reject(new Error(error ?? 'Workflow conversion failed'));
   }
   private close(): void {
     this.worker?.terminate();
