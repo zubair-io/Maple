@@ -288,6 +288,18 @@ final class BackupWalkPlannerTests: XCTestCase {
     XCTAssertEqual(resumed?.retryCount, 3, "it picks up where it left off")
   }
 
+  func testResumedTaskCarriesTheRetryCountItWasParkedWith() async throws {
+    let store = try freshStore()
+    try await store.upsert([row("retry", .pending, retryCount: 3)])
+    _ = try await store.suspendExcluded([id("retry")])
+
+    let resumed = try await store.resumeExcluded([row("retry", .pending)])
+
+    XCTAssertEqual(
+      resumed.map(\.retryCount), [3], "the engine counts its next retry from this task")
+    XCTAssertEqual(resumed.map(\.state), [.pending])
+  }
+
   func testAnEmptyListingWithNoLocalRowsIsAnEmptyLibrary() async throws {
     let store = try freshStore()
 
