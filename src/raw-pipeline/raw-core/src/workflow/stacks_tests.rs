@@ -134,3 +134,12 @@ fn the_stacks_survive_a_restart_and_the_cap() {
     assert_eq!(undo.len(), HISTORY_LIMIT - 1 - 2 - 2);
     assert_eq!(undo.last().unwrap(), &serde_json::json!(id(37)));
 }
+
+#[test]
+fn undoing_the_first_edit_leaves_it_available_to_redo() {
+    let value = record([entry(1, "adjustment", 1), entry(2, "undo", 0)]);
+    let cursor = value.cursor(&state(0)).unwrap();
+    assert!(cursor.undo.is_empty());
+    assert_eq!(cursor.redo, ids(&[1]));
+    assert!(cursor.synced);
+}
