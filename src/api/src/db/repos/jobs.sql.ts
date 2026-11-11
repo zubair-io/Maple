@@ -2,14 +2,8 @@
  * Every statement the ported jobs repository runs, in one place.
  *
  * Separated from the functions that call it for the reason `assets.sql.ts` and
- * `imports.sql.ts` give: the shape of three of these queries *is* the
+ * `imports.sql.ts` give: the shape of these queries *is* the
  * correctness argument, and a reviewer should be able to read them together.
- *
- * **The claimable predicate is written once.** {@link CLAIMABLE_PREDICATE}
- * appears in the candidate query and again in the compare-and-swap that decides
- * the winner. If those drifted, a worker could claim a job the candidate query
- * never considered claimable — the failure Mongo's `findOneAndUpdate` made
- * impossible by construction.
  *
  * **The active-batch fence is a `NOT EXISTS`, not an index.** On Mongo, "only
  * one settings batch may be active per library" is a UNIQUE partial index over
@@ -108,39 +102,48 @@ export function listJobsSql(statusCount: number, byKind: boolean, excludeKind: b
   return `SELECT ${JOB_COLUMNS} FROM jobs ${where} ORDER BY created_at DESC, id DESC LIMIT ?`;
 }
 
-/**
- * Free or lease-expired: a `queued` job nobody holds, or a `running` one whose
- * holder's lease ran out mid-run.
- *
- * `lease_expires_at < ?` never matches a NULL lease, in SQLite as in MongoDB,
- * so a running job that somehow lost its expiry is not silently stolen.
- */
-const CLAIMABLE_PREDICATE = `
-  (status = 'queued' AND locked_by IS NULL)
-  OR (status = 'running' AND lease_expires_at < ?)`;
+/** What the relay writes into `locked_by` once Temporal holds a queued job. */
+export const DISPATCHED_MARKER = 'temporal';
 
 /**
- * Oldest claimable jobs first — the order `findOneAndUpdate`'s
- * `sort: { created_at: 1, _id: 1 }` imposed.
- *
- * Several rather than one: the compare-and-swap below can lose to a sibling
- * runner, and re-reading after every loss would cost a round trip per
- * contended claim.
+ * A job Temporal holds: running, or queued with its workflow already started.
+ * At most one exists at a time, because {@link NEXT_JOB_SQL} waits for it.
  */
-export const CLAIM_CANDIDATES_SQL = `
-  SELECT id FROM jobs WHERE ${CLAIMABLE_PREDICATE} ORDER BY created_at, id LIMIT 8`;
+const HELD = `(status = 'running' OR (status = 'queued' AND locked_by IS NOT NULL))`;
 
 /**
- * Take one candidate, repeating the claimable predicate in the `WHERE`.
+ * The oldest queued job, but only once nothing else is held.
  *
- * That repetition is the whole mechanism: the row may have been claimed between
- * the candidate read and this write, and re-testing the predicate inside the
- * `UPDATE` is what makes exactly one caller see a row count of one.
+ * Handing Temporal one job at a time is what keeps jobs in the order they were
+ * created: several workflows waiting on one task queue are started in no
+ * particular order. `locked_by IS NULL` separates a fresh or resumed job from a
+ * held one; every statement that puts a job back into `queued` clears it.
+ */
+export const NEXT_JOB_SQL = `
+  SELECT id FROM jobs
+   WHERE status = 'queued' AND locked_by IS NULL
+     AND NOT EXISTS (SELECT 1 FROM jobs WHERE ${HELD})
+   ORDER BY created_at, id LIMIT 1`;
+
+export const HELD_JOBS_SQL = `SELECT id FROM jobs WHERE ${HELD} ORDER BY created_at, id`;
+
+/** Guarded so a job its activity has already claimed keeps that claim. */
+export const MARK_DISPATCHED_SQL = `
+  UPDATE jobs SET locked_by = ? WHERE id = ? AND status = 'queued' AND locked_by IS NULL`;
+
+/**
+ * Hand one job to the activity attempt Temporal just delivered.
+ *
+ * A `running` row is taken over, not skipped: Temporal only delivers another
+ * attempt after the previous one missed its heartbeat deadline, so the holder
+ * named in `locked_by` is gone. Whatever that holder still tries to write is
+ * refused by the `locked_by` fence on the progress, ledger and finish writes.
+ * A finished job matches nothing, which is how a redelivery becomes a no-op.
  */
 export const CLAIM_JOB_SQL = `
   UPDATE jobs
      SET status = 'running', locked_by = ?, lease_expires_at = ?, updated_at = ?
-   WHERE id = ? AND (${CLAIMABLE_PREDICATE})`;
+   WHERE id = ? AND status IN ('queued', 'running')`;
 
 /**
  * Re-queue a terminal batch job so a worker re-claims it.

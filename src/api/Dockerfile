@@ -16,8 +16,13 @@
 #     -v maple_data:/app/data \
 #     -v /path/to/photos:/photos \
 #     -e MAPLE_ROOTS=/photos \
+#     -e MAPLE_TEMPORAL_ADDRESS=temporal.example:7233 \
 #     -v maple_config:/app/config \
 #     maple
+#
+# Maple runs its background jobs on a Temporal server, which this image does
+# not contain. docker-compose.yml starts one next to it; with a bare
+# `docker run`, point MAPLE_TEMPORAL_ADDRESS (or Settings → Workers) at yours.
 #
 # The -v maple_data:/app/data mount is the one that matters. That file is the
 # library — folders, assets, settings, and the JWT signing secret — and the
@@ -270,6 +275,11 @@ RUN case "$(uname -m)" in \
       if (Number(version.split('.')[1]) < 23) throw new Error('ONNX Runtime ' + version + ' is older than 1.23'); \
       dlopen('/app/native/libraw_ffi.so', { maple_search_open: { args: ['ptr'], returns: 'ptr' } }); \
       console.log('ONNX Runtime ' + version + ', maple_search_* present');"
+
+# The Temporal SDK loads a prebuilt native bridge for the image's platform.
+# Load it now so an image that cannot run jobs fails to build instead of
+# booting with a worker tier that cannot start.
+RUN bun -e "require('@temporalio/worker'); console.log('Temporal SDK bridge loads');"
 
 ENV PORT=3000
 # The library database. /app/data is meant to be a mounted volume — see the

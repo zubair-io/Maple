@@ -23,7 +23,7 @@ test('an existing file upgrades without losing jobs, leases or recovery ledgers'
     undefined,
     repo,
   );
-  await claimJob('worker', 60_000, undefined, repo);
+  await claimJob(job._id, 'worker', 60_000, undefined, repo);
   await saveJobCheckpoint(job._id, 'worker', { applied: 1 }, 60_000, undefined, undefined, repo);
   const before = await getJob(job._id, repo);
   handle.db.run(

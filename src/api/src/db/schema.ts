@@ -1252,10 +1252,11 @@ export interface JobDoc {
   result: Record<string, unknown> | null;
   /** Last error message when status === "failed". */
   error: string | null;
-  /** Worker id holding the claim; null when available. */
+  /** The activity attempt running the job; `temporal` while it is queued in
+   * Temporal; null before it is relayed and once it has finished. */
   locked_by: string | null;
-  /** Lease expiry (ISO timestamp). A crashed worker's claim auto-releases
-   * once `now() > lease_expires_at` so a sibling instance can re-claim. */
+  /** When the running attempt last renewed its claim, plus the renewal window.
+   * Informational: Temporal's heartbeat, not this, decides a worker is gone. */
   lease_expires_at: string | null;
   /** Cancellation flag. Routes flip this; the handler observes it between
    * progress steps and exits cleanly. */

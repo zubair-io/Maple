@@ -108,7 +108,9 @@ async function claimed(targets: Awaited<ReturnType<typeof target>>[]) {
     kind: 'batch_adjustment_sync',
     payload: { targets, patch },
   });
-  expect((await jobs.claimJob('worker-a', 60000))?._id.toHexString()).toBe(job._id.toHexString());
+  expect((await jobs.claimJob(job._id, 'worker-a', 60000))?._id.toHexString()).toBe(
+    job._id.toHexString(),
+  );
   return job;
 }
 
@@ -271,7 +273,7 @@ describe('persisted batch adjustment sync', () => {
       kind: 'batch_adjustment_sync',
       payload,
     });
-    await jobs.claimJob('worker-a', 60000);
+    await jobs.claimJob(job._id, 'worker-a', 60000);
     const ctx = await context(job._id);
     const save = ctx.saveCheckpoint!;
     ctx.saveCheckpoint = async (ledger) => {

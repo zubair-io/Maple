@@ -13,7 +13,7 @@ import { listChangesSince } from '../../src/db/repos/changes.repo';
 import { callNative, shutdownMaplePool } from 'maple';
 import { imageRoutes } from '../../src/routes/library/image';
 import { jobsRoutes } from '../../src/routes/jobs';
-import { JobRunner } from '../../src/job-runner/runner';
+import { startLocalTemporal } from '../../src/temporal/local-temporal.test-helpers';
 
 const root = await realpath(await mkdtemp(join(tmpdir(), 'maple-editor-api-')));
 // The native consumer uses an ephemeral port and this ready receipt (#4056).
@@ -22,8 +22,7 @@ process.env.MAPLE_ROOTS = root;
 registerRoot(root);
 const live = await createLiveTestDatabase();
 const libraryId = registerLibrary(live.db, root, 'workflow-fixture');
-const jobs = new JobRunner();
-jobs.start();
+const jobs = await startLocalTemporal();
 const fixtures = new Map<
   string,
   { path: string; id: string; input: string | null; cursor: number }
