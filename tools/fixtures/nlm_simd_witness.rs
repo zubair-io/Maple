@@ -62,7 +62,15 @@ pub extern "C" fn run() -> u32 {
                 let mut acc = vec![-0.125; count];
                 let mut weights = vec![0.25; count];
                 let mut maxima = vec![initial_max; count];
-                actual::accumulate(&sums, &shifted, &mut acc, &mut weights, &mut maxima, norm);
+                actual::accumulate(
+                    &sums,
+                    &shifted,
+                    &mut acc,
+                    &mut weights,
+                    &mut maxima,
+                    norm,
+                    None,
+                );
                 for i in 0..count {
                     let w = fast_neg_exp(std::hint::black_box(sums[i].max(0.) * norm));
                     let expected = [-0.125 + w * shifted[i], 0.25 + w, initial_max.max(w)];
@@ -104,6 +112,7 @@ pub extern "C" fn mismatched_length(which: u32) {
         if which == 2 { &mut [] } else { &mut weights },
         if which == 3 { &mut [] } else { &mut maxima },
         1.0,
+        None,
     );
 }
 
