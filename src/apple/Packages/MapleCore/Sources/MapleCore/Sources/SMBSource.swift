@@ -88,9 +88,6 @@ public actor SMBSource {
   /// maple_ids listed at more than one path: byte-identical copies (#4705).
   private(set) var ambiguousMapleIds: Set<String> = []
   private(set) var relocatedPaths: [ImageRef: String] = [:]
-  /// Live Photo content identifiers already read, keyed by path and valid while the listing's
-  /// size and mtime match (#5544). Dropped with the listing it was read from.
-  var liveContentIDs = LiveContentIDMemo()
 
   /// First 64 KB of a file — the bound the primary-form head hash reads.
   /// Matches `raw_core::SHA1_HEAD_BYTES` (`id.rs`) and
