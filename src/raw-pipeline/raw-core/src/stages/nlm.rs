@@ -206,7 +206,7 @@ pub fn denoise_plane_cancellable(
         return plane.to_vec();
     }
     let p = params.patch_radius;
-    if p == 2 && noise_profile.is_none() && n >= 16384 {
+    if p == 2 && noise_profile.is_none() && (n >= 16384 || iso > 0) {
         let model = (iso > 0).then(|| {
             let (slope, offset) = get_noise_params(None, iso, is_chroma);
             tiled::NoiseModel {
