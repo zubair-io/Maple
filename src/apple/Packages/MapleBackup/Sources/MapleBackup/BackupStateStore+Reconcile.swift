@@ -119,20 +119,62 @@ extension BackupStateStore {
     }
   }
 
-  /// Moves a dequeued task to uploading. Returns false when its row is gone or
-  /// a walk already recorded the photo as uploaded, so the worker drops it.
+  /// Moves a dequeued task to uploading. Returns false when its row is gone, a
+  /// walk already recorded the photo as uploaded, or a walk suspended it as
+  /// excluded, so the worker drops it.
   public func claimForUpload(_ id: BackupTaskID) throws -> Bool {
     try dbQueue.write { db in
       try db.execute(
         sql: """
           UPDATE tasks SET state = ?, last_error = NULL
-           WHERE device_id = ? AND phasset_local_id = ? AND state != ?
+           WHERE device_id = ? AND phasset_local_id = ? AND state NOT IN (?, ?)
           """,
         arguments: [
           BackupState.uploading.rawValue, id.deviceId, id.phassetLocalId,
-          BackupState.uploaded.rawValue,
+          BackupState.uploaded.rawValue, BackupState.skippedPolicy.rawValue,
         ])
       return db.changesCount > 0
+    }
+  }
+
+  /// Parks pending rows of photos the inclusion settings now exclude as
+  /// `.skippedPolicy`, keeping their retry count and companions-owed mark.
+  /// Neither `rehydrate` nor a worker picks them up. Returns the ids that were
+  /// pending, whose queue entries the caller should cancel.
+  public func suspendExcluded(_ ids: [BackupTaskID]) throws -> [BackupTaskID] {
+    try dbQueue.write { db in
+      try ids.filter { id in
+        try db.execute(
+          sql: """
+            UPDATE tasks SET state = ?
+             WHERE device_id = ? AND phasset_local_id = ? AND state = ?
+            """,
+          arguments: [
+            BackupState.skippedPolicy.rawValue, id.deviceId, id.phassetLocalId,
+            BackupState.pending.rawValue,
+          ])
+        return db.changesCount > 0
+      }
+    }
+  }
+
+  /// Returns parked rows of photos that are listed again to pending. Returns
+  /// the tasks resumed.
+  public func resumeExcluded(_ tasks: [BackupTask]) throws -> [BackupTask] {
+    try dbQueue.write { db in
+      try tasks.filter { task in
+        try db.execute(
+          sql: """
+            UPDATE tasks SET state = ?, priority = ?, captured_at = COALESCE(?, captured_at)
+             WHERE device_id = ? AND phasset_local_id = ? AND state = ?
+            """,
+          arguments: [
+            BackupState.pending.rawValue, task.priority.rawValue,
+            task.capturedAt?.timeIntervalSince1970, task.id.deviceId, task.id.phassetLocalId,
+            BackupState.skippedPolicy.rawValue,
+          ])
+        return db.changesCount > 0
+      }
     }
   }
 

@@ -52,12 +52,15 @@ extension BackupCursor {
   /// A walk replays changes only while a full scan finished for the current
   /// settings within `fullScanInterval`. A first run, an interrupted scan, a
   /// settings change, a retry of failures, the safety walk and a week without
-  /// a full scan all list the whole library.
+  /// a full scan all list the whole library. So does a walk without an
+  /// `hasEligibleBaseline`: a replay counts the library as the session last
+  /// saw it, and the local rows alone cannot say which photos the settings
+  /// exclude.
   public func discovery(
     settingsFingerprint fingerprint: String, retryFailed: Bool, forceFullScan: Bool,
-    now: Date = Date()
+    hasEligibleBaseline: Bool = true, now: Date = Date()
   ) -> BackupDiscovery {
-    guard !retryFailed, !forceFullScan, settingsFingerprint == fingerprint,
+    guard !retryFailed, !forceFullScan, hasEligibleBaseline, settingsFingerprint == fingerprint,
       let fullScanCompletedAt, now.timeIntervalSince(fullScanCompletedAt) < Self.fullScanInterval,
       let phChangeToken
     else { return .fullScan }
