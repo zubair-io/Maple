@@ -1,3 +1,4 @@
+import { setTimeout as sleep } from 'node:timers/promises';
 import { TestWorkflowEnvironment } from '@temporalio/testing';
 import { saveTemporalSettings } from './temporal-config.ts';
 import { TemporalHost } from './temporal-host.ts';
@@ -8,6 +9,9 @@ import { TemporalHost } from './temporal-host.ts';
  * in the cache.
  */
 const TEMPORAL_CLI_VERSION = 'v1.10.0';
+
+/** A host stopped mid-connect cannot be interrupted, and a fixture must exit within seconds of SIGTERM. */
+const STOP_GRACE_MS = 1_000;
 
 /** A throwaway Temporal server on an ephemeral port; the caller tears it down. */
 export function startLocalTemporalServer(): Promise<TestWorkflowEnvironment> {
@@ -36,7 +40,7 @@ export async function startLocalTemporal(): Promise<LocalTemporal> {
     env,
     host,
     stop: async () => {
-      await host.stop();
+      await Promise.race([host.stop(), sleep(STOP_GRACE_MS)]);
       await env.teardown();
     },
   };
