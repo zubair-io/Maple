@@ -10,6 +10,7 @@ import type {
   WorkersStatusResponse,
   WorkersStatusUpdate,
   EnrichmentConfigResponse,
+  TemporalSettings,
 } from '@maple-common';
 
 export const wsFrames = new Subject<WorkersStatusUpdate>();
@@ -136,4 +137,10 @@ export const MOCK_ENRICHMENT: EnrichmentConfigResponse = {
     face_min_detection_size: 'default',
     service_search_rate_limit_per_minute: 'default',
   },
+};
+
+export const MOCK_TEMPORAL: TemporalSettings = {
+  address: '127.0.0.1:7233',
+  namespace: 'default',
+  connection: { state: 'connected', error: null, checkedAt: null },
 };

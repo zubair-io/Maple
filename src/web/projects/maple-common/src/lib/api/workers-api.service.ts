@@ -292,6 +292,22 @@ export interface MigrationState {
   finished_at: string | null;
 }
 
+export type TemporalConnectionState = 'connected' | 'unreachable' | 'unknown';
+
+/** GET/PUT /api/workers/temporal. `unknown` = the worker has not reported on
+ * the saved address yet; `checkedAt` is the epoch ms of its last report. */
+export interface TemporalSettings {
+  address: string;
+  namespace: string;
+  connection: {
+    state: TemporalConnectionState;
+    error: string | null;
+    checkedAt: number | null;
+  };
+}
+
+export type TemporalSettingsUpdate = Pick<TemporalSettings, 'address' | 'namespace'>;
+
 @Injectable({ providedIn: 'root' })
 export class WorkersApiService {
   private readonly http = inject(HttpClient);
@@ -437,5 +453,13 @@ export class WorkersApiService {
     return this.http.get<{ results: GeneratedSearchCard[] }>(
       `${this.base}/generated-searches?libraryId=${encodeURIComponent(libraryId)}`,
     );
+  }
+
+  getTemporalSettings(): Observable<TemporalSettings> {
+    return this.http.get<TemporalSettings>(`${this.base}/workers/temporal`);
+  }
+
+  saveTemporalSettings(update: TemporalSettingsUpdate): Observable<TemporalSettings> {
+    return this.http.put<TemporalSettings>(`${this.base}/workers/temporal`, update);
   }
 }
