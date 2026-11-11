@@ -365,6 +365,7 @@ RemoteCatalogPreviewTests
 RemoteCatalogThumbTests
 RemoteCatalogXMPCreateTests
 TrashMetadataListingTests
+TrashOrphanedSidecarTests
 SMBFileOperationsFolderTests
 
 # Ownership facet choices and stale scope responses (#4016).
