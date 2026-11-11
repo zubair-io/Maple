@@ -59,7 +59,7 @@ automatically.
 - the FFI decode pool (`ffi/ffi-pool-bootstrap.ts`)
 - enrichment bootstraps (Nominatim health check, face-model preload, describe config)
 - enrichment config refresh (`workers/enrichment-config-refresh.ts`)
-- the JobRunner and the import runner
+- the Temporal host, which runs user jobs, and the import runner
 - maintenance jobs (`workers/maintenance.ts`)
 
 It also publishes a status snapshot into the `worker_status` table every 2 s. That is how the API process — which has an empty in-process registry — can answer `GET /api/workers/status`.
@@ -283,16 +283,37 @@ These are not per-asset version-claim stages. Each runs its own interval loop an
 | `generated-search`   | daily                    | Invents themed photo collections per library via its assigned text model (Ollama or OpenAI-compatible) for the widget, Maple TV, and settings surfaces. Boots paused.                                                                                                                                                                                                                                                                                                                                                                                                        |
 | `cache-gc`           | once per library at boot | Sweeps orphaned `.maple/{thumbs,previews}` files, including the retired `<maple_id>.avif` thumbs from when thumbnails were content-addressed. See [caching](caching.md).                                                                                                                                                                                                                                                                                                                                                                                                     |
 
-## The JobRunner
+## Jobs
 
-`src/api/src/job-runner/` is the sibling subsystem for **user-triggered, bounded** work: claim → dispatch → handle → complete/fail/cancel against the `jobs` table, one in-flight job per runner, 1 s poll, 5 min lease. Handlers report progress and must consult `ctx.shouldCancel()` between steps so an in-flight job can be aborted.
+`src/api/src/job-runner/` is the sibling subsystem for **user-triggered, bounded** work. A job is a row in the `jobs` table, and it runs on [Temporal](https://temporal.io):
 
-Two kinds exist (`JobKind` in `db/schema.ts`, registry in `job-runner/handlers/index.ts`):
+1. A route inserts the row as `queued`, in one statement with its admission fence. That row is what every client reads from then on.
+2. The worker tier relays the oldest queued row to Temporal once nothing else is running (`job-relay.ts`): one workflow per job, with the workflow id `job-<id>`.
+3. The workflow runs one activity, which claims that row and hands it to the handler for its kind (`execute-job.ts`). Handlers report progress and must consult `ctx.shouldCancel()` between steps so an in-flight job can be aborted.
+4. The activity records the outcome on the row, and the workflow ends the same way: completed, or failed with the handler's message.
 
-- `batch_jpeg_export` — renders the selected assets to JPEG into an output directory via the shared FFI pool.
-- `pano_stitch` — spawns `maple-cli pano stitch` over the selected assets, parses coarse stage progress off stderr, and imports the result as a new asset. The route enforces one at a time. See [pano](pano.md).
+**One at a time, in creation order.** Temporal is only ever handed one job. Several workflows waiting on one task queue start in no particular order, so the queue stays in SQLite, where `created_at` decides.
 
-**Which to reach for.** Anything whose job is "eventually, every eligible asset gets property X" is a stage, not a job — a stage gets pause/resume, concurrency, retry/backoff, dead-letter, and a live progress row on Settings → Workers for free from the generic machinery, and it becomes retroactively eligible for the existing library the moment it is added to the manifest. A JobRunner job is for a specific, user-selected request with no ongoing backlog behind it: export _these_ photos, stitch _this_ panorama.
+**A worker that dies.** Temporal notices when the heartbeat stops (five minutes) and delivers the job again; the new attempt takes the row over and resumes from the checkpoint the handler saved. A handler that throws fails the job, and that is not retried.
+
+**Losing contact with Temporal.** A queued job waits and is relayed when the server returns. A running job keeps running: its handler does not stop because Temporal gave up on the attempt, it finishes and records the result, and the redelivery that follows finds the job finished and only reports how.
+
+**Cancelling.** Through the API, or by cancelling the workflow in Temporal. Terminating the workflow cancels the job too.
+
+**A workflow that is gone.** Every ten seconds the relay checks that the job it handed over still has a running workflow. If the workflow was cancelled or terminated the job is cancelled; if it is missing or closed without settling the row (an emptied or different Temporal server, an upgrade from the release whose runner claimed rows itself) the job is submitted again.
+
+**One namespace per Maple server.** Two servers working in the same Temporal namespace take each other's jobs. A job that arrives from another server's database fails its workflow with a message saying so.
+
+The server's address and namespace are the `temporal` settings document, edited by the owner under Settings → Workers; see `temporal/temporal-host.ts`.
+
+Six kinds exist (`JobKind` in `db/schema.ts`, registry in `job-runner/handlers/index.ts`):
+
+- `batch_jpeg_export` and `batch_recipe_export` — render the selected assets into an output directory via the shared FFI pool. See [export recipes](export-recipes.md).
+- `batch_adjustment_sync` — applies one edit to a selection of photos, with a per-photo ledger.
+- `pano_stitch` and `pano_preview` — spawn `maple-cli pano` over the selected assets and, for a stitch, import the result as a new asset. Admission allows one stitch at a time. See [pano](pano.md).
+- `cloud_backup_restore` — restores from a cloud-backup destination.
+
+**Which to reach for.** Anything whose job is "eventually, every eligible asset gets property X" is a stage, not a job — a stage gets pause/resume, concurrency, retry/backoff, dead-letter, and a live progress row on Settings → Workers for free from the generic machinery, and it becomes retroactively eligible for the existing library the moment it is added to the manifest. A job is for a specific, user-selected request with no ongoing backlog behind it: export _these_ photos, stitch _this_ panorama.
 
 ## Imports
 

@@ -88,8 +88,10 @@ Every table the API opens is declared here, and
 
 ### Jobs and the unused indexer queue (#3762)
 
-The JobRunner uses `jobs` for creation, claims, leases, progress, cancellation,
-terminal transitions and resumable batch ledgers. Batch library exclusivity is
+Jobs use `jobs` for creation, claims, progress, cancellation, terminal
+transitions and resumable batch ledgers. Temporal schedules them; `locked_by`
+names the activity attempt that holds a running job (or `temporal` for a queued
+job Temporal already has), and `lease_expires_at` is no longer read. Batch library exclusivity is
 intentionally enforced by the atomic `INSERT … SELECT … WHERE NOT EXISTS` and
 resume `UPDATE` in `db/repos/jobs.sql.ts`. Overlapping queued/running settings
 batches conflict on any shared root. These statements are the only creation and

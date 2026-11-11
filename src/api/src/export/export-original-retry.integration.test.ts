@@ -65,7 +65,9 @@ async function post(path: string, value: unknown): Promise<{ id: string }> {
   return response.json();
 }
 async function run(id: string) {
-  expect((await jobs.claimJob('retry-original-worker', 60000))?._id.toHexString()).toBe(id);
+  expect(
+    (await jobs.claimJob(new ObjectId(id), 'retry-original-worker', 60000))?._id.toHexString(),
+  ).toBe(id);
   const job = (await jobs.getJob(new ObjectId(id)))!;
   const ctx: JobHandlerContext = {
     jobId: job._id,

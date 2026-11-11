@@ -416,6 +416,11 @@ jobs:
       - name: Install API deps
         working-directory: src/api
         run: bun install --frozen-lockfile
+      # The fixture servers start a throwaway Temporal server, whose binary is
+      # downloaded on first use; fetch it here, outside their start-up timeout.
+      - name: Fetch the Temporal test server
+        working-directory: src/api
+        run: bun scripts/prewarm-temporal.ts
       - name: Download raw-wasm package
         uses: actions/download-artifact@v8
         with:

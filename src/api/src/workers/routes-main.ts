@@ -34,6 +34,7 @@ import {
   retryDeadStage,
 } from '../db/repos/worker-admin.repo.ts';
 import { patchPerformance, performanceStatus } from './performance-config.ts';
+import { temporalRoutes } from './routes-temporal.ts';
 import { WorkerConfigRepo } from '../db/repos/worker-config.repo.ts';
 import type { WorkerConfig } from './run-stage.ts';
 import { MISSING_REAPER_NAME } from './missing-reaper.ts';
@@ -408,5 +409,7 @@ export function workerRoutes() {
           }),
         },
       )
+
+      .use(temporalRoutes)
   );
 }

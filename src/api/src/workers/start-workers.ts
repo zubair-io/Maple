@@ -8,7 +8,7 @@
  *   - FFI decode pool sizing
  *   - geocode / face / describe enrichment workers
  *   - worker-side enrichment config refresh
- *   - job runner
+ *   - Temporal host (user-triggered jobs)
  *   - import runner
  *
  * `stopWorkers()` tears them all down in the correct order, mirroring the
@@ -35,7 +35,6 @@ import { startGeocodeWorker, stopGeocodeWorker } from '../enrichment/bootstrap.t
 import { startFaceWorker, stopFaceWorker } from '../enrichment/face-bootstrap.ts';
 import { getFaceModelsStatus } from '../enrichment/face-models.ts';
 import { startDescribeWorker, stopDescribeWorker } from '../enrichment/describe-bootstrap.ts';
-import { startJobRunner, stopJobRunner } from '../job-runner/runner.ts';
 import { startImportRunner, stopImportRunner } from '../imports/worker.ts';
 import { writeWorkerMemory, writeWorkerStatus } from '../db/repos/worker-status.repo.ts';
 import { childMemoryReports } from '../runtime/child-process-worker.ts';
@@ -63,6 +62,7 @@ let _discoverHandle: DiscoverHandle | null = null;
 /** Unref'd timer that publishes stageRegistry.statuses() to the `worker_status` row. */
 let _statusInterval: ReturnType<typeof setInterval> | null = null;
 let _countsRefresher: RefresherHandle | null = null;
+let _stopTemporalHost: (() => Promise<void>) | null = null;
 
 // ---------------------------------------------------------------------------
 // startWorkers
@@ -170,9 +170,14 @@ export async function startWorkers(): Promise<void> {
     startWorkerEnrichmentConfigRefresh();
   }
 
-  // JobRunner — sibling subsystem to the indexer pipeline for
-  // user-triggered long-running work (export, batch reprocess).
-  await startSubsystem(startJobRunner, 'JobRunner failed to start');
+  // User-triggered jobs (export, batch sync, pano, restore) run on Temporal.
+  // Imported here, not at the top: the SDK loads a native bridge on import, and
+  // a platform without one must cost this tier its jobs, not its stages.
+  await startSubsystem(async () => {
+    const temporal = await import('../temporal/temporal-host.ts');
+    temporal.startTemporalHost();
+    _stopTemporalHost = temporal.stopTemporalHost;
+  }, 'Temporal host failed to start');
 
   // ImportRunner — claims pending `imports` and copies server-local
   // folders into a library (ticket #742).
@@ -288,9 +293,10 @@ export async function stopWorkers(): Promise<void> {
     })(),
     (async () => {
       try {
-        await stopJobRunner();
+        await _stopTemporalHost?.();
+        _stopTemporalHost = null;
       } catch (e) {
-        log.warn({ err: e }, 'error stopping job runner');
+        log.warn({ err: e }, 'error stopping the Temporal host');
       }
     })(),
     (async () => {

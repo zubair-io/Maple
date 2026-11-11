@@ -5,6 +5,8 @@
     "src/cloudflare/backup-snapshot.worker.ts",
     "scripts/restore-sqlite-r2.ts",
     "src/workers/worker-main.ts",
+    // Run by CI to fetch the Temporal test server ahead of the fixture servers.
+    "scripts/prewarm-temporal.ts",
     "src/ffi/raw_ffi.child.ts",
     "src/thumbs/hdr-decode.child.ts",
     "src/enrichment/face-pool.child.ts",

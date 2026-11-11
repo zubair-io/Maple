@@ -370,6 +370,8 @@ Pause and config changes are written to the `worker_config` table; the worker ch
 | GET    | `/api/workers/status`                      | bearer | Per-stage rows: pending, ready, dead, in-flight, throughput (#3491)      |
 | GET    | `/api/workers/performance`                 | bearer | FFI decode-pool size and decode memory budget                            |
 | PATCH  | `/api/workers/performance`                 | bearer | Set pool size and/or decode memory budget, clamped to min/max            |
+| GET    | `/api/workers/temporal`                    | bearer | Temporal server address, namespace and connection state                  |
+| PUT    | `/api/workers/temporal`                    | bearer | Save the address and namespace; no restart needed                        |
 | POST   | `/api/workers/:name/pause`                 | bearer | Pause one stage                                                          |
 | POST   | `/api/workers/:name/resume`                | bearer | Resume it; also clears a self-imposed `pause_reason`                     |
 | PATCH  | `/api/workers/:name/config`                | bearer | Patch its concurrency, batch size, target version and stall threshold    |

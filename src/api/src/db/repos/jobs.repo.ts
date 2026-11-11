@@ -16,14 +16,14 @@
  *   - `jobs.rows.ts`  row shapes and row → document conversions
  *   - `jobs.repo.ts`  the verbs the routes, the runner and the handlers call
  *
- * ## The job row is the work queue
+ * ## The job row is the record, Temporal is the schedule
  *
- * Claim and lease live on the row, exactly as they did on the document, and
- * {@link claimJob} is the one place that needs care. A Mongo `findOneAndUpdate`
- * with a sort is a compare-and-swap only one caller can win; the SQLite pool has
- * no primitive that both writes and returns rows, so the same guarantee comes
- * from re-checking the claimable predicate in the `UPDATE`'s own `WHERE` and
- * reading the row count. This is the shape `imports.repo.ts` already uses.
+ * A row is inserted `queued` and stays the thing every client reads. The worker
+ * tier relays each queued row into a Temporal workflow (`job-runner/job-relay.ts`),
+ * and the workflow's activity calls {@link claimJob} for exactly that row. The
+ * holder recorded on the row is one activity attempt, and it exists to fence
+ * writes: an attempt Temporal has given up on can still be running in a hung
+ * process, and must not overwrite the attempt that replaced it.
  *
  * ## The active-batch fence has no index behind it any more
  *
@@ -45,12 +45,15 @@ import { newObjectIdHex } from '../object-id.ts';
 import { sqliteDb, type SqliteDb } from './db-handle.ts';
 import { toClaimedJob, toJobDoc, type ClaimedJob, type JobRow } from './jobs.rows.ts';
 import {
-  CLAIM_CANDIDATES_SQL,
   CLAIM_JOB_SQL,
+  DISPATCHED_MARKER,
+  HELD_JOBS_SQL,
   insertJobSql,
   type JobInsertFence,
   JOB_BY_ID_SQL,
   listJobsSql,
+  MARK_DISPATCHED_SQL,
+  NEXT_JOB_SQL,
   RESUME_BATCH_JOB_SQL,
   SAVE_LEDGER_ENTRY_SQL,
   SAVE_LEDGER_SQL,
@@ -238,37 +241,40 @@ export async function listJobs(
 }
 
 /**
- * Atomic claim: a `queued` job nobody holds, or a `running` one whose lease
- * expired because the previous worker died mid-run.
+ * Claim one job for an activity attempt, or `null` when there is nothing left
+ * to run: the job is gone, or already done, failed or cancelled.
  *
- * The exclusivity comes from the `UPDATE`'s own `WHERE`, not from the read above
- * it — see `jobs.sql.ts`. A row count of one means this caller won; zero means a
- * sibling runner took it in between, and the next candidate is tried, which is
- * why the read asks for several rather than one.
+ * Which job runs and when is Temporal's decision; this only records the attempt
+ * as the holder so every later write can be fenced to it — see `jobs.sql.ts`.
  */
 export async function claimJob(
+  id: ObjectId,
   workerId: string,
   leaseMs: number,
   now: () => Date = () => new Date(),
   dbOverride?: SqliteDb,
 ): Promise<ClaimedJob | null> {
   const db = sqliteDb(dbOverride);
+  const hex = toHex(id);
   const { nowIso, leaseIso } = leaseStamps(leaseMs, now);
+  const result = await db.write(CLAIM_JOB_SQL, [workerId, leaseIso, nowIso, hex]);
+  if (result.changes === 0) return null;
+  const row = await readJobRow(db, hex);
+  return row === null ? null : toClaimedJob(row);
+}
 
-  const candidates = await db.read<{ id: string }>(CLAIM_CANDIDATES_SQL, [nowIso]);
-  for (const candidate of candidates) {
-    const result = await db.write(CLAIM_JOB_SQL, [
-      workerId,
-      leaseIso,
-      nowIso,
-      candidate.id,
-      nowIso,
-    ]);
-    if (result.changes === 0) continue;
-    const row = await readJobRow(db, candidate.id);
-    if (row !== null) return toClaimedJob(row);
-  }
-  return null;
+export async function nextJobId(dbOverride?: SqliteDb): Promise<string | null> {
+  const rows = await sqliteDb(dbOverride).read<{ id: string }>(NEXT_JOB_SQL, []);
+  return rows[0]?.id ?? null;
+}
+
+export async function heldJobIds(dbOverride?: SqliteDb): Promise<string[]> {
+  const rows = await sqliteDb(dbOverride).read<{ id: string }>(HELD_JOBS_SQL, []);
+  return rows.map((row) => row.id);
+}
+
+export async function markJobDispatched(id: string, dbOverride?: SqliteDb): Promise<void> {
+  await sqliteDb(dbOverride).write(MARK_DISPATCHED_SQL, [DISPATCHED_MARKER, id]);
 }
 
 /**
@@ -368,6 +374,23 @@ export async function markCancelled(
     now,
     workerId,
     dbOverride,
+  );
+}
+
+/**
+ * Cancel a job nobody is running: one still queued, or one whose attempt is
+ * gone. A finished job is left exactly as it ended.
+ */
+export async function cancelUnfinishedJob(
+  id: ObjectId,
+  now: () => Date = () => new Date(),
+  dbOverride?: SqliteDb,
+): Promise<void> {
+  await sqliteDb(dbOverride).write(
+    `UPDATE jobs SET status = 'cancelled', cancel_requested = 1,
+            locked_by = NULL, lease_expires_at = NULL, updated_at = ?
+      WHERE id = ? AND status IN ('queued', 'running')`,
+    [now().toISOString(), toHex(id)],
   );
 }
 

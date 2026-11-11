@@ -1,6 +1,6 @@
 /**
  * Worker process entry. Runs the entire worker tier (stages, import, discover,
- * job runner, maintenance, enrichment) OFF the API event loop. The API spawns
+ * Temporal host, maintenance, enrichment) OFF the API event loop. The API spawns
  * this as one niced child; a crash/runaway here can never touch the HTTP server.
  */
 import { installChildHardening } from '../runtime/child-process-worker.ts';
