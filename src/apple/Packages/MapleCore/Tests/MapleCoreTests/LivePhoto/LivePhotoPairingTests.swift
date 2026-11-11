@@ -24,22 +24,9 @@ final class LivePhotoPairingTests: XCTestCase {
     let cases: [Entry]
   }
 
-  private func repoRoot() throws -> URL {
-    var directory = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
-    while !FileManager.default.fileExists(
-      atPath: directory.appendingPathComponent("test-fixtures/live-photo-pairing/cases.json").path)
-    {
-      let parent = directory.deletingLastPathComponent()
-      guard parent.path != directory.path else {
-        throw XCTSkip("live-photo-pairing corpus not found above \(#filePath)")
-      }
-      directory = parent
-    }
-    return directory
-  }
-
   func testTheSharedPairingCorpus() throws {
-    let url = try repoRoot().appendingPathComponent("test-fixtures/live-photo-pairing/cases.json")
+    let url = try XCTUnwrap(
+      Bundle.module.url(forResource: "live-photo-pairing", withExtension: "json"))
     let corpus = try JSONDecoder().decode(Corpus.self, from: Data(contentsOf: url))
     XCTAssertFalse(corpus.cases.isEmpty)
 
