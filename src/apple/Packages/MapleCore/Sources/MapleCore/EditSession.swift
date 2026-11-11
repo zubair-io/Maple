@@ -565,8 +565,6 @@ public final class EditSession {
   }
 
   deinit {
-    sidecarErrorTask?.cancel()
-    sidecarReconciliationTask?.cancel()
+    for task in [sidecarErrorTask, sidecarReconciliationTask] { task?.cancel() }
   }
-
 }
