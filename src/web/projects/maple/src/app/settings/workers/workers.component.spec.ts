@@ -10,7 +10,13 @@ import type {
   WorkersStatusUpdate,
   EnrichmentConfigResponse,
 } from '@maple-common';
-import { wsFrames, workerEventsStub, MOCK_STATUS, MOCK_ENRICHMENT } from './workers.spec-fixtures';
+import {
+  wsFrames,
+  workerEventsStub,
+  MOCK_STATUS,
+  MOCK_ENRICHMENT,
+  MOCK_TEMPORAL,
+} from './workers.spec-fixtures';
 
 describe('WorkersComponent', () => {
   let fixture: ComponentFixture<WorkersComponent>;
@@ -69,6 +75,7 @@ describe('WorkersComponent', () => {
     // Change log GC panel reads retention window on init; drain it for the same reason.
     for (const r of http.match('/api/workers/change-log-gc/retention-window'))
       r.flush({ days: 30 });
+    http.match('/api/workers/temporal').forEach((r) => r.flush(MOCK_TEMPORAL));
     http.verify();
   });
 

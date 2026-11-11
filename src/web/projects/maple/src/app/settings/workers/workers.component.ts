@@ -58,6 +58,7 @@ import { GpuLiveRenderSettingsComponent } from './gpu-live-render-settings.compo
 import { CanvasColorSpaceSettingsComponent } from './canvas-color-space-settings.component';
 import { FacePurgePanelComponent } from './face-purge-panel.component';
 import { ServiceApiKeysComponent } from './service-api-keys.component';
+import { TemporalSettingsComponent } from './temporal-settings.component';
 import { AiWorkerSummaryComponent } from '../ai/ai-worker-summary.component';
 import {
   groupStagesByPipeline,
@@ -110,6 +111,7 @@ import {
     CanvasColorSpaceSettingsComponent,
     FacePurgePanelComponent,
     ServiceApiKeysComponent,
+    TemporalSettingsComponent,
     AiWorkerSummaryComponent,
   ],
   templateUrl: './workers.component.html',
