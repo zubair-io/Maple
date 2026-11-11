@@ -245,7 +245,9 @@ import XCTest
         if try record(source).history.count == 8 { break }
       }
       let workflow = try record(source)
+      XCTAssertEqual(workflow.history.count, 8)
       XCTAssertEqual(Set(workflow.history.map(\.id)).count, 8)
+      XCTAssertEqual(Set(workflow.history.map(\.writer)), ["apple"])
       XCTAssertEqual(
         try workflow.history.map { try XMPParser.parse($0.adjustmentXmp).0.exposure }.sorted(),
         (1...8).map { Double($0) / 10 })
