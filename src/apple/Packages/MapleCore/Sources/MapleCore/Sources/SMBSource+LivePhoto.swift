@@ -1,59 +1,25 @@
 import AMSMB2
 import Foundation
 
-/// Identifiers read from the current listing's files, so a share reopened or re-listed does not
-/// re-read a file whose size and mtime are unchanged.
-struct LiveContentIDMemo {
-  struct Entry {
-    let size: Int64
-    let mtime: Date
-    let contentID: String?
-  }
-
-  var listing: UUID?
-  var entries: [String: Entry] = [:]
-
-  mutating func entry(for asset: SMBSource.SMBAsset, listing current: UUID) -> Entry? {
-    if listing != current {
-      listing = current
-      entries = [:]
-    }
-    guard let entry = entries[asset.path], entry.size == asset.size, entry.mtime == asset.mtime
-    else { return nil }
-    return entry
-  }
-
-  mutating func store(_ contentID: String?, for asset: SMBSource.SMBAsset, listing current: UUID) {
-    guard listing == current else { return }
-    entries[asset.path] = Entry(size: asset.size, mtime: asset.mtime, contentID: contentID)
-  }
-}
-
 extension SMBSource {
   /// The Live Photo halves among the listed files, keyed by share path (#5544). Pairing follows
   /// the shared rule in `LivePhotoPairing`; only a still and a clip that share a folder and stem
   /// are read, and each read is a bounded range read of that file's metadata.
   public func livePhotoLinks() async -> [String: LivePhotoLink] {
     guard let client else { return [:] }
-    let listing = listingID
     let listed = Dictionary(assets.map { ($0.path, $0) }, uniquingKeysWith: { first, _ in first })
-    return await LivePhotoPairing.links(for: Array(listed.keys)) { [self] path in
+    return await LivePhotoPairing.links(for: Array(listed.keys)) { path in
       guard let asset = listed[path] else { return nil }
-      return await liveContentID(of: asset, client: client, listing: listing)
+      return await Self.liveContentID(of: asset, client: client)
     }
   }
 
-  private func liveContentID(of asset: SMBAsset, client: SMB2Manager, listing: UUID) async
-    -> String?
-  {
-    if let known = liveContentIDs.entry(for: asset, listing: listing) { return known.contentID }
+  private static func liveContentID(of asset: SMBAsset, client: SMB2Manager) async -> String? {
     guard let kind = LivePhotoPairing.Kind(filename: asset.name), asset.size > 0 else { return nil }
-    let contentID = await LiveContentIdentifier.read(kind: kind, size: UInt64(asset.size)) {
+    return await LiveContentIdentifier.read(kind: kind, size: UInt64(asset.size)) {
       offset, length in
       try await client.contents(atPath: asset.path, range: offset..<(offset + UInt64(length)))
     }
-    liveContentIDs.store(contentID, for: asset, listing: listing)
-    return contentID
   }
 
   /// A local copy of the clip at `path`, for AVPlayer, which cannot open an SMB location. A Live
