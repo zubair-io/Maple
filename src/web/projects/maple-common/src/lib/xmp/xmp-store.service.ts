@@ -15,6 +15,7 @@ import {
   type PendingSidecarWrite,
   type RetryableSidecarWrite,
   type SidecarSource,
+  writtenSource,
 } from './sidecar-binding';
 import { FolderAccessService } from '../folder-access/folder-access.service';
 import { SidecarSaveStateService } from './sidecar-save-state.service';
@@ -531,16 +532,12 @@ export class XmpStoreService {
     // A workflow save may have completed while this edit waited in the chain.
     const currentSource = () =>
       this.bindingFor(assetId, folder, rawFilename).variantId === binding.variantId;
-    const currentPassthrough = source
-      ? source.passthrough
-      : currentSource()
-        ? (this._passthroughs.get(assetId) ?? passthrough)
-        : passthrough;
-    const metadata = currentPassthrough
-      ? undefined
-      : source
-        ? source.metadata
-        : this._metadata.get(assetId);
+    const cached = currentSource() ? (this._passthroughs.get(assetId) ?? passthrough) : passthrough;
+    const { passthrough: currentPassthrough, metadata } = writtenSource(
+      source,
+      cached,
+      this._metadata.get(assetId),
+    );
     try {
       const { xml: written, reconciled } = await this.documents.write(
         binding,

@@ -90,37 +90,11 @@ export class HostedWorkflowWriterService {
       // A removed sidecar has nothing to merge onto and still refuses.
       if (current === null) this.freshness.assertUnchanged(folder, name, current, expectedDocument);
       const base = this.freshness.baseline(folder, name, expectedDocument);
-      const workflow = await this.selectedRecord(
-        current === null ? null : readSidecar(current).xml,
-        variantId,
-      );
-      const passthrough =
-        current === null ? fallback : this.parser.parseAdjustmentModel(current).passthrough;
       const pending = this.actions.get(folder)?.get(name) ?? [];
-      const incoming = await this.core.checkpoint(
-        this.serializer.serialize(model, passthrough, culling, passthrough ? undefined : metadata),
+      const { xml: output, reconciled } = await this.compose(
+        { current, base, pending, variantId },
+        { model, culling, fallback, metadata },
       );
-      const merge =
-        current !== null && current !== base ? await this.merge(base, current, incoming) : null;
-      const start: Lineage = merge ?? { record: workflow, parentId: headId(workflow) };
-      const checkpoint = merge?.checkpoint ?? incoming;
-      const retained = await pending.reduce(
-        async (previous, captured, index) =>
-          this.applyCapture(
-            await previous,
-            captured,
-            merge && index === pending.length - 1 ? checkpoint : undefined,
-            merge?.passthrough ?? passthrough,
-            metadata,
-          ),
-        Promise.resolve(start),
-      );
-      const output =
-        merge && pending.length === 0
-          ? merge.merged
-          : retained.record === null
-            ? checkpoint
-            : await this.core.embed(retained.record, checkpoint);
       this.freshness.assertUnchanged(
         folder,
         name,
@@ -135,8 +109,83 @@ export class HostedWorkflowWriterService {
         (captured) => !published.has(captured.id),
       );
       this.actions.get(folder)?.set(name, remaining);
-      return { xml: output, reconciled: merge !== null };
+      return { xml: output, reconciled };
     });
+  }
+
+  /** The document to publish: the model over `current`, merged first when `current` is not `base`. */
+  private async compose(
+    disk: {
+      readonly current: string | null;
+      readonly base: string | null;
+      readonly pending: readonly CapturedAction[];
+      readonly variantId: string;
+    },
+    edit: {
+      readonly model: AdjustmentModel;
+      readonly culling: XmpCulling;
+      readonly fallback?: PassthroughBucket;
+      readonly metadata?: XmpMetadata;
+    },
+  ): Promise<SidecarWrite> {
+    const { current, base, pending, variantId } = disk;
+    const workflow = await this.selectedRecord(
+      current === null ? null : readSidecar(current).xml,
+      variantId,
+    );
+    const passthrough =
+      current === null ? edit.fallback : this.parser.parseAdjustmentModel(current).passthrough;
+    const incoming = await this.core.checkpoint(
+      this.serializer.serialize(
+        edit.model,
+        passthrough,
+        edit.culling,
+        passthrough ? undefined : edit.metadata,
+      ),
+    );
+    if (current !== null && current !== base) {
+      const merge = await this.merge(base, current, incoming);
+      const retained = await this.appendCaptures(
+        merge,
+        pending,
+        { checkpoint: merge.checkpoint, passthrough: merge.passthrough },
+        edit.metadata,
+      );
+      const xml =
+        pending.length === 0 ? merge.merged : await this.embedded(retained, merge.checkpoint);
+      return { xml, reconciled: true };
+    }
+    const retained = await this.appendCaptures(
+      { record: workflow, parentId: headId(workflow) },
+      pending,
+      { passthrough },
+      edit.metadata,
+    );
+    return { xml: await this.embedded(retained, incoming), reconciled: false };
+  }
+
+  private async embedded(retained: Lineage, checkpoint: string): Promise<string> {
+    return retained.record === null ? checkpoint : this.core.embed(retained.record, checkpoint);
+  }
+
+  /** Append each captured action; `last.checkpoint`, when given, is the document the final one commits. */
+  private appendCaptures(
+    start: Lineage,
+    pending: readonly CapturedAction[],
+    last: { readonly checkpoint?: string; readonly passthrough?: PassthroughBucket },
+    metadata?: XmpMetadata,
+  ): Promise<Lineage> {
+    return pending.reduce(
+      async (previous, captured, index) =>
+        this.applyCapture(
+          await previous,
+          captured,
+          index === pending.length - 1 ? last.checkpoint : undefined,
+          last.passthrough,
+          metadata,
+        ),
+      Promise.resolve(start),
+    );
   }
 
   /** Three-way merge of the writer's document onto a sidecar that changed since `base` (#4983). */
