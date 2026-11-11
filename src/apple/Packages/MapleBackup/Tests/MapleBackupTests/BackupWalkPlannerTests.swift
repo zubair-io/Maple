@@ -240,6 +240,21 @@ final class BackupWalkPlannerTests: XCTestCase {
     XCTAssertEqual(kept.count, 2)
   }
 
+  func testAListingEmptiedBySettingsStillDropsTheExcludedPhotosUndeliveredWork() async throws {
+    let store = try freshStore()
+    try await store.upsert([row("sent", .uploaded), row("queued", .pending)])
+
+    let plan = try await walk(store, listing: [], inPhotoKit: ["sent", "queued"]).library
+
+    XCTAssertEqual(
+      plan.forget, ["queued"], "videos turned off: the library of videos lists nothing")
+    XCTAssertEqual(plan.libraryPhotoIDs, [])
+    let sent = try await state(store, "sent")
+    XCTAssertEqual(sent, .uploaded)
+    let queued = try await state(store, "queued")
+    XCTAssertNil(queued)
+  }
+
   func testAnEmptyListingWithNoLocalRowsIsAnEmptyLibrary() async throws {
     let store = try freshStore()
 

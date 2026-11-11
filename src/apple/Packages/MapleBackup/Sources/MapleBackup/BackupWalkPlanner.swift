@@ -127,10 +127,13 @@ public enum BackupWalkPlanner {
   /// the library, so it forgets only what this session saw and no longer
   /// does.
   ///
-  /// Returns nil for a full listing with nothing in it while local rows exist:
-  /// PhotoKit may be unable to show a library that is there (an offline macOS
-  /// library, a locked device), and forgetting every row on that evidence, or
-  /// recording the scan complete, would lose the library's whole record.
+  /// Returns nil for a full listing with nothing in it while local rows exist
+  /// and PhotoKit returns none of them either: PhotoKit may be unable to show
+  /// a library that is there (an offline macOS library, a locked device), and
+  /// forgetting every row on that evidence, or recording the scan complete,
+  /// would lose the library's whole record. A listing emptied by the inclusion
+  /// settings (a library of videos with videos off) is not that: PhotoKit
+  /// still returns the excluded rows, so the walk reconciles them.
   public static func planLibrary(
     local: LocalTaskIndex, outcome: DiscoveryOutcome, previouslySeen: Set<String>,
     stillInPhotoKit: Set<String>, owingCompanions: Set<String>, fullLibraryAccess: Bool
@@ -141,7 +144,7 @@ public enum BackupWalkPlanner {
     if !outcome.isFullScan {
       deleted = outcome.deletedPhids
       forget = deleted
-    } else if listed.isEmpty && !local.stateByPhid.isEmpty {
+    } else if listed.isEmpty && !local.stateByPhid.isEmpty && stillInPhotoKit.isEmpty {
       return nil
     } else if fullLibraryAccess {
       let notListed = unlisted(local: local, outcome: outcome, fullLibraryAccess: true)
