@@ -134,6 +134,9 @@ let package = Package(
         // copy verbatim (`cp`, not a symlink — SPM resources don't
         // follow symlinks reliably across platforms).
         .copy("Fixtures/layer-stack.json"),
+        // Byte-identical mirror of test-fixtures/live-photo-pairing/cases.json (#5544), so the
+        // staged CI package finds the corpus; the API suite asserts the two stay identical.
+        .copy("Fixtures/live-photo-pairing.json"),
         // Byte-identical mirror of test-fixtures/removal (#5159); whole-directory
         // copy keeps calibration/ as a subdirectory, like film-luts.
         .copy("Fixtures/removal"),

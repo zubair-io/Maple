@@ -94,3 +94,18 @@ describe('pairLivePhotos over the shared pairing corpus', () => {
     expect(found).toEqual(entry.pairs);
   });
 });
+
+describe('the Apple mirror of the pairing corpus', () => {
+  it('is byte-identical to test-fixtures/live-photo-pairing/cases.json', async () => {
+    const mirror = Bun.file(
+      new URL(
+        '../../../apple/Packages/MapleCore/Tests/MapleCoreTests/Fixtures/live-photo-pairing.json',
+        import.meta.url,
+      ),
+    );
+    const canonical = Bun.file(
+      new URL('../../../../test-fixtures/live-photo-pairing/cases.json', import.meta.url),
+    );
+    expect(await mirror.text()).toBe(await canonical.text());
+  });
+});
