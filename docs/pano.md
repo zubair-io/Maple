@@ -168,7 +168,7 @@ On an iPad (#5450), with banded decode, banded refinement and a composite that r
 
 ### The model and the memory limit
 
-Those measurements are fitted into one model, `raw_core::pano_memory`, with F input frames (dropped or not, each costed as the largest), the largest of P pixels, its proxy of p = min(P, 1600²) pixels, its width c = ⌊√(1.5 P)⌋ (a 3:2 frame of P pixels, so a 4:3 or portrait frame is overstated) and an output canvas W pixels wide. The model has two calibrations, `PanoMemoryProfile::Server` and `PanoMemoryProfile::Apple` (#5891), because the two places it is used need different things from it and the two allocators keep very different amounts of freed memory:
+Those measurements are fitted into one model, `raw_core::pano_memory`, with F input frames (dropped or not, each costed as the largest), the largest of P pixels, its proxy of p = min(P, 1600²) pixels, its width c = ⌊√(1.5 P)⌋ (a 3:2 frame of P pixels, so a 4:3 or portrait frame is overstated) and an output canvas W pixels wide. Every measurement used the default 1600 px proxy, so a smaller `proxy_long_edge` is costed as 1600; a larger one retains a proxy of q = min(P, edge²) pixels per frame, and each of its q − p pixels past the fitted proxy adds at least its RGB f32 planes (12 bytes) to both phases. The model has two calibrations, `PanoMemoryProfile::Server` and `PanoMemoryProfile::Apple` (#5891), because the two places it is used need different things from it and the two allocators keep very different amounts of freed memory:
 
 | Phase                              | Server (memory limit)                   | Apple (merge sheet output size)   |
 | ---------------------------------- | --------------------------------------- | --------------------------------- |
