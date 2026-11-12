@@ -48,10 +48,10 @@ impl CpuPreview {
         // Auto2's canonical pinned-default route applies only its baked LUT;
         // edited models and engaged film LUTs replay the curve, including identity rounding.
         // Derive this route once, without constructing default models per tick.
-        let pinned = super::auto_fit::fit_develop_model(&model);
+        let pinned = super::auto_fit_model::fit_develop_model(&model);
         let pinned_amounts = (pinned.sharpen_amount, pinned.nr_luminance, pinned.nr_color);
         let uncurved_details = (!auto_profile::apply_pipeline::auto1_enabled_by_env()
-            && super::auto_fit::uses_pinned_fit_pixels(
+            && super::auto_fit_model::uses_pinned_fit_pixels(
                 &upstream_key(context.active_model.clone()),
                 upstream_key(pinned),
                 film,

@@ -4,7 +4,6 @@ use raw_core::color::matrices::M_REC2020_TO_SRGB;
 use raw_core::decode::decode_bytes;
 use raw_core::pipeline::{develop_scene_linear_from_raw_with_quality, RenderQuality};
 use raw_core::stages::{color_grade, grain};
-use raw_core::types::adjustment::AutoExposureMode;
 use raw_core::view::acr_fit::{apply_model, solve_acr_model_from_display_pairs};
 use raw_core::view::agx_inverse::srgb_gamma_inv;
 use raw_core::view::auto_profile::pairs::{sample_display_pairs, DisplayPair};
@@ -69,10 +68,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .to_ascii_lowercase();
     let raw = decode_bytes(&bytes, &ext)?;
     let preview = preview::extract_for_fit(path).ok_or("no embedded preview")?;
-    let model = AdjustmentModel {
-        auto_exposure: AutoExposureMode::Off,
-        ..Default::default()
-    };
+    let model = raw_core::pipeline::fit_develop_model_for(
+        &AdjustmentModel::default(),
+        &raw,
+        Some(&preview),
+    );
     let mut scene = develop_scene_linear_from_raw_with_quality(&raw, &model, RenderQuality::Full)?;
     agx::apply(&mut scene, model.contrast, model.whites);
     color_grade::apply_model(&mut scene, &model);

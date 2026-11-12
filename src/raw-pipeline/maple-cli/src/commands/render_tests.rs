@@ -275,8 +275,13 @@ fn srgb_default_is_byte_identical_to_render_path_directly() {
         profile: raw_core::types::adjustment::Profile::Neutral,
         ..xmp::AdjustmentModel::default()
     };
-    let (w2, h2, direct_bytes) =
-        render_path(&dng_path, &model, None).expect("render_path directly");
+    let (w2, h2, direct_bytes) = render_path(
+        &dng_path,
+        &model,
+        None,
+        &render_lens::LensProfileArgs::default(),
+    )
+    .expect("render_path directly");
     assert_eq!((w1, h1), (w2, h2));
     assert_eq!(
         via_run, direct_bytes,
@@ -284,6 +289,44 @@ fn srgb_default_is_byte_identical_to_render_path_directly() {
     );
 
     let _ = std::fs::remove_dir_all(&tmp);
+}
+
+/// `--preview-lens-vignetting` (#5791) asks the RAW's embedded preview for
+/// the lens vignetting scale; without the flag, or without a preview to
+/// ask, the model is developed as given. The measurement itself is gated in
+/// raw-core (`view::auto_profile::preview_vignetting`).
+#[cfg(feature = "test-support")]
+#[test]
+fn preview_lens_vignetting_needs_the_flag_and_a_preview() {
+    use raw_core::test_support::synth_chart::SyntheticColorChart;
+    use std::borrow::Cow;
+
+    let dir = tempfile::tempdir().unwrap();
+    let dng_path = dir.path().join("chart.dng");
+    SyntheticColorChart::default()
+        .write_to(&dng_path)
+        .expect("write synthetic chart DNG");
+    let raw = decode_bytes(&std::fs::read(&dng_path).unwrap(), "dng").expect("decode");
+    let model = xmp::AdjustmentModel {
+        exposure: 0.5,
+        lens_correction_vignetting: 40.0,
+        ..xmp::AdjustmentModel::default()
+    };
+
+    let given = render_lens::LensProfileArgs::default();
+    assert!(matches!(
+        render_lens::develop_model(&dng_path, &raw, &model, &given).unwrap(),
+        Cow::Borrowed(_)
+    ));
+    let asked = render_lens::LensProfileArgs {
+        preview_lens_vignetting: true,
+        ..Default::default()
+    };
+    assert_eq!(
+        *render_lens::develop_model(&dng_path, &raw, &model, &asked).unwrap(),
+        model,
+        "the synthetic chart embeds no preview"
+    );
 }
 
 #[cfg(feature = "test-support")]

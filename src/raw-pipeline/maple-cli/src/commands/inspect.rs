@@ -66,6 +66,19 @@ pub fn run(path: &Path) -> Result<i32, Box<dyn std::error::Error>> {
             Err(error) => println!("  lens correction: {error}"),
         }
     }
+    // What the embedded preview says about the bundled vignetting gain, and
+    // the scale Auto's fit therefore develops at (#5791).
+    if let Some(reading) = raw_core::view::auto_profile::preview::extract_for_fit(path)
+        .and_then(|preview| raw_core::view::auto_profile::preview_vignetting::read(&raw, &preview))
+    {
+        println!(
+            "  preview lens vignetting: {} (best share {:.2}, scatter {:.6}; {:.6} at the full correction)",
+            reading.scale(),
+            reading.share,
+            reading.scatter,
+            reading.scatter_at_full
+        );
+    }
     let compatible = raw_core::lens_profile::compatible_lenses(&raw);
     println!(
         "  bundled lenses for this body: {}",

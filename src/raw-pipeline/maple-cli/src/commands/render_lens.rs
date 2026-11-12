@@ -6,6 +6,7 @@
 
 use clap::Args;
 use raw_core::xmp;
+use std::borrow::Cow;
 use std::path::{Path, PathBuf};
 
 type CliResult<T> = Result<T, Box<dyn std::error::Error>>;
@@ -36,6 +37,13 @@ pub struct LensProfileArgs {
     /// correction.
     #[arg(long = "no-bundled-lens")]
     pub no_bundled_lens: bool,
+    /// Render with the lens vignetting scale the RAW's embedded preview
+    /// carries (the measured scale Auto's fit develops at) instead of the
+    /// model's. The embedded-JPEG colour gate renders with this, so a bundled
+    /// vignetting correction the reference lacks is not scored as a colour
+    /// error (#5791).
+    #[arg(long, conflicts_with_all = ["lens_profile", "lens"])]
+    pub preview_lens_vignetting: bool,
 }
 
 impl LensProfileArgs {
@@ -46,6 +54,31 @@ impl LensProfileArgs {
             .as_deref()
             .map(|path| (path, self.acknowledge_lens_approximation))
     }
+}
+
+/// The model one render develops with, reported once. With
+/// `--preview-lens-vignetting` the lens vignetting scale becomes the one the
+/// embedded preview carries (unchanged when the RAW has no preview); every
+/// other render develops `model` as given.
+pub fn develop_model<'a>(
+    raw_path: &Path,
+    raw: &raw_core::RawImage,
+    model: &'a xmp::AdjustmentModel,
+    args: &LensProfileArgs,
+) -> CliResult<Cow<'a, xmp::AdjustmentModel>> {
+    use raw_core::view::auto_profile::{preview, preview_vignetting};
+    let mut model = Cow::Borrowed(model);
+    if let Some(preview) = args
+        .preview_lens_vignetting
+        .then(|| preview::extract_for_fit(raw_path))
+        .flatten()
+    {
+        let scale = preview_vignetting::scale(raw, &preview);
+        eprintln!("Preview lens vignetting: {scale}");
+        model.to_mut().lens_correction_vignetting = scale;
+    }
+    report_lens_resolution(raw, &model)?;
+    Ok(model)
 }
 
 /// Register an LCP document and record the resulting reference on `model`.

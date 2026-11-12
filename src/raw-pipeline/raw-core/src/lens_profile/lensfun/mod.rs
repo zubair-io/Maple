@@ -34,7 +34,7 @@ pub fn database() -> &'static Database {
 #[cfg(test)]
 mod test_support;
 #[cfg(test)]
-mod tests_auto;
+pub(crate) mod tests_auto;
 #[cfg(test)]
 mod tests_bundle;
 #[cfg(test)]

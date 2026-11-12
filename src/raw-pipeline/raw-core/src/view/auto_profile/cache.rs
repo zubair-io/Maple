@@ -20,9 +20,9 @@
 //!   workspace dependency.
 //!
 //! Keying invariant (#1085): the fit is PINNED to the default adjustment
-//! model — every fit entry develops `AdjustmentModel::default()` with only
-//! `auto_exposure: Off` pinned and the caller's `profile` carried (see
-//! `pipeline::render::auto_fit::fit_develop_model`), never the caller's live
+//! model — every fit entry develops `AdjustmentModel::default()` with
+//! `auto_exposure: Off`, the embedded preview's lens vignetting and the
+//! caller's `profile` (`pipeline::fit_develop_model_for`), never the caller's live
 //! edit model. The fitted curve/LUT are therefore a pure function of the RAW
 //! at a given develop quality and origin, so the key needs
 //! no adjustment digest or generation counter: slider ticks cannot change what

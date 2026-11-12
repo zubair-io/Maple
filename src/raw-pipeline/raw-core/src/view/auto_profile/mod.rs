@@ -17,8 +17,11 @@
 //!   fit that replaced AgX and carried a matrix + Oklab corrections).
 //! - [`cache`]: bounded LRU keyed on `(raw_identity, mtime)` / bytes-hash
 //!   that short-circuits the fit on second-and-after slider ticks. Sound as a
-//!   RAW-identity key because every fit samples the PINNED default-model
-//!   develop (#1085) — see `pipeline::render::auto_fit::fit_develop_model`.
+//!   RAW-identity key because every fit samples the PINNED develop (#1085) —
+//!   see `pipeline::render::auto_fit_model::fit_develop_model_for`.
+//! - [`preview_vignetting`]: how much of a bundled lens vignetting gain the
+//!   embedded preview carries (#5791) — the one fit-develop field measured
+//!   per RAW rather than pinned to the default.
 
 pub mod apply;
 pub mod apply_pipeline;
@@ -37,6 +40,7 @@ pub mod preview;
 pub mod preview_coverage;
 mod preview_raf_color;
 mod preview_sources;
+pub mod preview_vignetting;
 mod solve;
 mod toe;
 

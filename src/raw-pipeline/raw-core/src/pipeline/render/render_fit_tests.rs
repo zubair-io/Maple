@@ -1,4 +1,5 @@
 //! Real render-size calibration parity and cache provenance (#4132).
+use super::super::auto_fit_model::fit_develop_model;
 use super::*;
 use crate::view::auto_profile::apply_pipeline::auto1_enabled_by_env;
 use crate::view::auto_profile::cache;

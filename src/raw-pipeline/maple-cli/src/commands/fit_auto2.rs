@@ -43,7 +43,6 @@ mod imp {
     use raw_core::image::ColorSpace;
     use raw_core::pipeline::{develop_scene_linear_from_raw_with_quality, RenderQuality};
     use raw_core::stages::{color_grade, grain};
-    use raw_core::types::adjustment::AutoExposureMode;
     use raw_core::view::acr_fit::{
         apply_model, estimate_illuminant_gains, solve_acr_model_from_display_pairs, AcrModel,
     };
@@ -96,15 +95,15 @@ mod imp {
 
         // ── Develop the PINNED Auto Profile fit prefix ──────────────────
         // Mirrors `pipeline::render::auto_fit::develop_display_for_auto_fit`
-        // stage-for-stage (that fn is private to raw-core): default
-        // AdjustmentModel with `auto_exposure: Off` pinned, the shared
-        // scene-linear develop chain, then AgX / split-tone / grain /
-        // gamut-matrix / gamma-encode — the render's display tail up to
-        // (not including) the Auto Profile stage itself.
-        let fit_model = AdjustmentModel {
-            auto_exposure: AutoExposureMode::Off,
-            ..AdjustmentModel::default()
-        };
+        // stage-for-stage (that fn is private to raw-core): the pinned fit
+        // model, the shared scene-linear develop chain, then AgX /
+        // split-tone / grain / gamut-matrix / gamma-encode — the render's
+        // display tail up to (not including) the Auto Profile stage itself.
+        let fit_model = raw_core::pipeline::fit_develop_model_for(
+            &AdjustmentModel::default(),
+            &raw,
+            Some(&extracted),
+        );
         let mut scene =
             develop_scene_linear_from_raw_with_quality(&raw, &fit_model, RenderQuality::Full)
                 .map_err(|e| format!("develop error: {e}"))?;

@@ -17,7 +17,7 @@ const H: u32 = 48;
 
 /// A Sony ILCE-7RM4 + FE 24-70 F4 frame with a gradient so a warp moves
 /// pixels; every field the resolver reads is set.
-fn sony() -> RawImage {
+pub(crate) fn sony() -> RawImage {
     let pixels = (0..W * H * 3)
         .map(|i| 4000 + (i % 977) as u16 * 40)
         .collect::<Vec<u16>>();
@@ -57,6 +57,21 @@ fn sony() -> RawImage {
             active_area: Some(ActiveAreaRect::full(W, H)),
         },
     }
+}
+
+/// The same frame as a Canon EOS 5D Mark III + EF 70-200mm f/2.8L IS II at
+/// 70 mm f/2.8 (the `test_0006` / `test_0007` identity), whose bundled
+/// calibration carries a vignetting family.
+pub(crate) fn canon_with_bundled_vignetting() -> RawImage {
+    let mut raw = sony();
+    raw.camera_make = "Canon".into();
+    raw.camera_model = "Canon EOS 5D Mark III".into();
+    raw.aperture = Some(2.8);
+    raw.focal_length = Some(70.0);
+    raw.lens_metadata.camera_make = Some("Canon".into());
+    raw.lens_metadata.camera_model = Some("Canon EOS 5D Mark III".into());
+    raw.lens_metadata.lens_model = Some("EF70-200mm f/2.8L IS II USM".into());
+    raw
 }
 
 fn image() -> crate::Image {
@@ -149,4 +164,30 @@ fn no_match_means_no_correction_and_no_error() {
     let before = img.pixels.clone();
     apply_for_raw(&raw, &AdjustmentModel::default(), &mut img, 1.0).unwrap();
     assert_eq!(before, img.pixels);
+}
+
+/// The bundled gain of [`canon_with_bundled_vignetting`] brightens a flat
+/// field's corners at the default scale and leaves it flat at scale 0 — the
+/// range the Auto fit's develop is pinned within (#5791).
+#[test]
+fn the_vignetting_scale_spans_the_bundled_gain() {
+    let raw = canon_with_bundled_vignetting();
+    let resolution = resolve_auto(&raw).unwrap().expect("resolution");
+    assert!(resolution.calibration.vignette.is_some());
+    let develop = |lens_correction_vignetting| {
+        let mut img = image();
+        img.pixels.fill([0.25; 3]);
+        let model = AdjustmentModel {
+            lens_correction_vignetting,
+            ..AdjustmentModel::default()
+        };
+        apply_for_raw(&raw, &model, &mut img, 1.0).unwrap();
+        img
+    };
+    let center = (H / 2 * W + W / 2) as usize;
+    let corrected = develop(100.0);
+    assert!(corrected.pixels[0][1] > corrected.pixels[center][1] * 1.5);
+    for px in &develop(0.0).pixels {
+        assert!((px[1] - 0.25).abs() < 1e-6, "{px:?}");
+    }
 }

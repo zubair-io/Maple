@@ -195,7 +195,18 @@ and compared against its own camera-embedded JPEG, never an Adobe render.
 severe visible defects. The runner and direct comparator now ALSO require
 non-cancelling full-frame/per-band RGB error at the JPEG grid, full-frame and
 8-by-8 regional error at display scale, perceptual mean/tail color error,
-clipping and gradient checks. Lens corrections remain enabled. A bounded
+clipping and gradient checks. Lens corrections remain enabled, with one
+stated exception (#5791): the candidate is rendered with
+`--preview-lens-vignetting`, at the lens vignetting scale the embedded preview
+carries. A bundled Lensfun vignetting gain the preview lacks is a deliberate
+lens correction, not a colour error, and how much of it a preview carries
+differs per camera and converter. The scale is the renderer's own measurement
+(`view::auto_profile::preview_vignetting`, the scale Auto's fit develops at):
+the gate chooses nothing per fixture and fits nothing, embedded vendor gains
+stay on, and a wrong measurement still fails the corner tiles. The gain itself
+is gated against `liblensfun` by `lens_profile::lensfun::tests_parity`. The
+measurements behind the policy are in
+`test-fixtures/qualification/color-lens-vignetting-5791.md`. A bounded
 structural affine fit maps reference scene coordinates to the untouched candidate
 grid. A radial residual is accepted only when spatially held-out landmark error
 improves by at least 25%, bidirectional coverage still passes, and the mapping
