@@ -156,6 +156,15 @@ jobs:
             -destination 'generic/platform=tvOS Simulator' \
             -derivedDataPath "$RUNNER_TEMP/maple-tv-build" CODE_SIGNING_ALLOWED=NO build
 
+      # Compiles the watchOS app and Packages/MapleWatch against MapleCloudKit,
+      # whose watchOS branches nothing else builds (#5851). Build only: no
+      # simulator boot, no tests.
+      - name: Build Maple Watch
+        run: |
+          xcodebuild -project src/apple/Maple.xcodeproj -scheme 'Maple Watch' \
+            -destination 'generic/platform=watchOS Simulator' \
+            -derivedDataPath "$RUNNER_TEMP/maple-watch-build" CODE_SIGNING_ALLOWED=NO build
+
   swift-ui:
     name: swift-ui (MapleUI tests)
     needs: changes
