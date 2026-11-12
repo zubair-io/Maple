@@ -27,6 +27,9 @@ int32_t maple_android_canvas_zoom(double *, uint32_t, double, double, double, do
 double maple_android_canvas_zoom_query(const double *, uint32_t, double, double, double, double);
 size_t maple_android_canvas_zoom_state_len();
 char *maple_android_parametric_curve(const char *);
+double maple_android_crop_overlay_overscan();
+bool maple_android_crop_overlay(const double *, int32_t, uint32_t, uint32_t, size_t, uint8_t *, size_t);
+bool maple_android_crop_handle_centers(const double *, double *);
 char *maple_android_scope(const uint32_t *, size_t, uint32_t, uint32_t);
 void *maple_android_auto_wb_new(void *, const char *);
 char *maple_android_auto_wb_run(const void *);
@@ -248,6 +251,41 @@ extern "C" JNIEXPORT jstring JNICALL Java_app_justmaple_aperture_data_NativeBrid
     if (!value) { check(env, -1); return nullptr; }
     jstring result = env->NewStringUTF(value);
     maple_android_free_string(value);
+    return result;
+}
+extern "C" JNIEXPORT jdouble JNICALL Java_app_justmaple_aperture_data_NativeBridge_cropOverlayOverscan(JNIEnv *, jobject) {
+    return maple_android_crop_overlay_overscan();
+}
+extern "C" JNIEXPORT void JNICALL Java_app_justmaple_aperture_data_NativeBridge_cropOverlay(JNIEnv *env, jobject, jobject bitmap, jdoubleArray params, jint active) {
+    if (!bitmap || !params || env->GetArrayLength(params) != 10) {
+        env->ThrowNew(env->FindClass("java/lang/IllegalArgumentException"), "Crop overlay needs a bitmap and ten parameters");
+        return;
+    }
+    double values[10];
+    env->GetDoubleArrayRegion(params, 0, 10, values);
+    AndroidBitmapInfo info{};
+    void *pixels = nullptr;
+    if (AndroidBitmap_getInfo(env, bitmap, &info) != ANDROID_BITMAP_RESULT_SUCCESS || info.format != ANDROID_BITMAP_FORMAT_RGBA_8888 ||
+        AndroidBitmap_lockPixels(env, bitmap, &pixels) != ANDROID_BITMAP_RESULT_SUCCESS) {
+        if (!env->ExceptionCheck()) env->ThrowNew(env->FindClass("java/lang/IllegalStateException"), "Crop overlay bitmap is unavailable");
+        return;
+    }
+    const bool drawn = maple_android_crop_overlay(values, active, info.width, info.height, info.stride,
+        static_cast<uint8_t *>(pixels), static_cast<size_t>(info.stride) * info.height);
+    AndroidBitmap_unlockPixels(env, bitmap);
+    if (!drawn) check(env, -1);
+}
+extern "C" JNIEXPORT jdoubleArray JNICALL Java_app_justmaple_aperture_data_NativeBridge_cropHandleCenters(JNIEnv *env, jobject, jdoubleArray params) {
+    if (!params || env->GetArrayLength(params) != 10) {
+        env->ThrowNew(env->FindClass("java/lang/IllegalArgumentException"), "Crop handles need ten parameters");
+        return nullptr;
+    }
+    double values[10];
+    double centers[16];
+    env->GetDoubleArrayRegion(params, 0, 10, values);
+    if (!maple_android_crop_handle_centers(values, centers)) { check(env, -1); return nullptr; }
+    jdoubleArray result = env->NewDoubleArray(16);
+    if (result) env->SetDoubleArrayRegion(result, 0, 16, centers);
     return result;
 }
 extern "C" JNIEXPORT jstring JNICALL Java_app_justmaple_aperture_data_NativeBridge_parametricCurve(JNIEnv *env, jobject, jstring xml) {

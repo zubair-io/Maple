@@ -39,6 +39,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
+import kotlin.math.roundToInt
 
 @RunWith(RobolectricTestRunner::class)
 class CropToolTest {
@@ -80,13 +81,57 @@ class CropToolTest {
         }
     }
 
+    private class RecordingSurface : CropOverlaySurface {
+        override val overscan = 7f
+        val draws = mutableListOf<Pair<List<Double>, Int>>()
+        var bitmapSize: Pair<Int, Int>? = null
+        override fun draw(bitmap: android.graphics.Bitmap, params: DoubleArray, active: Int) {
+            bitmapSize = bitmap.width to bitmap.height
+            draws += params.toList() to active
+        }
+        override fun handleCenters(params: DoubleArray): DoubleArray {
+            val (top, left, bottom, right) = params.take(4)
+            val (w, h) = params[5] to params[6]
+            val (x0, y0, x1, y1) = listOf(left * w, top * h, right * w, bottom * h)
+            return doubleArrayOf(x0, y0, x1, y0, x0, y1, x1, y1, (x0 + x1) / 2, y0, (x0 + x1) / 2, y1, x0, (y0 + y1) / 2, x1, (y0 + y1) / 2)
+        }
+    }
+
+    @Test
+    fun theSharedOverlaySurfaceGetsTheViewportCropAndDraggedHandleAndPlacesHandleElements() {
+        val surface = RecordingSurface()
+        var crop by mutableStateOf(CropRect(0.1f, 0.2f, 0.9f, 0.8f))
+        compose.setContent {
+            Box(Modifier.size(300.dp, 200.dp)) {
+                CropOverlay(crop, { crop = it }, imageAspect = 1.5f, surface = surface)
+            }
+        }
+        compose.runOnIdle {
+            val (params, active) = surface.draws.last()
+            val density = RuntimeEnvironment.getApplication().resources.displayMetrics.density.toDouble()
+            assertEquals(listOf(0.1, 0.2, 0.9, 0.8, 0.0, 300.0, 200.0, 1.5, 1.0, density),
+                params.map { Math.round(it * 1e4) / 1e4 })
+            assertEquals(-1, active)
+            assertEquals((314 * density).roundToInt() to (214 * density).roundToInt(), surface.bitmapSize)
+        }
+        compose.onNodeWithContentDescription("Crop bottom right corner").assertExists()
+        compose.onNodeWithTag("crop-overlay").performTouchInput {
+            down(Offset(width * 0.8f - 1f, height * 0.9f - 1f))
+            moveBy(Offset(-width * 0.05f, 0f))
+        }
+        compose.runOnIdle {
+            assertEquals("The dragged corner is emphasised", CropHandle.BR.ordinal, surface.draws.last().second)
+        }
+        compose.onNodeWithTag("crop-overlay").performTouchInput { up() }
+        compose.runOnIdle { assertEquals(-1, surface.draws.last().second) }
+    }
     @Test
     fun verticalLockedCornerGestureResizesTheCrop() {
         var crop by mutableStateOf(CropGeometry.centeredCropForAspect(1f, 1.5f, 1f, 0f))
         var commits = 0
         compose.setContent {
             Box(Modifier.size(300.dp, 200.dp)) {
-                CropOverlay(crop, { crop = it }, { commits++ }, lockedAspect = 1f, imageAspect = 1.5f)
+                CropOverlay(crop, { crop = it }, { commits++ }, lockedAspect = 1f, imageAspect = 1.5f, surface = RecordingSurface())
             }
         }
         compose.onNodeWithTag("crop-overlay").performTouchInput {
@@ -115,7 +160,7 @@ class CropToolTest {
     fun cropMoveAccumulatesEventsWithoutWaitingForRecomposition() {
         var result = CropRect(0.2f, 0.2f, 0.8f, 0.8f)
         val original = result
-        compose.setContent { Box(Modifier.size(300.dp)) { CropOverlay(original, { result = it }) } }
+        compose.setContent { Box(Modifier.size(300.dp)) { CropOverlay(original, { result = it }, surface = RecordingSurface()) } }
         compose.onNodeWithTag("crop-overlay").performTouchInput {
             down(center)
             moveBy(Offset(width * 0.025f, 0f))
@@ -133,7 +178,7 @@ class CropToolTest {
         var commits = 0
         compose.setContent {
             Box(Modifier.size(300.dp)) {
-                if (shown) CropOverlay(crop, { crop = it }, { commits++ })
+                if (shown) CropOverlay(crop, { crop = it }, { commits++ }, surface = RecordingSurface())
             }
         }
         val overlay = compose.onNodeWithTag("crop-overlay")
@@ -155,7 +200,7 @@ class CropToolTest {
         var commits = 0
         compose.setContent {
             Box(Modifier.size(300.dp, 200.dp)) {
-                CropOverlay(crop, { crop = it }, { commits++ }, lockedAspect = 1f, imageAspect = 1.5f)
+                CropOverlay(crop, { crop = it }, { commits++ }, lockedAspect = 1f, imageAspect = 1.5f, surface = RecordingSurface())
             }
         }
         compose.onNodeWithTag("crop-overlay").performTouchInput {
@@ -274,8 +319,10 @@ class CropToolTest {
         compose.mainClock.autoAdvance = false
         compose.setContent {
             Box(Modifier.size(400.dp, 800.dp)) {
-                PhotoSurface(model, state, tablet = false, showInspector = true,
-                    onInfo = {}, onExport = {}, posture = FoldablePosture())
+                CompositionLocalProvider(LocalCropOverlaySurface provides RecordingSurface()) {
+                    PhotoSurface(model, state, tablet = false, showInspector = true,
+                        onInfo = {}, onExport = {}, posture = FoldablePosture())
+                }
             }
         }
         compose.mainClock.advanceTimeByFrame()

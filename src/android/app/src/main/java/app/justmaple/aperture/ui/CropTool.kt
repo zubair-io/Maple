@@ -11,9 +11,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChanged
 import androidx.compose.ui.platform.testTag
@@ -29,6 +26,12 @@ import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
+import kotlin.math.roundToInt
+import android.graphics.Bitmap
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.DpSize
+import app.justmaple.aperture.data.NativeBridge
 
 data class CropRect(
     val top: Float = 0f,
@@ -381,6 +384,40 @@ internal fun CropControlsSection(
     }
 }
 
+/** The shared Rust overlay surface (#5715): the overlay pixels and handle centres. */
+internal interface CropOverlaySurface {
+    /** Points the surface extends past the viewport on every side. */
+    val overscan: Float
+    fun draw(bitmap: Bitmap, params: DoubleArray, active: Int)
+    fun handleCenters(params: DoubleArray): DoubleArray
+}
+
+internal object NativeCropOverlaySurface : CropOverlaySurface {
+    override val overscan by lazy { NativeBridge.cropOverlayOverscan().toFloat() }
+    override fun draw(bitmap: Bitmap, params: DoubleArray, active: Int) = NativeBridge.cropOverlay(bitmap, params, active)
+    override fun handleCenters(params: DoubleArray) = NativeBridge.cropHandleCenters(params)
+}
+
+/** JVM UI tests provide a recording surface; the app always draws through raw-core. */
+internal val LocalCropOverlaySurface = staticCompositionLocalOf<CropOverlaySurface> { NativeCropOverlaySurface }
+
+/** top, left, bottom, right, angle, viewport (points), image size, surface pixels per point. */
+internal fun cropOverlayParams(crop: CropRect, viewport: DpSize, imageAspect: Float, density: Float) =
+    doubleArrayOf(
+        crop.top.toDouble(), crop.left.toDouble(), crop.bottom.toDouble(), crop.right.toDouble(), crop.angle.toDouble(),
+        viewport.width.value.toDouble(), viewport.height.value.toDouble(), imageAspect.toDouble(), 1.0, density.toDouble(),
+    )
+
+private val handleLabels =
+    listOf("top left corner", "top right corner", "bottom left corner", "bottom right corner",
+        "top edge", "bottom edge", "left edge", "right edge")
+
+/**
+ * Apple's crop overlay — mask, frame (dragged edges emphasised), rule-of-thirds
+ * grid and corner dots — drawn by raw-core into its own surface, so a handle
+ * drag never re-renders the photo. Each handle is an accessible element placed
+ * at raw-core's handle centre.
+ */
 @Composable
 internal fun CropOverlay(
     crop: CropRect,
@@ -389,14 +426,32 @@ internal fun CropOverlay(
     modifier: Modifier = Modifier,
     lockedAspect: Float? = null,
     imageAspect: Float = 1f,
-) {
+    surface: CropOverlaySurface = LocalCropOverlaySurface.current,
+) = BoxWithConstraints(modifier.fillMaxSize()) {
     val currentAspect by rememberUpdatedState(lockedAspect)
     val currentImageAspect by rememberUpdatedState(imageAspect)
     val currentCrop by rememberUpdatedState(crop)
     val currentCallback by rememberUpdatedState(onCropChange)
     val currentCommit by rememberUpdatedState(onCropCommit)
+    var active by remember { mutableStateOf<CropHandle?>(null) }
+    val density = LocalDensity.current.density
+    val viewport = DpSize(maxWidth, maxHeight)
+    val params = cropOverlayParams(crop, viewport, imageAspect, density)
+    val overscan = surface.overscan
+    val bitmap =
+        remember(viewport, density) {
+            androidx.core.graphics.createBitmap(
+                ((viewport.width.value + 2 * overscan) * density).roundToInt().coerceAtLeast(1),
+                ((viewport.height.value + 2 * overscan) * density).roundToInt().coerceAtLeast(1),
+            )
+        }
+    val frame = remember(bitmap, params.toList(), active) {
+        surface.draw(bitmap, params, active?.ordinal ?: -1)
+        bitmap.asImageBitmap()
+    }
+    val centers = remember(params.toList()) { surface.handleCenters(params) }
     Canvas(
-        modifier
+        Modifier
             .fillMaxSize()
             .pointerInput(Unit) {
                 awaitEachGesture {
@@ -417,6 +472,7 @@ internal fun CropOverlay(
                     var workingCrop = startCrop
                     var lastPos = down.position
                     var moved = false
+                    active = handle
                     try {
                         do {
                             val event = awaitPointerEvent()
@@ -450,39 +506,23 @@ internal fun CropOverlay(
                             }
                         } while (event.changes.any { it.pressed })
                     } finally {
+                        active = null
                         if (moved) currentCommit()
                     }
                 }
             }
             .testTag("crop-overlay")
     ) {
-        val leftPx = crop.left * size.width
-        val topPx = crop.top * size.height
-        val cropW = (crop.right - crop.left) * size.width
-        val cropH = (crop.bottom - crop.top) * size.height
-
-        drawRect(
-            color = Color.White,
-            topLeft = Offset(leftPx, topPx),
-            size = Size(cropW, cropH),
-            style = Stroke(width = 2.dp.toPx()),
+        val offset = overscan.dp.toPx()
+        drawImage(frame, topLeft = Offset(-offset, -offset))
+    }
+    for (index in 0 until 8) {
+        Box(
+            Modifier
+                .offset((centers[index * 2] - 22).dp, (centers[index * 2 + 1] - 22).dp)
+                .size(44.dp)
+                .semantics { contentDescription = "Crop ${handleLabels[index]}" }
+                .testTag("crop-handle-${CropHandle.entries[index].name}"),
         )
-        // Rule-of-thirds grid lines
-        for (i in 1..2) {
-            val x = leftPx + cropW * (i / 3f)
-            val y = topPx + cropH * (i / 3f)
-            drawLine(
-                color = Color.White.copy(alpha = 0.45f),
-                start = Offset(x, topPx),
-                end = Offset(x, topPx + cropH),
-                strokeWidth = 1.dp.toPx(),
-            )
-            drawLine(
-                color = Color.White.copy(alpha = 0.45f),
-                start = Offset(leftPx, y),
-                end = Offset(leftPx + cropW, y),
-                strokeWidth = 1.dp.toPx(),
-            )
-        }
     }
 }

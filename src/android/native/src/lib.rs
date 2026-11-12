@@ -2,6 +2,7 @@
 mod auto_white_balance;
 mod cancellation;
 mod canvas_zoom;
+mod crop_overlay;
 mod fields;
 mod film;
 mod native_detail;
