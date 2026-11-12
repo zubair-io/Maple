@@ -306,6 +306,11 @@ pub struct MapleAdjustmentParams {
     /// `temperature`/`tint` in place of the white-balance delta, so
     /// `decoded_*` and `wb_frame_*` are not read. Borrowed for the call.
     pub creative_ptr: *const crate::capture_creative::MapleCaptureCreative,
+    /// #5093: the unit's `AnalogBalance · CameraCalibrationN` per render
+    /// illuminant endpoint, appended at the tail (offset-stable ABI). All-zero
+    /// ⇒ identity.
+    pub wb_frame_render_individual_cold: [f32; 9],
+    pub wb_frame_render_individual_warm: [f32; 9],
 }
 
 /// Decode the local-adjustment layer stack (#1698) out of the C params, and

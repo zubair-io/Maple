@@ -224,6 +224,8 @@ namespace Maple.WinUI.Native
         // decoded_* and wb_frame_*. Null (a raster) keeps the
         // scene-linear white-balance delta.
         public MapleCaptureCreative* creative_ptr;
+        public fixed float wb_frame_render_individual_cold[9];
+        public fixed float wb_frame_render_individual_warm[9];
 
         /// <summary>
         /// Build live-chain params from the canonical model + decode exports.

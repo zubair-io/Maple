@@ -41,6 +41,8 @@ fn synthetic_frame() -> SliderFrameExport {
         render_cct_warm: 0.0,
         render_fm_cold: Matrix3([[0.0; 3]; 3]),
         render_fm_warm: Matrix3([[0.0; 3]; 3]),
+        render_individual_cold: Matrix3([[0.0; 3]; 3]),
+        render_individual_warm: Matrix3([[0.0; 3]; 3]),
     }
 }
 
@@ -74,6 +76,8 @@ fn synthetic_frame_with_render_profile() -> SliderFrameExport {
         render_cct_warm: 6504.0,
         render_fm_cold: Matrix3([[0.79, 0.16, 0.05], [0.30, 0.68, 0.02], [-0.02, -0.04, 1.05]]),
         render_fm_warm: Matrix3([[0.71, 0.20, 0.07], [0.26, 0.73, 0.00], [0.00, -0.06, 1.07]]),
+        render_individual_cold: Matrix3([[0.0; 3]; 3]),
+        render_individual_warm: Matrix3([[0.0; 3]; 3]),
         ..synthetic_frame()
     }
 }
@@ -170,6 +174,8 @@ fn singular_frame_falls_back_to_generic_cat16_delta() {
         render_cct_warm: 0.0,
         render_fm_cold: Matrix3([[0.0; 3]; 3]),
         render_fm_warm: Matrix3([[0.0; 3]; 3]),
+        render_individual_cold: Matrix3([[0.0; 3]; 3]),
+        render_individual_warm: Matrix3([[0.0; 3]; 3]),
     };
     let m = f.rec2020_delta_matrix((6282.0, -44.0), (6500.0, 0.0));
     let legacy =
@@ -274,6 +280,8 @@ fn render_profile_without_endpoints_gives_a_constant_c_across_targets() {
         render_cct_warm: 0.0, // span < 1.0 => cm_endpoints absent
         render_fm_cold: Matrix3([[0.0; 3]; 3]),
         render_fm_warm: Matrix3([[0.0; 3]; 3]),
+        render_individual_cold: Matrix3([[0.0; 3]; 3]),
+        render_individual_warm: Matrix3([[0.0; 3]; 3]),
         ..synthetic_frame_with_render_profile()
     };
     let c_a = f.c_at(&f.to_frame(), 3500.0, 30.0);

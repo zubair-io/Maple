@@ -117,6 +117,7 @@ fn fake_raw(w: u32, h: u32) -> RawImage {
         unique_camera_model: None,
         color_matrices: std::collections::HashMap::new(),
         forward_matrices: std::collections::HashMap::new(),
+        individual_calibrations: std::collections::HashMap::new(),
         orientation: crate::image::ExifOrientation::Normal,
         baseline_exposure: 0.0,
         hsm_data: std::collections::HashMap::new(),

@@ -119,6 +119,8 @@ pub(super) unsafe fn inputs_from_params(
         render_cct_warm: p.wb_frame_render_cct_warm,
         render_fm_cold: &p.wb_frame_render_fm_cold,
         render_fm_warm: &p.wb_frame_render_fm_warm,
+        render_individual_cold: &p.wb_frame_render_individual_cold,
+        render_individual_warm: &p.wb_frame_render_individual_warm,
     });
     let frame_delta_engaged = use_delta && wb_frame.is_present();
     let wb_matrix = if frame_delta_engaged {

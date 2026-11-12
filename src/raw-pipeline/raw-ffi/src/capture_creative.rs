@@ -76,6 +76,11 @@ pub struct MapleCaptureCreative {
     /// The profile's table wire; valid for the life of the process.
     pub tables: *const f32,
     pub tables_len: usize,
+    /// `AnalogBalance · CameraCalibrationN` the endpoint ForwardMatrices are
+    /// reference matrices for (#5093), appended at the tail (offset-stable
+    /// ABI); all-zero reads as identity.
+    pub individual_cold: [f32; 9],
+    pub individual_warm: [f32; 9],
 }
 
 fn flat(m: Matrix3) -> [f32; 9] {
@@ -135,6 +140,8 @@ impl MapleCaptureCreative {
         fm_cold: [0.0; 9],
         has_fm_warm: 0,
         fm_warm: [0.0; 9],
+        individual_cold: [0.0; 9],
+        individual_warm: [0.0; 9],
         has_frame: 0,
         frame_has_endpoints: 0,
         frame_m_cold: [0.0; 9],
@@ -194,6 +201,8 @@ impl MapleCaptureCreative {
             fm_cold: e.and_then(|e| e.fm_cold).map_or(zero, flat),
             has_fm_warm: e.is_some_and(|e| e.fm_warm.is_some()) as u32,
             fm_warm: e.and_then(|e| e.fm_warm).map_or(zero, flat),
+            individual_cold: e.map_or(zero, |e| flat(e.individual_cold)),
+            individual_warm: e.map_or(zero, |e| flat(e.individual_warm)),
             has_frame: f.is_some() as u32,
             frame_has_endpoints: fe.is_some() as u32,
             frame_m_cold: fe.map_or(zero, |e| flat(e.0)),
@@ -261,6 +270,8 @@ impl MapleCaptureCreative {
                     cct_warm: self.cct_warm,
                     fm_cold: optional(self.has_fm_cold, &self.fm_cold),
                     fm_warm: optional(self.has_fm_warm, &self.fm_warm),
+                    individual_cold: matrix(&self.individual_cold).identity_if_zero(),
+                    individual_warm: matrix(&self.individual_warm).identity_if_zero(),
                 }),
             },
             frame: (self.has_frame != 0).then(|| SliderFrameParts {
@@ -304,6 +315,8 @@ impl MapleCaptureCreative {
             &self.cm_warm,
             &self.fm_cold,
             &self.fm_warm,
+            &self.individual_cold,
+            &self.individual_warm,
             &self.frame_m_cold,
             &[
                 self.frame_cct_cold,
