@@ -198,6 +198,32 @@ describe('PhotoResultsSectionComponent', () => {
     expect(tapSpy).toHaveBeenCalledWith(r);
   });
 
+  it('badges a folded RAW+JPEG result, and only that one (#5849)', () => {
+    const stacked: SearchResult = {
+      ...makeResult('raw'),
+      stack: {
+        companion: {
+          id: 'jpeg',
+          name: 'raw.JPG',
+          address: 'lib:raw.JPG',
+          path: '/path/raw.JPG',
+          size: 7,
+          mtime: '2026-01-01T00:00:00.000Z',
+          ext: 'jpg',
+        },
+      },
+    };
+    fixture.componentRef.setInput('results', [stacked, makeResult('lone')]);
+    fixture.detectChanges();
+
+    const badgeOn = (id: string) =>
+      fixture.nativeElement.querySelector(
+        `[data-testid="search-tile-fs:/path/${id}"] [data-testid="stack-badge"]`,
+      );
+    expect(badgeOn('raw')?.getAttribute('aria-label')).toBe('RAW and JPEG');
+    expect(badgeOn('lone')).toBeNull();
+  });
+
   it('renders loading more indicator when isLoadingMore is true', () => {
     const results = [makeResult('1')];
     fixture.componentRef.setInput('results', results);

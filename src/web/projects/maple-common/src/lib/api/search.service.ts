@@ -8,6 +8,7 @@ import { HttpClient, HttpErrorResponse, HttpParams } from '@angular/common/http'
 import { Observable } from 'rxjs';
 import { API_BASE_URL } from './api-base-url.token';
 import type { ColorLabelValue } from '../models/color-label';
+import type { SearchStackWire } from '../models/asset-stack';
 
 export type SearchSort = 'captured_desc' | 'captured_asc' | 'name' | 'rating';
 export type SearchFlag = 'pick' | 'reject' | 'none';
@@ -149,6 +150,8 @@ export interface SearchResult {
   has_xmp?: boolean;
   hidden?: boolean;
   owner_id?: string | null;
+  /** RAW hits only, when the server folds RAW+JPEG stacks (#5849): the JPEG it stands for. */
+  stack?: SearchStackWire;
 }
 
 export interface SearchResponse {
