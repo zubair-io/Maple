@@ -2,7 +2,7 @@ import Foundation
 
 /// Folds each RAW+JPEG pair of a listing into the RAW's one tile (#5050). The JPEG leaves the list
 /// and rides on the RAW as `AssetRef.stack`, so every action on the tile reaches both files.
-enum RawJpegStacking {
+public enum RawJpegStacking {
   /// Local-folder refs for `urls`. With `stacksPairs` off every file is its own tile.
   static func localRefs(
     _ urls: [URL], scopeParentURL: URL?, livePhotoLinks: [String: LivePhotoLink],
@@ -60,7 +60,7 @@ enum RawJpegStacking {
   }
 
   /// The stack the Self Hosted listing reported on a RAW entry.
-  static func cloudStack(for entry: FsImageEntry) -> RawJpegStack? {
+  public static func cloudStack(for entry: FsImageEntry) -> RawJpegStack? {
     entry.stack.map { stack in
       RawJpegStack(
         primary: .init(name: entry.name, size: entry.size),
@@ -68,6 +68,19 @@ enum RawJpegStacking {
         location: .cloud(
           address: stack.companion.address, path: stack.companion.path, id: stack.companion.id))
     }
+  }
+
+  /// The stack a Self Hosted timeline or search hit reported on a RAW (#5849). A companion with
+  /// no address (its library has no slug) is left off, as on Web, since a cloud stack locates its
+  /// JPEG by address.
+  public static func cloudStack(for asset: SearchAsset) -> RawJpegStack? {
+    guard let companion = asset.stack?.companion, let address = companion.address else {
+      return nil
+    }
+    return RawJpegStack(
+      primary: .init(name: asset.filename, size: asset.size),
+      companion: .init(name: companion.name, size: companion.size),
+      location: .cloud(address: address, path: companion.path, id: companion.id))
   }
 
   private static func fileSize(_ url: URL) -> Int64? {
