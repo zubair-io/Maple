@@ -35,6 +35,7 @@
 //! buffers.
 
 pub mod brush;
+pub mod controls;
 pub mod flat;
 mod group;
 mod raster;

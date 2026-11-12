@@ -6,6 +6,8 @@ import app.justmaple.aperture.generated.AdjustmentFields
 import app.justmaple.aperture.generated.XmpSubject
 import java.io.StringReader
 import java.util.Locale
+import org.json.JSONArray
+import org.json.JSONObject
 import org.xmlpull.v1.XmlPullParser
 
 /** A lexical patch preserves all unedited XML bytes, including foreign data. */
@@ -15,12 +17,14 @@ private constructor(
     val changes: Map<String, String?>,
     /** Point curves replaced since [original]; an empty list is the identity. */
     val curves: Map<PointCurve, List<CurveKnot>>,
+    /** The mask containers rewritten since [original]; `null` keeps their bytes. */
+    val masks: MaskEdit?,
 ) {
     constructor(
         original: String = EMPTY,
         changes: Map<String, String?> = emptyMap(),
         curves: Map<PointCurve, List<CurveKnot>> = emptyMap(),
-    ) : this(ParsedSource(original), changes, curves)
+    ) : this(ParsedSource(original), changes, curves, null)
 
     val original: String
         get() = source.xml
@@ -36,16 +40,67 @@ private constructor(
         val curves by lazy {
             readPointCurves(xml, ::canonicalPrefix, scopes.filter { it.second.topLevel }.map { it.second.primary })
         }
+        val descriptionTags by lazy {
+            tags.map { (tag, scope) -> DescriptionTag(tag.range, tag.value, effectiveBindings(tag.value, scope.bindings)) }
+        }
+        val maskContainers by lazy {
+            matchingChildren(xml, descriptionTags, ::attributeName) { it in MASK_CONTAINERS }
+        }
     }
 
     override fun equals(other: Any?): Boolean =
         this === other ||
             (other is XmpDocument && original == other.original && changes == other.changes &&
-                curves == other.curves)
+                curves == other.curves && masks == other.masks)
 
-    override fun hashCode(): Int = 31 * (31 * original.hashCode() + changes.hashCode()) + curves.hashCode()
+    override fun hashCode(): Int =
+        31 * (31 * (31 * original.hashCode() + changes.hashCode()) + curves.hashCode()) + masks.hashCode()
 
     fun curve(curve: PointCurve): List<CurveKnot> = curves[curve] ?: source.curves[curve].orEmpty()
+
+    private fun originalMask(index: Int): String =
+        source.maskContainers[index].first.let { original.substring(it.start, it.end + 1) }
+
+    /** The mask containers as they stand, each with the scope it is read in. */
+    private fun currentMasks(): List<Pair<Int?, JSONObject>> {
+        val last = source.descriptionTags.last()
+        val target = maskTarget(last)
+        val kept = source.maskContainers.indices.mapNotNull { index ->
+            val text = masks?.containers?.get(index) ?: originalMask(index)
+            val scope = source.maskContainers[index].second.bindings
+            text.takeIf { it.isNotEmpty() }?.let { index to maskSource(scope, it) }
+        }
+        return kept + masks?.appended.orEmpty().map { null to maskSource(target, it) }
+    }
+
+    /** `mask_document.rs`'s input for the current mask containers. */
+    fun maskInput(): JSONObject {
+        val last = source.descriptionTags.last()
+        return JSONObject()
+            .put("target", JSONObject(maskTarget(last).toMap()))
+            .put("containers", JSONArray(currentMasks().map { it.second }))
+            .put("legacy", attribute(LEGACY_MASKS) ?: JSONObject.NULL)
+            .put("indent", childIndent(original, last))
+    }
+
+    /** The document after `mask_write.rs` replaced the containers [maskInput] described. */
+    fun withMaskOutput(output: JSONObject): XmpDocument {
+        val replaced = output.getJSONArray("containers")
+        val written = output.getJSONArray("appended")
+        val containers = source.maskContainers.indices.map { masks?.containers?.get(it) ?: originalMask(it) }.toMutableList()
+        val appended = mutableListOf<String>()
+        currentMasks().forEachIndexed { position, (index, _) ->
+            val text = replaced.getString(position)
+            if (index != null) containers[index] = text else if (text.isNotEmpty()) appended += text
+        }
+        for (position in 0 until written.length()) appended += written.getString(position)
+        val unchanged = appended.isEmpty() && containers.indices.all { containers[it] == originalMask(it) }
+        val withoutLegacy = if (attribute(LEGACY_MASKS) != null) changes + (LEGACY_MASKS to null) else changes
+        return XmpDocument(source, withoutLegacy, curves, if (unchanged) null else MaskEdit(containers, appended))
+    }
+
+    private fun maskTarget(last: DescriptionTag): Map<String, String> =
+        last.bindings + outputPrefixes(last.bindings).map { (canonical, prefix) -> prefix to NAMESPACES.getValue(canonical) }
 
     /** Restoring the loaded knots drops the change, so the saved bytes stay untouched. */
     fun withCurve(curve: PointCurve, knots: List<CurveKnot>): XmpDocument =
@@ -53,6 +108,7 @@ private constructor(
             source,
             changes,
             if (knots == source.curves[curve].orEmpty()) curves - curve else curves + (curve to knots),
+            masks,
         )
 
     fun withField(field: AdjustmentField, value: Float): XmpDocument {
@@ -69,7 +125,7 @@ private constructor(
                     "papp:WbSource" to "Manual",
                 )
             else emptyMap()
-        return XmpDocument(source, changes + additions + wb, curves)
+        return XmpDocument(source, changes + additions + wb, curves, masks)
     }
 
     val rating: Int
@@ -80,7 +136,7 @@ private constructor(
                 ?.toInt() ?: 0
 
     fun withAttribute(name: String, value: String?) =
-        XmpDocument(source, changes + (name to value), curves)
+        XmpDocument(source, changes + (name to value), curves, masks)
 
     fun withoutWhiteBalance(): XmpDocument =
         listOf(
@@ -140,14 +196,24 @@ private constructor(
                     "crs:ProcessVersion" to (attribute("crs:ProcessVersion") ?: "11.0"),
                 )
         val lastScope = tags.last().second
-        val (curveEdits, selfClosingTail) =
-            pointCurveEdits(
-                original,
-                tags.map { (tag, scope) -> DescriptionTag(tag.range, tag.value, scope.bindings) },
-                curves,
-                ::attributeName,
-                outputPrefixes(lastScope.bindings),
-            )
+        val descriptionTags = source.descriptionTags
+        val last = descriptionTags.last()
+        val indent = childIndent(original, last)
+        val maskEdits = masks?.let { edit ->
+            source.maskContainers.mapIndexedNotNull { index, (child, description) ->
+                val text = edit.containers[index]
+                when {
+                    text == originalMask(index) -> null
+                    text.isEmpty() -> removal(original, child, description)
+                    else -> XmlEdit(child.start, child.end, text)
+                }
+            }
+        }.orEmpty()
+        val block =
+            pointCurveBlock(curves, last, outputPrefixes(lastScope.bindings), indent) +
+                masks?.appended.orEmpty().joinToString("") { "\n$indent$it" }
+        val (insertion, selfClosingTail) = appendToDescription(original, last, block)
+        val curveEdits = pointCurveRemovals(original, descriptionTags, curves, ::attributeName) + maskEdits + insertion
         val replacements = tags.map { (tag, scope) ->
             val stripped =
                 ATTRIBUTE.replace(tag.value) { match ->
@@ -208,6 +274,14 @@ private constructor(
         private val ATTRIBUTE =
             Regex("""\s+([^\s=<>/'"?]+)\s*=\s*(['"])(.*?)\2""", RegexOption.DOT_MATCHES_ALL)
         private val LEGACY_PAPP = setOf("http://ns.justmaple.app/1.0/", "https://maple.app/ns/1.0/")
+        /** Slice 1's JSON mask attribute: raw-core still reads it when no container models a layer. */
+        private const val LEGACY_MASKS = "papp:LocalAdjustments"
+
+        /** [bindings] as [serialize] leaves them: a local legacy `papp` declaration is rewritten. */
+        private fun effectiveBindings(tag: String, bindings: Map<String, String>): Map<String, String> =
+            if (bindings["papp"] in LEGACY_PAPP && ATTRIBUTE.findAll(tag).any { it.groupValues[1] == "xmlns:papp" })
+                bindings + ("papp" to NAMESPACES.getValue("papp"))
+            else bindings
         private val DESCRIPTION =
             Regex(
                 "<!--.*?-->|<!\\[CDATA\\[.*?\\]\\]>|<\\?.*?\\?>|(<(?:[^\\s<>/!?=:\"']+:)?Description(?=[\\s/>])(?:[^>\"']|\"[^\"]*\"|'[^']*')*>)",
@@ -268,8 +342,6 @@ private constructor(
             return tags.zip(scopes)
         }
 
-        private const val RDF_URI = "http://www.w3.org/1999/02/22-rdf-syntax-ns#"
-
         /**
          * Every `Description` element in document order. Of the top-level ones only the
          * primary subject's are editable: raw-core ranks them by subject (`rdf:about=""`,
@@ -291,7 +363,7 @@ private constructor(
                     rdfDepth == null &&
                         parser.eventType == XmlPullParser.START_TAG &&
                         parser.name == "RDF" &&
-                        parser.namespace == RDF_URI
+                        parser.namespace == RDF_NAMESPACE
                 ) {
                     rdfDepth = parser.depth
                     insideRdf = true
@@ -320,7 +392,7 @@ private constructor(
                         put(attributeName(qualified, bindings), parser.getAttributeValue(i))
                     }
                 }
-                val topLevel = insideRdf && parser.depth == rdfDepth?.plus(1) && parser.namespace == RDF_URI
+                val topLevel = insideRdf && parser.depth == rdfDepth?.plus(1) && parser.namespace == RDF_NAMESPACE
                 if (topLevel) {
                     val candidate = subjectCandidate(parser, candidates.size)
                     candidate.score = attributes.keys.count { it in XmpSubject.attributes }
@@ -343,7 +415,7 @@ private constructor(
             var nodeId: String? = null
             for (i in 0 until parser.attributeCount) {
                 val namespace = parser.getAttributeNamespace(i).orEmpty()
-                val rdf = namespace == RDF_URI
+                val rdf = namespace == RDF_NAMESPACE
                 val unbound = namespace.isEmpty()
                 when (parser.getAttributeName(i)) {
                     "about" -> if (rdf || (unbound && about == null)) about = parser.getAttributeValue(i)

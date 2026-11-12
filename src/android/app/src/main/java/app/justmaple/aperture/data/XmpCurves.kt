@@ -35,22 +35,7 @@ enum class PointCurve(val element: String) {
     }
 }
 
-/** A primary `rdf:Description` start tag, its source range and in-scope prefixes. */
-internal class DescriptionTag(val range: IntRange, val text: String, val bindings: Map<String, String>) {
-    val selfClosing: Boolean
-        get() = text.endsWith("/>")
-}
-
-internal class XmlEdit(val start: Int, val end: Int, val text: String)
-
-private const val RDF = "http://www.w3.org/1999/02/22-rdf-syntax-ns#"
 private const val WIRE_SCALE = 255f
-private val TOKEN =
-    Regex(
-        """<!--.*?-->|<!\[CDATA\[.*?]]>|<\?.*?\?>|</([^\s>]+)\s*>|<([^\s/>!?]+)((?:[^>"']|"[^"]*"|'[^']*')*?)(/?)>""",
-        RegexOption.DOT_MATCHES_ALL,
-    )
-private val XMLNS = Regex("""\sxmlns:([^\s=]+)\s*=\s*(['"])(.*?)\2""")
 
 /**
  * Curves of the primary subject's descriptions' direct children ([primary] flags each
@@ -79,8 +64,8 @@ internal fun readPointCurves(
     while (parser.next() != XmlPullParser.END_DOCUMENT) {
         when (parser.eventType) {
             XmlPullParser.START_TAG -> when {
-                rdfDepth < 0 && parser.name == "RDF" && parser.namespace == RDF -> rdfDepth = parser.depth
-                parser.depth == rdfDepth + 1 && parser.name == "Description" && parser.namespace == RDF -> {
+                rdfDepth < 0 && parser.name == "RDF" && parser.namespace == RDF_NAMESPACE -> rdfDepth = parser.depth
+                parser.depth == rdfDepth + 1 && parser.name == "Description" && parser.namespace == RDF_NAMESPACE -> {
                     if (primary.getOrElse(descriptions) { false }) descriptionDepth = parser.depth
                     descriptions += 1
                 }
@@ -91,7 +76,7 @@ internal fun readPointCurves(
                     knots.clear()
                 }
                 active != null && opaqueDepth < 0 -> {
-                    val owned = if (parser.namespace == RDF) "rdf" else canonicalUri(parser.namespace)
+                    val owned = if (parser.namespace == RDF_NAMESPACE) "rdf" else canonicalUri(parser.namespace)
                     when {
                         owned != "rdf" && owned != "crs" && owned != "papp" -> opaqueDepth = parser.depth
                         owned == "papp" && parser.name == "Workflow" -> opaqueDepth = parser.depth
@@ -131,42 +116,35 @@ private fun parseKnot(text: String): CurveKnot? {
     return if (x.isFinite() && y.isFinite()) CurveKnot(x / WIRE_SCALE, y / WIRE_SCALE) else null
 }
 
-/**
- * Removes the changed curves among every primary description's direct children
- * and writes their replacements into the last description. Identity is silence:
- * an empty curve writes no element. When the last description is self-closing,
- * the second value is the content and end tag that replace its `/>`.
- */
-internal fun pointCurveEdits(
+/** Removes the changed curves among every primary description's direct children. */
+internal fun pointCurveRemovals(
     xml: String,
     descriptions: List<DescriptionTag>,
     changes: Map<PointCurve, List<CurveKnot>>,
     canonicalName: (String, Map<String, String>) -> String,
+): List<XmlEdit> =
+    if (changes.isEmpty()) emptyList()
+    else matchingChildren(xml, descriptions, canonicalName) { PointCurve.byElement[it] in changes }
+        .map { (child, description) -> removal(xml, child, description) }
+
+/**
+ * The replacements for changed curves, one line-leading element each, written at
+ * [indent] in the last description. Identity is silence: an empty curve writes no element.
+ */
+internal fun pointCurveBlock(
+    changes: Map<PointCurve, List<CurveKnot>>,
+    last: DescriptionTag,
     prefixes: Map<String, String>,
-): Pair<List<XmlEdit>, String> {
-    if (changes.isEmpty()) return emptyList<XmlEdit>() to ""
-    val removals = descriptions.filterNot { it.selfClosing }.flatMap { description ->
-        directChildren(xml, description.range.last + 1).mapNotNull { child ->
-            val local = XMLNS.findAll(child.tag).associate { it.groupValues[1] to it.groupValues[3] }
-            val curve = PointCurve.byElement[canonicalName(child.name, description.bindings + local)]
-            if (curve !in changes) null
-            else XmlEdit(whitespaceStart(xml, child.start, description.range.last + 1), child.end, "")
-        }
-    }
-    val last = descriptions.last()
-    val content = last.range.last + 1
-    val close = if (last.selfClosing) null else directChildren(xml, content).closeStart
-    val indent =
-        (close?.takeIf { lineIndentEnd(xml, it) == it }?.let { lineIndent(xml, it) }
-            ?: lineIndent(xml, last.range.first)) + "  "
-    val rdf = last.bindings.entries.firstOrNull { it.value == RDF }?.key
-    val block = buildString {
+    indent: String,
+): String {
+    val rdf = last.bindings.entries.firstOrNull { it.value == RDF_NAMESPACE }?.key
+    return buildString {
         for (curve in PointCurve.entries) {
             val knots = changes[curve]?.takeIf { it.isNotEmpty() } ?: continue
             val canonical = curve.element.substringBefore(':')
             val element = "${prefixes.getValue(canonical)}:${curve.element.substringAfter(':')}"
             val seq = if (rdf != null) "$rdf:Seq" else "rdf:Seq"
-            val declare = if (rdf != null) "" else " xmlns:rdf=\"$RDF\""
+            val declare = if (rdf != null) "" else " xmlns:rdf=\"$RDF_NAMESPACE\""
             val li = if (rdf != null) "$rdf:li" else "rdf:li"
             append("\n$indent<$element>\n$indent  <$seq$declare>\n")
             for (knot in knots)
@@ -174,62 +152,6 @@ internal fun pointCurveEdits(
             append("$indent  </$seq>\n$indent</$element>")
         }
     }
-    val insertion =
-        if (close == null || block.isEmpty()) emptyList()
-        else whitespaceStart(xml, close, content).let { listOf(XmlEdit(it, it - 1, block)) }
-    val tail =
-        if (close != null || block.isEmpty()) ""
-        else "$block\n${lineIndent(xml, last.range.first)}</${last.text.drop(1).takeWhile { !it.isWhitespace() && it != '/' && it != '>' }}>"
-    return removals + insertion to tail
 }
 
 private fun wire(value: Float) = XmpDocument.format(value.coerceIn(0f, 1f) * WIRE_SCALE)
-
-private class Child(val name: String, val tag: String, val start: Int, val end: Int)
-
-private class Children(children: List<Child>, val closeStart: Int) : List<Child> by children
-
-/** Direct children of the element whose content starts at [content], and its closing tag. */
-private fun directChildren(xml: String, content: Int): Children {
-    val children = mutableListOf<Child>()
-    var depth = 1
-    var open: MatchResult? = null
-    for (token in TOKEN.findAll(xml, content)) {
-        val (endName, startName, _, selfClose) = token.destructured
-        when {
-            endName.isNotEmpty() -> {
-                depth -= 1
-                if (depth == 0) return Children(children, token.range.first)
-                if (depth == 1) open?.let {
-                    children += Child(it.groupValues[2], it.value, it.range.first, token.range.last)
-                    open = null
-                }
-            }
-            startName.isNotEmpty() && selfClose.isEmpty() -> {
-                if (depth == 1) open = token
-                depth += 1
-            }
-            startName.isNotEmpty() && depth == 1 ->
-                children += Child(startName, token.value, token.range.first, token.range.last)
-        }
-    }
-    error("Unclosed RDF description")
-}
-
-private fun whitespaceStart(xml: String, index: Int, floor: Int): Int {
-    var start = index
-    while (start > floor && xml[start - 1].isWhitespace()) start -= 1
-    return start
-}
-
-private fun lineIndent(xml: String, index: Int): String {
-    val lineStart = xml.lastIndexOf('\n', index - 1) + 1
-    return xml.substring(lineStart, lineIndentEnd(xml, lineStart))
-}
-
-private fun lineIndentEnd(xml: String, index: Int): Int {
-    val lineStart = xml.lastIndexOf('\n', index - 1) + 1
-    var end = lineStart
-    while (end < xml.length && (xml[end] == ' ' || xml[end] == '\t')) end += 1
-    return end
-}

@@ -120,6 +120,10 @@ internal fun PhoneEditorControls(
             )
         if (group == EditorGroup.Detail && subTool == "crop")
             CropControlsSection(model, state, Modifier.padding(horizontal = 12.dp, vertical = 4.dp))
+        if (group == EditorGroup.Detail && subTool == "mask")
+            Column(Modifier.fillMaxWidth().heightIn(max = 320.dp).verticalScroll(rememberScrollState())) {
+                MaskPanel(model, state, Modifier.padding(horizontal = 12.dp, vertical = 4.dp))
+            }
         if (dockFields.isNotEmpty()) LazyRow(
             Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 8.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp),

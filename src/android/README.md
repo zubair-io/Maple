@@ -18,7 +18,7 @@ filmstrip. With a connected server, Search queries that server (see Cloud
 connections); without one it filters names in the open folder. Maple Cloud/self-hosted
 connections support the iPad server-domain sign-in flow, registered libraries,
 nested folders, remote previews, and editing with conditional XMP saves. Device-library
-backup, server timeline/map/admin, masks, clone/heal, Browse multi-select (and with it
+backup, server timeline/map/admin, brush and person masks, clone/heal, Browse multi-select (and with it
 paste onto a selection) and the other remaining specialized editor surfaces are not
 implemented; the per-surface status is
 the audit on #4623, which remains open. Android delegates
@@ -81,6 +81,40 @@ handles unconsumed keys through `onKeyDown` and modified shortcuts through
 `onKeyShortcut`, after focused views, so text fields and sliders keep their input
 (`ui/PhotoKeyCommands.kt`, #5944). Browse has no keyboard target
 until it has a selection. Keyboard zoom and Reset Visible Group are #5945.
+## Masks
+
+Detail → Mask authors linear and radial local adjustments
+(`docs/design/maple-ui/components/mask-panel.md` and `mask-overlay.md`). The panel lists
+the layers with Add linear / Add radial, select and delete; the selected layer shows its
+ordered composition (Add / Subtract / Intersect a linear or radial component, then select,
+combine, invert or delete components, the last one going only with its layer), group
+opacity and inversion, feather, a radial layer's Invert, the seventeen local controls, Reset
+and the colour range: an enable toggle, the band centre, an eyedropper and the five range
+sliders. The eyedropper samples the open RAW through raw-core's `sample_mask_range`; a
+refused pick only replaces the panel's message line. Tablets mount the panel in the
+scrolling inspector and phones in the bottom control bar.
+
+While the tool is armed the canvas snaps to fit and `MaskOverlay` draws the selected
+layer's (or selected component's) handles: gradient start, end and body; radial centre,
+both radii and rotation. A handle press consumes its touch, so the canvas zoom gesture
+yields to the drag, and zoom stays live: the overlay sits in the zoomed image box and
+counter-scales its pins. The red weight tint (peak opacity 0.55) is raw-core's own
+evaluator over JNI, and handles and tint cross the crop's affine map (`mask_frame`), so a
+mask on a cropped or straightened photo is drawn where it renders. A drag is one undo
+entry opened on its first movement; every panel command is one entry and selection adds
+none.
+
+Reading and writing go through raw-core in the native crate (`mask_document.rs`,
+`mask_write.rs`, `mask_order.rs`). `XmpDocument` hands raw-core the source text of each
+mask container and splices its replacements back in place, appending new containers to
+the last primary description. An unchanged layer keeps its source bytes; an edited or new
+layer is raw-core's canonical XML, carrying the unknown attributes and child nodes of the
+correction it came from. Brush, person and whole-image layers from other hosts, and groups
+holding them, are not listed and stay in the sidecar untouched, as do all foreign bytes.
+Writing masks drops the
+legacy `papp:LocalAdjustments` attribute. The slider ranges come from raw-core's
+`types/local_adjustment/controls.rs` through `tools/codegen.sh`
+(`generated/LocalMaskControls.kt`).
 
 ## Build
 

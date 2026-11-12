@@ -45,6 +45,14 @@ data class MapleState(
     val cloudSigningIn: Boolean = false,
     val cloudConnectionsVersion: Int = 0,
     val copiedSettings: CopiedSettings? = null,
+    /** The mask layer the panel and overlay address; selection adds no history. */
+    val maskSelection: Int? = null,
+    val maskComponent: Int = 0,
+    /** The colour-range eyedropper is armed: the next canvas tap samples. */
+    val maskPicking: Boolean = false,
+    val maskSampling: Boolean = false,
+    /** The mask panel's message line (a refused pick, an unreadable mask). */
+    val maskMessage: String? = null,
 ) {
     val navigationPhotos: List<Photo> get() = previewOrder ?: photos
 

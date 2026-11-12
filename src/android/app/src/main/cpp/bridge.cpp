@@ -57,6 +57,13 @@ int maple_android_cache_png(int, const char *);
 int maple_android_export_configured(const char *, const char *, const char *, const char *, uint32_t, uint32_t, bool);
 int maple_android_export(const char *, const char *, const char *);
 int maple_android_stage_bitmap(const uint8_t *, uint32_t, uint32_t, size_t, uint32_t, const float *, const char *);
+char *maple_android_masks_read(const char *);
+char *maple_android_masks_write(const char *);
+bool maple_android_mask_weights(const char *, uint32_t, uint32_t, uint8_t *);
+bool maple_android_mask_frame(uint32_t, uint32_t, float, float, float, float, float, double *);
+void *maple_android_mask_range_new(void *, const char *);
+char *maple_android_mask_range_run(const void *, float, float);
+void maple_android_mask_range_free(void *);
 }
 
 namespace {
@@ -121,6 +128,25 @@ bool readCanvasZoom(JNIEnv *env, jdoubleArray state, double (&slots)[CANVAS_ZOOM
     }
     env->GetDoubleArrayRegion(state, 0, CANVAS_ZOOM_STATE_LEN, slots);
     return !env->ExceptionCheck();
+}
+// Mask XML may carry supplementary characters, which modified UTF-8 (NewStringUTF)
+// cannot express. Decode standard UTF-8 to UTF-16 and release the native string.
+jstring takeString(JNIEnv *env, char *value) {
+    if (!value) { check(env, -1); return nullptr; }
+    std::u16string units;
+    for (const unsigned char *p = reinterpret_cast<const unsigned char *>(value); *p;) {
+        uint32_t point = *p++;
+        int extra = point >= 0xf0 ? 3 : point >= 0xe0 ? 2 : point >= 0xc0 ? 1 : 0;
+        point &= extra == 3 ? 0x07 : extra == 2 ? 0x0f : extra == 1 ? 0x1f : 0x7f;
+        for (; extra > 0 && *p; --extra) point = (point << 6) | (*p++ & 0x3f);
+        if (point >= 0x10000) {
+            point -= 0x10000;
+            units.push_back(static_cast<char16_t>(0xd800 + (point >> 10)));
+            units.push_back(static_cast<char16_t>(0xdc00 + (point & 0x3ff)));
+        } else units.push_back(static_cast<char16_t>(point));
+    }
+    maple_android_free_string(value);
+    return env->NewString(reinterpret_cast<const jchar *>(units.data()), static_cast<jsize>(units.size()));
 }
 }
 
@@ -333,6 +359,51 @@ extern "C" JNIEXPORT jstring JNICALL Java_app_justmaple_aperture_data_NativeBrid
 }
 extern "C" JNIEXPORT void JNICALL Java_app_justmaple_aperture_data_NativeBridge_closeAutoWhiteBalance(JNIEnv *, jobject, jlong work) {
     maple_android_auto_wb_free(reinterpret_cast<void *>(work));
+}
+extern "C" JNIEXPORT jstring JNICALL Java_app_justmaple_aperture_data_NativeBridge_masksRead(JNIEnv *env, jobject, jstring input) {
+    Utf8 x(env, input);
+    if (env->ExceptionCheck()) return nullptr;
+    return takeString(env, maple_android_masks_read(x.get()));
+}
+extern "C" JNIEXPORT jstring JNICALL Java_app_justmaple_aperture_data_NativeBridge_masksWrite(JNIEnv *env, jobject, jstring input) {
+    Utf8 x(env, input);
+    if (env->ExceptionCheck()) return nullptr;
+    return takeString(env, maple_android_masks_write(x.get()));
+}
+extern "C" JNIEXPORT jbyteArray JNICALL Java_app_justmaple_aperture_data_NativeBridge_maskWeights(JNIEnv *env, jobject, jstring layer, jint width, jint height) {
+    Utf8 x(env, layer);
+    if (env->ExceptionCheck() || width <= 0 || height <= 0) return nullptr;
+    std::vector<uint8_t> weights(static_cast<size_t>(width) * static_cast<size_t>(height));
+    if (!maple_android_mask_weights(x.get(), static_cast<uint32_t>(width), static_cast<uint32_t>(height), weights.data())) {
+        check(env, -1);
+        return nullptr;
+    }
+    jbyteArray result = env->NewByteArray(static_cast<jsize>(weights.size()));
+    if (result) env->SetByteArrayRegion(result, 0, static_cast<jsize>(weights.size()), reinterpret_cast<const jbyte *>(weights.data()));
+    return result;
+}
+extern "C" JNIEXPORT jdoubleArray JNICALL Java_app_justmaple_aperture_data_NativeBridge_maskFrame(JNIEnv *env, jobject, jint width, jint height, jfloat top, jfloat left, jfloat bottom, jfloat right, jfloat angle) {
+    double affine[6];
+    if (width <= 0 || height <= 0 || !maple_android_mask_frame(static_cast<uint32_t>(width), static_cast<uint32_t>(height), top, left, bottom, right, angle, affine)) {
+        check(env, -1);
+        return nullptr;
+    }
+    jdoubleArray result = env->NewDoubleArray(6);
+    if (result) env->SetDoubleArrayRegion(result, 0, 6, affine);
+    return result;
+}
+extern "C" JNIEXPORT jlong JNICALL Java_app_justmaple_aperture_data_NativeBridge_createMaskRange(JNIEnv *env, jobject, jlong handle, jstring xml) {
+    Utf8 x(env, xml);
+    if (env->ExceptionCheck()) return 0;
+    void *work = maple_android_mask_range_new(editor(handle)->core, x.get());
+    if (!work) { check(env, -1); return 0; }
+    return reinterpret_cast<jlong>(work);
+}
+extern "C" JNIEXPORT jstring JNICALL Java_app_justmaple_aperture_data_NativeBridge_runMaskRange(JNIEnv *env, jobject, jlong work, jfloat x, jfloat y) {
+    return takeString(env, maple_android_mask_range_run(reinterpret_cast<void *>(work), x, y));
+}
+extern "C" JNIEXPORT void JNICALL Java_app_justmaple_aperture_data_NativeBridge_closeMaskRange(JNIEnv *, jobject, jlong work) {
+    maple_android_mask_range_free(reinterpret_cast<void *>(work));
 }
 extern "C" JNIEXPORT void JNICALL Java_app_justmaple_aperture_data_NativeBridge_setField(JNIEnv *env, jobject, jlong handle, jint index, jfloat value) { check(env, maple_android_set(editor(handle)->core, index, value)); }
 extern "C" JNIEXPORT void JNICALL Java_app_justmaple_aperture_data_NativeBridge_setModel(JNIEnv *env, jobject, jlong handle, jstring xml) {

@@ -139,30 +139,48 @@ internal fun ControlsInspector(
             )
         if (group == EditorGroup.Detail && subTool == "crop")
             CropControlsSection(model, state, Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
-        val sliderFields =
-            when {
-                group == EditorGroup.Color && subTool == "hsl" -> hslBandFields(band)
-                group == EditorGroup.Light && subTool == "curve" -> toneCurveSliders(curveFamily)
-                else -> fieldsForSubTool(group, subTool, fullInspector = true)
+        if (group == EditorGroup.Detail && subTool == "mask")
+            Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).testTag("editor-mask-scroll")) {
+                MaskPanel(model, state, Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
             }
-        key(group, subTool, band) {
-            LazyColumn(Modifier.weight(1f).testTag("adjustment-sliders")) {
-                items(
-                    sliderFields.filter {
-                        state.supportsField(it) && (!it.name.startsWith("gray_mixer_") || monochrome)
-                    },
-                    key = { it.name },
-                ) { field ->
-                    AdjustmentSliderRow(
-                        field,
-                        state.values[field.name] ?: field.initial,
-                        state.canEdit &&
-                            (field.name != "film_strength" || filmId.isNotEmpty()) &&
-                            (!field.name.startsWith("gray_mixer_") || monochrome),
-                        onChange = { model.setField(field.name, it) },
-                        onCommit = model::commitGesture,
-                    )
-                }
+        else InspectorSliders(model, state, group, subTool, band, curveFamily, filmId, monochrome)
+    }
+}
+
+@Composable
+private fun ColumnScope.InspectorSliders(
+    model: MapleViewModel,
+    state: MapleState,
+    group: EditorGroup,
+    subTool: String,
+    band: HslBand,
+    curveFamily: ToneCurveFamily,
+    filmId: String,
+    monochrome: Boolean,
+) {
+    val sliderFields =
+        when {
+            group == EditorGroup.Color && subTool == "hsl" -> hslBandFields(band)
+            group == EditorGroup.Light && subTool == "curve" -> toneCurveSliders(curveFamily)
+            else -> fieldsForSubTool(group, subTool, fullInspector = true)
+        }
+    key(group, subTool, band) {
+        LazyColumn(Modifier.weight(1f).testTag("adjustment-sliders")) {
+            items(
+                sliderFields.filter {
+                    state.supportsField(it) && (!it.name.startsWith("gray_mixer_") || monochrome)
+                },
+                key = { it.name },
+            ) { field ->
+                AdjustmentSliderRow(
+                    field,
+                    state.values[field.name] ?: field.initial,
+                    state.canEdit &&
+                        (field.name != "film_strength" || filmId.isNotEmpty()) &&
+                        (!field.name.startsWith("gray_mixer_") || monochrome),
+                    onChange = { model.setField(field.name, it) },
+                    onCommit = model::commitGesture,
+                )
             }
         }
     }

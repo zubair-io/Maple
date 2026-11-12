@@ -278,6 +278,11 @@ internal constructor(
                 canUndo = false,
                 canRedo = false,
                 dirty = false,
+                maskSelection = null,
+                maskComponent = 0,
+                maskPicking = false,
+                maskSampling = false,
+                maskMessage = null,
                 error = null,
             )
         }
@@ -798,6 +803,15 @@ internal constructor(
             }
         }
     }
+
+    /** Mask authoring (`MaskSession.kt`) writes through the same gesture as every document edit. */
+    internal fun updateMaskDocument(commit: Boolean, transform: (XmpDocument) -> XmpDocument) =
+        updateDocument(commit, transform)
+
+    internal fun updateMaskState(transform: (MapleState) -> MapleState) = mutable.update(transform)
+
+    internal val editGeneration: Int
+        get() = generation
 
     /** Drops unsaved edits without touching storage, so a photo whose sidecar
      * can no longer be written stops blocking navigation (#4765). */

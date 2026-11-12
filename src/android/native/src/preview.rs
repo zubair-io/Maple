@@ -152,6 +152,10 @@ impl Session {
     pub fn source_is_raw(&self) -> bool {
         self.raw.is_some()
     }
+    /// The decoded RAW, shared with analyses that run off the render thread.
+    pub fn raw(&self) -> Option<Arc<RawImage>> {
+        self.raw.clone()
+    }
     pub fn white_balance_values(&self) -> (f32, f32) {
         self.creative
             .as_ref()

@@ -29,6 +29,7 @@ class AutoWhiteBalanceTest {
             mapOf("temperature" to 5200f, "tint" to 12f, "_shot_temperature" to 5200f,
                 "_shot_tint" to 12f, "_raw" to 1f, "exposure" to 1f)
         override suspend fun modelValues(document: String): Map<String, Float> = error("Settings paste is not exercised by this test")
+        override suspend fun sampleMaskRange(document: String, x: Float, y: Float): String = error("Colour sampling is not exercised by this test")
         override suspend fun autoWhiteBalance(document: String): WhiteBalanceRecommendation {
             requests++
             return withContext(NonCancellable) { result.await() }

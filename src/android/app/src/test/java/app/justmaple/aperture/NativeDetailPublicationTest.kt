@@ -59,6 +59,7 @@ class NativeDetailPublicationTest {
         override fun invalidateModel() {}
         override suspend fun open(path: String, document: String, edge: Int, generation: Int) = mapOf("exposure" to 0f)
         override suspend fun modelValues(document: String): Map<String, Float> = error("Settings paste is not exercised by this test")
+        override suspend fun sampleMaskRange(document: String, x: Float, y: Float): String = error("Colour sampling is not exercised by this test")
         override suspend fun autoWhiteBalance(document: String): WhiteBalanceRecommendation = error("Unexpected WB")
         override suspend fun nativeDimensions(photo: Photo) = NativeImageSize(6000, 4000)
         override fun presentationSize(size: NativeImageSize, crop: CropRect) = size

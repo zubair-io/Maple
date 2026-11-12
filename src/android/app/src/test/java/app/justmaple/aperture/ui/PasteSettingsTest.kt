@@ -55,6 +55,7 @@ class PasteSettingsTest {
         override fun invalidateModel() {}
         override suspend fun open(path: String, document: String, edge: Int, generation: Int) = values(document)
         override suspend fun modelValues(document: String) = values(document).also { modelReads++ }
+        override suspend fun sampleMaskRange(document: String, x: Float, y: Float): String = error("Colour sampling is not exercised by this test")
         override suspend fun autoWhiteBalance(document: String): app.justmaple.aperture.WhiteBalanceRecommendation = error("White balance analysis is not expected in this test")
         override suspend fun nativeDimensions(photo: Photo): NativeImageSize? = null
         override suspend fun nativeDetail(request: NativeDetailRequest): android.graphics.Bitmap = error("Native detail is not requested by this fixture")
