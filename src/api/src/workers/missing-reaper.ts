@@ -93,7 +93,7 @@ import {
   hasLiveEntry,
   libraryRootAvailable,
   missingFileInfos,
-  nearMatchOnDisk,
+  absenceVeto,
   sameEntry,
   statKind,
   type MissingReaperSummary,
@@ -235,20 +235,7 @@ export async function runMissingReaperOnce(
 
         // No survivor — the prune would leave no location → REAP (soft-delete).
         // Near-match veto on the absent (non-orphan) entries first.
-        let veto: 'name-mismatch' | 'unreadable' | null = null;
-        for (const fi of absentForVeto) {
-          const root = libs.get(fi.library_id.toHexString())!;
-          const segments = fi.path === '' ? [] : fi.path.split('/');
-          const verdict = await nearMatchOnDisk(path.join(root, ...segments, fi.filename));
-          if (verdict === 'match') {
-            veto = 'name-mismatch';
-            break;
-          }
-          if (verdict === 'unreadable') {
-            veto = 'unreadable';
-            break;
-          }
-        }
+        const veto = await absenceVeto(absentForVeto, libs);
         if (veto === 'name-mismatch') {
           summary.skippedNameMismatch++;
           log.warn(

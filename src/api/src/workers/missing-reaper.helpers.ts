@@ -119,7 +119,7 @@ export async function libraryRootAvailable(root: string): Promise<boolean> {
   }
 }
 
-export type NearMatch =
+type NearMatch =
   /** A case/NFC near-match of the basename exists in the parent dir — the file
    * is on disk under a different name (stored-path bug, NOT a deletion). */
   | 'match'
@@ -133,7 +133,7 @@ export type NearMatch =
  * Used only to gate the irreversible hard-delete. Only an ENOENT parent counts
  * as genuinely gone; any other readdir error returns `unreadable` so a row is
  * never deleted on the strength of a directory we couldn't read. */
-export async function nearMatchOnDisk(absPath: string): Promise<NearMatch> {
+async function nearMatchOnDisk(absPath: string): Promise<NearMatch> {
   const dir = path.dirname(absPath);
   const target = path.basename(absPath).normalize('NFC').toLowerCase();
   let entries: string[];
@@ -143,4 +143,22 @@ export async function nearMatchOnDisk(absPath: string): Promise<NearMatch> {
     return (err as { code?: string } | null)?.code === 'ENOENT' ? 'clear' : 'unreadable';
   }
   return entries.some((e) => e.normalize('NFC').toLowerCase() === target) ? 'match' : 'clear';
+}
+
+/**
+ * Why gone entries must not be reaped this pass, if any: the first one with a
+ * near-match on disk, or whose directory could not be listed, decides.
+ */
+export async function absenceVeto(
+  gone: readonly FileInfo[],
+  libs: ReadonlyMap<string, string>,
+): Promise<'name-mismatch' | 'unreadable' | null> {
+  for (const fi of gone) {
+    const root = libs.get(fi.library_id.toHexString())!;
+    const segments = fi.path === '' ? [] : fi.path.split('/');
+    const verdict = await nearMatchOnDisk(path.join(root, ...segments, fi.filename));
+    if (verdict === 'match') return 'name-mismatch';
+    if (verdict === 'unreadable') return 'unreadable';
+  }
+  return null;
 }
