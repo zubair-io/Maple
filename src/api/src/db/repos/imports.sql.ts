@@ -84,13 +84,32 @@ export const MARK_IMPORT_DISPATCHED_SQL = `
  *
  * A `running` row is taken over, not skipped: Temporal only delivers another
  * attempt after the previous one missed its heartbeat deadline, so the holder
- * named in `locked_by` is gone. A finished import matches nothing, which is how
- * a redelivery becomes a no-op.
+ * named in `locked_by` is gone. Whatever that holder still tries to write is
+ * refused by {@link heldBy}. A finished import matches nothing, which is how a
+ * redelivery becomes a no-op.
  */
 export const CLAIM_IMPORT_SQL = `
   UPDATE imports
      SET status = 'running', locked_by = ?, updated_at = ?
    WHERE id = ? AND status IN ('pending', 'running')`;
+
+const HELD_BY_SQL = `EXISTS (SELECT 1 FROM imports WHERE id = ? AND locked_by = ? AND status = 'running')`;
+
+export interface AttemptFence {
+  sql: string;
+  params: string[];
+}
+
+/**
+ * The fence on a write made by one activity attempt: it lands only while that
+ * attempt still holds the running import. Empty for a write made outside an
+ * attempt.
+ */
+export function heldBy(importId: string, holder: string | undefined): AttemptFence {
+  return holder === undefined
+    ? { sql: '', params: [] }
+    : { sql: ` AND ${HELD_BY_SQL}`, params: [importId, holder] };
+}
 
 /**
  * Rows per bulk-insert statement.
@@ -110,15 +129,24 @@ function fileValues(count: number): string {
  * The statements that write `files` as `import_files` rows for `importId`,
  * numbered by position. Empty for an empty list.
  */
-export function insertFileStatements(importId: string, files: ImportFileEntry[]): SqlStatement[] {
+export function insertFileStatements(
+  importId: string,
+  files: ImportFileEntry[],
+  holder?: string,
+): SqlStatement[] {
+  const fence = heldBy(importId, holder);
   return Array.from({ length: Math.ceil(files.length / INSERT_BATCH) }, (_unused, batch) => {
     const start = batch * INSERT_BATCH;
     const slice = files.slice(start, start + INSERT_BATCH);
+    const rows = `VALUES ${fileValues(slice.length)}`;
     return {
       sql: `INSERT INTO import_files
               (import_id, idx, src, dest, size, mtime, kind, state, error)
-            VALUES ${fileValues(slice.length)}`,
-      params: slice.flatMap((file, offset) => importFileParams(importId, file, start + offset)),
+            ${holder === undefined ? rows : `SELECT * FROM (${rows}) WHERE TRUE${fence.sql}`}`,
+      params: [
+        ...slice.flatMap((file, offset) => importFileParams(importId, file, start + offset)),
+        ...fence.params,
+      ],
     };
   });
 }

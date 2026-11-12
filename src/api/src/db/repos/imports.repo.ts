@@ -67,6 +67,7 @@ import {
 } from './imports.rows.ts';
 import {
   CLAIM_IMPORT_SQL,
+  heldBy,
   HELD_IMPORTS_SQL,
   IMPORT_BY_ID_SQL,
   IMPORT_FILES_SQL,
@@ -191,6 +192,22 @@ export async function listImports(
   return rows.map(toImportDoc);
 }
 
+/** Raised by an attempt's write once the import is no longer its to write. */
+export class ImportTakenOver extends Error {
+  override name = 'ImportTakenOver';
+  constructor() {
+    super('This attempt no longer holds the import');
+  }
+}
+
+async function holdsImport(db: SqliteDb, hex: string, holder: string): Promise<boolean> {
+  const rows = await db.read<{ locked_by: string | null; status: string }>(
+    `SELECT locked_by, status FROM imports WHERE id = ?`,
+    [hex],
+  );
+  return rows[0]?.locked_by === holder && rows[0].status === 'running';
+}
+
 /**
  * Claim the import Temporal just delivered, for one activity attempt. `null`
  * when the import has already finished or does not exist.
@@ -269,24 +286,34 @@ export async function getImportFiles(
  * files.
  *
  * One transaction, so the delete and the inserts cannot be observed apart.
+ * With `holder`, every statement is fenced to that attempt and a miss throws
+ * {@link ImportTakenOver}.
  */
 export async function setImportFiles(
   id: ObjectId,
   files: ImportFileEntry[],
   now: () => Date = () => new Date(),
   dbOverride?: SqliteDb,
+  holder?: string,
 ): Promise<void> {
   const hex = toHex(id);
-  await sqliteDb(dbOverride).transaction([
-    { sql: `DELETE FROM import_files WHERE import_id = ?`, params: [hex] },
-    ...insertFileStatements(hex, files),
+  const fence = heldBy(hex, holder);
+  const results = await sqliteDb(dbOverride).transaction([
+    {
+      sql: `DELETE FROM import_files WHERE import_id = ?${fence.sql}`,
+      params: [hex, ...fence.params],
+    },
+    ...insertFileStatements(hex, files, holder),
     {
       sql: `UPDATE imports
                SET scan_pending = 0, progress_total = ?, progress_current = 0, updated_at = ?
-             WHERE id = ?`,
-      params: [files.length, now().toISOString(), hex],
+             WHERE id = ?${fence.sql}`,
+      params: [files.length, now().toISOString(), hex, ...fence.params],
     },
   ]);
+  if (holder !== undefined && changesAt(results, results.length - 1) !== 1) {
+    throw new ImportTakenOver();
+  }
 }
 
 /**
@@ -300,6 +327,9 @@ export async function setImportFiles(
  * false, neither statement changed anything, and the import's counters have not
  * advanced against per-file state that did not move. The worker turns the throw
  * into a failed import and a retry re-runs the file deterministically.
+ *
+ * `holder` fences both writes to one attempt; once a later attempt has taken
+ * the import over, nothing is written and {@link ImportTakenOver} is thrown.
  */
 export async function updateImportProgress(
   id: ObjectId,
@@ -310,23 +340,26 @@ export async function updateImportProgress(
     destRel: string;
     current: number;
     counts: ImportCounts;
+    holder?: string;
   },
   now: () => Date = () => new Date(),
   dbOverride?: SqliteDb,
 ): Promise<void> {
   const hex = toHex(id);
-  const results = await sqliteDb(dbOverride).transaction([
+  const db = sqliteDb(dbOverride);
+  const fence = heldBy(hex, args.holder);
+  const results = await db.transaction([
     {
       sql: `UPDATE import_files SET state = ?, error = ?, dest = ?
-             WHERE import_id = ? AND idx = ?`,
-      params: [args.state, args.error, args.destRel, hex, args.index],
+             WHERE import_id = ? AND idx = ?${fence.sql}`,
+      params: [args.state, args.error, args.destRel, hex, args.index, ...fence.params],
     },
     {
       sql: `UPDATE imports
                SET progress_current = ?, count_copied = ?, count_skipped = ?, count_failed = ?,
                    updated_at = ?
              WHERE id = ?
-               AND EXISTS (SELECT 1 FROM import_files WHERE import_id = ? AND idx = ?)`,
+               AND EXISTS (SELECT 1 FROM import_files WHERE import_id = ? AND idx = ?)${fence.sql}`,
       params: [
         args.current,
         args.counts.copied,
@@ -336,10 +369,14 @@ export async function updateImportProgress(
         hex,
         hex,
         args.index,
+        ...fence.params,
       ],
     },
   ]);
   if (changesAt(results, 0) !== 1) {
+    if (args.holder !== undefined && !(await holdsImport(db, hex, args.holder))) {
+      throw new ImportTakenOver();
+    }
     throw new Error(
       `updateImportProgress: no import_files row for import ${hex} idx ${args.index}`,
     );
@@ -349,7 +386,8 @@ export async function updateImportProgress(
 /**
  * The three terminal transitions differ only in status and payload. Only an
  * unfinished import moves: an attempt still copying after its workflow was
- * terminated must not overwrite the cancel that termination recorded.
+ * terminated must not overwrite the cancel that termination recorded, and with
+ * `holder` an attempt a later one replaced must not finish that one's import.
  */
 async function finishImport(
   db: SqliteDb,
@@ -357,11 +395,13 @@ async function finishImport(
   assignments: string,
   params: SqlValue[],
   nowIso: string,
+  holder: string | undefined,
 ): Promise<void> {
+  const fence = heldBy(hex, holder);
   await db.write(
     `UPDATE imports SET ${assignments}, locked_by = NULL, updated_at = ?
-      WHERE id = ? AND status IN ('pending', 'running')`,
-    [...params, nowIso, hex],
+      WHERE id = ? AND status IN ('pending', 'running')${fence.sql}`,
+    [...params, nowIso, hex, ...fence.params],
   );
 }
 
@@ -378,6 +418,7 @@ async function finishWithCounts(
   counts: ImportCounts,
   now: () => Date,
   dbOverride: SqliteDb | undefined,
+  holder: string | undefined,
 ): Promise<void> {
   const clearError = status === 'done' ? `, error = NULL` : '';
   await finishImport(
@@ -386,6 +427,7 @@ async function finishWithCounts(
     `status = '${status}', count_copied = ?, count_skipped = ?, count_failed = ?${clearError}`,
     [counts.copied, counts.skipped, counts.failed],
     now().toISOString(),
+    holder,
   );
 }
 
@@ -394,8 +436,9 @@ export async function completeImport(
   counts: ImportCounts,
   now: () => Date = () => new Date(),
   dbOverride?: SqliteDb,
+  holder?: string,
 ): Promise<void> {
-  await finishWithCounts('done', id, counts, now, dbOverride);
+  await finishWithCounts('done', id, counts, now, dbOverride, holder);
 }
 
 export async function failImport(
@@ -403,6 +446,7 @@ export async function failImport(
   error: string,
   now: () => Date = () => new Date(),
   dbOverride?: SqliteDb,
+  holder?: string,
 ): Promise<void> {
   await finishImport(
     sqliteDb(dbOverride),
@@ -410,6 +454,7 @@ export async function failImport(
     `status = 'failed', error = ?`,
     [error],
     now().toISOString(),
+    holder,
   );
 }
 
@@ -418,8 +463,9 @@ export async function markImportCancelled(
   counts: ImportCounts,
   now: () => Date = () => new Date(),
   dbOverride?: SqliteDb,
+  holder?: string,
 ): Promise<void> {
-  await finishWithCounts('cancelled', id, counts, now, dbOverride);
+  await finishWithCounts('cancelled', id, counts, now, dbOverride, holder);
 }
 
 /**
