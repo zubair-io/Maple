@@ -5,7 +5,8 @@ import { describeServersForRuntime } from '../workers/describe-capacity.ts';
  * Constants for the `meilisearch_*` fields of the response (#4464). Released Apple builds decode
  * these as required, so omitting them fails Settings → Enrichment on every client that has not
  * updated yet. Meilisearch is gone, so they say so: no URL, no key, semantic search off.
- * Deprecated; delete once no released Apple build requires them.
+ * Deprecated; #5841 deletes them once Apple v0.1.4, the last build that requires them, is
+ * unsupported.
  */
 const DEPRECATED_MEILISEARCH_FIELDS = {
   meilisearch_url: null,
