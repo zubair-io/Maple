@@ -10,8 +10,11 @@
  * schedule running and its own gate inside the pass.
  */
 
+import { loadDbBackupSettings } from '../../cloudflare/backup-retain-config.ts';
+import { runDbBackupPass } from '../../cloudflare/db-backup.ts';
 import { maintainBackup } from '../../cloud-backup/runtime.ts';
 import { isMirroringActive } from '../../fs/mirror-registry.ts';
+import { runAuthExpiryPass } from '../../runtime/auth-expiry-sweep.ts';
 import { loadChangeLogGcConfig } from '../change-log-gc-config.repo.ts';
 import { runChangeLogGcOnce } from '../change-log-gc.ts';
 import { deDuplicatePaused, runDeDuplicatePass } from '../dedupe.ts';
@@ -119,5 +122,15 @@ export const MAINTENANCE_TASKS: readonly MaintenanceTask[] = [
     id: 'cloud-backup',
     desired: always(MINUTE_MS),
     run: (signal) => maintainBackup(signal),
+  },
+  {
+    id: 'auth-expiry',
+    desired: always(MINUTE_MS),
+    run: () => runAuthExpiryPass(),
+  },
+  {
+    id: 'db-backup',
+    desired: unless(MINUTE_MS, async () => !(await loadDbBackupSettings()).policy.enabled),
+    run: (signal, options) => runDbBackupPass(signal, options),
   },
 ];

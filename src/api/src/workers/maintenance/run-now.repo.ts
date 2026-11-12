@@ -49,3 +49,7 @@ export async function clearMaintenanceRun(request: MaintenanceRunRequest): Promi
   if (pending?.requestedAt === request.requestedAt)
     await unsetAppSettings(DOC_ID, [`requests.${request.taskId}`]);
 }
+
+export async function maintenanceRunRequested(taskId: string): Promise<boolean> {
+  return (await pendingMaintenanceRuns()).some((request) => request.taskId === taskId);
+}
