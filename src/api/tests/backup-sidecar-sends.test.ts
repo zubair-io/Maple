@@ -323,4 +323,30 @@ describe('backup sends are reconciled from what the device sent (#5796)', () => 
     const stored = await onDisk(copy.relPath);
     expect([property(stored, 'exposure'), property(stored, 'contrast')]).toEqual(['1', '6']);
   });
+
+  test('a send matching a sidecar without history is answered with a head that holds it', async () => {
+    const target = await seedUpload('historyless');
+    const v1 = xmp('v1', { exposure: '1' });
+    // The legacy (no base) upload stores the document as sent, without a history.
+    await replyOf(post(target, v1, undefined));
+    expect(await native('workflowReadXmp', [await onDisk(target.relPath)])).toBe('null');
+
+    const ack = await replyOf(post(target, v1, undefined, 'none'));
+    const stored = JSON.parse(await native('workflowReadXmp', [await onDisk(target.relPath)]));
+    const other = stored?.history.at(-1)?.id ?? 'none';
+    await replyOf(post(target, xmp('other', { exposure: '2' }), undefined, other));
+
+    // The head-based client names what it was answered with (`none` without a head).
+    await replyOf(
+      post(target, xmp('v1', { exposure: '1', contrast: '5' }), undefined, ack.head ?? 'none'),
+    );
+    const after = await onDisk(target.relPath);
+    expect([property(after, 'exposure'), property(after, 'contrast')]).toEqual(['2', '5']);
+    expect(ack.head).toBeDefined();
+    // Sent again, the same document now finds its own entry.
+    expect(await replyOf(post(target, v1, undefined, 'none'))).toMatchObject({
+      unchanged: true,
+      head: ack.head,
+    });
+  });
 });

@@ -200,16 +200,15 @@ const retainedBy = (history: readonly WorkflowHistoryEntry[]) => [
   '',
 ];
 
-/** Whether the file holds adjustments its history head does not record (an outside
- * edit): `reconcile_xmp` from the head's adjustments then captures the file as an
- * `external` entry. A sidecar without history has no head to answer with. */
+/** Whether the file holds adjustments no history head records: an outside edit, or a
+ * sidecar without history (a legacy upload, another app). `reconcile_xmp` from the head's
+ * adjustments (none without history) then captures the file as an `external` entry. */
 async function aheadOfHistory(
   current: string,
   history: readonly WorkflowHistoryEntry[],
   now: number,
 ): Promise<boolean> {
-  const recorded = history.at(-1)?.adjustmentXmp;
-  if (recorded === undefined) return false;
+  const recorded = history.at(-1)?.adjustmentXmp ?? '';
   const probe = await nativeValue('workflowReconcileXmp', [recorded, current, current, `${now}`]);
   return capturedOutsideEdit(probe, history);
 }
