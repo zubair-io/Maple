@@ -5,7 +5,7 @@
  * the photo (#5063) until the canonical-backup-sidecars migration renames it.
  */
 import path from 'node:path';
-import { isVideoFilename } from '../indexer/media-types.ts';
+import { isCataloguedFilename, isVideoFilename } from '../indexer/media-types.ts';
 import * as fs from './mirrored.ts';
 import { readSidecarBytes, SidecarNotRegularFileError } from './sidecar-bytes.ts';
 import { errnoCode } from './relocate-publish.ts';
@@ -68,6 +68,17 @@ export async function claimedByAnotherFile(
 ): Promise<boolean> {
   const entries = listed ?? (await fs.readdir(path.dirname(primary)).catch(() => null));
   return entries === null || (await ownedByAnotherEntry(primary, legacy, entries));
+}
+
+/** The photo whose old-name Maple edit `bytes` were, when `sidecar` (a name no
+ * longer on disk) is `<photo>.<ext>.xmp`; `null` for any other name: a video's
+ * or a dotted stem's canonical sidecar, one another file owns, or another
+ * tool's edit. */
+export async function legacyEditOwner(sidecar: string, bytes: Buffer): Promise<string | null> {
+  const photo = sidecar.slice(0, -'.xmp'.length);
+  if (legacyBackupSidecar(photo) === null || !isCataloguedFilename(photo)) return null;
+  if (!MAPLE_XMP_NAMESPACE.test(bytes.toString('utf8'))) return null;
+  return (await claimedByAnotherFile(photo, sidecar)) ? null : photo;
 }
 
 /** The Maple edit in `legacy`; `null` when absent, another file's, another tool's, or not a regular file. */
