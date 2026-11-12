@@ -51,9 +51,11 @@ public struct MuiPad2D: View {
   /// `true` before the first change of a drag or key sequence, `false`
   /// once it ends. One pair brackets one undoable edit.
   public let onEditingChanged: ((Bool) -> Void)?
-  /// A consumer with its own value domain steps the value itself for
-  /// arrow keys and assistive actions. `nil` steps by `0.05`.
-  public let onStep: ((MuiPad2DDirection) -> Void)?
+  /// A consumer with its own value domain steps the value itself for arrow
+  /// keys and assistive actions: it returns the step's write, or `nil` when
+  /// the value already sits at that edge, so a clamped key opens no edit.
+  /// `nil` steps by `0.05`.
+  public let onStep: ((MuiPad2DDirection) -> (() -> Void)?)?
   /// Receives the value under a hovering Pencil or pointer, and `nil`
   /// when it leaves. Setting it shows the hover preview.
   public let onHover: ((MuiPad2DValue?) -> Void)?
@@ -76,7 +78,7 @@ public struct MuiPad2D: View {
     valueText: String? = nil,
     disabled: Bool = false,
     onEditingChanged: ((Bool) -> Void)? = nil,
-    onStep: ((MuiPad2DDirection) -> Void)? = nil,
+    onStep: ((MuiPad2DDirection) -> (() -> Void)?)? = nil,
     onHover: ((MuiPad2DValue?) -> Void)? = nil
   ) {
     self._value = value
@@ -213,13 +215,21 @@ public struct MuiPad2D: View {
     value = next
   }
 
+  /// One key or assistive step. The edit opens only when the step moves the
+  /// value: opening one starts an undo step, which drops the redo stack.
   private func step(_ direction: MuiPad2DDirection) {
+    guard let write = stepWrite(direction) else { return }
     begin()
-    if let onStep {
-      onStep(direction)
-    } else {
-      value = Self.stepped(value, direction)
-    }
+    write()
+  }
+
+  /// The write one step in `direction` makes, or `nil` when the value is
+  /// already at that edge.
+  func stepWrite(_ direction: MuiPad2DDirection) -> (() -> Void)? {
+    if let onStep { return onStep(direction) }
+    let next = Self.stepped(value, direction)
+    guard next != value else { return nil }
+    return { value = next }
   }
 
   private func begin() {
