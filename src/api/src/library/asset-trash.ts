@@ -46,6 +46,7 @@ import {
   fenceLifecycleMove,
 } from '../cloud-backup/lifecycle.ts';
 import type { FileInfo, FolderWithId } from '../db/schema.ts';
+import { reconcileStacksAfterMove } from '../db/repos/assets.raw-jpeg-stacks.ts';
 import { child as childLogger } from '../log.ts';
 import {
   resolveRestoreSource,
@@ -502,6 +503,15 @@ export async function restoreAssetById(
     info.size,
   );
   await finishLocalLifecycle(intent);
+  await reconcileStacksAfterMove([
+    {
+      libraryId: assetFolderId,
+      relPath: path
+        .relative(libraryRoot, path.dirname(result.newAbsPath))
+        .split(path.sep)
+        .join('/'),
+    },
+  ]);
 
   // `folder_id` MUST be the library the restored entry belongs to
   // (`assetFolderId`, resolved above from `opts.entry` or the asset's

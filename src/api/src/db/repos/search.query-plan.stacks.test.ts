@@ -48,7 +48,7 @@ function readsAssetRows(db: Database, statement: BoundStatement): boolean {
 }
 
 function folded(): SearchWhere {
-  const built = buildSearchWhere({}, [], null, { stackRawJpeg: true });
+  const built = buildSearchWhere({ stack: '1' });
   if ('error' in built) throw new Error(built.error);
   return built;
 }

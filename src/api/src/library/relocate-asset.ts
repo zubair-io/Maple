@@ -39,6 +39,7 @@ import type { ObjectId } from '../db/object-id.ts';
 import type { AppleCompanionSlot } from '../db/apple-companions.ts';
 import { loadAssetLocationView } from '../db/repos/assets.locations.repo.ts';
 import { findLiveOccupantAssetId, repointAssetLocation } from '../db/repos/assets.relocate.repo.ts';
+import { reconcileStacksAfterMove } from '../db/repos/assets.raw-jpeg-stacks.ts';
 import { loadLibraryRoots } from '../indexer/libraries.cache.ts';
 import {
   relocateFile,
@@ -386,6 +387,12 @@ export async function relocateAsset(input: RelocateAssetInput): Promise<Relocate
   switch (outcome.kind) {
     case 'relocated': {
       const split = splitRelPath(destLibRoot, outcome.newAbsPath);
+      if (input.mode === 'move') {
+        await reconcileStacksAfterMove([
+          { libraryId: destLibraryId, relPath: split.relPath },
+          { libraryId: primary.library_id, relPath: primary.path },
+        ]);
+      }
       log.info(
         {
           id: input.id.toHexString(),

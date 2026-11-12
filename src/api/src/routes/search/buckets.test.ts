@@ -107,6 +107,7 @@ const FILTER_AFFECTING_FIELD_VALUES: Record<string, [string, string]> = {
   ownerId: ['664000000000000000000001', '664000000000000000000002'],
   owner_id: ['664000000000000000000001', '664000000000000000000002'],
   owner: ['664000000000000000000001', '664000000000000000000002'],
+  stack: ['1', '0'],
 };
 
 const NON_FILTER_FIELDS = new Set(['page', 'limit', 'sort', 'cursor', 'rankPin']);
@@ -149,6 +150,7 @@ const ALL_SEARCH_QUERY_FIELDS: Record<keyof SearchQuery, true> = {
   sort: true,
   cursor: true,
   rankPin: true,
+  stack: true,
 };
 
 describe('makeBucketsCacheKey — completeness vs SearchQuery', () => {

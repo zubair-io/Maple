@@ -137,18 +137,8 @@ export interface SearchWhere {
    */
   month: number | null;
   /**
-   * Fold a RAW+JPEG stack into its RAW (#5849): the `stack_raw_jpeg` display
-   * setting, off whenever an `ext` filter asks for files by type. Its
-   * predicate reads `assets.stack_primary_id`, which `assets_live` and
-   * `assets_live_captured_ym` carry, so the count and the histogram stay
-   * index-only. Absent means unfolded.
-   *
-   * The predicate carries a unary `+` so it is only ever a residual, never a
-   * seek. It matches nearly every row, but `sqlite_stat1` sees the column's
-   * non-null values, one per pair, and rates `IS NULL` as nearly unique: with
-   * statistics the histogram otherwise skip-scans `assets_live` on it, reads
-   * every live row for its capture month and sorts them
-   * (`search.query-plan.stacks.test.ts`).
+   * Fold a RAW+JPEG stack into its RAW (#5849): the request sent `stack=1`, and no `ext` filter
+   * asks for files by type. Absent means unfolded. See {@link stackFold} for the predicate.
    */
   foldStacks?: boolean;
 }
@@ -222,7 +212,6 @@ export function buildSearchWhere(
   q: SearchQuery,
   excludedPersonIds: readonly string[] = [],
   peoplePersonIds: readonly string[] | null = null,
-  display: { stackRawJpeg: boolean } = { stackRawJpeg: false },
 ): SearchWhereResult {
   const invalid = validate(q);
   if (invalid !== null) return invalid;
@@ -253,7 +242,8 @@ export function buildSearchWhere(
     ownerId,
     hidden: hiddenFilter(q),
     month: monthFilter(q),
-    foldStacks: display.stackRawJpeg && extensions.length === 0,
+    // Opt-in per request: a client that is not stack-aware must still see every JPEG.
+    foldStacks: q.stack === '1' && extensions.length === 0,
   };
 }
 
@@ -404,28 +394,67 @@ export function monthNarrowing(where: SearchWhere): BoundPredicate | null {
 }
 
 /**
+ * The RAW+JPEG fold (#5849): a paired JPEG drops out only when its RAW survives the same request,
+ * so folding never makes a photo disappear.
+ *
+ * - No filter beyond visibility: the RAW of a live pair is live too (migration 0044's triggers
+ *   unpair a half the moment it is trashed, moved or goes missing), so the pointer alone decides.
+ *   The test reads `assets.stack_primary_id`, which `assets_live` and `assets_live_captured_ym`
+ *   carry, so the count and the histogram stay index-only. It carries a unary `+` so it is only
+ *   ever a residual: `sqlite_stat1` sees one non-null value per pair and rates `IS NULL` as nearly
+ *   unique, and with statistics the histogram otherwise skip-scans `assets_live` on it, reads every
+ *   live row for its capture month and sorts them (`search.query-plan.stacks.test.ts`).
+ * - A filter clause, or `hidden=only`: the RAW can fail a filter its JPEG passes (a caption, a
+ *   face or GPS read only from the JPEG, a filename match), so the JPEG drops only when the RAW,
+ *   probed by key, passes every clause too. Each clause names the request's row `assets.` and
+ *   aliases its own tables, so the same text reads the RAW as `stack_raw.`
+ *   (`search.where.stacks.test.ts` holds every clause builder to that).
+ * - Text: SQL cannot ask whether the RAW matched the text, so nothing folds here. The ranked window
+ *   folds its survivors in memory instead (`foldRankedStacks`).
+ *
+ * The default visibility filter is not applied to the RAW: a hidden RAW hides its stack.
+ */
+function stackFold(where: SearchWhere): BoundPredicate | null {
+  if (where.foldStacks !== true || where.match.kind !== 'none') return null;
+  if (where.clauses.length === 0 && where.hidden !== 1) {
+    return { sql: '+assets.stack_primary_id IS NULL', params: [] };
+  }
+  const rawPasses = [
+    QUALIFIED_LIVE_PREDICATE,
+    ...(where.hidden === 1 ? ['assets.hidden = 1'] : []),
+    ...where.clauses,
+  ].map((clause) => clause.replace(/\bassets\./g, 'stack_raw.'));
+  return {
+    sql: `(+assets.stack_primary_id IS NULL OR NOT EXISTS (SELECT 1 FROM assets AS stack_raw
+          WHERE stack_raw.id = assets.stack_primary_id AND ${rawPasses.join(' AND ')}))`,
+    params: where.params,
+  };
+}
+
+/**
  * The `WHERE` clause for a translated query, and its parameters in the order
  * the placeholders appear.
  *
  * Three groups in a fixed order. The full-text predicate comes first because it
  * is the most selective thing any search can carry and the statement reads
  * better led by it. The live predicate is next and verbatim, so the partial
- * indexes apply. Residuals follow, then whatever one statement adds of its own —
- * a seek predicate for the next page, or the timed/untimed split the timeline
- * histogram needs. Those belong to a statement rather than to the query string,
- * which is why they are a parameter here instead of a field on
- * {@link SearchWhere}.
+ * indexes apply. Residuals follow, then the RAW+JPEG fold, then whatever one
+ * statement adds of its own — a seek predicate for the next page, or the
+ * timed/untimed split the timeline histogram needs. Those belong to a statement
+ * rather than to the query string, which is why they are a parameter here
+ * instead of a field on {@link SearchWhere}.
  */
 export function searchWhereSql(where: SearchWhere, extra?: BoundPredicate): BoundPredicate {
   const lead = textPredicate(where.match);
   const narrowing = monthNarrowing(where);
+  const fold = stackFold(where);
   const clauses = [
     ...(lead ? [lead.sql] : []),
     ...(narrowing ? [narrowing.sql] : []),
     QUALIFIED_LIVE_PREDICATE,
     ...(where.hidden === null ? [] : [`assets.hidden = ${where.hidden}`]),
-    ...(where.foldStacks === true ? ['+assets.stack_primary_id IS NULL'] : []),
     ...where.clauses,
+    ...(fold ? [fold.sql] : []),
     ...(extra ? [extra.sql] : []),
   ];
   return {
@@ -434,6 +463,7 @@ export function searchWhereSql(where: SearchWhere, extra?: BoundPredicate): Boun
       ...(lead?.params ?? []),
       ...(narrowing?.params ?? []),
       ...where.params,
+      ...(fold?.params ?? []),
       ...(extra?.params ?? []),
     ],
   };

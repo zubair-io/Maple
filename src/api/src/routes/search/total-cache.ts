@@ -76,6 +76,7 @@ const TOTAL_CACHE_KEY_FIELDS = [
   'ownerId',
   'owner_id',
   'owner',
+  'stack',
 ] as const satisfies ReadonlyArray<keyof SearchQuery>;
 
 /** Stable JSON serialisation of a SearchQuery over `TOTAL_CACHE_KEY_FIELDS`.
@@ -117,7 +118,7 @@ export function _resetCacheForTests(): void {
  * the user scrolls.
  */
 export async function getCachedTotal(query: SearchQuery, where: SearchWhere): Promise<number> {
-  const cacheKey = `${makeTotalCacheKey(query)}#${where.foldStacks === true}`;
+  const cacheKey = makeTotalCacheKey(query);
   const nowMs = Date.now();
   const cached = totalCache.get(cacheKey);
   if (cached && cached.expiresMs > nowMs) return cached.total;

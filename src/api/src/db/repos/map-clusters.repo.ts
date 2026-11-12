@@ -96,20 +96,28 @@ function bboxPredicate(bbox: MapBbox): BoundPredicate {
 
 /**
  * What the cells aggregate. A text search is clustered over its ranked window — the rows the
- * caller's list is served from, already filtered — so the map never groups the whole match set
- * (#4514); without text, the translated query and the viewport as before.
+ * caller's list is served from, already filtered and already RAW+JPEG-folded — so the map never
+ * groups the whole match set (#4514); without text, the translated query and the viewport. The
+ * viewport is one more clause there, so a folded JPEG is only dropped when its RAW has GPS in the
+ * viewport too (a RAW whose GPS did not parse leaves its JPEG's pin on the map, #5849).
  */
 function cellScope(
   where: SearchWhere,
   viewport: BoundPredicate,
   window: readonly RankedAsset[] | undefined,
 ): { from: string; bound: BoundPredicate } {
-  if (window === undefined)
-    return { from: fromClause(where), bound: searchWhereSql(where, viewport) };
+  if (window === undefined) {
+    const located: SearchWhere = {
+      ...where,
+      clauses: [...where.clauses, `(${viewport.sql})`],
+      params: [...where.params, ...viewport.params],
+    };
+    return { from: fromClause(where), bound: searchWhereSql(located) };
+  }
   return {
     from: 'FROM assets',
     bound: searchWhereSql(
-      { ...where, match: { kind: 'none' } },
+      { ...where, match: { kind: 'none' }, foldStacks: false },
       {
         sql: `assets.rowid IN (SELECT value FROM json_each(?)) AND ${viewport.sql}`,
         params: [JSON.stringify(window.map((row) => row.r)), ...viewport.params],

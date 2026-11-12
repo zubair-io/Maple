@@ -18,20 +18,17 @@ import { buildSearchWhere } from '../../db/repos/search.repo.ts';
 import type { SearchWhere } from '../../db/repos/search.where.ts';
 import { personIdsToDrop } from '../../people/people.repo.ts';
 import { personIdsForNames } from '../../people/people-search-filter.repo.ts';
-import { loadDisplayConfig } from '../../display/display-config.repo.ts';
 import { extractDatesFromQuery, peopleNames, type SearchQuery } from './query.ts';
 
 async function translate(query: SearchQuery): Promise<SearchWhere | { error: string }> {
   // Excluded people (#2894) drop unconditionally; hidden people only when the request opted in
   // (see `personIdsToDrop`). The `people` param carries display names; the face clause needs
   // the person ids faces are tagged with, resolved here so `buildSearchWhere` stays pure.
-  // The timeline and search fold a RAW+JPEG stack under the same setting as the folder listing.
-  const [dropIds, peopleIds, display] = await Promise.all([
+  const [dropIds, peopleIds] = await Promise.all([
     personIdsToDrop(query.excludeHiddenPeople),
     personIdsForNames(peopleNames(query.people)),
-    loadDisplayConfig(),
   ]);
-  return buildSearchWhere(query, dropIds, peopleIds, { stackRawJpeg: display.stack_raw_jpeg });
+  return buildSearchWhere(query, dropIds, peopleIds);
 }
 
 /** The translated query for `query`, or the 400 to answer instead. */
