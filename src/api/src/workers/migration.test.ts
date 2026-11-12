@@ -113,6 +113,21 @@ describe('migrationHasWork', () => {
     await runMigrationPass();
     expect(await loadMigrationState(someMigration)).toEqual(before);
   });
+
+  test('a stopped run leaves an enabled migration untouched', async () => {
+    await setMigrationEnabled(someMigration, true, new Date().toISOString());
+    const before = await loadMigrationState(someMigration);
+    await runMigrationPass(AbortSignal.abort());
+    expect(await loadMigrationState(someMigration)).toEqual(before);
+  });
+
+  test('a run ends as soon as no enabled migration has work left', async () => {
+    await setMigrationEnabled(someMigration, true, new Date().toISOString());
+    const started = Date.now();
+    await runMigrationPass();
+    expect((await loadMigrationState(someMigration)).status).toBe('done');
+    expect(Date.now() - started).toBeLessThan(5_000);
+  });
 });
 
 describe('computeEnabledTransition', () => {

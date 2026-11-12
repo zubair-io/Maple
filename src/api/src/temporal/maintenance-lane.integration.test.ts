@@ -150,6 +150,7 @@ describe('maintenance schedules', () => {
       expect(schedule.spec.intervals?.map(({ every }) => every)).toEqual([HOUR_MS]);
       expect(schedule.state.paused).toBe(false);
       expect(schedule.policies.overlap).toBe('SKIP');
+      expect(schedule.policies.catchupWindow).toBe(HOUR_MS);
       expect(schedule.action.taskQueue).toBe(MAINTENANCE_TASK_QUEUE);
 
       await Bun.sleep(FAST.refreshMs * 4);
@@ -170,10 +171,11 @@ describe('maintenance schedules', () => {
       );
 
       await saveSchedule(task.id, { everyMs: 2 * HOUR_MS, paused: true });
-      await until(
+      const retuned = await until(
         () => describeSchedule(task.id),
         (schedule) => schedule.spec.intervals?.[0]?.every === 2 * HOUR_MS,
       );
+      expect(retuned.policies.catchupWindow).toBe(2 * HOUR_MS);
 
       await saveSchedule(task.id, { everyMs: 2 * HOUR_MS, paused: false });
       await until(
@@ -250,6 +252,7 @@ describe('maintenance schedules', () => {
 
       expect(task.recorded.overlapped).toBe(false);
       expect(schedule?.info.runningActions.length).toBeLessThanOrEqual(1);
+      expect(schedule?.policies.catchupWindow).toBe(60_000);
     } finally {
       await host.stop();
     }

@@ -78,7 +78,7 @@ function harness(start: string, pass: (call: number) => Promise<number> = async 
     runLibrary: async () => fakeCollections(await pass(++calls), now),
   };
   return {
-    tick: () => generatedSearchTick(deps),
+    tick: (signal?: AbortSignal) => generatedSearchTick(deps, signal),
     advance: (ms: number) => {
       now = new Date(now.getTime() + ms);
     },
@@ -104,6 +104,18 @@ describe('generated-search schedule — restarts', () => {
     const record = await loadLatestRunRecord();
     expect(record).toMatchObject({ day: '2026-10-12', outcome: 'saved', saved: 4, attempts: 1 });
     expect(record?.trigger).toBe('schedule');
+  });
+
+  it('a stopped check attempts no library, which the next check still owes', async () => {
+    using _live = await createLiveTestDatabase();
+    await enable();
+    const h = harness('2026-10-12T06:00:00.000Z');
+
+    await h.tick(AbortSignal.abort());
+    expect(h.calls()).toBe(0);
+
+    expect(await h.tick()).toEqual([LIBRARY]);
+    expect(h.calls()).toBe(1);
   });
 
   it('does nothing on a restart after the day already has a set', async () => {

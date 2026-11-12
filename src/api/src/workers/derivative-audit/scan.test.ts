@@ -153,6 +153,34 @@ describe('runDerivativeAuditOnce', () => {
 
     expect(summary.reArmed).toBe(1); // stopped after one stage reset
   });
+
+  it('a stopped pass audits no more than the chunk already gathered', async () => {
+    using live = await createLiveTestDatabase();
+    const first = seedMovedAsset(live.db);
+    const library = (
+      live.db.query(`SELECT library_id FROM asset_locations WHERE asset_id = ?`).get(first) as {
+        library_id: string;
+      }
+    ).library_id;
+    for (let i = 0; i < 4; i++) {
+      const assetId = insertAsset(live.db);
+      insertLocation(live.db, {
+        assetId,
+        libraryId: library,
+        path: 'y2024',
+        filename: `p${i}.dng`,
+      });
+      markStagesDone(live.db, assetId);
+    }
+
+    const summary = await runDerivativeAuditOnce(
+      { deep_r2_enabled: false, concurrency: 2 },
+      AbortSignal.abort(),
+    );
+
+    expect(summary.scanned).toBe(1);
+    expect(summary.running).toBe(false);
+  });
 });
 
 describe('runDerivativeAuditOnce against an unreachable R2', () => {

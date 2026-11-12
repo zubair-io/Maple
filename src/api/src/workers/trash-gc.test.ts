@@ -189,6 +189,24 @@ describe('runTrashGcOnce', () => {
     expect(existsSync(join(trashDir(root), 'new.jpg'))).toBe(true);
   });
 
+  it('a stopped pass purges nothing, leaving the rows for the next pass', async () => {
+    using live = await createLiveTestDatabase();
+    const root = mkdtempSync(join(tmpdir(), 'maple-trash-gc-'));
+    const libraryId = registerLibrary(live.db, root);
+    writeFileSync(join(trashDir(root), 'old.jpg'), 'x');
+    const old = trashedAsset(live.db, {
+      libraryId,
+      filename: 'old.jpg',
+      deletedAt: new Date(Date.now() - 60 * DAY_MS).toISOString(),
+    });
+
+    const summary = await runTrashGcOnce({ retentionDays: 30, signal: AbortSignal.abort() });
+
+    expect(summary).toEqual({ scanned: 0, purged: 0, errors: 0 });
+    expect(assetIds(live.db)).toContain(old);
+    expect(existsSync(join(trashDir(root), 'old.jpg'))).toBe(true);
+  });
+
   it('unlinks the paired sidecars alongside the purged original', async () => {
     using live = await createLiveTestDatabase();
     const root = mkdtempSync(join(tmpdir(), 'maple-trash-gc-sidecars-'));

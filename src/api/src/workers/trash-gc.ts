@@ -61,6 +61,8 @@ const DEFAULT_RETENTION_DAYS = 30;
 
 export interface TrashGcOptions {
   retentionDays?: number;
+  /** Stops the pass between assets; the rest stay trashed for the next pass. */
+  signal?: AbortSignal;
 }
 
 export interface TrashGcSummary {
@@ -246,6 +248,7 @@ export async function runTrashGcOnce(opts: TrashGcOptions = {}): Promise<TrashGc
 
   const outcomes: PurgeOutcome[] = [];
   for (const doc of candidates) {
+    if (opts.signal?.aborted) break;
     outcomes.push(
       await purgeTrashedAsset(doc, libs).catch((err: unknown) => purgeCrashed(doc, err)),
     );

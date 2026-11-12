@@ -201,9 +201,11 @@ function logPassFailures({ r2Health, rowFailures, summary }: PassContext): void 
 }
 
 /** One audit pass. NOT guarded itself — the manual route's single-flight lock
- * lives in `startAuditPass()`. */
+ * lives in `startAuditPass()`. A stop takes effect between chunks; every
+ * re-arm already made is written, and the next pass walks again. */
 export async function runDerivativeAuditOnce(
   override: Partial<DerivativeAuditConfig> = {},
+  signal?: AbortSignal,
 ): Promise<DerivativeAuditSummary> {
   const cfg = { ...(await loadDerivativeAuditConfig()), ...override };
   const summary = emptySummary();
@@ -233,7 +235,7 @@ export async function runDerivativeAuditOnce(
   for await (const doc of auditCandidates()) {
     chunk.push(doc);
     if (chunk.length >= chunkSize) await flush();
-    if (summary.reArmed >= cfg.max_resets_per_pass || r2Health.tripped) break;
+    if (summary.reArmed >= cfg.max_resets_per_pass || r2Health.tripped || signal?.aborted) break;
   }
   await flush();
 
@@ -272,6 +274,6 @@ export function derivativeAuditEveryMs(cfg: DerivativeAuditConfig): number {
 }
 
 /** One scheduled pass, unless the audit was disabled after the run was already on its way. */
-export async function runDerivativeAuditPass(): Promise<void> {
-  if ((await loadDerivativeAuditConfig()).enabled) await runDerivativeAuditOnce();
+export async function runDerivativeAuditPass(signal?: AbortSignal): Promise<void> {
+  if ((await loadDerivativeAuditConfig()).enabled) await runDerivativeAuditOnce({}, signal);
 }

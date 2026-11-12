@@ -6,8 +6,8 @@
  * schedule match what its settings ask for — creating it, changing its
  * interval, pausing or resuming it — and removes maintenance schedules for
  * tasks that no longer exist, so an edit or a deletion made in the Temporal UI
- * is put back within one reconcile. A Temporal outage delays runs; nothing is
- * queued up to replay when it ends.
+ * is put back within one reconcile. A Temporal outage delays runs; at most one
+ * missed run per task is made up when it ends.
  */
 
 import {
@@ -21,21 +21,24 @@ import { child as childLogger } from '../../log.ts';
 import type { TemporalLane } from '../../temporal/temporal-lane.ts';
 import { maintenanceWorkflow } from '../../temporal/workflows.ts';
 import { createMaintenanceActivities } from './activity.ts';
+import { maintenanceRunNowId, maintenanceScheduleId, SCHEDULE_PREFIX } from './ids.ts';
 import { clearMaintenanceRun, pendingMaintenanceRuns } from './run-now.repo.ts';
 import { MAINTENANCE_TASKS, type DesiredSchedule, type MaintenanceTask } from './tasks.ts';
 import { MAINTENANCE_TASK_QUEUE } from './workflow.ts';
 
 const log = childLogger('maintenance');
 
-const SCHEDULE_PREFIX = 'maintenance-';
+const MIN_CATCHUP_WINDOW_MS = 60_000;
 
-/** Long enough to ride out a brief restart, short enough that an outage does not replay a backlog. */
-const CATCHUP_WINDOW_MS = 60_000;
+/**
+ * One interval: a run missed while Temporal was down is made up once it is
+ * back, so a daily task whose run fell inside an outage does not wait a whole
+ * day, and no more than one missed run is ever replayed.
+ */
+const catchupWindowMs = (desired: DesiredSchedule): number =>
+  Math.max(desired.everyMs, MIN_CATCHUP_WINDOW_MS);
 
-export const maintenanceScheduleId = (taskId: string): string => `${SCHEDULE_PREFIX}${taskId}`;
-
-export const maintenanceRunNowId = (taskId: string): string =>
-  `${SCHEDULE_PREFIX}${taskId}-run-now`;
+export { maintenanceRunNowId, maintenanceScheduleId } from './ids.ts';
 
 /** Everything about a schedule this lane owns, apart from whether it is paused. */
 const scheduleBody = (taskId: string, desired: DesiredSchedule) => ({
@@ -47,7 +50,7 @@ const scheduleBody = (taskId: string, desired: DesiredSchedule) => ({
     taskQueue: MAINTENANCE_TASK_QUEUE,
     args: [taskId] as [string],
   },
-  policies: { overlap: ScheduleOverlapPolicy.SKIP, catchupWindow: CATCHUP_WINDOW_MS },
+  policies: { overlap: ScheduleOverlapPolicy.SKIP, catchupWindow: catchupWindowMs(desired) },
 });
 
 function intervalMatches(current: ScheduleDescription, desired: DesiredSchedule): boolean {
@@ -71,10 +74,10 @@ function actionMatches(current: ScheduleDescription, taskId: string): boolean {
   );
 }
 
-function policiesMatch(current: ScheduleDescription): boolean {
+function policiesMatch(current: ScheduleDescription, desired: DesiredSchedule): boolean {
   return (
     current.policies.overlap === ScheduleOverlapPolicy.SKIP &&
-    current.policies.catchupWindow === CATCHUP_WINDOW_MS
+    current.policies.catchupWindow === catchupWindowMs(desired)
   );
 }
 
@@ -87,7 +90,7 @@ function scheduleMatches(
     current.state.paused === desired.paused &&
     intervalMatches(current, desired) &&
     actionMatches(current, taskId) &&
-    policiesMatch(current)
+    policiesMatch(current, desired)
   );
 }
 

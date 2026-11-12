@@ -113,7 +113,10 @@ const defaultDeps: ScheduleDeps = {
  * the job in between would turn this paused check into a pass that never
  * consulted today's set or run record.
  */
-export async function generatedSearchTick(deps: ScheduleDeps = defaultDeps): Promise<string[]> {
+export async function generatedSearchTick(
+  deps: ScheduleDeps = defaultDeps,
+  signal?: AbortSignal,
+): Promise<string[]> {
   const now = deps.now();
   const config = await loadGeneratedSearchConfig();
   if (config.paused) {
@@ -129,6 +132,7 @@ export async function generatedSearchTick(deps: ScheduleDeps = defaultDeps): Pro
     trigger: 'schedule',
     clock: deps.now,
     runLibrary: deps.runLibrary,
+    signal,
   });
   log.info({ ...summary, day: dayKey(now) }, 'scheduled pass finished');
   return owed;

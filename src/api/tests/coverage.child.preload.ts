@@ -1,4 +1,4 @@
-// Instrument a real API entry process for the auth-expiry boot regression.
+// Instrument a real API entry process for the API boot test (tests/api-boot.test.ts).
 // The output path is supplied as an argument, never an operator setting.
 import { plugin } from 'bun';
 import { readFileSync, writeFileSync } from 'node:fs';
