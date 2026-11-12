@@ -67,39 +67,60 @@ function keepHeartbeat(started_at: string): () => Promise<void> {
   };
 }
 
+async function inScratchDirectory<T>(work: (directory: string) => Promise<T>): Promise<T> {
+  const directory = await mkdtemp(join(tmpdir(), 'maple-db-backup-'));
+  try {
+    return await work(directory);
+  } finally {
+    await rm(directory, { recursive: true, force: true }).catch((error: unknown) => {
+      log.warn({ err: error, directory }, 'Could not remove the database backup scratch directory');
+    });
+  }
+}
+
+async function snapshotAndUpload(
+  directory: string,
+  started_at: string,
+  signal: AbortSignal,
+): Promise<DbBackupStatus> {
+  const { policy, config } = await backupConfiguration();
+  const storage = new BackupR2(config);
+  const path = join(directory, 'snapshot.db');
+  const info = await createSnapshot(sqlitePool().path, path);
+  signal.throwIfAborted();
+  const key = computeBackupKey(info.schema);
+  await storage.upload(key, `${path}.gz`, info, version);
+  signal.throwIfAborted();
+  await verifyBackup(await storage.download(key), join(directory, 'verified.db'));
+  await storage.confirm(key, info.sha256);
+  const retention_error = await storage
+    .list()
+    .then((keys) => storage.delete(expiredBackups(keys, policy)))
+    .then(
+      () => undefined,
+      (error: unknown) => (error instanceof Error ? error.message : String(error)),
+    );
+  return {
+    state: 'succeeded',
+    started_at,
+    finished_at: new Date().toISOString(),
+    key,
+    bytes: info.bytes,
+    compressed_bytes: info.compressed_bytes,
+    ...(retention_error ? { retention_error } : {}),
+  };
+}
+
 async function runBackup(signal: AbortSignal): Promise<void> {
   const started_at = new Date().toISOString();
   await saveDbBackupStatus(runningStatus(started_at));
   const stopHeartbeat = keepHeartbeat(started_at);
-  const directory = await mkdtemp(join(tmpdir(), 'maple-db-backup-'));
   try {
-    const { policy, config } = await backupConfiguration();
-    const storage = new BackupR2(config);
-    const path = join(directory, 'snapshot.db');
-    const info = await createSnapshot(sqlitePool().path, path);
-    signal.throwIfAborted();
-    const key = computeBackupKey(info.schema);
-    await storage.upload(key, `${path}.gz`, info, version);
-    signal.throwIfAborted();
-    await verifyBackup(await storage.download(key), join(directory, 'verified.db'));
-    await storage.confirm(key, info.sha256);
-    const retention_error = await storage
-      .list()
-      .then((keys) => storage.delete(expiredBackups(keys, policy)))
-      .then(
-        () => undefined,
-        (error: unknown) => (error instanceof Error ? error.message : String(error)),
-      );
+    const succeeded = await inScratchDirectory((directory) =>
+      snapshotAndUpload(directory, started_at, signal),
+    );
     await stopHeartbeat();
-    await saveDbBackupStatus({
-      state: 'succeeded',
-      started_at,
-      finished_at: new Date().toISOString(),
-      key,
-      bytes: info.bytes,
-      compressed_bytes: info.compressed_bytes,
-      ...(retention_error ? { retention_error } : {}),
-    });
+    await saveDbBackupStatus(succeeded);
   } catch (error) {
     log.error({ err: error }, 'Database backup failed');
     await stopHeartbeat();
@@ -110,8 +131,6 @@ async function runBackup(signal: AbortSignal): Promise<void> {
       error: error instanceof Error ? error.message : String(error),
     });
     throw error;
-  } finally {
-    await rm(directory, { recursive: true, force: true });
   }
 }
 

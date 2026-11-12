@@ -136,6 +136,19 @@ test('a failed backup is recorded without pruning, and a later one succeeds', as
   expect(await new BackupR2(config).list()).toEqual([settings.status!.key!]);
 });
 
+test('a backup that cannot create its scratch directory is recorded as failed', async () => {
+  const before = process.env.TMPDIR;
+  process.env.TMPDIR = join(directory, 'missing');
+  try {
+    expect(await forcedBackup()).toBeInstanceOf(Error);
+  } finally {
+    if (before === undefined) delete process.env.TMPDIR;
+    else process.env.TMPDIR = before;
+  }
+  expect((await loadDbBackupSettings()).status?.state).toBe('failed');
+  expect(await forcedBackup()).toBeUndefined();
+});
+
 test('a backup in progress is stored as running with a heartbeat', async () => {
   const upload = Promise.withResolvers<void>();
   uploadGate = upload.promise;
