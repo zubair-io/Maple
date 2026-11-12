@@ -28,6 +28,7 @@ export function emptySummary(): DerivativeAuditSummary {
     errors: 0,
     r2Deferred: 0,
     abortedReason: null,
+    failure: null,
     startedAt: null,
     finishedAt: null,
     running: false,

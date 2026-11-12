@@ -18,6 +18,8 @@ export interface DerivativeAuditSummary {
   /** Set when the pass stopped early; the loop retries soon instead of waiting
    * a full interval. */
   abortedReason: 'r2-unreachable' | null;
+  /** The error that ended the pass, when it threw; null after a pass that finished. */
+  failure: string | null;
   startedAt: string | null;
   finishedAt: string | null;
   running: boolean;
