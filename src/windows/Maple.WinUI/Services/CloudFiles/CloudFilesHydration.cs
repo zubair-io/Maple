@@ -17,11 +17,11 @@ namespace Maple.WinUI.Services.CloudFiles
         /// <summary>Whether a FETCH_DATA request can be served. The FULL
         /// hydration policy makes every request start at 0 and cover the
         /// whole file, and the sequential body stream depends on that: the
-        /// original-bytes route delivers the file from its first byte (it
-        /// honours no Range header), so a non-zero required offset — a
-        /// future policy change, or a restarted partial hydration — must
-        /// fail cleanly rather than deliver bytes at the wrong offsets and
-        /// corrupt the read.</summary>
+        /// /api/folders/:id/file route that non-image types hydrate through
+        /// honours no Range header and delivers from the first byte, so a
+        /// non-zero required offset — a future policy change, or a
+        /// restarted partial hydration — must fail cleanly rather than
+        /// deliver bytes at the wrong offsets and corrupt the read.</summary>
         internal static bool IsSupportedRequest(long requiredFileOffset) =>
             requiredFileOffset == 0;
 

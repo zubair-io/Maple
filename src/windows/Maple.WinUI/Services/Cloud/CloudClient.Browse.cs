@@ -16,21 +16,15 @@ namespace Maple.WinUI.Services.Cloud
         public Task<CloudFolder[]?> GetFoldersAsync(CancellationToken ct) =>
             GetJsonAsync<CloudFolder[]>("api/folders", ct);
 
-        /// <summary>One directory level (GET /api/fs/dir) — the same endpoint
-        /// the Apple cloud source and File Provider browse with, so Windows
-        /// sees exactly the tree Finder does. Pass the previous page's
-        /// NextCursor to continue a large directory; omitting both cursor and
-        /// limit asks for the whole listing in one shot (the server's
-        /// historical default).
+        /// <summary>One directory level for the in-app browser (GET
+        /// /api/fs/dir). Pass the previous page's NextCursor to continue a
+        /// large directory; omitting both cursor and limit asks for the whole
+        /// listing in one shot (the server's historical default).
         ///
-        /// Still path-addressed after the #1325 cutover: the unified
-        /// `/api/folder/:slug/*` listing carries no size, mtime or EXIF, and
-        /// no absolute path — and the absolute path is what keys every
-        /// non-browse route this client still speaks (`/api/xmp?path=`,
-        /// `/api/preview?path=`, `/api/assets/by-fspath`) as well as the
-        /// Cloud Files placeholders, whose FileSize must be right for
-        /// hydration to complete. Moves once `/api/folder` grows those
-        /// fields (server work, tracked on #1325).</summary>
+        /// Still path-addressed: the absolute path it returns keys the other
+        /// routes the browser speaks (`/api/xmp?path=`, `/api/preview?path=`,
+        /// `/api/assets/by-fspath`). The File Explorer sync root reads the
+        /// unified listing instead (<see cref="ListFolderAsync"/>).</summary>
         public async Task<CloudDirListing?> ListDirAsync(
             string absPath, string? cursor, int limit, CancellationToken ct)
         {
@@ -55,6 +49,19 @@ namespace Maple.WinUI.Services.Cloud
             }
         }
 
+        /// <summary>One page of the unified folder listing, GET
+        /// /api/folder/:slug/* — the route the Apple File Provider
+        /// enumerates (#4006). `slug:` with an empty relPath is the library
+        /// root. Null on a transport failure or a non-success status.</summary>
+        public Task<CloudFolderListing?> ListFolderAsync(
+            string address, string? cursor, int limit, CancellationToken ct)
+        {
+            var query = $"api/folder/{EncodeAddress(address)}?limit={limit}";
+            if (!string.IsNullOrEmpty(cursor))
+                query += $"&cursor={Uri.EscapeDataString(cursor)}";
+            return GetJsonAsync<CloudFolderListing>(query, ct);
+        }
+
         // --- Images (AVIF, disk-cached) ---
 
         /// <summary>Fetch a thumb (512px) or preview (1280px) AVIF into the
@@ -75,13 +82,17 @@ namespace Maple.WinUI.Services.Cloud
         /// decodes each segment individually.</summary>
         private static string EncodeAddress(string address)
         {
-            var colon = address.IndexOf(':');
-            var slug = colon < 0 ? address : address[..colon];
-            var relPath = colon < 0 ? string.Empty : address[(colon + 1)..];
+            var (slug, relPath) = SplitAddress(address);
             var segments = relPath
                 .Split('/', StringSplitOptions.RemoveEmptyEntries)
                 .Select(Uri.EscapeDataString);
             return string.Join("/", new[] { Uri.EscapeDataString(slug) }.Concat(segments));
+        }
+
+        private static (string Slug, string RelPath) SplitAddress(string address)
+        {
+            var colon = address.IndexOf(':');
+            return colon < 0 ? (address, string.Empty) : (address[..colon], address[(colon + 1)..]);
         }
     }
 }

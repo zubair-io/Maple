@@ -4,12 +4,13 @@
 //
 // What moved: thumbnails and previews are fetched by `slug:relPath` address
 // (GET /api/thumb/:slug/*, /api/preview/:slug/*), the unified routes the web
-// grid reads. What deliberately stayed path-addressed, and why, is in the
-// per-method comments in Services/Cloud/CloudClient.*.cs: the directory
-// listing (GET /api/fs/dir — the unified listing carries no size/mtime/EXIF
-// and no absolute path) and the original bytes (GET /api/fs/raw — the only
-// route with the #926 mirror read-failover). These tests pin both halves so
-// a future route swap is a deliberate test change, not a silent one.
+// grid reads, and the File Explorer sync root lists and hydrates by address
+// (GET /api/folder/:slug/*, /api/image/:slug/*, /api/folders/:id/file —
+// #5852). What stayed path-addressed, and why, is in the per-method comments
+// in Services/Cloud/CloudClient.*.cs: the in-app browser's directory listing
+// (GET /api/fs/dir) and download-to-edit (GET /api/fs/raw). These tests pin
+// both halves so a future route swap is a deliberate test change, not a
+// silent one.
 
 using System;
 using System.Collections.Generic;
@@ -227,38 +228,128 @@ namespace Maple.WinUI.Tests
                 throw new HttpRequestException("connection refused");
         }
 
-        // --- Original bytes: stay on /api/fs/raw (#926 mirror failover) ---
+        // --- Unified folder listing (File Explorer sync root, #5852) ---
 
         [Fact]
-        public async Task OpenOriginalAsync_StaysOnFsRaw_ReturnsStreamableBody()
+        public async Task ListFolderAsync_HitsUnifiedFolderRoute_SegmentEncodedWithLimitAndCursor()
         {
-            var body = new byte[10_000];
-            new Random(1).NextBytes(body);
-            var handler = new FakeHandler().Then(HttpStatusCode.OK, body, "application/octet-stream");
+            var handler = new FakeHandler().Then(HttpStatusCode.OK, Json(
+                "{\"address\":\"photos:2024/a b\",\"folders\":[{\"name\":\"sub\",\"address\":\"photos:2024/a b/sub\",\"path\":\"/srv/photos/2024/a b/sub\",\"size\":4096,\"mtime\":\"2024-01-02T03:04:05.000Z\",\"ext\":\"\"}]," +
+                "\"images\":[{\"name\":\"x.CR2\",\"address\":\"photos:2024/a b/x.CR2\",\"size\":123,\"mtime\":\"2024-01-02T03:04:05.000Z\",\"ext\":\"cr2\",\"mapleId\":null,\"indexed\":false}]," +
+                "\"files\":[{\"name\":\"clip.mov\",\"address\":\"photos:2024/a b/clip.mov\",\"size\":9,\"mtime\":\"2024-01-02T03:04:05.000Z\",\"ext\":\"mov\"}]," +
+                "\"sidecars\":[{\"name\":\"x.xmp\",\"address\":\"photos:2024/a b/x.xmp\",\"size\":7,\"mtime\":\"2024-01-02T03:04:05.000Z\",\"ext\":\"xmp\",\"asset_id\":\"abc\"}]," +
+                "\"next_cursor\":\"c2\"}"), "application/json");
             using var client = Client(handler);
 
-            using var response = await client.OpenOriginalAsync("/srv/lib/2024/a b.CR2", CancellationToken.None);
+            var listing = await client.ListFolderAsync("photos:2024/a b", "c1", 500, CancellationToken.None);
 
-            var request = Assert.Single(handler.Requests);
-            Assert.Equal($"{Server}/api/fs/raw?path=%2Fsrv%2Flib%2F2024%2Fa%20b.CR2", request.RequestUri!.AbsoluteUri);
-            // No Range header: hydration asks for the whole file from 0 —
-            // neither /api/fs/raw nor /api/image honours one.
-            Assert.Null(request.Headers.Range);
-            Assert.NotNull(response);
-            Assert.Equal(body.Length, response!.Content.Headers.ContentLength);
-            await using var stream = await response.Content.ReadAsStreamAsync();
-            using var sink = new MemoryStream();
-            await stream.CopyToAsync(sink);
-            Assert.Equal(body, sink.ToArray());
+            Assert.Equal(
+                $"{Server}/api/folder/photos/2024/a%20b?limit=500&cursor=c1",
+                Assert.Single(handler.Requests).RequestUri!.AbsoluteUri);
+            Assert.NotNull(listing);
+            Assert.Equal("c2", listing!.NextCursor);
+            Assert.Equal("photos:2024/a b/sub", Assert.Single(listing.Folders).Address);
+            Assert.Equal(123, Assert.Single(listing.Images).Size);
+            Assert.Equal("clip.mov", Assert.Single(listing.Files).Name);
+            Assert.Equal(7, Assert.Single(listing.Sidecars).Size);
         }
 
         [Fact]
-        public async Task OpenOriginalAsync_NonSuccessIsNull()
+        public async Task ListFolderAsync_LibraryRoot_HasNoTrailingSegment()
         {
-            var handler = new FakeHandler().Then(HttpStatusCode.NotFound, Json("{\"error\":\"no readable copy\"}"), "application/json");
+            var handler = new FakeHandler().Then(HttpStatusCode.OK, Json("{\"address\":\"photos:\"}"), "application/json");
             using var client = Client(handler);
 
-            Assert.Null(await client.OpenOriginalAsync("/srv/lib/gone.CR2", CancellationToken.None));
+            var listing = await client.ListFolderAsync("photos:", null, 500, CancellationToken.None);
+
+            Assert.Equal($"{Server}/api/folder/photos?limit=500", Assert.Single(handler.Requests).RequestUri!.AbsoluteUri);
+            Assert.NotNull(listing);
+            Assert.Empty(listing!.Folders);
+            Assert.Null(listing.NextCursor);
+        }
+
+        [Fact]
+        public async Task ListFolderAsync_FailureIsNull_NotAThrow()
+        {
+            using var refused = Client(new ThrowingHandler());
+            Assert.Null(await refused.ListFolderAsync("photos:", null, 500, CancellationToken.None));
+
+            using var notFound = Client(new FakeHandler().Then(HttpStatusCode.NotFound, Json("{\"error\":\"x\"}"), "application/json"));
+            Assert.Null(await notFound.ListFolderAsync("photos:gone", null, 500, CancellationToken.None));
+        }
+
+        // --- Library file bytes (File Explorer hydration, #5852) ---
+
+        private static async Task<byte[]> ReadAllAsync(HttpResponseMessage response)
+        {
+            await using var stream = await response.Content.ReadAsStreamAsync();
+            using var sink = new MemoryStream();
+            await stream.CopyToAsync(sink);
+            return sink.ToArray();
+        }
+
+        [Fact]
+        public async Task OpenLibraryFileAsync_Image_StreamsFromUnifiedImageRoute()
+        {
+            var body = new byte[10_000];
+            new Random(1).NextBytes(body);
+            var handler = new FakeHandler().Then(HttpStatusCode.OK, body, "image/x-canon-cr2");
+            using var client = Client(handler);
+
+            using var response = await client.OpenLibraryFileAsync("photos:2024/a b.CR2", CancellationToken.None);
+
+            var request = Assert.Single(handler.Requests);
+            Assert.Equal($"{Server}/api/image/photos/2024/a%20b.CR2", request.RequestUri!.AbsoluteUri);
+            // Whole file from 0: the FULL hydration policy never asks for less.
+            Assert.Null(request.Headers.Range);
+            Assert.NotNull(response);
+            Assert.Equal(body, await ReadAllAsync(response!));
+        }
+
+        [Fact]
+        public async Task OpenLibraryFileAsync_415_FallsBackToTheLibraryFileRoute()
+        {
+            var body = new byte[] { 1, 2, 3 };
+            var handler = new FakeHandler()
+                .Then(HttpStatusCode.UnsupportedMediaType, Json("{\"error\":\"Unsupported file extension: \\\"mov\\\"\"}"), "application/json")
+                .Then(HttpStatusCode.OK, Json("[{\"id\":\"0123456789abcdef01234567\",\"slug\":\"photos\",\"path\":\"/srv/photos\"}]"), "application/json")
+                .Then(HttpStatusCode.OK, body, "application/octet-stream");
+            using var client = Client(handler);
+
+            using var response = await client.OpenLibraryFileAsync("photos:2024/clip a.mov", CancellationToken.None);
+
+            Assert.Equal(
+                new[]
+                {
+                    $"{Server}/api/image/photos/2024/clip%20a.mov",
+                    $"{Server}/api/folders",
+                    $"{Server}/api/folders/0123456789abcdef01234567/file?path=2024%2Fclip%20a.mov",
+                },
+                handler.Requests.Select(r => r.RequestUri!.AbsoluteUri));
+            Assert.NotNull(response);
+            Assert.Equal(body, await ReadAllAsync(response!));
+        }
+
+        [Fact]
+        public async Task OpenLibraryFileAsync_415ForAnUnknownLibrary_IsNull()
+        {
+            var handler = new FakeHandler()
+                .Then(HttpStatusCode.UnsupportedMediaType)
+                .Then(HttpStatusCode.OK, Json("[{\"id\":\"x\",\"slug\":\"other\",\"path\":\"/srv/other\"}]"), "application/json");
+            using var client = Client(handler);
+
+            Assert.Null(await client.OpenLibraryFileAsync("photos:a.xmp", CancellationToken.None));
+            Assert.Equal(2, handler.Requests.Count);
+        }
+
+        [Fact]
+        public async Task OpenLibraryFileAsync_NonSuccessIsNull_WithoutFallback()
+        {
+            var handler = new FakeHandler().Then(HttpStatusCode.NotFound, Json("{\"error\":\"File not found\"}"), "application/json");
+            using var client = Client(handler);
+
+            Assert.Null(await client.OpenLibraryFileAsync("photos:gone.CR2", CancellationToken.None));
+            Assert.Single(handler.Requests);
         }
 
         [Fact]
