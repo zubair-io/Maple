@@ -247,6 +247,17 @@ Which date a client reads, by file type:
 
 Known divergence, not fixed here: an original date that JavaScript's `new Date(...)` accepts but that is not the EXIF `YYYY:MM:DD HH:MM:SS` form (`2015-11-14T14:26:58` from a Hasselblad `.fff`, `2024-06-01 12:34:56`, `2024/06/01 12:34:56`, a bare `2024:06:01`) is read by the server through `new Date(...)` in the indexer host's timezone, which no client can reproduce; the device falls through to `CreateDate` instead.
 
+### Merging duplicate rows
+
+When the exif stage upgrades an asset to a primary `maple_id` that another row already holds, `mergeIntoSurvivor` (`db/repos/assets.merge.ts`) folds the two into one in a single transaction. The survivor is the row with the earlier `indexed_at` (ties: lower id), not necessarily the row being processed. What it keeps:
+
+- **Locations and backup history** of both rows, re-numbered above the survivor's. Rating, flag and colour label are copied only while the survivor still holds defaults, and the EXIF and screenshot flag only when the survivor has none.
+- **Apple Photos links** move to the survivor; a link both rows hold (same device and local id) keeps the survivor's copy.
+- **Derived data** (`db/repos/assets.merge-derived.ts`) is filled group by group where the survivor has none, and the survivor's own value always wins: description/OCR/vision with their provenance (`describe`), transcript and video description, place (`geocode`), faces with their embeddings and the person segmentation. Both rows holding the same kind of data keeps the survivor's and drops the other's.
+- **Stage state follows the data.** A group the survivor inherits takes the condemned row's stage state when it is further along, so the survivor is not re-queued for work already done; a group it did not inherit is untouched, so its own stage run still fills it. Any inheritance re-arms `search-blob`, which composes the blob from that text. `embed` is re-armed by the `maple_id` change itself, and the stale vector is dropped.
+
+Everything else keyed to the condemned row (its search blob, derivative-audit marks, stage bookkeeping) is removed with it by cascade.
+
 ### On-demand previews
 
 A cold-cache `GET /api/preview/:slug/*` renders the preview in the API process, ahead of the `preview` stage's backlog (#5433, `indexer/ondemand-preview.ts`):
