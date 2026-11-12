@@ -228,10 +228,7 @@ def dependencies(path):
         or path.startswith("src/web/e2e/recipe-interchange/")
         else set()
     )
-    if path == (
-        "src/android/app/src/main/java/app/justmaple/aperture/ui/"
-        "PresetsAndToneCurvePlot.kt"
-    ):
+    if path == "src/android/app/src/main/java/app/justmaple/aperture/ui/Presets.kt":
         return {"api", "android"}
     if path.startswith("src/android/"):
         return {"android"} | codegen

@@ -11,7 +11,7 @@ test('Android built-in presets match the canonical JSON catalog', async () => {
   const source = await Bun.file(
     join(
       import.meta.dir,
-      '../../../android/app/src/main/java/app/justmaple/aperture/ui/PresetsAndToneCurvePlot.kt',
+      '../../../android/app/src/main/java/app/justmaple/aperture/ui/Presets.kt',
     ),
   ).text();
   const definition = source.slice(
