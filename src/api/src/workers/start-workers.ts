@@ -8,8 +8,7 @@
  *   - FFI decode pool sizing
  *   - geocode / face / describe enrichment workers
  *   - worker-side enrichment config refresh
- *   - Temporal host (user-triggered jobs)
- *   - import runner
+ *   - Temporal host (user-triggered jobs and folder imports)
  *
  * `stopWorkers()` tears them all down in the correct order, mirroring the
  * `shutdown()` function in `index.ts`.
@@ -35,7 +34,6 @@ import { startGeocodeWorker, stopGeocodeWorker } from '../enrichment/bootstrap.t
 import { startFaceWorker, stopFaceWorker } from '../enrichment/face-bootstrap.ts';
 import { getFaceModelsStatus } from '../enrichment/face-models.ts';
 import { startDescribeWorker, stopDescribeWorker } from '../enrichment/describe-bootstrap.ts';
-import { startImportRunner, stopImportRunner } from '../imports/worker.ts';
 import { writeWorkerMemory, writeWorkerStatus } from '../db/repos/worker-status.repo.ts';
 import { childMemoryReports } from '../runtime/child-process-worker.ts';
 import {
@@ -170,18 +168,15 @@ export async function startWorkers(): Promise<void> {
     startWorkerEnrichmentConfigRefresh();
   }
 
-  // User-triggered jobs (export, batch sync, pano, restore) run on Temporal.
-  // Imported here, not at the top: the SDK loads a native bridge on import, and
-  // a platform without one must cost this tier its jobs, not its stages.
+  // User-triggered jobs (export, batch sync, pano, restore) and folder imports
+  // run on Temporal. Imported here, not at the top: the SDK loads a native
+  // bridge on import, and a platform without one must cost this tier its jobs
+  // and imports, not its stages.
   await startSubsystem(async () => {
     const temporal = await import('../temporal/temporal-host.ts');
     temporal.startTemporalHost();
     _stopTemporalHost = temporal.stopTemporalHost;
   }, 'Temporal host failed to start');
-
-  // ImportRunner — claims pending `imports` and copies server-local
-  // folders into a library (ticket #742).
-  await startSubsystem(startImportRunner, 'ImportRunner failed to start');
 
   // Library-wide maintenance jobs (trash-gc + missing-reaper + migration).
   // Moved here from index.ts so maintenance load is off the API event loop and
@@ -297,13 +292,6 @@ export async function stopWorkers(): Promise<void> {
         _stopTemporalHost = null;
       } catch (e) {
         log.warn({ err: e }, 'error stopping the Temporal host');
-      }
-    })(),
-    (async () => {
-      try {
-        await stopImportRunner();
-      } catch (e) {
-        log.warn({ err: e }, 'error stopping import runner');
       }
     })(),
   ]);

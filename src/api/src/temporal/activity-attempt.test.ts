@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { attemptStop } from './job-activity.ts';
+import { attemptStop } from './activity-attempt.ts';
 
 const details = (reason: Partial<NonNullable<Parameters<typeof attemptStop>[0]>>) => ({
   notFound: false,

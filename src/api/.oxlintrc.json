@@ -117,6 +117,8 @@
         // #4981: successor probes use disposable temporary root fixtures.
         "src/fs/root.successor.test.ts",
         "src/job-runner/batch-scope.integration.test.ts",
+        // #5819: disposable import source and library folders under os.tmpdir().
+        "src/temporal/import-lane.integration.test.ts",
         "src/fs/browse.registered-roots.test.ts",
         "src/fs/root-connectivity.ts",
         "src/fs/root-connectivity.test.ts",
@@ -167,6 +169,7 @@
         "src/imports/copy.test.ts",
         "src/imports/scan.capture-time.test.ts",
         "src/imports/scan.test.ts",
+        "src/imports/worker.attempt.test.ts",
         "src/imports/worker.sidecars.test.ts",
         "src/imports/worker.test.ts",
         "src/indexer/exif.formats.test.ts",

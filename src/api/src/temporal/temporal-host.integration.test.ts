@@ -11,16 +11,13 @@ import { ObjectId } from '../db/object-id.ts';
 import { createLiveTestDatabase, run } from '../db/sqlite/test-sqlite.test-helpers.ts';
 import type { JobStatus } from '../db/schema.ts';
 import type { JobHandler } from '../job-runner/handlers/index.ts';
-import {
-  dispatchJobSignal,
-  JOB_TASK_QUEUE,
-  jobWorkflow,
-  jobWorkflowId,
-} from '../job-runner/job-workflow.ts';
+import { JOB_TASK_QUEUE, jobWorkflow, jobWorkflowId } from '../job-runner/job-workflow.ts';
+import { jobLane } from '../job-runner/job-queue.ts';
 import { createJob, getJob, markJobDispatched, resumeBatchJob } from '../job-runner/jobs.repo.ts';
 import { startLocalTemporalServer } from './local-temporal.test-helpers.ts';
 import { readTemporalStatus, saveTemporalSettings } from './temporal-config.ts';
-import { TemporalHost } from './temporal-host.ts';
+import { dispatchSignal } from './row-workflow.ts';
+import { defaultTemporalLanes, TemporalHost } from './temporal-host.ts';
 
 const EXPORT_PAYLOAD = { assetIds: [], outputDir: '/tmp', quality: 80 };
 const FAST = { relayMs: 20, refreshMs: 100, retryMs: 100 };
@@ -62,7 +59,7 @@ async function hostFor(handle: JobHandler['run']): Promise<TemporalHost> {
   await saveTemporalSettings({ address: env.address, namespace: 'default' });
   const host = new TemporalHost({
     ...FAST,
-    jobs: { handlers: { batch_jpeg_export: { run: handle } } },
+    lanes: [jobLane({ handlers: { batch_jpeg_export: { run: handle } } })],
   });
   host.start();
   return host;
@@ -217,7 +214,7 @@ describe('jobs on Temporal', () => {
       workflowId: jobWorkflowId(jobId),
       taskQueue: JOB_TASK_QUEUE,
       args: [jobId],
-      signal: dispatchJobSignal,
+      signal: dispatchSignal,
     });
     await markJobDispatched(jobId);
     await workflow.cancel();
@@ -288,7 +285,7 @@ describe('jobs on Temporal', () => {
         workflowId: jobWorkflowId(strangerId),
         taskQueue: JOB_TASK_QUEUE,
         args: [strangerId],
-        signal: dispatchJobSignal,
+        signal: dispatchSignal,
       });
 
       expect(await failureOf(workflow)).toMatchObject({
@@ -328,7 +325,7 @@ describe('connection state', () => {
   test('reports unreachable with the reason, then connected once the address is fixed', async () => {
     using _live = await createLiveTestDatabase();
     await saveTemporalSettings({ address: '127.0.0.1:9', namespace: 'default' });
-    const host = new TemporalHost(FAST);
+    const host = new TemporalHost({ ...FAST, lanes: defaultTemporalLanes() });
     host.start();
     try {
       const down = await until(readTemporalStatus, (s) => s.connection.state === 'unreachable');
@@ -348,7 +345,7 @@ describe('connection state', () => {
     using _live = await createLiveTestDatabase();
     const doomed = await startLocalTemporalServer();
     await saveTemporalSettings({ address: doomed.address, namespace: 'default' });
-    const host = new TemporalHost(FAST);
+    const host = new TemporalHost({ ...FAST, lanes: defaultTemporalLanes() });
     host.start();
     try {
       await until(readTemporalStatus, (s) => s.connection.state === 'connected');
@@ -370,7 +367,7 @@ describe('connection state', () => {
   test('a namespace the server does not have is reported, not silently retried', async () => {
     using _live = await createLiveTestDatabase();
     await saveTemporalSettings({ address: env.address, namespace: 'no-such-namespace' });
-    const host = new TemporalHost(FAST);
+    const host = new TemporalHost({ ...FAST, lanes: defaultTemporalLanes() });
     host.start();
     try {
       const status = await until(readTemporalStatus, (s) => s.connection.state === 'unreachable');

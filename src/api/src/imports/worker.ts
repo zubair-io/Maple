@@ -1,14 +1,8 @@
 /**
- * ImportRunner — the import worker (ticket #742).
- *
- * Mirrors `job-runner/runner.ts`, but the work queue is the `imports` table
- * and the unit of work is a folder copy. Loop shape:
- *
- *     while (!shutdown) {
- *       const claim = await claimImport(...);
- *       if (!claim) { sleep(POLL_MS); continue; }
- *       await processImport(claim, ...);   // per-file copy + indexer hand-off
- *     }
+ * ImportRunner — copies one import for one Temporal activity attempt (tickets
+ * #742, #5819). The `imports` row is the queue; the worker tier relays it to
+ * an `import-<id>` workflow, whose activity calls {@link ImportRunner.run}.
+ * Nothing here polls.
  *
  * Per-file semantics:
  *   - Files are processed grouped by image: an image's `.xmp` sidecars are
@@ -21,18 +15,12 @@
  *     would be meaningless.
  *   - On-disk name collisions resolve to a free sibling; byte-identical files
  *     already present are skipped.
- *   - Cancel is observed BETWEEN files; already-copied files stay.
- *
- * Concurrency: one import at a time per runner (the proposed v1 default,
- * matching JobRunner). Poll/lease are constants (no env vars); there is no
- * operator-facing import config in v1. If a pause/concurrency knob is wanted
- * later it should live in the `worker_config` table (`name = 'import'`) with a
- * control on /settings/workers — not a new env var.
+ *   - Cancel, from the API or from Temporal, is observed BETWEEN files;
+ *     already-copied files stay.
  */
 
-import { randomBytes } from 'node:crypto';
 import path from 'node:path';
-import type { ObjectId } from '../db/object-id.ts';
+import { ObjectId } from '../db/object-id.ts';
 import { child as childLogger } from '../log.ts';
 import { hashFileForId as realHashFileForId } from '../indexer/id.ts';
 import { handleEvent as realHandleEvent } from '../workers/discover/handle-event.ts';
@@ -48,22 +36,28 @@ import {
 import {
   claimImport,
   updateImportProgress,
-  renewImportLease,
   setImportFiles,
   getImportFiles,
   completeImport,
   failImport,
   markImportCancelled,
-  isImportCancelRequested,
   assetExistsForHash as realAssetExistsForHash,
   type ClaimedImport,
 } from './repo.ts';
+import {
+  finishedImportRun,
+  heartbeat,
+  importStopRequested,
+  keepImportAlive,
+  type HeldImport,
+} from './import-attempt.ts';
+import { AttemptSuperseded, type RowAttempt } from '../temporal/activity-attempt.ts';
+import type { RowRun } from '../temporal/row-workflow.ts';
 import { loadNearbyAssetCandidates } from './nearby.ts';
 import { rearmStageByFilenames } from '../db/repos/stage-state.repo.ts';
 import { SIDECAR_METADATA_INDEX_STAGE_NAME } from '../workers/stages/sidecar-metadata-index.ts';
 import type { ImportFileEntry } from '../db/schema.ts';
 
-const POLL_MS_DEFAULT = 1_000;
 const LEASE_MS_DEFAULT = 5 * 60 * 1_000;
 /** Max no-clobber publish attempts before a file is marked failed (each
  * attempt re-resolves a fresh sibling; only a sustained adversarial racer
@@ -91,19 +85,11 @@ const DEFAULT_DEPS: ImportRunnerDeps = {
 };
 
 export interface ImportRunnerConfig {
-  workerId?: string;
-  pollMs?: number;
+  /** The lease is renewed, and the engine heartbeaten, every third of this. */
   leaseMs?: number;
   deps?: Partial<ImportRunnerDeps>;
   now?: () => Date;
-  sleep?: (ms: number) => Promise<void>;
 }
-
-export type ImportTickResult =
-  | { kind: 'no-claim' }
-  | { kind: 'done'; importId: string }
-  | { kind: 'cancelled'; importId: string }
-  | { kind: 'failed'; importId: string; error: string };
 
 /** POSIX stem (basename without extension) of a rel path. */
 function stemOf(destRel: string): string {
@@ -146,77 +132,38 @@ async function recordWholeGroup(
 }
 
 export class ImportRunner {
-  private readonly workerId: string;
-  private readonly pollMs: number;
   private readonly leaseMs: number;
   private readonly deps: ImportRunnerDeps;
   private readonly now: () => Date;
-  private readonly sleep: (ms: number) => Promise<void>;
-
-  private shuttingDown = false;
-  private loopPromise: Promise<void> | null = null;
 
   constructor(config: ImportRunnerConfig = {}) {
-    this.workerId =
-      config.workerId ?? `import-worker-${process.pid}-${randomBytes(8).toString('hex')}`;
-    this.pollMs = config.pollMs ?? POLL_MS_DEFAULT;
     this.leaseMs = config.leaseMs ?? LEASE_MS_DEFAULT;
     this.deps = { ...DEFAULT_DEPS, ...config.deps };
     this.now = config.now ?? (() => new Date());
-    this.sleep = config.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
   }
 
-  start(): void {
-    if (this.loopPromise) return;
-    this.shuttingDown = false;
-    this.loopPromise = this.runLoop().catch((err) => {
-      log.error({ err: err instanceof Error ? err.message : String(err) }, 'loop crashed');
-    });
-  }
-
-  async stop(): Promise<void> {
-    this.shuttingDown = true;
-    if (this.loopPromise) {
-      await this.loopPromise;
-      this.loopPromise = null;
-    }
-  }
-
-  /** Single iteration. Exposed for tests. */
-  async tick(): Promise<ImportTickResult> {
-    const claim = await claimImport(this.workerId, this.leaseMs, this.now);
-    if (!claim) return { kind: 'no-claim' };
-    // Heartbeat the lease independently of per-file progress so a single
-    // large file/movie copy that runs longer than the lease can't be
-    // reclaimed mid-copy by a sibling runner.
-    const stopHeartbeat = this.startHeartbeat(claim._id);
+  /** Runs one import for one activity attempt and reports how it stands afterwards. */
+  async run(importId: string, attempt: RowAttempt): Promise<RowRun> {
+    const id = new ObjectId(importId);
+    const claim = await claimImport(id, attempt.identity, this.leaseMs, this.now);
+    if (!claim) return finishedImportRun(id);
+    const held: HeldImport = { claim, attempt, progress: { current: 0, total: 0 } };
+    heartbeat(held);
+    const stopKeepAlive = keepImportAlive(held, this.leaseMs, this.now);
     try {
-      return await this.processImport(claim);
+      return await this.processImport(held);
     } catch (err) {
+      if (err instanceof AttemptSuperseded) throw err;
       const message = err instanceof Error ? err.message : String(err);
       await failImport(claim._id, message, this.now);
-      return { kind: 'failed', importId: claim._id.toHexString(), error: message };
+      return { outcome: 'failed', error: message };
     } finally {
-      stopHeartbeat();
+      stopKeepAlive();
     }
   }
 
-  /** Renew the claim's lease on a timer (every ~leaseMs/3) until stopped.
-   * Returns a function that clears the timer. */
-  private startHeartbeat(id: ObjectId): () => void {
-    const everyMs = Math.max(1_000, Math.floor(this.leaseMs / 3));
-    const handle = setInterval(() => {
-      void renewImportLease(id, this.leaseMs, this.now).catch(() => {
-        // A transient database error here is non-fatal — the next tick renews,
-        // or the lease lapses and another runner legitimately takes over.
-      });
-    }, everyMs);
-    // Don't keep the process alive solely for the heartbeat.
-    handle.unref?.();
-    return () => clearInterval(handle);
-  }
-
-  private async processImport(claim: ClaimedImport): Promise<ImportTickResult> {
+  private async processImport(held: HeldImport): Promise<RowRun> {
+    const { claim } = held;
     const id = claim._id;
 
     // Auto Import: the create request deferred the scan to us. Walk the source
@@ -230,6 +177,7 @@ export class ImportRunner {
     const loaded = await this.loadFiles(claim);
     if ('result' in loaded) return loaded.result;
     const { files } = loaded;
+    held.progress = { current: 0, total: files.length };
 
     const { primaries, sidecars } = groupFiles(files);
     const counts = { copied: 0, skipped: 0, failed: 0 };
@@ -259,12 +207,14 @@ export class ImportRunner {
         this.leaseMs,
         this.now,
       );
+      held.progress = { current, total: files.length };
+      heartbeat(held);
     };
 
     for (const pIdx of primaries) {
-      if (await isImportCancelRequested(id)) {
+      if (await importStopRequested(held)) {
         await markImportCancelled(id, counts, this.now);
-        return { kind: 'cancelled', importId: id.toHexString() };
+        return { outcome: 'cancelled' };
       }
 
       await this.processGroup(claim, files, pIdx, sidecars.get(pIdx) ?? [], record);
@@ -278,16 +228,16 @@ export class ImportRunner {
       const error = `All ${counts.failed} file(s) failed to import.`;
       await failImport(id, error, this.now);
       log.warn({ importId: id.toHexString(), counts }, 'import failed: all files failed');
-      return { kind: 'failed', importId: id.toHexString(), error };
+      return { outcome: 'failed', error };
     }
     await completeImport(id, counts, this.now);
-    return { kind: 'done', importId: id.toHexString() };
+    return { outcome: 'done' };
   }
 
   /** The import's file rows, scanning first for an Auto Import; `result` when it cannot proceed. */
   private async loadFiles(
     claim: ClaimedImport,
-  ): Promise<{ files: ImportFileEntry[] } | { result: ImportTickResult }> {
+  ): Promise<{ files: ImportFileEntry[] } | { result: RowRun }> {
     if (!claim.scan_pending) return { files: await getImportFiles(claim._id) };
     const scanned = await buildImportFiles(
       claim.source_root,
@@ -298,14 +248,9 @@ export class ImportRunner {
       },
     );
     if (scanned.length === 0) {
-      await failImport(
-        claim._id,
-        `No importable photos, sidecars, or movies in ${claim.source_root}.`,
-        this.now,
-      );
-      return {
-        result: { kind: 'failed', importId: claim._id.toHexString(), error: 'no importable files' },
-      };
+      const error = `No importable photos, sidecars, or movies in ${claim.source_root}.`;
+      await failImport(claim._id, error, this.now);
+      return { result: { outcome: 'failed', error } };
     }
     await setImportFiles(claim._id, scanned, this.leaseMs, this.now);
     return { files: scanned };
@@ -516,46 +461,4 @@ export class ImportRunner {
       };
     }
   }
-
-  private async runLoop(): Promise<void> {
-    while (!this.shuttingDown) {
-      const result = await this.tickOrIdle();
-      if (result.kind === 'no-claim') {
-        await this.sleep(this.pollMs);
-      }
-    }
-  }
-
-  private async tickOrIdle(): Promise<ImportTickResult> {
-    try {
-      return await this.tick();
-    } catch (err) {
-      log.warn({ err: err instanceof Error ? err.message : String(err) }, 'tick error');
-      return { kind: 'no-claim' };
-    }
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Singleton glue (start/stop from src/index.ts)
-// ---------------------------------------------------------------------------
-
-let _singleton: ImportRunner | null = null;
-
-/** Start the process-wide ImportRunner. Idempotent. */
-export function startImportRunner(config?: ImportRunnerConfig): ImportRunner {
-  if (_singleton) return _singleton;
-  _singleton = new ImportRunner(config);
-  _singleton.start();
-  log.info('started');
-  return _singleton;
-}
-
-/** Stop the process-wide ImportRunner. Safe to call when not started. */
-export async function stopImportRunner(): Promise<void> {
-  if (!_singleton) return;
-  log.info('stopping');
-  await _singleton.stop();
-  _singleton = null;
-  log.info('stopped');
 }

@@ -10,6 +10,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { ImportRunner } from './worker.ts';
+import { recordedAttempt } from '../temporal/recorded-attempt.test-helpers.ts';
 import type { ImportFileEntry } from '../db/schema.ts';
 import { createLiveTestDatabase, insertFolder } from '../db/sqlite/test-sqlite.test-helpers.ts';
 import * as repo from './repo.ts';
@@ -69,7 +70,6 @@ it('gives every sidecar the primary outcome when the primary fails, and a retry 
     ],
   });
   const runner = new ImportRunner({
-    workerId: 'w-multi-fail',
     deps: {
       hashFileForId: (async () => ({ maple_id: 'm', sha1_head: 's' })) as never,
       assetExistsForHash: async () => false,
@@ -77,14 +77,18 @@ it('gives every sidecar the primary outcome when the primary fails, and a retry 
       rearmSidecarMetadataIndex: async () => {},
     },
   });
-  expect((await runner.tick()).kind).toBe('failed');
+  expect(
+    (await runner.run(created._id.toHexString(), recordedAttempt('w-multi-fail'))).outcome,
+  ).toBe('failed');
 
   const failedFiles = await repo.getImportFiles(created._id);
   expect(failedFiles.map((f) => f.state)).toEqual(['failed', 'failed', 'failed']);
 
   await fs.rename(stashed, src['IMG.dng']);
   expect(await retryImport(created._id)).toBe(true);
-  expect((await runner.tick()).kind).toBe('done');
+  expect(
+    (await runner.run(created._id.toHexString(), recordedAttempt('w-multi-fail'))).outcome,
+  ).toBe('done');
   const retried = await repo.getImportFiles(created._id);
   expect(retried.map((f) => f.state)).toEqual(['copied', 'copied', 'copied']);
 });
@@ -108,14 +112,15 @@ it('skips every sidecar when the primary is already on disk byte-identical', asy
     ],
   });
   const runner = new ImportRunner({
-    workerId: 'w-multi-skip',
     deps: {
       assetExistsForHash: async () => false,
       handleEvent: async () => {},
       rearmSidecarMetadataIndex: async () => {},
     },
   });
-  expect((await runner.tick()).kind).toBe('done');
+  expect(
+    (await runner.run(created._id.toHexString(), recordedAttempt('w-multi-skip'))).outcome,
+  ).toBe('done');
 
   const files = await repo.getImportFiles(created._id);
   expect(files.map((f) => f.state)).toEqual([

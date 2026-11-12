@@ -19,7 +19,7 @@
  * ## The job row is the record, Temporal is the schedule
  *
  * A row is inserted `queued` and stays the thing every client reads. The worker
- * tier relays each queued row into a Temporal workflow (`job-runner/job-relay.ts`),
+ * tier relays each queued row into a Temporal workflow (`temporal/row-queue.ts`),
  * and the workflow's activity calls {@link claimJob} for exactly that row. The
  * holder recorded on the row is one activity attempt, and it exists to fence
  * writes: an attempt Temporal has given up on can still be running in a hung
