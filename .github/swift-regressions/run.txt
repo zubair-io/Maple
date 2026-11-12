@@ -564,3 +564,9 @@ TemporalSettingsModelTests
 # rule per input kind. Pure math and an in-memory session.
 WhiteBalancePadMathTests
 PrecisionInputTests
+
+# Canvas-first editor A4 (#5122): deleting a mask is one Undo step that
+# restores the layer (and re-registers a brush raster); the history mark
+# names each commit, undo and redo for the haptics.
+MaskDeleteUndoTests
+EditHistoryEventTests

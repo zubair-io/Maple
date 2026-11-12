@@ -222,6 +222,11 @@ struct EditorSurface: View {
       #endif
       // Keep per-frame rendering observations inside the status leaf.
       EditorRenderStatus(session: state.session)
+      #if os(iOS)
+        // Undo, Redo and one-tap edits confirm themselves with a haptic.
+        EditorHistoryHaptics(session: state.session)
+          .id(ObjectIdentifier(state.session))
+      #endif
 
     }
     .disabled(state.session.workflow.isBusy)
