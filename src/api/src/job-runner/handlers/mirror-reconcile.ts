@@ -144,14 +144,14 @@ async function scanStage(run: ReconcileRun): Promise<void> {
 }
 
 interface Drain {
-  total: number;
-  baselineDead: number;
-  idleWaits: number;
-  lastPending: number;
+  readonly total: number;
+  readonly baselineDead: number;
+  readonly idleWaits: number;
+  readonly lastPending: number;
 }
 
-/** One copy pass; whether to keep going. */
-async function copyPass(run: ReconcileRun, drain: Drain): Promise<boolean> {
+/** One copy pass; the state for the next one, or null when copying is over. */
+async function copyPass(run: ReconcileRun, drain: Drain): Promise<Drain | null> {
   const pass = await runMirrorCopyOnce({
     batchSize: COPY_BATCH,
     onProgress: (snapshot) => {
@@ -168,22 +168,39 @@ async function copyPass(run: ReconcileRun, drain: Drain): Promise<boolean> {
     errors: dead,
     copied: Math.max(0, drain.total - counts.pending - dead),
   };
-  if (counts.pending === 0) return false;
+  if (counts.pending === 0) return null;
   // Rows remain that this pass could not claim: the scheduled copy pass holds
   // them. Wait for them rather than stopping while the queue still drains, and
   // give up only after a stall with no progress, leaving the rest to it.
   const stalled = pass.claimed === 0 && counts.pending >= drain.lastPending;
-  drain.idleWaits = stalled ? drain.idleWaits + 1 : 0;
-  drain.lastPending = counts.pending;
-  if (drain.idleWaits >= MAX_IDLE_WAITS) {
+  const next = {
+    ...drain,
+    idleWaits: stalled ? drain.idleWaits + 1 : 0,
+    lastPending: counts.pending,
+  };
+  if (next.idleWaits >= MAX_IDLE_WAITS) {
     log.info(
       { remaining: counts.pending },
       'reconcile: handing the remaining leased rows to the scheduled copy pass',
     );
-    return false;
+    return null;
   }
   if (pass.claimed === 0) await sleep(IDLE_WAIT_MS);
-  return true;
+  return next;
+}
+
+/** Copy passes until the queue drains or stalls; false when cancelled first. */
+async function copyPasses(
+  run: ReconcileRun,
+  ctx: JobHandlerContext,
+  drain: Drain,
+  passesLeft: number,
+): Promise<boolean> {
+  if (passesLeft === 0) return true;
+  await run.step();
+  if (await ctx.shouldCancel()) return false;
+  const next = await copyPass(run, drain);
+  return next === null ? true : copyPasses(run, ctx, next, passesLeft - 1);
 }
 
 async function copyStage(run: ReconcileRun, ctx: JobHandlerContext): Promise<boolean> {
@@ -198,13 +215,9 @@ async function copyStage(run: ReconcileRun, ctx: JobHandlerContext): Promise<boo
   };
   run.progress.copy = { total: drain.total, copied: 0, remaining: drain.total, errors: 0 };
   log.info({ toCopy: drain.total }, 'reconcile: copying started');
-  for (let pass = 0; pass < MAX_COPY_PASSES; pass++) {
-    await run.step();
-    if (await ctx.shouldCancel()) return false;
-    if (!(await copyPass(run, drain))) break;
-  }
-  log.info(run.progress.copy, 'reconcile: copy complete');
-  return true;
+  const completed = await copyPasses(run, ctx, drain, MAX_COPY_PASSES);
+  if (completed) log.info(run.progress.copy, 'reconcile: copy complete');
+  return completed;
 }
 
 async function reconcile(run: ReconcileRun, ctx: JobHandlerContext): Promise<JobHandlerResult> {
