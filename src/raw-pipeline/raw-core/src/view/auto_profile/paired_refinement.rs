@@ -1,4 +1,4 @@
-use super::{assess_against, ColorLut, Observation};
+use super::{assess_with, Baseline, ColorLut, Observation};
 use rayon::prelude::*;
 #[path = "paired_refinement_projection.rs"]
 mod projection;
@@ -112,12 +112,11 @@ pub(super) fn refine(
     if origin.size < 2 {
         return None;
     }
-    let rows = training(native, display);
+    let rows = crate::pipeline::stage("rf_training", || training(native, display));
     if rows.len() < 128 {
         return None;
     }
     let count = origin.size.pow(3);
-    let edges = system::edges(origin.size);
     let mut mass = [0.; 70];
     let mut confidence = vec![1e-8; count];
     let mut total = 0.;
@@ -137,8 +136,10 @@ pub(super) fn refine(
         .par_iter()
         .map(|r| system::prediction(&origin.data, r.row))
         .collect();
-    let pattern = system::Pattern::new(&rows, origin.size, &edges);
-    let regions = regions::Regions::new(origin, display);
+    let pattern = crate::pipeline::stage("rf_pattern", || system::Pattern::new(&rows, origin.size));
+    let regions =
+        crate::pipeline::stage("rf_regions_new", || regions::Regions::new(origin, display));
+    let against_origin = Baseline::new(native, display, Some(origin));
     let mut artifact = origin.clone();
     let mut best_perceptual = f64::INFINITY;
     let mut error = errors(origin, &rows);
@@ -160,7 +161,9 @@ pub(super) fn refine(
                     group_weight / (e[c] * e[c] + (1f64 / 255.).powi(2)).sqrt()
                 })
                 .collect();
-            let system = system::System::new(&pattern, &weights, origin.size);
+            let system = crate::pipeline::stage("rf_system_new", || {
+                system::System::new(&pattern, &weights, origin.size)
+            });
             let residuals: Vec<_> = rows
                 .iter()
                 .zip(&baseline)
@@ -171,9 +174,12 @@ pub(super) fn refine(
             let start = (0..count)
                 .map(|i| f64::from(artifact.data[i * 3 + c] - origin.data[i * 3 + c]))
                 .collect();
-            system.solve(&rhs, start).map(|(delta, _)| delta)
+            crate::pipeline::stage("rf_cg_solve", || system.solve(&rhs, start))
+                .map(|(delta, _)| delta)
         };
-        let deltas: Vec<_> = (0..3).into_par_iter().map(solve_channel).collect();
+        let deltas: Vec<_> = crate::pipeline::stage("rf_solve_all", || {
+            (0..3).into_par_iter().map(solve_channel).collect()
+        });
         let mut candidate = origin.clone();
         for (c, delta) in deltas.into_iter().enumerate() {
             let delta = delta?;
@@ -194,9 +200,13 @@ pub(super) fn refine(
             {
                 *v = a + fraction * (b - a);
             }
-            projection::constrain_to_prior(&mut tested.data, origin, &confidence);
-            regions.constrain(&mut tested, origin, &confidence);
-            let tested_error = errors(&tested, &rows);
+            crate::pipeline::stage("rf_project", || {
+                projection::constrain_to_prior(&mut tested.data, origin, &confidence)
+            });
+            crate::pipeline::stage("rf_regions", || {
+                regions.constrain(&mut tested, origin, &confidence)
+            });
+            let tested_error = crate::pipeline::stage("rf_errors", || errors(&tested, &rows));
             let score = objective(
                 &regressions(&group_errors(&rows, &tested_error, &mass), &origin_groups),
                 &mass,
@@ -204,7 +214,9 @@ pub(super) fn refine(
             if score >= before {
                 return None;
             }
-            let assessment = assess_against(&tested, native, display, Some(origin));
+            let assessment = crate::pipeline::stage("rf_assess", || {
+                assess_with(&tested, native, display, &against_origin)
+            });
             (assessment.compatible && assessment.native_bands_preserved).then_some((
                 tested,
                 tested_error,
@@ -214,14 +226,16 @@ pub(super) fn refine(
         };
         // The full step is usually accepted; only after it fails are the
         // shorter steps worth evaluating together. The first in order wins.
-        let accepted = attempt(1.).or_else(|| {
-            [0.5, 0.25, 0.125, 0.0625]
-                .into_par_iter()
-                .map(attempt)
-                .collect::<Vec<_>>()
-                .into_iter()
-                .flatten()
-                .next()
+        let accepted = crate::pipeline::stage("rf_attempts", || {
+            attempt(1.).or_else(|| {
+                [0.5, 0.25, 0.125, 0.0625]
+                    .into_par_iter()
+                    .map(attempt)
+                    .collect::<Vec<_>>()
+                    .into_iter()
+                    .flatten()
+                    .next()
+            })
         });
         let Some((tested, tested_error, score, perceptual)) = accepted else {
             break;
@@ -251,6 +265,7 @@ pub(super) fn refine(
 
 #[cfg(test)]
 mod tests {
+    use super::super::assess_against;
     use super::*;
     fn row(population: usize, validation: bool) -> Observation {
         Observation {

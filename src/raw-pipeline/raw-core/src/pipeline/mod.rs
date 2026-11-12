@@ -119,7 +119,8 @@ pub use tile::{
 /// negligible relative to per-pixel work, so we leave it on in release
 /// builds and let the env var gate the actual output.
 ///
-/// Format: `[raw-core] <stage_name>            <elapsed>`. The width is
+/// Format: `[raw-core] <stage_name>            <elapsed>  cpu <cpu>` (the CPU
+/// column, all threads, is omitted where the platform has no `getrusage`). The width is
 /// chosen so a 30-char name and a 10-char duration line up in a
 /// monospace terminal — easy to eyeball "demosaic dominates" vs.
 /// "every stage is 200 ms."
@@ -135,12 +136,45 @@ pub use tile::{
 #[cfg(not(target_arch = "wasm32"))]
 #[inline]
 pub fn stage<T>(name: &'static str, f: impl FnOnce() -> T) -> T {
+    let profiling = std::env::var_os("MAPLE_PROFILE").is_some();
+    let cpu = if profiling { process_cpu() } else { None };
     let t = std::time::Instant::now();
     let r = f();
-    if std::env::var_os("MAPLE_PROFILE").is_some() {
-        eprintln!("[raw-core] {:<30} {:>10.2?}", name, t.elapsed());
+    if profiling {
+        match (cpu, process_cpu()) {
+            (Some(before), Some(after)) => eprintln!(
+                "[raw-core] {:<30} {:>10.2?}  cpu {:>10.2?}",
+                name,
+                t.elapsed(),
+                after.saturating_sub(before)
+            ),
+            _ => eprintln!("[raw-core] {:<30} {:>10.2?}", name, t.elapsed()),
+        }
     }
     r
+}
+
+/// User + system CPU time this process has consumed across all threads. Wall
+/// time is meaningless on a loaded machine; the CPU a stage burns is not.
+#[cfg(unix)]
+fn process_cpu() -> Option<std::time::Duration> {
+    let mut usage = std::mem::MaybeUninit::<libc::rusage>::uninit();
+    // SAFETY: `getrusage` fully initialises `usage` when it returns 0.
+    let usage = unsafe {
+        if libc::getrusage(libc::RUSAGE_SELF, usage.as_mut_ptr()) != 0 {
+            return None;
+        }
+        usage.assume_init()
+    };
+    let micros = |t: libc::timeval| t.tv_sec as u64 * 1_000_000 + t.tv_usec as u64;
+    Some(std::time::Duration::from_micros(
+        micros(usage.ru_utime) + micros(usage.ru_stime),
+    ))
+}
+
+#[cfg(all(not(unix), not(target_arch = "wasm32")))]
+fn process_cpu() -> Option<std::time::Duration> {
+    None
 }
 
 #[cfg(target_arch = "wasm32")]

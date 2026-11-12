@@ -1,4 +1,4 @@
-use super::{assess, prefer, ColorLut, Observation};
+use super::{assess_with, prefer_with, Baseline, ColorLut, Observation};
 
 pub(super) fn select_step(
     proposed: &ColorLut,
@@ -6,6 +6,7 @@ pub(super) fn select_step(
     native: &[Observation],
     display: &[Observation],
 ) -> Option<ColorLut> {
+    let baseline = Baseline::new(native, display, None);
     let blend = |fraction: f32| {
         let mut candidate = proposed.clone();
         if fraction != 1. {
@@ -24,7 +25,7 @@ pub(super) fn select_step(
     let mut selected = None;
     for fraction in [1., 0.5, 0.25, 0.125, 0.0625] {
         let candidate = blend(fraction);
-        if assess(&candidate, native, display).compatible {
+        if assess_with(&candidate, native, display, &baseline).compatible {
             selected = Some((fraction, candidate));
             break;
         }
@@ -35,7 +36,7 @@ pub(super) fn select_step(
         for _ in 0..8 {
             let fraction = (lower + upper) * 0.5;
             let candidate = blend(fraction);
-            if assess(&candidate, native, display).compatible {
+            if assess_with(&candidate, native, display, &baseline).compatible {
                 lower = fraction;
                 result = candidate;
             } else {
@@ -43,7 +44,8 @@ pub(super) fn select_step(
             }
         }
     }
-    let native_band_backtracked = !assess(&result, native, display).native_bands_preserved;
+    let native_band_backtracked =
+        !assess_with(&result, native, display, &baseline).native_bands_preserved;
     if native_band_backtracked {
         let original = lower;
         let mut safe = None;
@@ -51,7 +53,7 @@ pub(super) fn select_step(
         for fraction in [0.5, 0.25, 0.125, 0.0625] {
             let fraction = original * fraction;
             let candidate = blend(fraction);
-            if prefer(&candidate, native, display) {
+            if prefer_with(&candidate, native, display, &baseline) {
                 safe = Some((fraction, candidate));
                 break;
             }
@@ -60,7 +62,7 @@ pub(super) fn select_step(
     }
     #[cfg(feature = "stage-dump")]
     if let Some(dir) = crate::stage_dump::dump_dir() {
-        let _ = prefer(&result, native, display);
+        let _ = prefer_with(&result, native, display, &baseline);
         if let Ok(file) = std::fs::File::create(dir.join("auto_fit_step.json")) {
             let _ = serde_json::to_writer(
                 file,

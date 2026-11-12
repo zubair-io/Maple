@@ -24,7 +24,7 @@ fn matrix_free_solution_matches_its_independent_normal_equation_residual() {
     }];
     let weights = [2.];
     let edges = edges(2);
-    let pattern = Pattern::new(&rows, 2, &edges);
+    let pattern = Pattern::new(&rows, 2);
     let system = System::new(&pattern, &weights, 2);
     let rhs = vec![0., 0.5, 1.5, 0., 0., 0., 0., 0.];
     let (solved, _) = system.solve(&rhs, vec![0.; 8]).unwrap();
@@ -101,7 +101,7 @@ fn solver_work_on_a_synthetic_observation_set_stays_pinned() {
         .map(|i| 1. + (i % 7) as f64 * 0.25)
         .collect();
     let edges = edges(size);
-    let pattern = Pattern::new(&rows, size, &edges);
+    let pattern = Pattern::new(&rows, size);
     assert!(pattern.normal.is_some());
     let system = System::new(&pattern, &weights, size);
     let residuals: Vec<_> = observations.iter().map(|r| r.target[0] - 0.5).collect();
@@ -133,7 +133,7 @@ fn rows_too_wide_to_assemble_keep_the_row_walk_without_a_normal_matrix() {
         .collect();
     let rows = training(&observations);
     let edges = edges(size);
-    let pattern = Pattern::new(&rows, size, &edges);
+    let pattern = Pattern::new(&rows, size);
     assert!(pattern.normal.is_none());
     let system = System::new(&pattern, &vec![1.; rows.len()], size);
     assert!(system.normal.is_none());
@@ -149,11 +149,11 @@ fn row_walk_and_assembled_products_agree() {
     let rows = training(&observations);
     let edges = edges(size);
     let weights: Vec<_> = (0..rows.len()).map(|i| 1. + (i % 5) as f64 * 0.5).collect();
-    let assembled = Pattern::new(&rows, size, &edges);
+    let assembled = Pattern::new(&rows, size);
     assert!(assembled.normal.is_some());
     let walked = Pattern {
         normal: None,
-        ..Pattern::new(&rows, size, &edges)
+        ..Pattern::new(&rows, size)
     };
     let values: Vec<_> = (0..size.pow(3)).map(|i| (i % 13) as f64 / 13.).collect();
     let product = |pattern: &Pattern| {
@@ -184,6 +184,22 @@ fn rows_within_the_work_budget_but_too_many_distinct_pairs_keep_the_row_walk() {
         })
         .collect();
     let rows = training(&observations);
-    let pattern = Pattern::new(&rows, size, &edges(size));
+    let pattern = Pattern::new(&rows, size);
     assert!(pattern.normal.is_none());
+}
+
+#[test]
+fn the_implicit_stencil_visits_each_nodes_edges_in_edge_list_order() {
+    for size in [2usize, 3, 5] {
+        let mut expected = vec![Vec::new(); size.pow(3)];
+        for (i, j) in edges(size) {
+            expected[i].push((j, true));
+            expected[j].push((i, false));
+        }
+        for (node, want) in expected.iter().enumerate() {
+            let mut got = Vec::new();
+            for_each_edge(node, size, |peer, first| got.push((peer, first)));
+            assert_eq!(&got, want, "node {node} of {size}³");
+        }
+    }
 }
