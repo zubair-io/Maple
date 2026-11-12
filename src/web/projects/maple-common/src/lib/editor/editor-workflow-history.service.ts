@@ -70,6 +70,12 @@ export class EditorWorkflowHistoryService {
     };
   }
 
+  /** Whether `capture` resolves `id`'s sidecar yet. Reactive: a cold open binds
+   * before the library knows the asset or its folder (#5388). */
+  canCapture(id: AssetId): boolean {
+    return this.library.findAsset(id) !== undefined && this.source(id) !== null;
+  }
+
   private source(
     id: AssetId,
   ):

@@ -236,12 +236,20 @@ test('Self Hosted persists Auto after Undo/Redo and restores the preceding edit'
   await expect.poll(() => pendingWrites.size).toBe(0);
   await expect(page.getByText('Saving edits…', { exact: true })).toHaveCount(0);
   await expect(page.getByRole('alert')).toHaveCount(0);
+  // The developed-preview cache write is fire-and-forget by design
+  // (EditPreviewPersistService); the reload may cut one off mid-request.
+  testInfo.annotations.push({
+    type: 'expected-request-failure',
+    description: `PUT ${new URL('/api/preview?', page.url()).href}`,
+  });
   const restoredSidecar = page.waitForResponse(
     (response) => response.url().includes('/api/xmp?') && response.ok(),
   );
   await page.reload();
   await restoredSidecar;
   await expect(exposure).toHaveAttribute('aria-valuenow', String(editedExposure));
+  // A cold open rebuilds Undo/Redo from the sidecar's retained history (#5388).
+  await expect(undo).toBeEnabled();
   const restoredPixels = await stableCanvasSample(
     page.locator('editor-image-canvas canvas[data-gpu-live]'),
   );

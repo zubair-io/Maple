@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { expect, test as base, type Request } from '@playwright/test';
+import { expect, test as base, type Request, type TestInfo } from '@playwright/test';
 import { readProductionFixtureManifest } from './production-fixtures';
 
 interface BrowserAudit {
@@ -27,7 +27,9 @@ interface BrowserAudit {
 // (`<link>`, `@font-face`, `<script src>`, `<img>`, the navigation document
 // itself, ...) has no such app-controlled cancellation path — the browser is
 // the only thing that can abort those, and it does so exactly when a
-// navigation or teardown discards the document that requested them.
+// navigation or teardown discards the document that requested them. A test
+// that navigates while the app has a request it never cancels itself in
+// flight names that request with an `expected-request-failure` annotation.
 const SELF_ABORTABLE_RESOURCE_TYPES: ReadonlySet<string> = new Set(['xhr', 'fetch']);
 
 function isBenignNavigationAbort(request: Request): boolean {
@@ -48,25 +50,40 @@ function selfHostedTestClientIp(testId: string, retry: number): string {
   return `2001:db8:${groups.join(':')}`;
 }
 
+interface ExpectedAuditPrefixes {
+  readonly console: readonly string[];
+  readonly request: readonly string[];
+  readonly response: readonly string[];
+}
+
+function annotatedPrefixes(testInfo: TestInfo, type: string): string[] {
+  return testInfo.annotations
+    .filter((annotation) => annotation.type === type && annotation.description)
+    .map(({ description }) => description!);
+}
+
 function unexpectedAuditEntries(
   project: string,
   audit: BrowserAudit,
-  expectedConsoleErrorPrefixes: readonly string[],
-  expectedResponseErrorPrefixes: readonly string[],
+  expected: ExpectedAuditPrefixes,
 ): string[] {
+  const unexpected = (prefixes: readonly string[]) => (value: string) =>
+    !prefixes.some((prefix) => value.startsWith(prefix));
   const entries = [
     ...audit.consoleErrors
       .filter((value) => project !== 'chrome-self-hosted' || value !== CHROME_RESOURCE_401)
-      .filter((value) => !expectedConsoleErrorPrefixes.some((prefix) => value.startsWith(prefix)))
+      .filter(unexpected(expected.console))
       .map((value) => `console: ${value}`),
     ...audit.pageErrors.map((value) => `page: ${value}`),
-    ...audit.failedRequests.map((value) => `request: ${value}`),
+    ...audit.failedRequests
+      .filter(unexpected(expected.request))
+      .map((value) => `request: ${value}`),
     ...audit.errorResponses
       .filter(
         (value) =>
           project !== 'chrome-self-hosted' || !EXPECTED_SELF_HOSTED_BOOTSTRAP_401.test(value),
       )
-      .filter((value) => !expectedResponseErrorPrefixes.some((prefix) => value.startsWith(prefix)))
+      .filter(unexpected(expected.response))
       .map((value) => `response: ${value}`),
   ];
   return entries;
@@ -135,16 +152,11 @@ export const test = base.extend<{ browserAudit: void }>({
         contentType: 'application/json',
       });
       expect(
-        unexpectedAuditEntries(
-          testInfo.project.name,
-          audit,
-          testInfo.annotations
-            .filter(({ type, description }) => type === 'expected-console-error' && description)
-            .map(({ description }) => description!),
-          testInfo.annotations
-            .filter(({ type, description }) => type === 'expected-response-error' && description)
-            .map(({ description }) => description!),
-        ),
+        unexpectedAuditEntries(testInfo.project.name, audit, {
+          console: annotatedPrefixes(testInfo, 'expected-console-error'),
+          request: annotatedPrefixes(testInfo, 'expected-request-failure'),
+          response: annotatedPrefixes(testInfo, 'expected-response-error'),
+        }),
         'Production browser emitted unexpected errors; see production-browser-audit.json',
       ).toEqual([]);
     },

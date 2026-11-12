@@ -1,4 +1,3 @@
-import { manualAdjustmentPatch } from './editor-state.wb-sample';
 // editor-state.service.ts — responsive-program S5c (#625).
 //
 // Web mirror of Apple's EditorState. Three differences from the Apple
@@ -30,7 +29,7 @@ import {
   EditorWorkflowCommandsService,
   type RestoreCommand,
 } from './editor-workflow-commands.service';
-import { replayWorkflow, reopenWorkflowRing, restoreWorkflow } from './editor-state.workflow';
+import { replayWorkflow, restoreWorkflow, workflowRingBinding } from './editor-state.workflow';
 import type { AssetId } from '../models/asset';
 import { applyAutoInto } from './editor-state.auto';
 import { applyWhiteBalancePresetInto } from './editor-state.wb-preset';
@@ -41,7 +40,7 @@ import {
   defaultAdjustmentModel,
 } from '../models/adjustment-model';
 import { buildApplyPatch, type Preset } from './presets/preset-model';
-import { sampleWhiteBalanceInto } from './editor-state.wb-sample';
+import { manualAdjustmentPatch, sampleWhiteBalanceInto } from './editor-state.wb-sample';
 import {
   type ToolGroup,
   type ToolId,
@@ -122,6 +121,7 @@ export class EditorStateService {
   readonly workflowBusy = signal(false);
   readonly workflowError = signal<string | null>(null);
   bindingGeneration = 0;
+  readonly binding = workflowRingBinding(this);
   workflowReplay: { direction: 'undo' | 'redo'; command: RestoreCommand } | null = null;
   private readonly workflowHistory = inject(EditorWorkflowHistoryService);
   private workflowEdit: WorkflowEdit | null = null;
@@ -218,7 +218,7 @@ export class EditorStateService {
     this.imageId.set(id);
     this.autoResult.set(null);
     this.ring.reset();
-    void untracked(() => reopenWorkflowRing(this, id));
+    this.binding.set({ id, generation: this.bindingGeneration });
     this._discardDeferred();
     if (armed) {
       this.armedGroup.set(armed.group);
