@@ -46,6 +46,7 @@ fn load(full_dims: impl IntoIterator<Item = (u32, u32)>, opts: &StitchOptions) -
     PanoStitchLoad {
         frame_count,
         largest_frame_px,
+        proxy_long_edge: u64::from(opts.proxy_long_edge),
         ml_matcher: opts.feature_engine.is_ml(),
         profile: PanoMemoryProfile::Server,
     }
@@ -104,6 +105,23 @@ mod tests {
         let mixed_load = load(mixed, &StitchOptions::default());
         assert_eq!(mixed_load.frame_count, 3);
         assert_eq!(mixed_load.largest_frame_px, 12_000_000);
+    }
+
+    #[test]
+    fn a_proxy_edge_past_the_fitted_one_counts_its_retained_proxies() {
+        let frames = [(4_000, 3_000); 50];
+        let rgb_f32_proxies: u64 = 50 * 2_800 * 2_100 * 12;
+        let opts = StitchOptions {
+            proxy_long_edge: 2_800,
+            ..limited(3_000_000_000)
+        };
+        let loaded = load(frames, &opts);
+        assert!(loaded.head_bytes() > rgb_f32_proxies);
+        assert!(loaded.composite_bytes(0) > rgb_f32_proxies);
+        assert!(matches!(
+            within(loaded.head_bytes(), 3_000_000_000),
+            Err(StitchError::InsufficientMemory { .. })
+        ));
     }
 
     #[test]

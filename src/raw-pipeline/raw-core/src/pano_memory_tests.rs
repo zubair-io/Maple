@@ -121,6 +121,7 @@ fn load(m: &PanoMeasuredStitch, profile: PanoMemoryProfile) -> PanoStitchLoad {
     PanoStitchLoad {
         frame_count: m.frame_count,
         largest_frame_px: m.largest_frame_px,
+        proxy_long_edge: PANO_PROXY_FITTED_LONG_EDGE,
         ml_matcher: false,
         profile,
     }
@@ -255,10 +256,66 @@ fn an_absurd_request_saturates_instead_of_wrapping() {
         let huge = PanoStitchLoad {
             frame_count: u64::MAX,
             largest_frame_px: u64::MAX,
+            proxy_long_edge: u64::MAX,
             ml_matcher: true,
             profile,
         };
         assert_eq!(huge.head_bytes(), u64::MAX);
         assert_eq!(huge.composite_bytes(u64::MAX), u64::MAX);
     }
+}
+
+#[test]
+fn a_proxy_edge_at_or_under_the_fitted_one_costs_as_the_fitted() {
+    for profile in [PanoMemoryProfile::Server, PanoMemoryProfile::Apple] {
+        let fitted = load(&MEASURED[5], profile);
+        for proxy_long_edge in [1, 1280, PANO_PROXY_FITTED_LONG_EDGE] {
+            let smaller = PanoStitchLoad {
+                proxy_long_edge,
+                ..fitted
+            };
+            assert_eq!(smaller.head_bytes(), fitted.head_bytes());
+            assert_eq!(
+                smaller.composite_bytes(26_981),
+                fitted.composite_bytes(26_981)
+            );
+        }
+    }
+}
+
+#[test]
+fn a_proxy_edge_past_the_fitted_one_adds_at_least_its_rgb_planes_to_both_phases() {
+    for profile in [PanoMemoryProfile::Server, PanoMemoryProfile::Apple] {
+        let fitted = PanoStitchLoad {
+            frame_count: 50,
+            largest_frame_px: 4_000 * 3_000,
+            proxy_long_edge: PANO_PROXY_FITTED_LONG_EDGE,
+            ml_matcher: false,
+            profile,
+        };
+        let larger = PanoStitchLoad {
+            proxy_long_edge: 2_800,
+            ..fitted
+        };
+        let extra_planes =
+            50 * (2_800 * 2_800 - PANO_PROXY_PIXELS_MAX) * PANO_PROXY_BYTES_PER_PIXEL;
+        assert!(larger.head_bytes() - fitted.head_bytes() >= extra_planes);
+        assert!(larger.composite_bytes(0) - fitted.composite_bytes(0) >= extra_planes);
+    }
+}
+
+#[test]
+fn a_proxy_never_counts_more_pixels_than_its_frame() {
+    let small = PanoStitchLoad {
+        frame_count: 3,
+        largest_frame_px: 640 * 480,
+        proxy_long_edge: 2_800,
+        ml_matcher: false,
+        profile: PanoMemoryProfile::Server,
+    };
+    let fitted = PanoStitchLoad {
+        proxy_long_edge: PANO_PROXY_FITTED_LONG_EDGE,
+        ..small
+    };
+    assert_eq!(small.head_bytes(), fitted.head_bytes());
 }

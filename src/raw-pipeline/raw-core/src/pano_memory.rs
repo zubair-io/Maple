@@ -28,16 +28,20 @@
 //!   column term is the Mac's pano_01. Fitting it to the Mac would make an iPad with less than
 //!   about 4 GB available refuse a 100 MP set it stitches today in about 1.7 GB.
 //!
-//! A frame's proxy is at most [`PANO_PROXY_PIXELS_MAX`] pixels, so a frame's own cost stops
-//! growing past it. The largest frame's width is taken as that of a 3:2 frame of its pixels
+//! The calibrations were measured at the default 1600 px proxy, so a frame's proxy costs at
+//! least [`PANO_PROXY_PIXELS_MAX`] pixels' worth and a frame's own cost stops growing past
+//! it. A configured proxy long edge above 1600 px retains a larger proxy per frame, and every
+//! pixel past the fitted one costs at least its RGB f32 planes ([`PANO_PROXY_BYTES_PER_PIXEL`])
+//! in both phases. The largest frame's width is taken as that of a 3:2 frame of its pixels
 //! ([`frame_columns`]), the widest common sensor, so a 4:3 or portrait frame is overstated.
 //! Every input frame counts, dropped or not, and each is costed as the largest.
 
-/// One calibration of the model. With F frames, the largest of P pixels, its proxy of
-/// p = min(P, [`PANO_PROXY_PIXELS_MAX`]) pixels, its width c = [`frame_columns`]`(P)` and a
-/// canvas W pixels wide, a phase costs `F × (per_frame + p × per_frame_proxy_pixel) +
-/// P × per_largest_frame_pixel + c × per_largest_frame_column`, and the composite adds
-/// `W × composite_bytes_per_canvas_column`.
+/// One calibration of the model. With F frames, the largest of P pixels, its fitted proxy of
+/// p = min(P, [`PANO_PROXY_PIXELS_MAX`]) pixels, its configured proxy of q ≥ p pixels (see
+/// [`PanoStitchLoad::proxy_long_edge`]), its width c = [`frame_columns`]`(P)` and a canvas W
+/// pixels wide, a phase costs `F × (per_frame + p × per_frame_proxy_pixel + (q − p) ×
+/// max(per_frame_proxy_pixel, PANO_PROXY_BYTES_PER_PIXEL)) + P × per_largest_frame_pixel +
+/// c × per_largest_frame_column`, and the composite adds `W × composite_bytes_per_canvas_column`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct PanoMemoryCalibration {
     pub head_bytes_per_frame: u64,
@@ -133,8 +137,14 @@ impl PanoMemoryProfile {
     }
 }
 
-/// A proxy's largest pixel count: the default 1600 px long edge, square.
-pub const PANO_PROXY_PIXELS_MAX: u64 = 1600 * 1600;
+/// A proxy's largest pixel count at the fitted (default) 1600 px long edge, square.
+pub const PANO_PROXY_PIXELS_MAX: u64 = PANO_PROXY_FITTED_LONG_EDGE * PANO_PROXY_FITTED_LONG_EDGE;
+
+/// The proxy long edge every calibration was measured at.
+pub const PANO_PROXY_FITTED_LONG_EDGE: u64 = 1600;
+
+/// A retained proxy's RGB f32 planes, per pixel.
+pub const PANO_PROXY_BYTES_PER_PIXEL: u64 = 12;
 
 /// ONNX Runtime with ALIKED and LightGlue loaded, on top of either phase. A two-frame stitch
 /// on macOS CPU ONNX Runtime peaked at 4.65 GiB once the arena and memory pattern were off
@@ -160,6 +170,8 @@ pub fn frame_columns(pixels: u64) -> u64 {
 pub struct PanoStitchLoad {
     pub frame_count: u64,
     pub largest_frame_px: u64,
+    /// The configured proxy long edge; one at or below the fitted 1600 px costs as the fitted.
+    pub proxy_long_edge: u64,
     pub ml_matcher: bool,
     pub profile: PanoMemoryProfile,
 }
@@ -194,11 +206,17 @@ impl PanoStitchLoad {
         } else {
             0
         };
-        let frame = per_frame.saturating_add(
-            self.largest_frame_px
-                .min(PANO_PROXY_PIXELS_MAX)
-                .saturating_mul(per_proxy_px),
+        let fitted_proxy = self.largest_frame_px.min(PANO_PROXY_PIXELS_MAX);
+        let proxy = self.largest_frame_px.min(
+            self.proxy_long_edge
+                .saturating_mul(self.proxy_long_edge)
+                .max(PANO_PROXY_PIXELS_MAX),
         );
+        let frame = per_frame
+            .saturating_add(fitted_proxy.saturating_mul(per_proxy_px))
+            .saturating_add(
+                (proxy - fitted_proxy).saturating_mul(per_proxy_px.max(PANO_PROXY_BYTES_PER_PIXEL)),
+            );
         self.frame_count
             .saturating_mul(frame)
             .saturating_add(self.largest_frame_px.saturating_mul(per_px))
