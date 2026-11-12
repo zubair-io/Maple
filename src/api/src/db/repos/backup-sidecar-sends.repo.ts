@@ -7,21 +7,18 @@
  * adjustments rather than from the merged ones, which would read another writer's change
  * as the device's to undo.
  *
- * Rows belong to the asset, so a renamed or moved photo keeps them. A row's sidecar is
- * the one that last held its entry: each send adopts the rows of the entries its history
- * holds and drops that sidecar's others. The sent adjustments derive from the digest, so
- * a row never describes other content; a missing row only falls back to the history.
+ * Rows belong to the asset, so a renamed or moved photo keeps them. The sent adjustments
+ * derive from the digest, so a row never describes other content and a stale one is
+ * harmless; a missing one only falls back to the history. Rows are pruned only while the
+ * asset has a single location: then that sidecar is the only one that can still hold an
+ * entry, and a row its history no longer holds is never named again. With more copies
+ * (or one in the Trash, or offline) any of them may, so nothing is pruned; deleting the
+ * asset removes its rows.
  */
 import type { SentRecord, SentUpdate } from '../../backup/sidecar-history.ts';
 import type { ObjectId } from '../object-id.ts';
 import type { SqlStatement } from '../sqlite/protocol.ts';
 import { sqliteDb, type SqliteDb } from './db-handle.ts';
-
-export interface BackupSidecarKey {
-  assetId: ObjectId;
-  libraryId: ObjectId;
-  sidecarRelPath: string;
-}
 
 /** The asset's sends with digest `sha256`, or kept for entry `entryId`. */
 export async function sentRecordsOf(
@@ -38,38 +35,29 @@ export async function sentRecordsOf(
   );
 }
 
-/** The sidecar takes the rows of the `retained` entries its history holds and drops its
- * others; `sent` is recorded when there is one. */
+/** Records `sent` when there is one, and drops the rows of entries outside `retained`
+ * while the asset has a single location. */
 export async function recordBackupSidecarSends(
-  key: BackupSidecarKey,
+  assetId: ObjectId,
   update: SentUpdate,
   dbOverride?: SqliteDb,
 ): Promise<void> {
-  const asset = key.assetId.toHexString();
-  const library = key.libraryId.toHexString();
-  const retained = JSON.stringify(update.retained);
+  const asset = assetId.toHexString();
   const statements: SqlStatement[] = [
     {
-      sql: `UPDATE backup_sidecar_sends SET library_id = ?, sidecar_rel_path = ?
-             WHERE asset_id = ? AND entry_id IN (SELECT value FROM json_each(?))`,
-      params: [library, key.sidecarRelPath, asset, retained],
-    },
-    {
       sql: `DELETE FROM backup_sidecar_sends
-             WHERE asset_id = ? AND library_id = ? AND sidecar_rel_path = ?
-               AND entry_id NOT IN (SELECT value FROM json_each(?))`,
-      params: [asset, library, key.sidecarRelPath, retained],
+             WHERE asset_id = ? AND entry_id NOT IN (SELECT value FROM json_each(?))
+               AND (SELECT COUNT(*) FROM asset_locations WHERE asset_id = ?) = 1`,
+      params: [asset, JSON.stringify(update.retained), asset],
     },
   ];
   const { sent } = update;
   if (sent !== null) {
     statements.push({
-      sql: `INSERT INTO backup_sidecar_sends
-              (asset_id, sent_sha256, entry_id, sent_checkpoint, library_id, sidecar_rel_path)
-            VALUES (?, ?, ?, ?, ?, ?)
-            ON CONFLICT (asset_id, sent_sha256, entry_id) DO UPDATE SET
-              library_id = excluded.library_id, sidecar_rel_path = excluded.sidecar_rel_path`,
-      params: [asset, sent.sha256, sent.entryId, sent.checkpoint, library, key.sidecarRelPath],
+      sql: `INSERT INTO backup_sidecar_sends (asset_id, sent_sha256, entry_id, sent_checkpoint)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT (asset_id, sent_sha256, entry_id) DO NOTHING`,
+      params: [asset, sent.sha256, sent.entryId, sent.checkpoint],
     });
   }
   await sqliteDb(dbOverride).transaction(statements);
