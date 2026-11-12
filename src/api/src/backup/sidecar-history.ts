@@ -31,7 +31,7 @@ export const sha256Hex = (text: string): string =>
   createHash('sha256').update(text, 'utf8').digest('hex');
 
 /** A UUID (version 5 layout, lowercase) derived from the base entry and the sent bytes. */
-export function backupEntryId(parentId: string, sentSha256: string): string {
+function backupEntryId(parentId: string, sentSha256: string): string {
   const bytes = createHash('sha256').update(`${parentId}\0${sentSha256}`).digest();
   bytes[6] = (bytes[6]! & 0x0f) | 0x50;
   bytes[8] = (bytes[8]! & 0x3f) | 0x80;
@@ -92,40 +92,67 @@ export interface BackupSidecarSend {
   now: number;
 }
 
+/** The entry a send continues from: the base it named, or the head when it was
+ * built from the current bytes; `ancestor` is that entry's adjustments. */
+interface SendParent {
+  known: WorkflowHistoryEntry | null;
+  fromCurrent: boolean;
+  id: string;
+  ancestor: string;
+}
+
+function sendParent(
+  history: readonly WorkflowHistoryEntry[],
+  send: BackupSidecarSend,
+  currentSha256: string,
+): SendParent {
+  const known = baseEntry(history, send.base);
+  const fromCurrent = send.base.kind === 'digest' && send.base.sha256 === currentSha256;
+  if (known !== null) return { known, fromCurrent, id: known.id, ancestor: known.adjustmentXmp };
+  if (!fromCurrent) return { known, fromCurrent, id: '', ancestor: '' };
+  return { known, fromCurrent, id: history.at(-1)?.id ?? '', ancestor: send.current };
+}
+
+/** Whether the merge recorded an entry `history` lacks: an outside edit it captured. */
+async function capturedOutsideEdit(
+  merged: string,
+  history: readonly WorkflowHistoryEntry[],
+): Promise<boolean> {
+  const prior = new Set(history.map((entry) => entry.id));
+  const entries = (await record(merged))?.history ?? [];
+  return entries.some((entry) => !prior.has(entry.id));
+}
+
 /** What publishing `incoming` over the stored `current` does. */
 export async function reconcileBackupSidecar(
   send: BackupSidecarSend,
 ): Promise<AppliedBackupSidecar> {
-  const { current, incoming, base, now } = send;
+  const { current, incoming, now } = send;
   const sentSha256 = sha256Hex(incoming);
   const currentSha256 = sha256Hex(current);
-  const stored = await record(current);
-  const history = stored?.history ?? [];
+  const history = (await record(current))?.history ?? [];
   const head = history.at(-1)?.id ?? null;
   if (currentSha256 === sentSha256) return { kind: 'unchanged', head };
 
-  const known = baseEntry(history, base);
-  const sentFromCurrent = base.kind === 'digest' && base.sha256 === currentSha256;
-  const parentId = known?.id ?? (sentFromCurrent ? (head ?? '') : '');
-  const ownEntry = backupEntryId(parentId, sentSha256);
+  const parent = sendParent(history, send, currentSha256);
+  const ownEntry = backupEntryId(parent.id, sentSha256);
   if (history.some((entry) => entry.id === ownEntry)) return { kind: 'unchanged', head: ownEntry };
   if ((await checkpointOf(incoming)) === (await checkpointOf(current))) {
     return { kind: 'unchanged', head };
   }
 
   const merged = await nativeValue('workflowReconcileXmp', [
-    known?.adjustmentXmp ?? (sentFromCurrent ? current : ''),
+    parent.ancestor,
     current,
     incoming,
     String(now),
   ]);
   // Only the head names the stored sidecar, and only while the file still holds what
   // that entry recorded: an outside edit makes the merge capture it as a new entry.
-  const captured = (await record(merged))?.history.some(
-    (entry) => !history.some((prior) => prior.id === entry.id),
-  );
-  const fresh = sentFromCurrent || (known !== null && known.id === head && !captured);
+  const fresh =
+    parent.fromCurrent ||
+    (parent.known?.id === head && !(await capturedOutsideEdit(merged, history)));
   if (!fresh && send.shared) return { kind: 'shared' };
-  const landed = await commitBackupEntry(merged, parentId, sentSha256, now);
+  const landed = await commitBackupEntry(merged, parent.id, sentSha256, now);
   return { kind: 'publish', ...landed, reconciled: !fresh };
 }

@@ -238,6 +238,33 @@ async function publishWithoutBase(
   return publishLegacySidecar(send);
 }
 
+/** Routes a send by its base headers: compare-and-swap when either names a
+ * base (and the body is a complete XMP document), else the legacy rule. */
+async function publishBySendBase(
+  primary: string,
+  send: BackupSidecarSend,
+  headHeader: string | undefined,
+  baseHeader: string | undefined,
+): Promise<{ status: number; body: Record<string, unknown> }> {
+  const base = parseSidecarBase(headHeader, baseHeader);
+  if (base === 'invalid') {
+    return {
+      status: 400,
+      body: {
+        error:
+          'X-Maple-Sidecar-Head must be a history entry id or "none"; X-Maple-Sidecar-Base a SHA-256 hex digest or "none"',
+      },
+    };
+  }
+  if (base === undefined) return publishWithoutBase(primary, send);
+  const readable = await checkpointOf(send.xmp).then(
+    () => true,
+    () => false,
+  );
+  if (!readable) return { status: 400, body: { error: 'body must be a complete XMP document' } };
+  return publishBackupSidecarCas({ ...send, base });
+}
+
 /** Why `targetRelPath` can't take this asset's canonical sidecar, if it can't. */
 async function targetRefusal(
   assetId: ObjectId,
@@ -328,14 +355,6 @@ export const backupSidecarRoutes = new Elysia().post(
       set.status = refusal.status;
       return { error: refusal.error };
     }
-    const base = parseSidecarBase(headers['x-maple-sidecar-head'], headers['x-maple-sidecar-base']);
-    if (base === 'invalid') {
-      set.status = 400;
-      return {
-        error:
-          'X-Maple-Sidecar-Head must be a history entry id or "none"; X-Maple-Sidecar-Base a SHA-256 hex digest or "none"',
-      };
-    }
     const primary = path.join(folder.path, targetRelPath);
     const send: BackupSidecarSend = {
       finalPath,
@@ -348,20 +367,12 @@ export const backupSidecarRoutes = new Elysia().post(
       libraryRoot: folder.path,
       phid,
     };
-    if (base !== undefined) {
-      const readable = await checkpointOf(send.xmp).then(
-        () => true,
-        () => false,
-      );
-      if (!readable) {
-        set.status = 400;
-        return { error: 'body must be a complete XMP document' };
-      }
-    }
-    const result =
-      base === undefined
-        ? await publishWithoutBase(primary, send)
-        : await publishBackupSidecarCas({ ...send, base });
+    const result = await publishBySendBase(
+      primary,
+      send,
+      headers['x-maple-sidecar-head'],
+      headers['x-maple-sidecar-base'],
+    );
     set.status = result.status;
     return result.body;
   },
