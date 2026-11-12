@@ -56,16 +56,21 @@ extension RemoteCatalog {
 
   /// Move or copy the RAW, then the JPEG under the RAW's final stem. `collision` is the RAW's
   /// policy; the JPEG uses `companionCollision` and throws `destinationExists` naming the JPEG when
-  /// its name is taken. Keep Both asks for a RAW name whose stem is free in `libraryFolderID`'s
-  /// `destinationPath` for the RAW, the JPEG and their sidecar: the server's own keep-both looks at
-  /// the RAW alone. `restore` is where a move puts the RAW back when the JPEG cannot follow; the
-  /// RAW is addressed there by the location the move gave it, not its old `sourceAddress`.
+  /// its name is taken, before either file moves. Keep Both asks for a RAW name whose stem is free
+  /// in `libraryFolderID`'s `destinationPath` for the RAW, the JPEG and their sidecar: the server's
+  /// own keep-both looks at the RAW alone. `restore` is where a move puts the RAW back when the
+  /// JPEG cannot follow; the RAW is addressed there by the location the move gave it, not its old
+  /// `sourceAddress`.
   public func relocateAsset(
     assetID: String, mode: RelocateMode, collision: CollisionPolicy, destinationPath: String,
     sourceAddress: String?, stack: RawJpegStack, libraryFolderID: String,
     restore: (path: String, filename: String), companionCollision: CollisionPolicy = .fail
   ) async throws -> RelocateAssetResult {
     let companion = try companionID(of: stack)
+    if collision != .autoSuffix, companionCollision != .replace {
+      try await requireCompanionNameFree(
+        stack, libraryFolderID: libraryFolderID, destinationPath: destinationPath)
+    }
     let keepBothName =
       collision == .autoSuffix
       ? try await stackFilenameFreeForBoth(
@@ -102,6 +107,20 @@ extension RemoteCatalog {
           sourceAddress: sourceAddress.flatMap { Self.address($0, movedTo: moved) })
       }
       throw error
+    }
+  }
+
+  /// Throws `destinationExists` naming the JPEG when another file holds its name in
+  /// `destinationPath`. Asked before the RAW moves: the server deletes what a Replace displaced as
+  /// soon as that one asset commits, so a RAW that replaced an unindexed file ahead of a JPEG that
+  /// then could not follow would lose the file it replaced, even though the RAW is put back.
+  private func requireCompanionNameFree(
+    _ stack: RawJpegStack, libraryFolderID: String, destinationPath: String
+  ) async throws {
+    let name = stack.companion.name
+    let path = destinationPath.isEmpty ? name : "\(destinationPath)/\(name)"
+    if try await statFile(folderID: libraryFolderID, relativePath: path) != nil {
+      throw FileOperationError.destinationExists(name)
     }
   }
 
