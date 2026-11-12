@@ -4,9 +4,11 @@
 // curves, mask stack, encode target and Auto Profile tail as the fused path,
 // but the chain runs windowed: the patch's position in the full frame is
 // passed down, so the S/H mask, masks, vignette and grain match the
-// full-frame render. Dehaze recovers with the haze maps of `fullFrame`, the
-// whole decoded base (#3287). No perspective warp: native detail falls back
-// to the whole-image refine for perspective.
+// full-frame render. Dehaze recovers with the haze maps of the canvas
+// buffer the patch overlays (#3287, #5215): the GPU-live canvas's prescaled
+// upload while that canvas is on glass, the whole decoded base otherwise.
+// No perspective warp: native detail falls back to the whole-image refine
+// for perspective.
 
 import CoreImage
 import Foundation
@@ -15,7 +17,7 @@ import RawPipeline
 extension ImageEditPipeline {
   nonisolated func processSceneLinearWindow(
     decoded: CIImage,
-    fullFrame: CIImage?,
+    hazeSource: NativeDetailHazeSource?,
     model: AdjustmentModel,
     origin: CGPoint,
     fullSize: CGSize,
@@ -42,7 +44,7 @@ extension ImageEditPipeline {
     )
     let curves = PipelineRenderer.ChainToneCurves(model: model)
     let haze = try hazeMap(
-      frame: fullFrame, model: model, params: params, curves: curves, noiseProfile: noiseProfile)
+      source: hazeSource, model: model, params: params, curves: curves, noiseProfile: noiseProfile)
     let rowBytes = w * 16
     let encoded: Data = try autoreleasepool {
       var input = Data(count: rowBytes * h)
@@ -85,15 +87,16 @@ extension ImageEditPipeline {
     return AutoProfileLUT.apply(encodePlan.cube, to: image)
   }
 
-  /// The whole frame's dehaze maps for the patch (#3287): `frame`, the decoded
-  /// base the CPU whole-image chain renders, at its own resolution — tone
-  /// curves, clarity and texture do not commute with a downscale. The GPU
-  /// canvas prescales its copy, so its map can part slightly (#5215). Kept in
-  /// `NativeDetailHazeCache` per (frame, `sceneLinearHazeKey`), so a pan or a
-  /// dehaze move renders no frame copy. `nil` when no dehaze is engaged;
-  /// throws when it is but the decoded frame is not available.
+  /// The dehaze maps for the patch (#3287, #5215), measured from `source`:
+  /// the GPU-live canvas's prescaled upload while that canvas is on glass
+  /// (tone curves, clarity and texture do not commute with the prescale, so
+  /// only that buffer measures the map the canvas recovers with), the
+  /// decoded base otherwise. Kept in `NativeDetailHazeCache` per (frame,
+  /// prescale target, `sceneLinearHazeKey`), so a pan or a dehaze move
+  /// neither renders the frame nor hands it to Rust again. `nil` when no
+  /// dehaze is engaged; throws when it is but no frame is available.
   nonisolated func hazeMap(
-    frame: CIImage?,
+    source: NativeDetailHazeSource?,
     model: AdjustmentModel,
     params: MapleAdjustmentParams,
     curves: PipelineRenderer.ChainToneCurves,
@@ -103,13 +106,14 @@ extension ImageEditPipeline {
       params: params, curves: curves, noiseProfile: noiseProfile,
       localAdjustments: model.localAdjustments)
     guard key != 0 else { return nil }
-    guard let frame else {
+    guard let source else {
       throw PipelineError.renderFailed(
         code: 8, message: "native detail: dehaze needs the decoded frame for its haze map")
     }
-    return try NativeDetailHazeCache.shared.map(frame: frame, key: key) {
+    return try NativeDetailHazeCache.shared.map(source: source, key: key) {
       try measureHazeMap(
-        frame: frame, model: model, params: params, curves: curves, noiseProfile: noiseProfile)
+        frame: source.image, model: model, params: params, curves: curves,
+        noiseProfile: noiseProfile)
     }
   }
 

@@ -158,8 +158,9 @@ final class NativeDetailWindowChainTests: XCTestCase {
       "no dehaze, no map")
   }
 
-  /// #3287: a pan or a dehaze move reuses the patch's haze map without
-  /// rendering the decoded frame again; an upstream edit measures anew.
+  /// #3287, #5215: a pan or a dehaze move reuses the patch's haze map without
+  /// rendering the decoded frame again; an upstream edit, or the same frame
+  /// at another prescale target (the GPU canvas's upload), measures anew.
   func testHazeMapCacheHitRendersNoFrameCopy() throws {
     let pixels = frame()
     let image = CIImage(
@@ -167,22 +168,80 @@ final class NativeDetailWindowChainTests: XCTestCase {
       size: CGSize(width: full.w, height: full.h), format: .RGBAf,
       colorSpace: CGColorSpace(name: CGColorSpace.extendedLinearITUR_2020)!)
     let pipeline = ImageEditPipeline()
-    let map = { (m: AdjustmentModel) in
+    let map = { (m: AdjustmentModel, target: CGSize?) in
       try pipeline.hazeMap(
-        frame: image, model: m, params: PipelineRenderer.makeParams(from: m, whitesAnchorEv: 0),
+        source: NativeDetailHazeSource(frame: image, targetSize: target), model: m,
+        params: PipelineRenderer.makeParams(from: m, whitesAnchorEv: 0),
         curves: PipelineRenderer.ChainToneCurves(model: m), noiseProfile: nil)
     }
     var m = model()
     m.dehaze = 30
     let before = NativeDetailHazeCache.shared.measurements
-    let first = try XCTUnwrap(try map(m))
+    let first = try XCTUnwrap(try map(m, nil))
     m.dehaze = -60
     m.sharpenAmount = 70
-    XCTAssertTrue(try XCTUnwrap(try map(m)) === first, "a dehaze move must reuse the map")
+    XCTAssertTrue(try XCTUnwrap(try map(m, nil)) === first, "a dehaze move must reuse the map")
     XCTAssertEqual(NativeDetailHazeCache.shared.measurements, before + 1)
-    m.exposure = 0.6
-    XCTAssertFalse(try XCTUnwrap(try map(m)) === first, "an upstream edit must measure anew")
+    let canvas = CGSize(width: full.w / 2, height: full.h / 2)
+    let prescaled = try XCTUnwrap(try map(m, canvas))
+    XCTAssertFalse(prescaled === first, "the canvas upload's map is measured from that buffer")
+    XCTAssertTrue(try XCTUnwrap(try map(m, canvas)) === prescaled, "and reused like any other")
     XCTAssertEqual(NativeDetailHazeCache.shared.measurements, before + 2)
+    m.exposure = 0.6
+    XCTAssertFalse(
+      try XCTUnwrap(try map(m, canvas)) === prescaled, "an upstream edit must measure anew")
+    XCTAssertEqual(NativeDetailHazeCache.shared.measurements, before + 3)
+  }
+
+  /// #5215: with the GPU-live canvas's upload as its haze source, a window
+  /// of that buffer dehazes exactly like the whole-canvas chain, which
+  /// measures its own map from the same pixels; the full-resolution decoded
+  /// base's map (the pre-#5215 source) does not, because clarity and
+  /// texture do not commute with the prescale.
+  func testWindowWithTheCanvasUploadHazeSourceMatchesTheCanvasChain() throws {
+    let image = CIImage(
+      bitmapData: data(frame()), bytesPerRow: full.w * 16,
+      size: CGSize(width: full.w, height: full.h), format: .RGBAf,
+      colorSpace: CGColorSpace(name: CGColorSpace.extendedLinearITUR_2020)!)
+    let target = CGSize(width: full.w / 2, height: full.h / 2)
+    let pipeline = ImageEditPipeline()
+    let canvas = try XCTUnwrap(pipeline.sceneLinearFloats(from: image, targetSize: target))
+    let size = CGSize(width: canvas.width, height: canvas.height)
+    var m = model(clarity: 60)
+    m.texture = 50
+    m.dehaze = 45
+    let params = PipelineRenderer.makeParams(from: m, whitesAnchorEv: 0)
+    let curves = PipelineRenderer.ChainToneCurves(model: m)
+    let window = CGRect(x: 150, y: 110, width: 64, height: 48)
+    let whole = crop(
+      floats(
+        try PipelineRenderer.applyChainAndEncodeDisplayTarget(
+          inputBytes: data(canvas.pixels), width: canvas.width, height: canvas.height,
+          params: params, targetPrimaries: CanvasColorSpace.srgb.wireValue, curves: curves,
+          localAdjustments: m.localAdjustments)),
+      width: canvas.width, window)
+    let halo = CGFloat(PipelineRenderer.sceneLinearChainWindowReach(model: m, fullSize: size))
+    let grown = window.insetBy(dx: -halo, dy: -halo).intersection(CGRect(origin: .zero, size: size))
+    let render = { (source: NativeDetailHazeSource) throws -> [Float] in
+      let haze = try pipeline.hazeMap(
+        source: source, model: m, params: params, curves: curves, noiseProfile: nil)
+      let rendered = try PipelineRenderer.applyChainAndEncodeDisplayTargetWindow(
+        inputBytes: self.data(self.crop(canvas.pixels, width: canvas.width, grown)),
+        width: Int(grown.width), height: Int(grown.height), params: params,
+        targetPrimaries: CanvasColorSpace.srgb.wireValue, curves: curves, noiseProfile: nil,
+        localAdjustments: m.localAdjustments,
+        window: PipelineRenderer.chainWindow(origin: grown.origin, fullSize: size), haze: haze)
+      return self.crop(
+        self.floats(rendered), width: Int(grown.width),
+        window.offsetBy(dx: -grown.minX, dy: -grown.minY))
+    }
+    let fromCanvas = try render(NativeDetailHazeSource(frame: image, targetSize: target))
+    let fromBase = try render(NativeDetailHazeSource(frame: image, targetSize: nil))
+    print(
+      "CANVAS-HAZE-CPU canvas-map maxAbs=\(maxAbs(whole, fromCanvas)) base-map maxAbs=\(maxAbs(whole, fromBase))"
+    )
+    XCTAssertLessThanOrEqual(maxAbs(whole, fromCanvas), 1e-4, "the canvas upload's map")
+    XCTAssertGreaterThan(maxAbs(whole, fromBase), 1e-3, "the base's map must part from it")
   }
 
   func testDecodeRectWidensToTheChainReach() {
