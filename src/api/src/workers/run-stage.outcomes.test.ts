@@ -1,8 +1,8 @@
 /**
- * What a tick does with what its handlers returned, end to end.
+ * What a batch does with what its handlers returned, end to end.
  *
  * `run-stage.test.ts` covers boot and the happy path; this file covers the
- * outcomes that need several ticks or a second table to observe — a failure
+ * outcomes that need several batches or a second table to observe — a failure
  * walking to its dead-letter, the `damaged` tag a file-reading stage stamps on
  * the way there, the guard that stops a non-damage-tagging stage doing the
  * same, and the derived claim batch size.
@@ -12,9 +12,9 @@
  * reaches for the right one, which is exactly the part no repository test can
  * see.
  *
- * Per-asset retry backoff (#2729) means consecutive ticks do not re-claim a
+ * Per-asset retry backoff (#2729) means consecutive batches do not re-claim a
  * failed asset, so a test that walks one through several attempts lifts the
- * gate between ticks — production's wall clock does the same thing more slowly.
+ * gate between batches — production's wall clock does the same thing more slowly.
  */
 
 import { describe, expect, it } from 'bun:test';
@@ -91,7 +91,7 @@ function throwingStage(name: string, message: string, extra: Partial<StageConfig
 }
 
 describe('a handler that keeps throwing', () => {
-  it('spends one attempt per tick and dead-letters at maxAttempts', async () => {
+  it('spends one attempt per batch and dead-letters at maxAttempts', async () => {
     using live = await createLiveTestDatabase();
     const assetId = seedAsset(live.db, 'hash');
     const stage = throwingStage('hash', 'always fail');
@@ -147,7 +147,7 @@ describe('a handler that keeps throwing', () => {
 });
 
 describe('a handler that classifies the bytes up front', () => {
-  it('tags damaged on the first tick, with one honest attempt recorded', async () => {
+  it('tags damaged on the first batch, with one honest attempt recorded', async () => {
     using live = await createLiveTestDatabase();
     const assetId = seedAsset(live.db, 'exif');
     const stage = defineStage({
@@ -206,10 +206,10 @@ describe('a handler that classifies the bytes up front', () => {
 });
 
 describe('the claim batch', () => {
-  it('is 5× concurrency, and a full one is reported back to the poll loop', async () => {
+  it('is 5× concurrency, and a full one is reported back to the slice', async () => {
     // 21 eligible assets, concurrency 4 → derived batch 20. The 21st waits for
-    // the next tick, and the full-batch signal is what makes the loop re-poll
-    // immediately rather than falling back to the idle cadence.
+    // the next batch, and the full-batch signal is what makes the slice claim
+    // again at once rather than waiting a second.
     using live = await createLiveTestDatabase();
     for (let i = 0; i < 21; i++) seedAsset(live.db, 'hash');
     const stage = defineStage({

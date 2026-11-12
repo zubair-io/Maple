@@ -25,6 +25,7 @@ import { stageRegistry } from './registry.ts';
 import { WorkerConfigRepo } from '../db/repos/worker-config.repo.ts';
 import { stageHasWork } from '../db/repos/stage-claim.ts';
 import { runOnce } from './run-stage.dispatch.ts';
+import { deriveBatchSize } from './loop-policy.ts';
 import type { StageSlice } from './stage-workflow.ts';
 import {
   bootConfig,
@@ -66,13 +67,17 @@ export interface RunStageHandle {
   /** A slice is running. */
   readonly busy: boolean;
   /**
-   * Claims batches back to back until one comes back empty or about ten
-   * seconds have passed. A second call while one runs gets the running one,
-   * and once the runner has stopped it settles with an error even if a stuck
-   * handler is still holding its batch.
+   * About ten seconds of what a poll loop would do: a full batch claims again
+   * at once, anything less waits a second first, and a pause ends the slice.
+   * A second call while one runs gets the running one, and once the runner has
+   * stopped it settles with an error even if a stuck handler still holds its
+   * batch.
    */
   runSlice: () => Promise<StageSlice>;
-  /** Whether a claim would find anything, without claiming it. */
+  /**
+   * Whether a claim would find anything, without claiming it. A failed peek
+   * is recorded against the stage on `stageRegistry` and reads as no work.
+   */
   hasWork: () => Promise<boolean>;
   /** What a claim that found nothing would have done: the stall watch, the config read, the idle hook. */
   idle: () => Promise<void>;
@@ -80,11 +85,14 @@ export interface RunStageHandle {
   stop: () => Promise<void>;
 }
 
-/** Keeps a draining backlog from re-reading the row on every batch; pause latency stays ≤ ~2 s. */
+/** Keeps a draining backlog from re-reading the row on every batch; pause latency stays ≤ ~2 s plus one batch. */
 const CONFIG_RELOAD_INTERVAL_MS = 2000;
 
 /** A slice gives way after this long so the workflow's history records progress; a batch is never cut short. */
 const SLICE_MS = 10_000;
+
+/** How long a slice waits after a batch that was not full, so new work is picked up within about a second. */
+const IDLE_WAIT_MS = 1000;
 
 /** A handler that ignores its abort signal cannot hold up shutdown for longer than this. */
 const DRAIN_MS = 30_000;
@@ -167,6 +175,7 @@ export async function runStage<TPatch>(
   let lastConfigReadAt = 0;
   let slice: Promise<StageSlice> | null = null;
   let idling: Promise<void> | null = null;
+  let peekFailed = false;
   const stopped = Promise.withResolvers<never>();
   stopped.promise.catch(() => {});
 
@@ -210,6 +219,7 @@ export async function runStage<TPatch>(
         stallWatch,
       );
       stageRegistry.clearError(stage.name);
+      peekFailed = false;
       await notifyProgress(processed);
       return processed;
     } catch (err) {
@@ -219,17 +229,23 @@ export async function runStage<TPatch>(
     }
   };
 
+  const waitBeforeClaiming = (deadline: number): Promise<void> =>
+    sleep(Math.max(0, Math.min(IDLE_WAIT_MS, deadline - Date.now())), undefined, {
+      signal: abortController.signal,
+    }).catch(() => {});
+
   const batchesUntil = async (deadline: number, claimed: number): Promise<StageSlice> => {
+    await reloadConfigIfDue();
+    if (config.paused) return { claimed, drained: true };
     const processed = await runBatch();
     const total = claimed + processed;
-    if (processed === 0) return { claimed: total, drained: true };
-    if (shuttingDown || Date.now() >= deadline) return { claimed: total, drained: false };
+    if (processed < deriveBatchSize(config.concurrency)) await waitBeforeClaiming(deadline);
+    if (shuttingDown || Date.now() >= deadline) return { claimed: total, drained: total === 0 };
     return batchesUntil(deadline, total);
   };
 
   const startSlice = async (): Promise<StageSlice> => {
     await idling;
-    await reloadConfigIfDue();
     return batchesUntil(Date.now() + (options.sliceMs ?? SLICE_MS), 0);
   };
 
@@ -255,14 +271,25 @@ export async function runStage<TPatch>(
     return idling;
   };
 
-  const hasWork = (): Promise<boolean> =>
-    stageHasWork({
-      stage: stage.name,
-      targetVersion: stage.targetVersion,
-      dependsOn: deps,
-      inFlight: inFlightSet,
-      residual: stage.claimResidual,
-    });
+  const hasWork = async (): Promise<boolean> => {
+    try {
+      const found = await stageHasWork({
+        stage: stage.name,
+        targetVersion: stage.targetVersion,
+        dependsOn: deps,
+        inFlight: inFlightSet,
+        residual: stage.claimResidual,
+      });
+      if (peekFailed) stageRegistry.clearError(stage.name);
+      peekFailed = false;
+      return found;
+    } catch (err) {
+      peekFailed = true;
+      stageRegistry.recordError(stage.name, err instanceof Error ? err.message : String(err));
+      log.error({ err }, `${stage.name} could not check for work`);
+      return false;
+    }
+  };
 
   /** Bounded, so a handler that ignores its abort signal cannot hold shutdown, or Temporal's drain, open. */
   const drainSlice = async (): Promise<void> => {

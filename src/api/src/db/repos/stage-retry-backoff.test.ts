@@ -1,6 +1,6 @@
 /**
  * Retry, backoff and dead-letter, ported from `run-stage.retry-backoff.test.ts`
- * and the failure half of `run-stage.poll-loop.test.ts` (#2728, #2729, #2730,
+ * and the failure half of `run-stage.outcomes.test.ts` (#2728, #2729, #2730,
  * #897).
  *
  * These are the behaviours the ticket asks to prove unchanged, and they are

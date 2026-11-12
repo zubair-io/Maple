@@ -3,8 +3,10 @@
  * asset still needs (`stage_state`) and of whether a stage may run
  * (`worker_config`); Temporal only decides when a stage runs. Every relay tick
  * the lane asks each booted stage whether a claim would find anything, and
- * starts that stage's workflow if so. The workflow then runs the stage a slice
- * at a time, each slice many batches, until a claim comes back empty.
+ * starts that stage's workflow if so. The workflow then runs the stage ten
+ * seconds at a time, polling inside each slice the way the old loop did, until
+ * a whole slice finds nothing, so a trickle of work keeps one workflow open
+ * rather than opening a new one per file.
  *
  * While Temporal is unreachable nothing relays, so stages do not advance; the
  * rows wait in `stage_state` and Settings → Workers shows the connection.
@@ -25,8 +27,8 @@ export interface StageActivities {
 
 export type BootedStages = () => ReadonlyMap<string, RunStageHandle>;
 
-/** Well inside the five-minute heartbeat timeout, so one slow batch is never mistaken for a lost worker. */
-const HEARTBEAT_MS = 30_000;
+/** Well inside the one-minute heartbeat timeout, so one slow batch is never mistaken for a lost worker. */
+const HEARTBEAT_MS = 15_000;
 
 /**
  * A slice ignores Temporal's cancellation on purpose: a claimed batch always
@@ -48,7 +50,11 @@ function createStageActivities(booted: BootedStages = bootedStages): StageActivi
   };
 }
 
-/** Starting a workflow that is already running is a no-op that writes no history. */
+/**
+ * Starting a workflow that is already running is a no-op that writes no
+ * history. A failed peek is the stage's own error, recorded on its row by
+ * `hasWork`; only a failure to reach Temporal propagates to the host.
+ */
 async function relayStage(client: Client, runner: RunStageHandle): Promise<void> {
   if (runner.busy) return;
   if (runner.paused || !(await runner.hasWork())) {
@@ -69,7 +75,7 @@ const failureOf = (work: Promise<void>): Promise<unknown> =>
     (error: unknown) => error,
   );
 
-/** One stage failing does not hold the others back; the first failure is still reported. */
+/** One stage failing to start does not hold the others back; the first failure is still reported. */
 async function relayStages(client: Client, booted: BootedStages): Promise<void> {
   const failures = await Promise.all(
     [...booted().values()].map((runner) => failureOf(relayStage(client, runner))),
@@ -84,5 +90,4 @@ export const stageLane = (booted: BootedStages = bootedStages): TemporalLane => 
   activities: createStageActivities(booted),
   concurrency: ALL_STAGE_NAMES.length,
   relay: (client) => relayStages(client, booted),
-  reconcile: async () => {},
 });

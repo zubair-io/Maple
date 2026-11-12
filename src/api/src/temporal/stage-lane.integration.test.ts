@@ -3,6 +3,8 @@
  * in `stage_state`, starts the stage's workflow, and its slices drain the
  * stage. One throwaway server is shared by the file; every test brings its own
  * database, its own stage (so workflow ids never collide) and its own host.
+ * Slices are cut to half a second unless a test is about their length, so a
+ * workflow closes soon after its stage runs dry.
  */
 
 import type { Database } from 'bun:sqlite';
@@ -26,8 +28,8 @@ import {
 } from '../workers/run-stage.ts';
 import { stageLane } from '../workers/stage-lane.ts';
 import { stageWorkflowId } from '../workers/stage-workflow.ts';
-import { startLocalTemporalServer } from './local-temporal.test-helpers.ts';
-import { saveTemporalSettings } from './temporal-config.ts';
+import { gate, startLocalTemporalServer, until } from './local-temporal.test-helpers.ts';
+import { readTemporalStatus, saveTemporalSettings } from './temporal-config.ts';
 import { TemporalHost } from './temporal-host.ts';
 
 const FAST = { relayMs: 20, refreshMs: 100, retryMs: 100 };
@@ -48,7 +50,16 @@ beforeAll(async () => {
   env = await startLocalTemporalServer();
 }, 120_000);
 
+/** A workflow left open would keep asking a later test's lane for a stage that is gone. */
 afterEach(async () => {
+  await Promise.all(
+    [...runners.keys()].map((name) =>
+      env.client.workflow
+        .getHandle(stageWorkflowId(name))
+        .terminate('test finished')
+        .catch(() => {}),
+    ),
+  );
   await Promise.all([...runners.values()].map((runner) => runner.stop()));
   runners.clear();
   stageRegistry._resetForTests();
@@ -57,21 +68,6 @@ afterEach(async () => {
 afterAll(async () => {
   await env.teardown();
 });
-
-async function until<T>(read: () => Promise<T> | T, done: (value: T) => boolean, ms = 20_000) {
-  const deadline = Date.now() + ms;
-  for (;;) {
-    const value = await read();
-    if (done(value)) return value;
-    if (Date.now() > deadline) throw new Error(`timed out; last value ${JSON.stringify(value)}`);
-    await new Promise((resolve) => setTimeout(resolve, 25));
-  }
-}
-
-function gate() {
-  const { promise, resolve } = Promise.withResolvers<void>();
-  return { blocked: promise, release: () => resolve() };
-}
 
 const skip = async (): Promise<StageResult> => ({ skip: 'noop' });
 
@@ -90,7 +86,7 @@ async function bootStage(
     handler,
     ...extra,
   }) as StageConfig;
-  const runner = await runStage(stage, options);
+  const runner = await runStage(stage, { sliceMs: 500, ...options });
   runners.set(runner.name, runner);
   return runner;
 }
@@ -186,6 +182,62 @@ describe('stages on Temporal', () => {
       await config.patch(runner.name, { paused: false });
 
       await until(() => versions(live.db, runner.name, assets), allDone);
+    } finally {
+      await host.stop();
+    }
+  }, 60_000);
+
+  test('a pause written while a slice is running stops the stage within seconds', async () => {
+    using live = await createLiveTestDatabase();
+    const runner = await bootStage(
+      async () => {
+        await Bun.sleep(10);
+        return { skip: 'slow' };
+      },
+      { defaults: { ...DEFAULTS, concurrency: 1 } },
+      { sliceMs: 10_000 },
+    );
+    const config = new WorkerConfigRepo();
+    const host = await hostFor();
+    try {
+      const assets = seed(live.db, runner.name, 400);
+      const handled = () => versions(live.db, runner.name, assets).filter((v) => v === 1).length;
+      await until(handled, (done) => done > 0);
+
+      await config.patch(runner.name, { paused: true });
+      await workflowOf(runner).result();
+      const atPause = handled();
+      await Bun.sleep(500);
+
+      expect(handled()).toBe(atPause);
+      expect(atPause).toBeLessThan(assets.length);
+
+      await config.patch(runner.name, { paused: false });
+      await until(() => versions(live.db, runner.name, assets), allDone);
+    } finally {
+      await host.stop();
+    }
+  }, 60_000);
+
+  test('a peek that fails shows on the stage’s own row, not as Temporal unreachable', async () => {
+    using live = await createLiveTestDatabase();
+    const runner = await bootStage(skip);
+    const host = await hostFor();
+    try {
+      seed(live.db, runner.name, 1);
+      live.db.run(`ALTER TABLE stage_state RENAME COLUMN dead TO dead_hidden`);
+      await until(
+        () => stageRegistry.statuses()[runner.name]?.lastError ?? null,
+        (error) => error !== null,
+      );
+      await Bun.sleep(300);
+      expect((await readTemporalStatus()).connection.state).toBe('connected');
+
+      live.db.run(`ALTER TABLE stage_state RENAME COLUMN dead_hidden TO dead`);
+      await until(
+        () => stageRegistry.statuses()[runner.name]?.lastError ?? null,
+        (error) => error === null,
+      );
     } finally {
       await host.stop();
     }

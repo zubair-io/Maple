@@ -21,7 +21,7 @@
  * `deleted_at`. The rewritten trash entry is still *live* by the per-entry
  * definition — only the asset's own `deleted_at` is stamped — so the embed
  * stage's claim query would never re-pick the row on its own. Resetting the
- * stage makes the row claimable, so it rebuilds the vector on its next tick.
+ * stage makes the row claimable, so it rebuilds the vector on its next slice.
  *
  * They also reset `thumb` and `preview`. Trash is a relocate — the bytes move
  * under `.maple/trash/` — and those two caches are keyed on the file's path,
