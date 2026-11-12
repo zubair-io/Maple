@@ -107,6 +107,16 @@ class EditorRenderer(library: PhotoLibrary, private val onPresented: (Int) -> Un
             values
         }
 
+    override suspend fun modelValues(document: String): Map<String, Float> =
+        withContext(dispatcher) {
+            check(handle != 0L) { "Open a photo before reading its settings" }
+            NativeBridge.setModel(handle, document)
+            modelXml = document
+            reloadedInvalidation = invalidations
+            values = readValues()
+            values
+        }
+
     // Called synchronously inside SurfaceHolder callbacks, before Android can
     // abandon the old BufferQueue. Pending worker jobs see the new identity.
     override fun recordSurface(next: Surface?, w: Int, h: Int, wideColor: Boolean): SurfaceBinding =

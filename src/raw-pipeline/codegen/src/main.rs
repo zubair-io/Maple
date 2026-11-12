@@ -107,6 +107,9 @@ enum Target {
     /// JSON release summary. Only valid for `--schema capability-registry`
     /// (#2430).
     Json,
+    /// Kotlin output for the Android app. Only valid for `--schema
+    /// adjustment-transfer` (#5900).
+    Kotlin,
 }
 
 #[derive(Copy, Clone, Debug, ValueEnum, PartialEq, Eq)]
@@ -274,8 +277,11 @@ fn main() {
         }
         (Schema::AdjustmentTransfer, Target::Ts) => adjustment_transfer::emit_ts(),
         (Schema::AdjustmentTransfer, Target::Swift) => adjustment_transfer::emit_swift(),
+        (Schema::AdjustmentTransfer, Target::Kotlin) => adjustment_transfer::emit_kotlin(),
         (Schema::AdjustmentTransfer, _) => {
-            eprintln!("codegen: --schema adjustment-transfer supports only swift / ts targets");
+            eprintln!(
+                "codegen: --schema adjustment-transfer supports only swift / ts / kotlin targets"
+            );
             std::process::exit(2);
         }
         (Schema::AutoFitCodes, Target::Cs) => auto_fit_codes::emit_cs(),
@@ -319,7 +325,7 @@ fn main() {
         (Schema::Adjustment, Target::Cs) => adjustment_cs::emit_cs(),
         (
             Schema::Adjustment,
-            Target::Scss | Target::Wgsl | Target::Xaml | Target::Md | Target::Json,
+            Target::Scss | Target::Wgsl | Target::Xaml | Target::Md | Target::Json | Target::Kotlin,
         ) => {
             eprintln!(
                 "codegen: --schema adjustment supports only swift / ts / ts-tables / cs targets"
@@ -340,7 +346,12 @@ fn main() {
         }
         (
             Schema::UiTokens,
-            Target::TsTables | Target::Wgsl | Target::Cs | Target::Md | Target::Json,
+            Target::TsTables
+            | Target::Wgsl
+            | Target::Cs
+            | Target::Md
+            | Target::Json
+            | Target::Kotlin,
         ) => {
             eprintln!("codegen: --schema ui-tokens has no ts-tables / WGSL target");
             std::process::exit(2);
@@ -355,7 +366,8 @@ fn main() {
             | Target::Xaml
             | Target::Cs
             | Target::Md
-            | Target::Json,
+            | Target::Json
+            | Target::Kotlin,
         ) => {
             eprintln!("codegen: --schema color-matrices supports only the wgsl / ts targets");
             std::process::exit(2);
@@ -370,7 +382,8 @@ fn main() {
             | Target::Wgsl
             | Target::Xaml
             | Target::Md
-            | Target::Json,
+            | Target::Json
+            | Target::Kotlin,
         ) => {
             eprintln!("codegen: --schema film-catalog supports only the swift / ts / cs targets");
             std::process::exit(2);
@@ -392,7 +405,7 @@ fn main() {
         }
         (
             Schema::CapabilityRegistry,
-            Target::TsTables | Target::Scss | Target::Wgsl | Target::Xaml,
+            Target::TsTables | Target::Scss | Target::Wgsl | Target::Xaml | Target::Kotlin,
         ) => {
             eprintln!(
                 "codegen: --schema capability-registry supports only the swift / ts / cs / md / json targets"
@@ -419,7 +432,10 @@ fn main() {
             let evidence = load_evidence(&cli);
             support_tiers_summary::emit_json(&SupportRegistry::compute(&evidence), &evidence)
         }
-        (Schema::SupportTiers, Target::TsTables | Target::Scss | Target::Wgsl | Target::Xaml) => {
+        (
+            Schema::SupportTiers,
+            Target::TsTables | Target::Scss | Target::Wgsl | Target::Xaml | Target::Kotlin,
+        ) => {
             eprintln!(
                 "codegen: --schema support-tiers supports only the swift / ts / cs / md / json targets"
             );

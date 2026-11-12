@@ -44,6 +44,7 @@ data class MapleState(
     val userPresets: List<app.justmaple.aperture.ui.BuiltInPreset> = emptyList(),
     val cloudSigningIn: Boolean = false,
     val cloudConnectionsVersion: Int = 0,
+    val copiedSettings: CopiedSettings? = null,
 ) {
     val navigationPhotos: List<Photo> get() = previewOrder ?: photos
 

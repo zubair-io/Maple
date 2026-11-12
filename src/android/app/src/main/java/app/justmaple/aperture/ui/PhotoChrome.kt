@@ -58,6 +58,7 @@ internal fun FloatingPhotoHeader(
     zoomState: CanvasZoomState? = null,
 ) {
     var menu by remember { mutableStateOf(false) }
+    var pasting by remember { mutableStateOf(false) }
     val editing = state.mode == PhotoMode.Edit
     Row(
         modifier
@@ -147,6 +148,27 @@ internal fun FloatingPhotoHeader(
                                 },
                             )
                         DropdownMenuItem(
+                            text = { Text("Copy settings") },
+                            leadingIcon = { Icon(Icons.Outlined.ContentCopy, null) },
+                            enabled = state.canChangeMetadata,
+                            modifier = Modifier.testTag("copy-settings"),
+                            onClick = {
+                                menu = false
+                                model.copySettings()
+                            },
+                        )
+                        if (editing)
+                            DropdownMenuItem(
+                                text = { Text("Paste settings…") },
+                                leadingIcon = { Icon(Icons.Outlined.ContentPaste, null) },
+                                enabled = state.canEdit && state.copiedSettings != null,
+                                modifier = Modifier.testTag("paste-settings"),
+                                onClick = {
+                                    menu = false
+                                    pasting = true
+                                },
+                            )
+                        DropdownMenuItem(
                             text = { Text("Photo Info") },
                             leadingIcon = { Icon(Icons.Outlined.Info, null) },
                             modifier = Modifier.semantics { contentDescription = "Info" },
@@ -194,6 +216,18 @@ internal fun FloatingPhotoHeader(
             }
         }
     }
+    val copied = state.copiedSettings
+    if (pasting && editing && copied != null)
+        PasteSettingsDialog(
+            target = state.document,
+            copied = copied,
+            raw = state.values["_raw"] != 0f,
+            onPaste = {
+                pasting = false
+                model.pasteSettings(it)
+            },
+            onDismiss = { pasting = false },
+        )
 }
 
 @Composable

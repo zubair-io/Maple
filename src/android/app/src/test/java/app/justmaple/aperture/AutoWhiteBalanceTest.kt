@@ -28,6 +28,7 @@ class AutoWhiteBalanceTest {
         override suspend fun open(path: String, document: String, edge: Int, generation: Int) =
             mapOf("temperature" to 5200f, "tint" to 12f, "_shot_temperature" to 5200f,
                 "_shot_tint" to 12f, "_raw" to 1f, "exposure" to 1f)
+        override suspend fun modelValues(document: String): Map<String, Float> = error("Settings paste is not exercised by this test")
         override suspend fun autoWhiteBalance(document: String): WhiteBalanceRecommendation {
             requests++
             return withContext(NonCancellable) { result.await() }

@@ -678,6 +678,38 @@ internal constructor(
 
     fun resetField(name: String) = resetFields(listOf(name))
 
+    fun copySettings() {
+        val current = state.value
+        val photo = current.selected ?: return
+        if (!current.canChangeMetadata) return
+        val copied = CopiedSettings(photo.name, current.document)
+        mutable.update { it.copy(copiedSettings = copied) }
+    }
+
+    /** One paste is one undo entry; the native model supplies the pasted slider values. */
+    fun pasteSettings(groups: List<app.justmaple.aperture.generated.AdjustmentTransferGroup>) {
+        val current = state.value
+        val copied = current.copiedSettings ?: return
+        if (!current.canEdit || groups.isEmpty()) return
+        commitGesture()
+        val before = snapshot()
+        val document = before.document.pasting(copied, groups, raw = current.values["_raw"] != 0f)
+        if (document.serialize() == before.document.serialize()) return
+        val token = generation
+        viewModelScope.launch {
+            try {
+                val values = renderer.modelValues(presentedXml(document))
+                if (token != generation || snapshot() != before || !state.value.canEdit) return@launch
+                beginGesture()
+                restore(EditSnapshot(values, document))
+                commitGesture()
+            } catch (failure: Exception) {
+                if (failure is CancellationException) throw failure
+                if (token == generation) fail(failure, "Could not paste settings")
+            }
+        }
+    }
+
     fun togglePick() {
         val picked = state.value.document.attribute("papp:Flag") == "pick"
         attribute("papp:Flag", if (picked) null else "pick")
