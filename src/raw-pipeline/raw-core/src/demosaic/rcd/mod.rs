@@ -82,6 +82,7 @@ use super::flatten_mosaic;
 use crate::cancel::CancelToken;
 use crate::image::{CfaPattern, ColorSpace, Image};
 use rayon::prelude::*;
+use std::ops::Range;
 use steps::Frame;
 
 /// Width of the frame border that falls back to bilinear. The widest
@@ -132,6 +133,7 @@ pub fn rcd_cancellable(mosaic: &Image, cfa: CfaPattern, cancel: CancelToken<'_>)
     let cfa_flat = flatten_mosaic(mosaic, cfa);
     let frame = Frame {
         c: &cfa_flat,
+        base: 0,
         w,
         cfa,
     };
@@ -159,9 +161,10 @@ pub fn rcd_cancellable(mosaic: &Image, cfa: CfaPattern, cancel: CancelToken<'_>)
 /// kernel. Each output pixel is the mean of the four RCD pixels at
 /// `(2x..2x+1, 2y..2y+1)`, bit-identical to [`rcd`] followed by that quad
 /// average, so it has `half_res`'s geometry (centroid `(2x+0.5, 2y+0.5)`,
-/// odd trailing row/column dropped) with full-quality reconstruction. Only
-/// one [`BAND`]-row RGB scratch per rayon worker exists at a time; the
-/// full-resolution RGB image is never allocated. Cancellation follows
+/// odd trailing row/column dropped) with full-quality reconstruction. Each
+/// rayon worker holds one [`BAND`]-row RGB scratch and that band's CFA rows
+/// plus the [`BORDER`] stencil margin; neither the full-resolution RGB image
+/// nor a full-frame CFA plane is ever allocated. Cancellation follows
 /// [`rcd_cancellable`]: a cancelled band leaves its output rows zeroed for
 /// the develop chain to discard.
 pub fn rcd_quad_half_cancellable(
@@ -188,29 +191,47 @@ pub fn rcd_quad_half_cancellable(
         return out;
     }
 
-    let cfa_flat = flatten_mosaic(mosaic, cfa);
-    let frame = Frame {
-        c: &cfa_flat,
-        w,
-        cfa,
-    };
     out.pixels
         .par_chunks_mut(out_w * (BAND / 2))
         .enumerate()
-        .for_each_init(Vec::new, |scratch, (band_idx, out_band)| {
-            if cancel.is_cancelled() {
-                return;
-            }
-            // The same rows [`rcd_cancellable`]'s band `band_idx` owns, so
-            // the reconstruction is that band's, bit for bit.
-            let y0 = band_idx * BAND;
-            let rows = BAND.min(h - y0);
-            scratch.clear();
-            scratch.resize(w * rows, [0.0f32; 3]);
-            render_band(scratch, y0, mosaic, &frame, h);
-            average_quads(scratch, w, out_band, out_w);
-        });
+        .for_each_init(
+            || (Vec::new(), Vec::new()),
+            |(scratch, window), (band_idx, out_band)| {
+                if cancel.is_cancelled() {
+                    return;
+                }
+                // The same rows [`rcd_cancellable`]'s band `band_idx` owns, so
+                // the reconstruction is that band's, bit for bit.
+                let y0 = band_idx * BAND;
+                let y1 = (y0 + BAND).min(h);
+                // The interior stencils reach 5 rows past the band.
+                let rows = y0.saturating_sub(BORDER)..(y1 + BORDER).min(h);
+                flatten_rows(mosaic, cfa, rows.clone(), window);
+                let frame = Frame {
+                    c: window,
+                    base: rows.start * w,
+                    w,
+                    cfa,
+                };
+                scratch.clear();
+                scratch.resize(w * (y1 - y0), [0.0f32; 3]);
+                render_band(scratch, y0, mosaic, &frame, h);
+                average_quads(scratch, w, out_band, out_w);
+            },
+        );
     out
+}
+
+/// [`flatten_mosaic`] over `rows` only, into the reused `out`.
+fn flatten_rows(mosaic: &Image, cfa: CfaPattern, rows: Range<usize>, out: &mut Vec<f32>) {
+    let w = mosaic.width as usize;
+    out.clear();
+    out.extend(
+        mosaic.pixels[rows.start * w..rows.end * w]
+            .iter()
+            .enumerate()
+            .map(|(i, p)| p[cfa.color_at((i % w) as u32, (rows.start + i / w) as u32) as usize]),
+    );
 }
 
 /// Average each 2×2 quad of the `w`-wide `src` rows into the `out_w`-wide

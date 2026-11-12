@@ -415,3 +415,5 @@ mod tests_highlight_bounds;
 mod tests_lossy_wb_tier;
 #[cfg(test)]
 mod tests_sized_lateral_ca;
+#[cfg(test)]
+mod tests_sized_quad;
