@@ -5,19 +5,22 @@ use super::{
     preview::ExtractedPreview,
 };
 use crate::image::ExifOrientation;
-use crate::view::{
-    acr_fit::model::{ciede2000, srgb_linear_to_lab},
-    agx_inverse::srgb_gamma_inv,
-};
+#[cfg(test)]
+use crate::view::acr_fit::model::ciede2000;
 #[path = "paired_projection.rs"]
 mod projection;
 use projection::constrain_to_prior;
+#[path = "paired_assess.rs"]
+mod assessment;
 #[path = "paired_bands.rs"]
 mod bands;
 #[path = "paired_correspondence.rs"]
 mod correspondence;
 #[path = "paired_refinement.rs"]
 mod refinement;
+use assessment::{
+    assess, assess_against, assess_with, lab, predict, prefer, prefer_with, Assessment, Baseline,
+};
 #[path = "paired_step.rs"]
 mod step;
 use step::select_step;
@@ -204,170 +207,6 @@ fn solve_observations(
     Some((result, coarse))
 }
 
-fn lab(rgb: [f32; 3]) -> [f32; 3] {
-    srgb_linear_to_lab(rgb.map(srgb_gamma_inv))
-}
-
-fn prefer(candidate: &ColorLut, observations: &[Observation], display: &[Observation]) -> bool {
-    let assessment = assess(candidate, observations, display);
-    assessment.compatible && assessment.native_bands_preserved
-}
-
-struct Assessment {
-    compatible: bool,
-    native_bands_preserved: bool,
-    display_perceptual: f64,
-}
-
-fn assess(
-    candidate: &ColorLut,
-    observations: &[Observation],
-    display: &[Observation],
-) -> Assessment {
-    assess_against(candidate, observations, display, None)
-}
-
-fn predict(candidate: &ColorLut, row: &Observation) -> [f64; 3] {
-    std::array::from_fn(|c| {
-        row.artifact_weights
-            .iter()
-            .map(|&(i, w)| w * f64::from(candidate.data[i * 3 + c]))
-            .sum()
-    })
-}
-
-fn assess_against(
-    candidate: &ColorLut,
-    observations: &[Observation],
-    display: &[Observation],
-    reference: Option<&ColorLut>,
-) -> Assessment {
-    let mut squared = [[0.; 3]; 2];
-    let mut absolute = [[0.; 3]; 2];
-    let mut perceptual = [0.; 2];
-    let mut tails = [Vec::new(), Vec::new()];
-    let mut regional = [[0.; 64]; 2];
-    let mut rgb_tails = [Vec::new(), Vec::new()];
-    let mut regional_rgb = [[[0.; 3]; 64]; 2];
-    let mut counts = [0usize; 64];
-    let mut populations = [0usize; 64];
-    let mut validation_count = 0;
-    let mut native_bands = bands::NativeBands::default();
-    for row in observations {
-        let prediction = predict(candidate, row);
-        let baseline = reference.map_or(row.baseline, |lut| predict(lut, row));
-        native_bands.observe(
-            row.target,
-            row.in_bias_region,
-            [prediction, baseline],
-            row.population,
-        );
-        if !row.validation {
-            continue;
-        }
-        validation_count += 1;
-        for (i, output) in [prediction, baseline].into_iter().enumerate() {
-            for c in 0..3 {
-                let error = output[c] - row.target[c];
-                squared[i][c] += row.population as f64 * error * error;
-                absolute[i][c] += row.population as f64 * error.abs();
-            }
-        }
-    }
-    if validation_count < 32 {
-        return Assessment {
-            compatible: false,
-            native_bands_preserved: true,
-            display_perceptual: f64::INFINITY,
-        };
-    }
-    for row in display {
-        counts[row.region] += 1;
-        populations[row.region] += row.population;
-        let prediction = predict(candidate, row);
-        let baseline = reference.map_or(row.baseline, |lut| predict(lut, row));
-        let target = lab(row.target.map(|v| v as f32));
-        for (i, output) in [prediction, baseline].into_iter().enumerate() {
-            let error: [f64; 3] = std::array::from_fn(|c| (output[c] - row.target[c]).abs());
-            for c in 0..3 {
-                regional_rgb[i][row.region][c] += row.population as f64 * error[c];
-            }
-            rgb_tails[i].push((error, row.population));
-            let de = f64::from(ciede2000(lab(output.map(|v| v as f32)), target));
-            regional[i][row.region] += row.population as f64 * de;
-            perceptual[i] += row.population as f64 * de;
-            tails[i].push((de, row.population));
-        }
-    }
-    if tails[0].len() < 32 {
-        return Assessment {
-            compatible: false,
-            native_bands_preserved: true,
-            display_perceptual: f64::INFINITY,
-        };
-    }
-    let p95: Vec<f64> = tails
-        .iter_mut()
-        .map(|values| population::p95(values))
-        .collect();
-    let regions_improve = (0..64).all(|r| {
-        counts[r] >= 32
-            && (regional[0][r] - regional[1][r]) / populations[r].max(1) as f64
-                <= REGIONAL_SELECTION_MARGIN_DE
-    });
-    // Do not introduce RGB failures while improving perceptual averages (#5000).
-    let rgb_regions_preserved = (0..64).all(|r| {
-        (0..3).all(|c| {
-            regional_rgb[1][r][c] / populations[r].max(1) as f64 > 0.05
-                || regional_rgb[0][r][c] / populations[r].max(1) as f64 <= 0.05
-        })
-    });
-    let rgb_p95: [[f64; 3]; 2] = std::array::from_fn(|side| {
-        std::array::from_fn(|c| {
-            let mut values: Vec<_> = rgb_tails[side]
-                .iter()
-                .map(|(v, weight)| (v[c], *weight))
-                .collect();
-            population::p95(&mut values)
-        })
-    });
-    let rgb_tails_preserved = (0..3).all(|c| rgb_p95[1][c] > 0.1 || rgb_p95[0][c] <= 0.1);
-    let worst_ratios = quality_budget::worst_ratios(
-        native_bands.worst_ratios(),
-        perceptual,
-        &p95,
-        &regional_rgb,
-        &populations,
-        &rgb_p95,
-    );
-    let reduces_failure = worst_ratios[1] > 1. && worst_ratios[0] < worst_ratios[1];
-    let native_bands_preserved = native_bands.preserved();
-    let compatible = regions_improve
-        && rgb_regions_preserved
-        && rgb_tails_preserved
-        && perceptual[0] < perceptual[1]
-        && quality_budget::tail_preserved(p95[1], p95[0], worst_ratios)
-        && (0..3).all(|c| absolute[0][c] <= absolute[1][c])
-        && ((0..3).all(|c| squared[0][c] <= squared[1][c]) || reduces_failure);
-    #[cfg(feature = "stage-dump")]
-    if let Some(dir) = crate::stage_dump::dump_dir() {
-        let regions:Vec<_>=(0..64).map(|r|serde_json::json!({"region":r,"count":counts[r],"represented_pixels":populations[r],"candidate_mean":(counts[r]>0).then(||regional[0][r]/populations[r].max(1) as f64),"baseline_mean":(counts[r]>0).then(||regional[1][r]/populations[r].max(1) as f64)})).collect();
-        let report = serde_json::json!({"accepted":compatible && native_bands_preserved,"regions_improve":regions_improve,"native_bands_preserved":native_bands_preserved,"rgb_regions_preserved":rgb_regions_preserved,"rgb_tails_preserved":rgb_tails_preserved,"native_squared_rgb":squared,"native_absolute_rgb":absolute,"display_perceptual_sum":perceptual,"display_p95":p95,"worst_normalized_errors":worst_ratios,"reduces_worst_failure":reduces_failure,"native_validation_samples":validation_count,"display_samples":display.len(),"regions":regions});
-        if let Ok(file) = std::fs::File::create(dir.join(if reference.is_some() {
-            "auto_fit_selection_against_existing.json"
-        } else {
-            "auto_fit_selection.json"
-        })) {
-            let _ = serde_json::to_writer_pretty(std::io::BufWriter::new(file), &report);
-        }
-    }
-    Assessment {
-        compatible,
-        native_bands_preserved,
-        display_perceptual: perceptual[0],
-    }
-}
-
 pub(super) fn fit(
     pixels: &[f32],
     width: usize,
@@ -380,77 +219,144 @@ pub(super) fn fit(
     if current.size != size {
         return None;
     }
-    let observations =
-        paired_observations::build(pixels, width, height, orientation, preview, current)?;
-    let display = if preview.image.width().max(preview.image.height()) > 1024 {
-        Some(paired_observations::build_display(
-            pixels,
-            width,
-            height,
-            orientation,
-            preview,
-            current,
-        )?)
-    } else {
-        None
-    };
-    let geometry =
-        paired_observations::build_geometry(pixels, width, height, orientation, preview, current)?;
-    let registration = super::fit_registration::estimate(&geometry);
-    let aligned = registration.as_ref().and_then(|r| {
-        paired_observations::build_aligned(
-            pixels,
-            width,
-            height,
-            orientation,
-            preview,
-            current,
-            r.warp,
-        )
-    });
+    // The row builds, and the original and registered fits, only read the
+    // developed pixels; run them side by side (#5172).
+    let ((observations, display), geometry) = rayon::join(
+        || {
+            rayon::join(
+                || {
+                    crate::pipeline::stage("pf_native_rows", || {
+                        paired_observations::build(
+                            pixels,
+                            width,
+                            height,
+                            orientation,
+                            preview,
+                            current,
+                        )
+                    })
+                },
+                || {
+                    if preview.image.width().max(preview.image.height()) > 1024 {
+                        crate::pipeline::stage("pf_display_rows", || {
+                            paired_observations::build_display(
+                                pixels,
+                                width,
+                                height,
+                                orientation,
+                                preview,
+                                current,
+                            )
+                        })
+                        .map(Some)
+                    } else {
+                        Some(None)
+                    }
+                },
+            )
+        },
+        || {
+            crate::pipeline::stage("pf_geometry_rows", || {
+                paired_observations::build_geometry(
+                    pixels,
+                    width,
+                    height,
+                    orientation,
+                    preview,
+                    current,
+                )
+            })
+        },
+    );
+    let (observations, display, geometry) = (observations?, display?, geometry?);
     let native_rows = observations.rows.as_slice();
     let display_rows = display
         .as_ref()
         .map(|s| s.rows.as_slice())
         .unwrap_or(native_rows);
-    let matched_native = registration.as_ref().and_then(|r| {
-        if !correspondence::supported_both_directions(r.warp) {
-            return None;
-        }
-        let matched = paired_observations::build_native_aligned(
-            pixels,
-            width,
-            height,
-            orientation,
-            preview,
-            current,
-            r.warp,
-        )?;
-        (correspondence::retains_population(&observations, &matched)
-            && aligned.as_ref().is_some_and(|set| {
-                correspondence::retains_population(display.as_ref().unwrap_or(&observations), set)
-            }))
-        .then_some(matched)
-    });
+    let (original, registered) = rayon::join(
+        || {
+            let solution = crate::pipeline::stage("pf_solve_original", || {
+                solve_observations(display_rows, current)
+            })?;
+            let choice = crate::pipeline::stage("pf_step_original", || {
+                select_step(&solution.0, current, native_rows, display_rows)
+            });
+            Some((solution, choice))
+        },
+        || {
+            let registration = crate::pipeline::stage("pf_register", || {
+                super::fit_registration::estimate(&geometry)
+            });
+            let aligned = crate::pipeline::stage("pf_aligned_rows", || {
+                registration.as_ref().and_then(|r| {
+                    paired_observations::build_aligned(
+                        pixels,
+                        width,
+                        height,
+                        orientation,
+                        preview,
+                        current,
+                        r.warp,
+                    )
+                })
+            });
+            let matched_native = crate::pipeline::stage("pf_matched_rows", || {
+                registration.as_ref().and_then(|r| {
+                    if !correspondence::supported_both_directions(r.warp) {
+                        return None;
+                    }
+                    let matched = paired_observations::build_native_aligned(
+                        pixels,
+                        width,
+                        height,
+                        orientation,
+                        preview,
+                        current,
+                        r.warp,
+                    )?;
+                    (correspondence::retains_population(&observations, &matched)
+                        && aligned.as_ref().is_some_and(|set| {
+                            correspondence::retains_population(
+                                display.as_ref().unwrap_or(&observations),
+                                set,
+                            )
+                        }))
+                    .then_some(matched)
+                })
+            });
+            let matched_native_rows = matched_native.as_ref().map_or(native_rows, |s| &s.rows);
+            let matched_display_rows = if matched_native.is_some() {
+                aligned.as_ref().map_or(display_rows, |s| &s.rows)
+            } else {
+                display_rows
+            };
+            let solution = crate::pipeline::stage("pf_solve_aligned", || {
+                aligned
+                    .as_ref()
+                    .and_then(|set| solve_observations(&set.rows, current))
+            });
+            let choice = crate::pipeline::stage("pf_step_aligned", || {
+                solution.as_ref().and_then(|solution| {
+                    select_step(
+                        &solution.0,
+                        current,
+                        matched_native_rows,
+                        matched_display_rows,
+                    )
+                })
+            });
+            (registration, aligned, matched_native, solution, choice)
+        },
+    );
+    let (original_solution, original_choice) = original?;
+    let (registration, aligned, matched_native, aligned_solution, aligned_choice) = registered;
     let matched_native_rows = matched_native.as_ref().map_or(native_rows, |s| &s.rows);
     let matched_display_rows = if matched_native.is_some() {
         aligned.as_ref().map_or(display_rows, |s| &s.rows)
     } else {
         display_rows
     };
-    let original_solution = solve_observations(display_rows, current)?;
-    let original_choice = select_step(&original_solution.0, current, native_rows, display_rows);
-    let aligned_solution = aligned
-        .as_ref()
-        .and_then(|set| solve_observations(&set.rows, current));
-    let aligned_choice = aligned_solution.as_ref().and_then(|solution| {
-        select_step(
-            &solution.0,
-            current,
-            matched_native_rows,
-            matched_display_rows,
-        )
-    });
     let use_registered = match (&aligned_choice, &original_choice) {
         (Some(candidate), Some(existing)) => {
             let assessment = assess_against(
@@ -528,7 +434,10 @@ pub(super) fn fit(
         }
     }
     let base = chosen?;
-    refinement::refine(&base, selected_native, selected_display).or(Some(base))
+    crate::pipeline::stage("pf_refine", || {
+        refinement::refine(&base, selected_native, selected_display)
+    })
+    .or(Some(base))
 }
 
 #[cfg(test)]

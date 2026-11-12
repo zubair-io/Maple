@@ -1,5 +1,6 @@
-use super::super::{ciede2000, lab};
+use super::super::lab;
 use super::{projection::constrain_to_prior, system::prediction, ColorLut, Observation};
+use crate::view::acr_fit::model::ciede2000;
 use rayon::prelude::*;
 
 // Best-effort: assess_against enforces the hard regional margin at selection;

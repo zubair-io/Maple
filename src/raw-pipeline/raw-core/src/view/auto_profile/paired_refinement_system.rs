@@ -20,8 +20,6 @@ pub(super) struct Pattern {
     node_start: Vec<usize>,
     node_rows: Vec<usize>,
     node_weights: Vec<f64>,
-    edge_start: Vec<usize>,
-    edge_peers: Vec<(usize, bool)>,
     normal: Option<NormalPattern>,
 }
 
@@ -31,7 +29,7 @@ struct NormalPattern {
 }
 
 impl Pattern {
-    pub(super) fn new(rows: &[TrainingRow<'_>], size: usize, edges: &[(usize, usize)]) -> Self {
+    pub(super) fn new(rows: &[TrainingRow<'_>], size: usize) -> Self {
         let count = size.pow(3);
         let row_start: Vec<_> = std::iter::once(0)
             .chain(rows.iter().scan(0, |end, entry| {
@@ -54,15 +52,6 @@ impl Pattern {
                 cursor[i] += 1;
             }
         }
-        let edge_start = offsets(count, edges.iter().flat_map(|&(i, j)| [i, j]));
-        let mut cursor = edge_start.clone();
-        let mut edge_peers = vec![(0, false); edges.len() * 2];
-        for &(i, j) in edges {
-            edge_peers[cursor[i]] = (j, true);
-            cursor[i] += 1;
-            edge_peers[cursor[j]] = (i, false);
-            cursor[j] += 1;
-        }
         let pattern = Self {
             row_start,
             row_nodes,
@@ -70,8 +59,6 @@ impl Pattern {
             node_start,
             node_rows,
             node_weights,
-            edge_start,
-            edge_peers,
             normal: None,
         };
         Self {
@@ -177,6 +164,7 @@ pub(super) struct System<'a> {
     normal: Option<(&'a NormalPattern, Vec<f64>)>,
     pub diagonal: Vec<f64>,
     lambda: f64,
+    size: usize,
     ridge: f64,
     fixed: Vec<bool>,
 }
@@ -202,7 +190,7 @@ impl<'a> System<'a> {
         }
         // One λ per edge, not degree·λ: the repeated sum keeps the diagonal's bits.
         for (node, value) in diagonal.iter_mut().enumerate() {
-            for _ in pattern.edge_start[node]..pattern.edge_start[node + 1] {
+            for _ in 0..degree(node, size) {
                 *value += lambda;
             }
         }
@@ -223,6 +211,7 @@ impl<'a> System<'a> {
             fixed,
             diagonal,
             lambda,
+            size,
             ridge,
         }
     }
@@ -249,43 +238,53 @@ impl<'a> System<'a> {
                     }
                 });
         }
-        result
-            .par_chunks_mut(CHUNK)
-            .enumerate()
-            .for_each(|(chunk, out)| {
-                for (offset, value) in out.iter_mut().enumerate() {
-                    let node = chunk * CHUNK + offset;
-                    if self.fixed[node] {
-                        *value = values[node];
-                        continue;
-                    }
-                    *value = values[node] * self.ridge;
-                    match &self.normal {
-                        Some((normal, entries)) => {
-                            let range = normal.start[node]..normal.start[node + 1];
-                            for (&column, &entry) in
-                                normal.columns[range.clone()].iter().zip(&entries[range])
-                            {
-                                *value += entry * values[column];
-                            }
-                        }
-                        None => {
-                            for k in pattern.node_start[node]..pattern.node_start[node + 1] {
-                                *value += self.coefficients[k] * per_row[pattern.node_rows[k]];
-                            }
-                        }
-                    }
-                    for &(peer, first) in
-                        &pattern.edge_peers[pattern.edge_start[node]..pattern.edge_start[node + 1]]
+        let node_product = |node: usize, value: &mut f64| {
+            if self.fixed[node] {
+                *value = values[node];
+                return;
+            }
+            *value = values[node] * self.ridge;
+            match &self.normal {
+                Some((normal, entries)) => {
+                    let range = normal.start[node]..normal.start[node + 1];
+                    for (&column, &entry) in
+                        normal.columns[range.clone()].iter().zip(&entries[range])
                     {
-                        if first {
-                            *value += self.lambda * (values[node] - values[peer]);
-                        } else {
-                            *value -= self.lambda * (values[peer] - values[node]);
-                        }
+                        *value += entry * values[column];
                     }
                 }
+                None => {
+                    for k in pattern.node_start[node]..pattern.node_start[node + 1] {
+                        *value += self.coefficients[k] * per_row[pattern.node_rows[k]];
+                    }
+                }
+            }
+            for_each_edge(node, self.size, |peer, first| {
+                if first {
+                    *value += self.lambda * (values[node] - values[peer]);
+                } else {
+                    *value -= self.lambda * (values[peer] - values[node]);
+                }
             });
+        };
+        if self.normal.is_some() {
+            // Each node's value is independent, so the order is immaterial to
+            // the bits. The solve already runs the three channels in parallel;
+            // fanning a ~36k-node product out again costs more in dispatch
+            // and spinning than the product itself (#5172).
+            for (node, value) in result.iter_mut().enumerate() {
+                node_product(node, value);
+            }
+        } else {
+            result
+                .par_chunks_mut(CHUNK)
+                .enumerate()
+                .for_each(|(chunk, out)| {
+                    for (offset, value) in out.iter_mut().enumerate() {
+                        node_product(chunk * CHUNK + offset, value);
+                    }
+                });
+        }
     }
 
     #[cfg(test)]
@@ -296,7 +295,8 @@ impl<'a> System<'a> {
             .map_or(2 * self.pattern.row_nodes.len(), |(_, entries)| {
                 entries.len()
             });
-        data_terms + self.pattern.edge_peers.len() + self.diagonal.len()
+        let edge_terms: usize = (0..self.diagonal.len()).map(|n| degree(n, self.size)).sum();
+        data_terms + edge_terms + self.diagonal.len()
     }
 
     pub(super) fn solve(&self, rhs: &[f64], initial: Vec<f64>) -> Option<(Vec<f64>, usize)> {
@@ -352,6 +352,42 @@ impl<'a> System<'a> {
     }
 }
 
+/// Visits node `node`'s grid edges as `(peer, node_is_lower_end)`, in the order
+/// the global edge list `(i, i + stride)` for `i` ascending, strides
+/// `1, size, size²` meets them: the three lower peers (z, y, x) then the three
+/// upper ones (x, y, z). The stencil is implicit, so the product streams only
+/// the vector, not an adjacency list.
+#[inline(always)]
+fn for_each_edge(node: usize, size: usize, mut visit: impl FnMut(usize, bool)) {
+    let (x, y, z) = (node % size, node / size % size, node / (size * size));
+    let plane = size * size;
+    if z > 0 {
+        visit(node - plane, false);
+    }
+    if y > 0 {
+        visit(node - size, false);
+    }
+    if x > 0 {
+        visit(node - 1, false);
+    }
+    if x + 1 < size {
+        visit(node + 1, true);
+    }
+    if y + 1 < size {
+        visit(node + size, true);
+    }
+    if z + 1 < size {
+        visit(node + plane, true);
+    }
+}
+
+fn degree(node: usize, size: usize) -> usize {
+    let mut count = 0;
+    for_each_edge(node, size, |_, _| count += 1);
+    count
+}
+
+#[cfg(test)]
 pub(super) fn edges(size: usize) -> Vec<(usize, usize)> {
     let mut result = Vec::new();
     for i in 0..size.pow(3) {

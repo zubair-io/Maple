@@ -182,28 +182,36 @@ fn fit_via_acr2(
     let Some(p) = preview else {
         return (None, None);
     };
-    let pairs = sample_display_pairs(pixels, w, h, p.image.clone(), p.color_space, orientation);
-    let model = match acr_fit::solve_acr_model_from_display_pairs(&pairs) {
+    let pairs = crate::pipeline::stage("auto_pairs", || {
+        sample_display_pairs(pixels, w, h, p.image.clone(), p.color_space, orientation)
+    });
+    let model = match crate::pipeline::stage("auto_acr_solve", || {
+        acr_fit::solve_acr_model_from_display_pairs(&pairs)
+    }) {
         Ok(m) => m,
         Err(e) => {
             eprintln!("[auto2] structured fit failed, no Auto Profile tail: {e}");
             return (None, None);
         }
     };
-    let (curve, mut residual) = acr_fit::acr_model_as_profile_artifacts(
-        &model,
-        crate::view::auto_profile::bake::DEFAULT_LUT_SIZE,
-    );
-    if let Some(current) = residual.as_ref() {
-        if let Some(candidate) = super::paired_fit::fit(
-            pixels,
-            w,
-            h,
-            orientation,
-            p,
-            current,
+    let (curve, mut residual) = crate::pipeline::stage("auto_bake", || {
+        acr_fit::acr_model_as_profile_artifacts(
+            &model,
             crate::view::auto_profile::bake::DEFAULT_LUT_SIZE,
-        ) {
+        )
+    });
+    if let Some(current) = residual.as_ref() {
+        if let Some(candidate) = crate::pipeline::stage("auto_paired_fit", || {
+            super::paired_fit::fit(
+                pixels,
+                w,
+                h,
+                orientation,
+                p,
+                current,
+                crate::view::auto_profile::bake::DEFAULT_LUT_SIZE,
+            )
+        }) {
             residual = Some(candidate);
         }
     }
