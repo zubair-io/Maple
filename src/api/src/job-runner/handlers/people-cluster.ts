@@ -2,6 +2,8 @@
  * `people_cluster` — an operator's "Run clustering". It goes through the
  * worker tier's one cluster coordinator, the same one the face-embed stage
  * triggers, so a requested pass and an automatic one never run together.
+ * It does not look for a cancel: the coordinator, not the row, is what keeps
+ * a cancelled pass and the next request's pass apart.
  */
 
 import { clusterCoordinator, type ClusterCoordinator } from '../../people/cluster-coordinator.ts';

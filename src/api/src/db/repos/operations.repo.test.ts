@@ -14,11 +14,13 @@ import {
   claimJob,
   completeJob,
   createJob,
+  getJob,
   heldJobIds,
   JobConflictError,
   listJobs,
   markJobDispatched,
   nextJobId,
+  requestCancel,
 } from './jobs.repo.ts';
 import { activeOperationId, heldOperationIds, nextOperationId } from './operations.repo.ts';
 
@@ -135,5 +137,44 @@ describe('one active operation per kind and folder', () => {
     const second = await operation(db, 'mirror_reconcile', 3);
 
     expect(await activeOperationId('mirror_reconcile', null, db)).toBe(hex(second));
+  });
+
+  test('cancelling an operation not yet handed over ends it at once and frees its slot', async () => {
+    using handle = await createTestDatabase();
+    const db = testSqliteDb(handle.db);
+    const cancelled = await operation(db, 'mirror_reconcile', 0);
+
+    await requestCancel(cancelled._id, at(1), db);
+
+    expect((await getJob(cancelled._id, db))?.status).toBe('cancelled');
+    expect(await nextOperationId(db)).toBeNull();
+    const next = await operation(db, 'mirror_reconcile', 2);
+    expect(await activeOperationId('mirror_reconcile', null, db)).toBe(hex(next));
+  });
+
+  test('a running operation whose cancel is pending is neither joined nor waited on', async () => {
+    using handle = await createTestDatabase();
+    const db = testSqliteDb(handle.db);
+    const folderId = 'a'.repeat(24);
+    const stopping = await operation(db, 'folder_scan', 0, { folderId });
+    await markJobDispatched(hex(stopping), db);
+    await claimJob(stopping._id, 'w', LEASE, at(1), db);
+
+    await requestCancel(stopping._id, at(2), db);
+
+    expect((await getJob(stopping._id, db))?.status).toBe('running');
+    expect(await activeOperationId('folder_scan', folderId, db)).toBeNull();
+    const next = await operation(db, 'folder_scan', 3, { folderId });
+    expect(await activeOperationId('folder_scan', folderId, db)).toBe(hex(next));
+  });
+
+  test('a user job keeps its queued state on cancel, for its runner to settle', async () => {
+    using handle = await createTestDatabase();
+    const db = testSqliteDb(handle.db);
+    const job = await userJob(db, 0);
+
+    await requestCancel(job._id, at(1), db);
+
+    expect(await getJob(job._id, db)).toMatchObject({ status: 'queued', cancel_requested: true });
   });
 });

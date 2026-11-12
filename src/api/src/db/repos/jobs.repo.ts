@@ -53,6 +53,7 @@ import {
   JOB_BY_ID_SQL,
   listJobsSql,
   MARK_DISPATCHED_SQL,
+  REQUEST_CANCEL_SQL,
   NEXT_JOB_SQL,
   OPERATION_KINDS,
   RESUME_BATCH_JOB_SQL,
@@ -414,7 +415,8 @@ export async function cancelUnfinishedJob(
 
 /**
  * Flip the `cancel_requested` flag. The runner observes it between progress
- * steps and exits cleanly. Returns true if the job exists.
+ * steps and exits cleanly; an operation its lane has not handed over yet is
+ * cancelled outright (`REQUEST_CANCEL_SQL`). Returns true if the job exists.
  *
  * This pair of accessors — flip the flag, read the flag back — is spelled the
  * same way in `imports.repo.ts`, and the two are deliberately not one function.
@@ -436,10 +438,10 @@ export async function requestCancel(
   now: () => Date = () => new Date(),
   dbOverride?: SqliteDb,
 ): Promise<boolean> {
-  const result = await sqliteDb(dbOverride).write(
-    `UPDATE jobs SET cancel_requested = 1, updated_at = ? WHERE id = ?`,
-    [now().toISOString(), toHex(id)],
-  );
+  const result = await sqliteDb(dbOverride).write(REQUEST_CANCEL_SQL, [
+    now().toISOString(),
+    toHex(id),
+  ]);
   return result.changes > 0;
 }
 

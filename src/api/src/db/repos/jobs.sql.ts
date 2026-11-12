@@ -74,13 +74,16 @@ const IS_USER_JOB = `kind NOT IN (${OPERATION_KIND_LIST})`;
 
 /**
  * An active operation of the same kind on the same folder (none, for the kinds
- * that are not per folder). Binds the kind and the folder id, or null.
+ * that are not per folder). Binds the kind and the folder id, or null. One
+ * whose cancel is pending no longer counts: it stops at its handler's next
+ * check, and a new request must not wait on, or join, a run nobody wants.
  */
 const NO_ACTIVE_OPERATION = `
   NOT EXISTS (
     SELECT 1 FROM jobs o
      WHERE o.kind = ?
        AND o.status IN ('queued', 'running')
+       AND o.cancel_requested = 0
        AND json_extract(o.params, '$.folderId') IS ?)`;
 
 /** Which admission rule an insert is checked against, in the same statement. */
@@ -175,9 +178,20 @@ export const HELD_OPERATIONS_SQL = `
 /** The active operation the insert fence measured a new one against. */
 export const ACTIVE_OPERATION_SQL = `
   SELECT id FROM jobs
-   WHERE kind = ? AND status IN ('queued', 'running')
+   WHERE kind = ? AND status IN ('queued', 'running') AND cancel_requested = 0
      AND json_extract(params, '$.folderId') IS ?
    ORDER BY created_at DESC LIMIT 1`;
+
+/**
+ * A cancel. An operation not yet handed to Temporal ends here and now, so it
+ * stops holding its kind's (or folder's) slot while no worker is there to see
+ * the flag; anything else ends when its handler next looks.
+ */
+export const REQUEST_CANCEL_SQL = `
+  UPDATE jobs SET cancel_requested = 1, updated_at = ?,
+         status = CASE WHEN status = 'queued' AND locked_by IS NULL AND ${IS_OPERATION}
+                       THEN 'cancelled' ELSE status END
+   WHERE id = ?`;
 
 /** Guarded so a job its activity has already claimed keeps that claim. */
 export const MARK_DISPATCHED_SQL = `
