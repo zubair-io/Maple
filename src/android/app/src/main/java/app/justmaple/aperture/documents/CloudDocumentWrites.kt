@@ -170,11 +170,14 @@ internal class CloudDocumentWrites(
                 // An existing sidecar (or a racing upload) holds the name: keep both.
                 response.status == 409 -> {
                     val name = CloudDocumentRows.unique(file.name, false, store.names(file.parent()) + file.name)
+                    Log.w("Maple", "Maple Cloud kept ${file.name} beside an existing item as $name")
                     upload = uploads.moved(upload, file.parent().child(name, false).path)
                     store.notifyFolder(file.parent())
                 }
-                response.status in PAUSING -> return Outcome.Paused
-                response.status == 408 || response.status >= 500 -> return Outcome.Deferred
+                response.status in PAUSING || response.status == 408 || response.status >= 500 -> {
+                    Log.w("Maple", "Maple Cloud upload of ${file.name} deferred: HTTP ${response.status}")
+                    return if (response.status in PAUSING) Outcome.Paused else Outcome.Deferred
+                }
                 else -> {
                     val failure =
                         runCatching { CloudDocumentsApi.ensure(response, "Upload ${file.name}") }
