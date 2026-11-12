@@ -193,23 +193,25 @@ extension AppShell {
 
     do {
       return try await runLocalRelocate(
-        url: url, folderURL: folderURL, mode: mode, collision: .fail)
+        url: url, companion: asset.stack?.localCompanionURL, folderURL: folderURL, mode: mode,
+        collision: .fail)
     } catch FileOperationError.destinationExists {
       return await resolveLocalCollision(
-        url: url, folderURL: folderURL, mode: mode, displayName: asset.displayName)
+        url: url, companion: asset.stack?.localCompanionURL, folderURL: folderURL, mode: mode,
+        displayName: asset.displayName)
     } catch {
       return .failed(error.localizedDescription)
     }
   }
 
   private func resolveLocalCollision(
-    url: URL, folderURL: URL, mode: RelocateMode, displayName: String
+    url: URL, companion: URL?, folderURL: URL, mode: RelocateMode, displayName: String
   ) async -> AssetDropItemResult.Outcome {
     let choice = await requestCollisionChoice(displayName: displayName)
     guard choice != .skip else { return .skipped(reason: "collision") }
     do {
       return try await runLocalRelocate(
-        url: url, folderURL: folderURL, mode: mode,
+        url: url, companion: companion, folderURL: folderURL, mode: mode,
         collision: choice == .replace ? .replace : .autoSuffix)
     } catch {
       return .failed(error.localizedDescription)
@@ -217,9 +219,10 @@ extension AppShell {
   }
 
   private func runLocalRelocate(
-    url: URL, folderURL: URL, mode: RelocateMode, collision: CollisionPolicy
+    url: URL, companion: URL?, folderURL: URL, mode: RelocateMode, collision: CollisionPolicy
   ) async throws -> AssetDropItemResult.Outcome {
-    _ = try await LocalFileOperations.relocate(url, to: folderURL, mode: mode, collision: collision)
+    _ = try await LocalFileOperations.relocate(
+      url, to: folderURL, companion: companion, mode: mode, collision: collision)
     return mode == .move ? .moved : .copied
   }
 
@@ -241,13 +244,15 @@ extension AppShell {
       return .failed("SMB share is not connected")
     }
     do {
-      return try await runSMBRelocate(source: source, ref: ref, mode: mode, collision: .fail)
+      return try await runSMBRelocate(
+        source: source, ref: ref, companion: asset.stack?.smbCompanionRef, mode: mode,
+        collision: .fail)
     } catch FileOperationError.destinationExists {
       let choice = await requestCollisionChoice(displayName: asset.displayName)
       guard choice != .skip else { return .skipped(reason: "collision") }
       do {
         return try await runSMBRelocate(
-          source: source, ref: ref, mode: mode,
+          source: source, ref: ref, companion: asset.stack?.smbCompanionRef, mode: mode,
           collision: choice == .replace ? .replace : .autoSuffix)
       } catch {
         return .failed(error.localizedDescription)
@@ -258,9 +263,15 @@ extension AppShell {
   }
 
   private func runSMBRelocate(
-    source: SMBSource, ref: ImageRef, mode: RelocateMode, collision: CollisionPolicy
+    source: SMBSource, ref: ImageRef, companion: ImageRef?, mode: RelocateMode,
+    collision: CollisionPolicy
   ) async throws -> AssetDropItemResult.Outcome {
-    _ = try await source.relocateAsset(ref, to: "/", mode: mode, collision: collision)
+    if let companion {
+      _ = try await source.relocateAsset(
+        ref, companion: companion, to: "/", mode: mode, collision: collision)
+    } else {
+      _ = try await source.relocateAsset(ref, to: "/", mode: mode, collision: collision)
+    }
     return mode == .move ? .moved : .copied
   }
 
@@ -301,27 +312,56 @@ extension AppShell {
     let remote = RemoteCatalog(http: httpClient, server: effectiveServer)
     return await runCloudRelocate(
       remote: remote, assetID: assetID, mode: mode, destRel: destRel,
-      displayName: asset.displayName, sourceAddress: catalog.address)
+      displayName: asset.displayName, sourceAddress: catalog.address,
+      stack: asset.stack.map {
+        CloudStackMove(
+          stack: $0,
+          restorePath: cloudRelativePath(
+            (catalog.absPath as NSString).deletingLastPathComponent, under: libraryRootPath) ?? "",
+          restoreFilename: asset.fullFilename)
+      })
+  }
+
+  /// A stacked RAW's JPEG, and where a move puts the RAW back if the JPEG cannot follow.
+  private struct CloudStackMove {
+    let stack: RawJpegStack
+    let restorePath: String
+    let restoreFilename: String
+  }
+
+  private func relocateCloud(
+    remote: RemoteCatalog, assetID: String, mode: RelocateMode, collision: CollisionPolicy,
+    destRel: String, sourceAddress: String?, stack: CloudStackMove?
+  ) async throws -> RelocateAssetResult {
+    guard let stack else {
+      return try await remote.relocateAsset(
+        assetID: assetID, mode: mode, collision: collision, destinationPath: destRel,
+        sourceAddress: sourceAddress)
+    }
+    return try await remote.relocateAsset(
+      assetID: assetID, mode: mode, collision: collision, destinationPath: destRel,
+      sourceAddress: sourceAddress, stack: stack.stack,
+      restore: (stack.restorePath, stack.restoreFilename))
   }
 
   private func runCloudRelocate(
     remote: RemoteCatalog, assetID: String, mode: RelocateMode, destRel: String,
-    displayName: String, sourceAddress: String?
+    displayName: String, sourceAddress: String?, stack: CloudStackMove?
   ) async -> AssetDropItemResult.Outcome {
     do {
-      let result = try await remote.relocateAsset(
-        assetID: assetID, mode: mode, collision: .fail,
-        destinationPath: destRel, sourceAddress: sourceAddress)
+      let result = try await relocateCloud(
+        remote: remote, assetID: assetID, mode: mode, collision: .fail, destRel: destRel,
+        sourceAddress: sourceAddress, stack: stack)
       switch result {
       case .ok:
         return mode == .move ? .moved : .copied
       case .skipped:
         let choice = await requestCollisionChoice(displayName: displayName)
         guard choice != .skip else { return .skipped(reason: "collision") }
-        let retry = try await remote.relocateAsset(
-          assetID: assetID, mode: mode,
-          collision: choice == .replace ? .replace : .autoSuffix,
-          destinationPath: destRel, sourceAddress: sourceAddress)
+        let retry = try await relocateCloud(
+          remote: remote, assetID: assetID, mode: mode,
+          collision: choice == .replace ? .replace : .autoSuffix, destRel: destRel,
+          sourceAddress: sourceAddress, stack: stack)
         return cloudOutcome(for: retry, mode: mode)
       case .invalid(let message):
         return .failed(message)

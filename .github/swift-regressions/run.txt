@@ -355,6 +355,13 @@ LivePhotoPairingTests
 LivePhotoLocalFolderTests
 LivePhotoSMBTests
 
+# RAW+JPEG stacks (#5050): name pairing, local-folder and SMB listing, the JPEG following the RAW through move/rename/trash on real temp-dir files, the server listing decode.
+RawJpegPairingTests
+RawJpegStackListingTests
+RawJpegStackFileOperationsTests
+RawJpegStackSMBFileOperationsTests
+RawJpegStackCloudTests
+
 # Unified native folder readers and the production API contract (#4006).
 UnifiedFolderConsumerTests
 CloudFoldersClientTests

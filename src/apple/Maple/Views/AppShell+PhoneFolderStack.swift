@@ -369,6 +369,14 @@
       return levels.filter { $0.1 !== browseVM }.map { (path: $0.0, model: $0.1) }
     }
 
+    /// Every level below the one on screen holds a listing that folded or split RAW+JPEG pairs the
+    /// old way (#5050).
+    func reloadPhoneLevelsForRawJpegStackChange() {
+      for (_, model) in phoneLevelsBelowTop {
+        Task { await model.retryLastLoad() }
+      }
+    }
+
     /// A folder renamed, trashed or created from the side menu can change the
     /// subfolders of a level the user will swipe back to.
     func refreshPhoneFolderSubfolders() {

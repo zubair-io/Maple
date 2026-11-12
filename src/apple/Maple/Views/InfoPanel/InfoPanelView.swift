@@ -99,6 +99,7 @@ struct InfoPanelView: View {
           InfoSheetHeader(onClose: onClose)
         }
         AssetFilenameRow(session: session)
+        StackFilesRow(stack: asset?.stack)
         if let session, let error = session.sidecarError {
           MuiBanner(
             variant: .error,

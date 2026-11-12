@@ -672,6 +672,9 @@ struct AppShell: View {
       )
     )
     .preferredColorScheme(.dark)
+    .onReceive(NotificationCenter.default.publisher(for: RawJpegStackPreference.didChange)) { _ in
+      reloadForRawJpegStackChange()
+    }
     .fileImporter(
       isPresented: $showFilePicker,
       allowedContentTypes: [.folder]
