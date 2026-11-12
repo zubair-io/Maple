@@ -19,6 +19,19 @@ struct Record {
     baseline: RemoteXmp,
     acknowledged_local: Option<String>,
     attempt: Option<String>,
+    /// A merge being copied into the private sidecar (#5864).
+    #[serde(default)]
+    merged_local: Option<MergedLocal>,
+}
+
+/// While the private sidecar holds exactly `xml`, it is relative to
+/// `baseline`, the server version it was merged onto, not to the older
+/// `Record::baseline`: otherwise a resumed sync would take the imported
+/// server values for local edits and overwrite newer server changes.
+#[derive(serde::Serialize, serde::Deserialize)]
+struct MergedLocal {
+    baseline: RemoteXmp,
+    xml: String,
 }
 
 pub struct EditJournal {
@@ -154,6 +167,7 @@ impl EditJournal {
             entry: entry.clone(),
             acknowledged_local: download.baseline.xml.clone(),
             attempt: None,
+            merged_local: None,
             baseline: download.baseline,
         };
         publish(
@@ -206,6 +220,14 @@ impl EditJournal {
             .take()
             .ok_or_else(|| CloudError::Protocol("No cloud edit is open".into()))?;
         let result = (|| {
+            // A merge copied into the private sidecar before an interruption
+            // is relative to the server version it was merged onto.
+            if let Some(merged) = record.merged_local.take() {
+                if self.local_xml(&record.entry)?.as_deref() == Some(merged.xml.as_str()) {
+                    record.baseline = merged.baseline;
+                }
+                self.persist(&record)?;
+            }
             // Reconcile a response lost after the server committed the last attempt.
             if let Some(attempt) = &record.attempt {
                 let remote = client.read_versioned_xmp(&record.entry.path)?;
@@ -216,15 +238,15 @@ impl EditJournal {
             let xml = document
                 .serialize()
                 .map_err(|error| CloudError::Protocol(error.to_string()))?;
-            // `xml` is this edit relative to the last synchronized version, which
-            // stays the merge base; `expected` is the version the upload replaces.
-            let mut expected = record.baseline.clone();
+            // `xml` is this edit relative to `base`, the version synchronized
+            // last; each upload replaces `record.baseline`.
+            let base = record.baseline.xml.clone();
             let mut sent = (document.clone(), xml.clone());
             let mut merged = None;
             for _ in 0..MERGE_ATTEMPTS {
                 record.attempt = Some(sent.1.clone());
                 self.persist(&record)?;
-                match client.save_versioned_xmp(&record.entry.path, &sent.0, &expected) {
+                match client.save_versioned_xmp(&record.entry.path, &sent.0, &record.baseline) {
                     Ok(saved) => {
                         record.baseline = saved;
                         record.acknowledged_local = Some(sent.1);
@@ -239,19 +261,24 @@ impl EditJournal {
                 // shared #4983 merge instead of refusing.
                 let remote = client.read_versioned_xmp(&record.entry.path)?;
                 let current = remote.xml.as_deref().ok_or(CloudError::Conflict)?;
-                let merge = Merged::reconcile(record.baseline.xml.as_deref(), current, &xml)
+                let merge = Merged::reconcile(base.as_deref(), current, &xml)
                     .map_err(|error| CloudError::Protocol(error.to_string()))?;
                 let document_xml = merge
                     .document
                     .serialize()
                     .map_err(|error| CloudError::Protocol(error.to_string()))?;
+                // The refused attempt did not land; record the merge's lineage
+                // durably before the private sidecar changes.
+                record.attempt = None;
+                record.merged_local = Some(MergedLocal {
+                    baseline: remote,
+                    xml: document_xml.clone(),
+                });
+                self.persist(&record)?;
                 // A newer local save supersedes this one; its own sync merges.
-                if !self.replace_local(&record.entry, &sent.1, &document_xml)? {
-                    record.attempt = None;
-                    self.persist(&record)?;
+                if !self.replace_local(&mut record, &sent.1)? {
                     return Ok(None);
                 }
-                expected = remote;
                 sent = (merge.document.clone(), document_xml);
                 merged = Some(merge);
             }
@@ -293,6 +320,7 @@ impl EditJournal {
             acknowledged_local: baseline.xml.clone(),
             baseline,
             attempt: None,
+            merged_local: None,
         };
         publish(
             &self.directory.join("remote.json"),
@@ -314,23 +342,38 @@ impl EditJournal {
         )
     }
 
-    /// Publishes the merged sidecar only while the local file still holds the
-    /// edit that was being synchronized.
-    fn replace_local(
-        &self,
-        entry: &CloudEntry,
-        expected: &str,
-        merged: &str,
-    ) -> Result<bool, CloudError> {
-        let path = sidecar_path(&original_path(&self.directory, entry)?)
-            .map_err(|error| CloudError::Protocol(error.to_string()))?;
-        publish_if(&path, merged.as_bytes(), || {
-            match fs::read_to_string(&path) {
-                Ok(xml) => Ok(xml == expected),
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
-                Err(error) => Err(error.into()),
-            }
-        })
+    fn local_sidecar(&self, entry: &CloudEntry) -> Result<PathBuf, CloudError> {
+        sidecar_path(&original_path(&self.directory, entry)?)
+            .map_err(|error| CloudError::Protocol(error.to_string()))
+    }
+
+    fn local_xml(&self, entry: &CloudEntry) -> Result<Option<String>, CloudError> {
+        match fs::read_to_string(self.local_sidecar(entry)?) {
+            Ok(xml) => Ok(Some(xml)),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(error) => Err(error.into()),
+        }
+    }
+
+    /// Publishes `record`'s pending merge to the private sidecar only while
+    /// that file still holds `expected`, the edit being synchronized, and
+    /// moves the record's baseline to the merge's server version in the same
+    /// critical section as local saves, so none lands between the two.
+    fn replace_local(&self, record: &mut Record, expected: &str) -> Result<bool, CloudError> {
+        let merged = record
+            .merged_local
+            .take()
+            .ok_or_else(|| CloudError::Protocol("No merge to publish".into()))?;
+        let path = self.local_sidecar(&record.entry)?;
+        let _publication = crate::sidecar::publication_lock();
+        let replaced = publish_if(&path, merged.xml.as_bytes(), || {
+            Ok(self.local_xml(&record.entry)?.as_deref() == Some(expected))
+        })?;
+        if replaced {
+            record.baseline = merged.baseline;
+        }
+        self.persist(record)?;
+        Ok(replaced)
     }
 }
 impl Drop for EditJournal {
