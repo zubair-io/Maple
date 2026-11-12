@@ -234,9 +234,14 @@ thumbnail Worker: it contains accounts, settings, and secrets. Do not share the
 backup prefix with another Maple server or apply a shorter R2 lifecycle policy.
 
 The backup runs in the worker child as the `db-backup` maintenance task, a
-Temporal schedule that checks every minute whether a backup is due; one backup
-runs at a time. "Back up now" in Settings is a run-now request the worker tier
-hands to Temporal, so the API process never takes a snapshot itself. A dedicated
+Temporal schedule that checks every 15 minutes whether a backup is due, so a
+backup starts within 15 minutes of the configured hour; one backup runs at a
+time. "Back up now" in Settings is a run-now request the worker tier hands to
+Temporal, so the API process never takes a snapshot itself; it waits for a
+backup already running and then runs. A request the worker tier has not picked
+up within two minutes (no worker process, or Temporal unreachable) stops
+counting as running, and the status reports it in `request_error`. A server
+without the worker tier takes no backups. A dedicated
 Bun worker opens a read-only SQLite connection and runs parameterized `VACUUM
 INTO`, capturing committed WAL contents without copying a live database file or
 occupying the pool's writer queue. Hashing, integrity checks, and streaming gzip
