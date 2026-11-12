@@ -150,6 +150,7 @@ private struct GroupDockButton: View {
     .accessibilityLabel(group.displayName)
     .accessibilityAddTraits(isSelected ? .isSelected : [])
     .accessibilityIdentifier("editor-dock-group-\(group.rawValue)")
+    .editorSelectionHaptic(isSelected: isSelected)
   }
 }
 
@@ -257,5 +258,6 @@ private struct SpecialDockButton: View {
     .accessibilityLabel(tool.displayName)
     .accessibilityAddTraits(isSelected ? .isSelected : [])
     .accessibilityIdentifier("editor-dock-tool-\(tool.rawValue)")
+    .editorSelectionHaptic(isSelected: isSelected)
   }
 }

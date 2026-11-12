@@ -73,6 +73,7 @@
       .accessibilityLabel(group.displayName)
       .accessibilityAddTraits(state.armedGroup == group ? .isSelected : [])
       .accessibilityIdentifier("editor-dock-group-\(group.rawValue)")
+      .editorSelectionHaptic(isSelected: state.armedGroup == group)
       .disabled(!canEdit)
     }
   }

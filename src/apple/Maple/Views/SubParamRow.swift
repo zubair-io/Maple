@@ -53,7 +53,6 @@ private struct SubParamChip: View {
     Button {
       guard !isArmed else { return }
       state.arm(subParamId: sub.id)
-      emitSelectionHaptic()
     } label: {
       HStack(spacing: 5) {
         Text(sub.label)
@@ -84,13 +83,7 @@ private struct SubParamChip: View {
     .accessibilityLabel(sub.label)
     .accessibilityAddTraits(isArmed ? .isSelected : [])
     .accessibilityIdentifier("editor-subparam-\(sub.id)")
-  }
-
-  private func emitSelectionHaptic() {
-    #if canImport(UIKit) && !os(macOS)
-      let gen = UISelectionFeedbackGenerator()
-      gen.selectionChanged()
-    #endif
+    .editorSelectionHaptic(isSelected: isArmed)
   }
 }
 

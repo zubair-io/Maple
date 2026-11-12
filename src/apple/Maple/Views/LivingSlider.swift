@@ -29,7 +29,7 @@ public struct LivingSlider: View {
   @State private var lastTranslation: CGFloat = 0
   @State private var interacting = false
   @State private var fineMode = false
-  @State private var hapticTick = 0
+  @State private var haptics = EditorHapticPulse()
 
   static let tickCount = 21
   static let centerTickIndex = 10
@@ -228,7 +228,7 @@ public struct LivingSlider: View {
     .onChange(of: focused) { _, hasFocus in if !hasFocus { finish() } }
     .onChange(of: dragging) { _, active in if !active { finish() } }
     .onDisappear { finish() }
-    .sensoryFeedback(.selection, trigger: hapticTick)
+    .editorHaptics(haptics)
   }
 
   private func drag(travelLength: CGFloat, vertical: Bool = false) -> some Gesture {
@@ -265,11 +265,10 @@ public struct LivingSlider: View {
       onEditingChanged?(true)
       interacting = true
     }
-    if next == range.lowerBound || next == range.upperBound
-      || (value < defaultValue && next >= defaultValue)
-      || (value > defaultValue && next <= defaultValue)
+    if let haptic = EditorHaptic.slider(
+      from: value, to: next, range: range, defaultValue: defaultValue)
     {
-      hapticTick += 1
+      haptics.play(haptic)
     }
     value = next
   }
@@ -296,17 +295,16 @@ public struct LivingSlider: View {
       dragStartTranslation = lastTranslation
     }
     fineMode = true
-    hapticTick += 1
+    haptics.play(.selection)
   }
 
   private func reset() {
     guard isEnabled else { return }
     finish()
-    let resetFeedback = hapticTick + 1
     update(defaultValue)
     finish()
-    // update already signals a default crossing; reset emits exactly one
-    // selection trigger, including when the value was already the default.
-    hapticTick = resetFeedback
+    // A reset is felt once, as a selection, whether or not the value had
+    // to move: this replaces the notch or limit its own update asked for.
+    haptics.play(.selection)
   }
 }

@@ -35,21 +35,43 @@ struct MaskListRow: View {
 
   var body: some View {
     HStack(spacing: 10) {
-      MuiIcon(name: glyph, size: .sm).frame(width: 20)
-      Text(name).font(.system(size: 13))
-      Spacer()
+      Button(action: onSelect) {
+        HStack(spacing: 10) {
+          MuiIcon(name: glyph, size: .sm).frame(width: 20)
+          Text(name).font(.system(size: 13))
+          Spacer()
+        }
+        .frame(minHeight: 32)
+        .contentShape(Rectangle())
+      }
+      .buttonStyle(.plain)
+      .accessibilityLabel("\(name) mask")
+      .accessibilityAddTraits(isSelected ? .isSelected : [])
+      .accessibilityIdentifier("editor-mask-select-\(layer.id.uuidString)")
       Toggle("", isOn: Binding(get: { isEnabled }, set: onToggleEnabled)).labelsHidden()
+        .accessibilityLabel("Show \(name) mask")
+        .accessibilityIdentifier("editor-mask-visible-\(layer.id.uuidString)")
+      // Swipe-to-delete needs a touch screen or a trackpad; the button
+      // is the same action for a mouse and for anyone who looks for it.
+      Button(role: .destructive, action: onDelete) {
+        MuiIcon(name: "delete", size: .sm)
+          .foregroundStyle(MapleTokens.textMuted)
+          .frame(width: 32, height: 32)
+          .contentShape(Rectangle())
+      }
+      .buttonStyle(.borderless)
+      .accessibilityLabel("Delete \(name) mask")
+      .accessibilityIdentifier("editor-mask-delete-\(layer.id.uuidString)")
     }
     .padding(.horizontal, 12)
-    .padding(.vertical, 8)
+    .padding(.vertical, 4)
     .background(isSelected ? MapleTokens.surfaceAlt : .clear)
-    .contentShape(Rectangle())
-    .onTapGesture(perform: onSelect)
     .swipeActions {
       Button(role: .destructive, action: onDelete) {
         Label("Delete", systemImage: "trash")
       }
     }
+    .accessibilityElement(children: .contain)
     .accessibilityIdentifier("editor-mask-row-\(layer.id.uuidString)")
   }
 }
