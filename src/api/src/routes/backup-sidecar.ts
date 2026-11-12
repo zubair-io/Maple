@@ -175,15 +175,10 @@ function keepAsideShared(
 /** What this send keeps beside the sidecar: an edit a shared sidecar refused, and what
  * the device sent where the sidecar's history cannot show it (#5796). */
 function sendLedger(req: BackupSidecarCasRequest): SendLedger {
-  const sidecar = {
-    assetId: req.assetId,
-    libraryId: req.libraryId,
-    sidecarRelPath: req.sidecarRelPath,
-  };
   return {
     keepAside: keepAsideShared(req),
     sentFor: (query) => sentRecordsOf(req.assetId, query),
-    recordSent: (update) => recordBackupSidecarSends(sidecar, update),
+    recordSent: (update) => recordBackupSidecarSends(req.assetId, update),
   };
 }
 

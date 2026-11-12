@@ -14,6 +14,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { callNative } from 'maple';
 import { relocateAsset } from '../src/library/relocate-asset.ts';
+import { insertLocation } from '../src/db/sqlite/test-sqlite.test-helpers.ts';
 import { xmpSidecarPath } from '../src/fs/xmp.ts';
 import {
   history,
@@ -286,5 +287,40 @@ describe('backup sends are reconciled from what the device sent (#5796)', () => 
     await replyOf(post(target, next, undefined, ack.head));
     const stored = await onDisk(target.relPath);
     expect([property(stored, 'exposure'), property(stored, 'contrast')]).toEqual(['2', '5']);
+  });
+
+  test("a copy's sends stay while its sidecar holds them, though the other copy moved on", async () => {
+    const target = await seedUpload('two-copies');
+    const v1 = xmp('v1', { exposure: '0', contrast: '0' });
+    const first = await firstSend(target, v1);
+    await post(target, xmp('other', { exposure: '1', contrast: '0' }), undefined, first.head);
+    const stale = xmp('B', { exposure: '0', contrast: '5' });
+    await replyOf(post(target, stale, sha256(v1)));
+
+    // A second live copy of the photo with the same sidecar, holding the merged send.
+    const copy = { ...target, relPath: '2024/COPY/two-copies.HEIC' };
+    await fs.mkdir(path.join(lib.tmpLib, '2024/COPY'), { recursive: true });
+    for (const file of [target.relPath, xmpSidecarPath(target.relPath)]) {
+      const to = file.replace('2024/CAS/', '2024/COPY/');
+      await fs.copyFile(path.join(lib.tmpLib, file), path.join(lib.tmpLib, to));
+    }
+    insertLocation(lib.live.db, {
+      assetId: target.assetId.toHexString(),
+      libraryId: lib.libId.toHexString(),
+      ordinal: 1,
+      path: '2024/COPY',
+      filename: 'two-copies.HEIC',
+    });
+
+    // The first copy's history moves on until the merged send is retired from it.
+    let head = (await history(await onDisk(target.relPath))).at(-1)!.id;
+    for (let n = 0; n < 34; n++) {
+      const body = xmp(`other ${n}`, { exposure: '1', contrast: '5', n: `${n}` });
+      head = (await replyOf(post(target, body, undefined, head))).head!;
+    }
+
+    await replyOf(post(copy, xmp('C', { exposure: '0', contrast: '6' }), sha256(stale)));
+    const stored = await onDisk(copy.relPath);
+    expect([property(stored, 'exposure'), property(stored, 'contrast')]).toEqual(['1', '6']);
   });
 });
