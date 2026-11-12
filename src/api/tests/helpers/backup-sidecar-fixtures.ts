@@ -38,7 +38,7 @@ interface Entry {
   adjustmentXmp: string;
 }
 
-export interface Upload {
+interface Upload {
   relPath: string;
   phid: string;
   assetId: ObjectId;
