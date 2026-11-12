@@ -25,15 +25,6 @@ extension ChangeObserverWiring {
     "v1:videos=\(settings.includeVideos),bursts=\(settings.includeBursts),sharedLib=\(settings.includeSharedLibrary),sharedAlbums=\(settings.includeSharedAlbums),fullAccess=\(fullLibraryAccess)"
   }
 
-  /// Whether the listing can leave out photos that exist: an inclusion setting
-  /// is off, or Photos access covers only selected photos.
-  nonisolated static func settingsExcludePhotos(
-    _ settings: BackupSettings, fullLibraryAccess: Bool
-  ) -> Bool {
-    !fullLibraryAccess || !settings.includeVideos || !settings.includeBursts
-      || !settings.includeSharedLibrary || !settings.includeSharedAlbums
-  }
-
   /// The token is taken before PhotoKit is queried, so a change racing the
   /// query is replayed by the next walk rather than lost.
   nonisolated static func discoverAssets(
