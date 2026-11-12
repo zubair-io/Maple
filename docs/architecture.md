@@ -233,7 +233,10 @@ backup bucket. Never expose that bucket through a public domain, R2.dev, or the
 thumbnail Worker: it contains accounts, settings, and secrets. Do not share the
 backup prefix with another Maple server or apply a shorter R2 lifecycle policy.
 
-The API process owns the scheduler and permits one backup at a time. A dedicated
+The backup runs in the worker child as the `db-backup` maintenance task, a
+Temporal schedule that checks every minute whether a backup is due; one backup
+runs at a time. "Back up now" in Settings is a run-now request the worker tier
+hands to Temporal, so the API process never takes a snapshot itself. A dedicated
 Bun worker opens a read-only SQLite connection and runs parameterized `VACUUM
 INTO`, capturing committed WAL contents without copying a live database file or
 occupying the pool's writer queue. Hashing, integrity checks, and streaming gzip
@@ -248,10 +251,14 @@ live in a private OS temp directory and are removed on success or failure; allow
 space for two uncompressed snapshots plus the gzip. A forcibly killed process
 can leave its `maple-db-backup-*` temporary directory for manual removal.
 
-Settings and last-run status persist in `app_settings` under `db-backups`.
-Failures retry hourly when automatic backups are enabled. Startup catches up
-once the configured local hour has passed; missed days are not replayed. An
-interrupted run is shown as interrupted in Settings. Retention chooses the newest
+Settings and last-run status persist in `app_settings` under `db-backups`. A
+running backup refreshes a heartbeat in that status every 30 seconds; a `running`
+status whose heartbeat is more than five minutes old belongs to a process that
+died and no longer blocks a new backup or a policy change.
+Failures retry hourly when automatic backups are enabled. A missed backup is
+caught up once the configured local hour has passed and Temporal is reachable;
+missed days are not replayed. An interrupted run is shown as interrupted in
+Settings. Retention chooses the newest
 snapshot per UTC calendar day, Monday-based week, month, and year within the
 configured windows, unions those selections, and always retains the newest
 snapshot. Unknown keys and future-dated keys are never pruned. Retention failures

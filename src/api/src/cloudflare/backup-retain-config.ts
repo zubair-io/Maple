@@ -13,6 +13,7 @@ export interface DbBackupPolicy {
 export interface DbBackupStatus {
   state: 'running' | 'succeeded' | 'failed';
   started_at: string;
+  heartbeat_at?: string;
   finished_at?: string;
   key?: string;
   bytes?: number;

@@ -64,11 +64,6 @@ import { accountRoutes } from './routes/auth-account.ts';
 import { authDeviceSessionRoutes } from './routes/auth-device-sessions.ts';
 import { apnsDeviceRoutes } from './routes/apns-devices.ts';
 import { dbBackupRoutes } from './routes/db-backup.ts';
-import { startDbBackupScheduler, stopDbBackupScheduler } from './cloudflare/db-backup.ts';
-import {
-  startAuthExpiryScheduler,
-  stopAuthExpiryScheduler,
-} from './runtime/auth-expiry-scheduler.ts';
 import { cloudflareRoutes } from './routes/cloudflare.ts';
 import { usersRoutes } from './routes/users.ts';
 import { serviceApiKeyAdminRoutes } from './routes/service-api-keys.ts';
@@ -292,7 +287,6 @@ async function startSqlite(): Promise<void> {
 
 async function start(): Promise<void> {
   await startSqlite();
-  await startAuthExpiryScheduler();
   await ensureJwtSecret();
   log.info(
     {
@@ -439,7 +433,6 @@ async function start(): Promise<void> {
   // Per-process memory line once a minute, always on (#4445). The worker and
   // the native children run the same reporter under their own process names.
   startMemoryTelemetry({ process: 'api' });
-  startDbBackupScheduler();
 
   const server = buildApp();
   // listenOptions wires in TLS_CONFIG (validated at module load) when configured.
@@ -452,8 +445,6 @@ async function start(): Promise<void> {
 async function shutdown(signal: string): Promise<void> {
   log.info({ signal }, 'shutting down');
   managedHttps.stop();
-  await stopAuthExpiryScheduler();
-  await stopDbBackupScheduler();
   // Stop the event-loop lag probe (no-op if it was never started).
   try {
     stopEventLoopLagMonitor();

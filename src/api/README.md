@@ -11,7 +11,7 @@ Architecture: `docs/api.md`, `docs/server-api.md`, `docs/indexer-enrichment.md`.
 - [Bun](https://bun.sh) ≥ 1.3
 - Node / npm (only needed to rebuild the Angular UI)
 
-- A [Temporal](https://temporal.io) server. Maple runs its background jobs (exports, batch edits, panorama stitches, restores), folder imports, the per-asset pipeline stages (thumbnails, previews, EXIF, faces, search, …), the discover sweep that keeps the library in step with disk, and scheduled maintenance (trash purge, missing-file reaper, migrations, mirror upkeep, …) on it. For development the single-binary one is enough: install the [Temporal CLI](https://docs.temporal.io/cli) and run `temporal server start-dev`, which listens on `127.0.0.1:7233`, the address Maple tries by default.
+- A [Temporal](https://temporal.io) server. Maple runs its background jobs (exports, batch edits, panorama stitches, restores), folder imports, the per-asset pipeline stages (thumbnails, previews, EXIF, faces, search, …), the discover sweep that keeps the library in step with disk, and scheduled maintenance (trash purge, missing-file reaper, migrations, mirror upkeep, expired sign-in cleanup, the nightly database backup, …) on it. For development the single-binary one is enough: install the [Temporal CLI](https://docs.temporal.io/cli) and run `temporal server start-dev`, which listens on `127.0.0.1:7233`, the address Maple tries by default.
 
 There is no database to install. Maple keeps its entire library index in one SQLite file, which the server creates for itself the first time it starts.
 
@@ -272,7 +272,7 @@ See `maple.service` for the full unit file.
 
 ## Architecture
 
-See [`docs/api.md`](../../docs/api.md). In short: the API process serves the Angular bundle and the HTTP routes; a niced worker child process runs the indexer and enrichment stages; RAW decode runs in disposable FFI child processes so a native crash cannot take the server down.
+See [`docs/api.md`](../../docs/api.md). In short: the API process serves the Angular bundle and the HTTP routes; a niced worker child process runs the indexer and enrichment stages and the scheduled maintenance, database backups included; RAW decode runs in disposable FFI child processes so a native crash cannot take the server down.
 
 ## Testing
 

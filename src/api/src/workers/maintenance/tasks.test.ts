@@ -6,6 +6,10 @@
 import { afterEach, describe, expect, test } from 'bun:test';
 import type { Database } from 'bun:sqlite';
 import { createLiveTestDatabase, run } from '../../db/sqlite/test-sqlite.test-helpers.ts';
+import {
+  DEFAULT_DB_BACKUP_POLICY,
+  saveDbBackupPolicy,
+} from '../../cloudflare/backup-retain-config.ts';
 import { clearMirrorRoots, setMirrorRoots } from '../../fs/mirror-registry.ts';
 import { saveChangeLogGcConfig } from '../change-log-gc-config.repo.ts';
 import { saveDerivativeAuditConfig } from '../derivative-audit/config.repo.ts';
@@ -55,6 +59,8 @@ describe('the task list', () => {
       'derivative-audit': 6 * 60 * MINUTE,
       'generated-search': 15 * MINUTE,
       'cloud-backup': MINUTE,
+      'auth-expiry': MINUTE,
+      'db-backup': MINUTE,
     });
   });
 });
@@ -72,9 +78,9 @@ describe('schedules that never pause', () => {
     expect((await desired('generated-search')).paused).toBe(false);
   });
 
-  test('trash, cleanup and cloud-backup maintenance have no switch', async () => {
+  test('trash, cleanup, cloud-backup and session expiry have no switch', async () => {
     using _live = await createLiveTestDatabase();
-    for (const id of ['trash-gc', 'trash-cleanup', 'cloud-backup'])
+    for (const id of ['trash-gc', 'trash-cleanup', 'cloud-backup', 'auth-expiry'])
       expect((await desired(id)).paused).toBe(false);
   });
 });
@@ -110,6 +116,13 @@ describe('schedules paused by configuration', () => {
     setMirrorRoots({ '/library': ['/mirror'] });
     expect((await desired('mirror-scan')).paused).toBe(false);
     expect((await desired('mirror-copy')).paused).toBe(false);
+  });
+
+  test('the database backup pauses while nightly backups are turned off', async () => {
+    using _live = await createLiveTestDatabase();
+    expect((await desired('db-backup')).paused).toBe(true);
+    await saveDbBackupPolicy({ ...DEFAULT_DB_BACKUP_POLICY, enabled: true, bucket: 'backups' });
+    expect((await desired('db-backup')).paused).toBe(false);
   });
 
   test('derivative-audit follows its enabled flag and configured interval', async () => {
