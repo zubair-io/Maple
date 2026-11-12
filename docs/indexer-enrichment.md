@@ -55,11 +55,11 @@ automatically.
 `worker-main.ts` opens its own connection pool onto the same database file, initialises OpenTelemetry, loads the mirror registry, and calls `startWorkers()` in `src/api/src/workers/start-workers.ts`, which brings up:
 
 - the stage orchestrator (`workers/orchestrator.ts`)
-- the discover sweep (`workers/discover/index.ts`) plus a one-shot cache-GC pass per library
+- the discover registration (the sweep itself runs on the Temporal host, below) plus a one-shot cache-GC pass per library
 - the FFI decode pool (`ffi/ffi-pool-bootstrap.ts`)
 - enrichment bootstraps (Nominatim health check, face-model preload, describe config)
 - enrichment config refresh (`workers/enrichment-config-refresh.ts`)
-- the Temporal host, which runs user jobs, folder imports and the pipeline stages
+- the Temporal host, which runs user jobs, folder imports, the pipeline stages and the discover sweep
 - maintenance jobs (`workers/maintenance.ts`)
 
 It also publishes a status snapshot into the `worker_status` table every 2 s. That is how the API process — which has an empty in-process registry — can answer `GET /api/workers/status`.
@@ -80,6 +80,17 @@ Each directory visit (`visitDirectory`):
 6. Settles the private names a crashed relocation left in the folder (`fs/crash-left-temps.ts`, #5136, #5786), once untouched for a day (the later of modification and change time, so a rename or link counts) and not owned by this process. A verifying copy (`<name>.tmp.<pid>-<hex>.copy`) is removed. A displaced file (`.keep`: a Replace's kept occupant, a sidecar moved aside) is removed when its bytes live under another name (its link count is above one, or a byte-identical file still sits beside it); otherwise it may be the only copy of something and the filesystem cannot say whether the crash fell before or after the move committed, so it is published exclusively under a visible name beside where it was (`<name> (replaced).<ext>`, then `(replaced 2)`…; a sidecar becomes the `(conflict from move)` copy) and its private name is removed only after that. The next visit indexes the photo like any other, so the user sees it and deletes or keeps it; Trash is not used because its rows live in the database and a bare file under `.maple/trash` would be invisible there. A long name's short hidden form keeps its extension (`Recovered file (replaced).<ext>`). Any other private sibling is removed only when it is a hard link of the file beside it; unmarked names from earlier builds are otherwise left.
 
 When the frontier for a generation drains, `advanceSweep` records a checkpoint (`indexer/checkpoint.ts`) and reseeds the root at the next generation, so the sweep loops forever and a restart resumes the in-progress generation rather than re-walking from scratch.
+
+### The sweep on Temporal
+
+The sweep runs on the same Temporal host as jobs and imports, on a task queue of its own, `maple-discover` (`workers/discover/discover-lane.ts`). Each library root has one long-lived workflow, `discover-<library id>` (`discover-workflow.ts`), which runs the `sweepRoot` activity over and over. One activity is one **slice** of the sweep (`sweep-slice.ts`): it claims, visits and paces directories exactly as described above and ends after about ten minutes, or once the current generation drains and the next one is seeded, whichever comes first. So a workflow's history grows by one activity per slice, not per directory, and the workflow continues as new every hundred slices or sooner when Temporal suggests it.
+
+- **Adding a folder.** Every ten seconds the host's connection check reads the library list and starts a workflow for any root that has none, so a folder registered while the server runs starts sweeping within about ten seconds, without a restart.
+- **Removing a folder.** A slice checks that its root is still registered before every directory; once it is gone the slice reports so and the workflow completes.
+- **Pausing.** Still the `discover` switch on Settings → Workers. A paused slice visits nothing and keeps heartbeating until it is resumed or its ten minutes are up.
+- **Stopping in Temporal.** A workflow someone cancels or terminates in Temporal is started again at the next connection check; the slice it was running stops at the next directory boundary. To stop the sweep, pause it instead.
+- **Shutdown and outages.** Stopping the worker tier ends every slice at the next directory boundary. A slice heartbeats after every directory, and at least every 30 s while paused or idle; if Temporal loses those heartbeats for five minutes it delivers the slice again. A redelivery for a root whose slice is still running in this process joins that slice instead of starting a second one (`discover-activity.ts`). Without a reachable Temporal server nothing is swept; the frontier and checkpoint stay in the database and the sweep resumes where it stopped once the server answers.
+- **Many roots.** The lane runs up to 64 slices at once. A server with more roots than that sweeps them in turns, since each slice frees its slot within ten minutes.
 
 The supported extension set lives in `workers/discover/types.ts`: RAW formats decoded through libraw, bitmap formats through sharp, PSD/PSB and Radiance HDR, video containers (metadata-only), audio, and a handful of metadata-only stubs (`.eip`, `.braw`, `.afphoto`, `.ai`) that are indexed for filename/size/date and never decoded.
 
