@@ -1,5 +1,6 @@
 import Foundation
 import RawPipeline
+import os
 
 /// Cold import resolution only: no additional FFI call on a slider tick. The
 /// original partial XMP remains authoritative for persistence; the numerical
@@ -35,9 +36,17 @@ enum ImportedWhiteBalanceResolver {
     return model.resolvingImportedWhiteBalance(target)
   }
 
+  #if DEBUG
+    /// FFI resolves per RAW path, so tests can count the estimates for a photo.
+    static let ffiCalls = OSAllocatedUnfairLock<[String: Int]>(initialState: [:])
+  #endif
+
   private static func resolve(path: UnsafePointer<CChar>?, xml: String) throws
     -> ResolvedWhiteBalance
   {
+    #if DEBUG
+      if let path { ffiCalls.withLock { $0[String(cString: path), default: 0] += 1 } }
+    #endif
     var pair: (Float, Float) = (0, 0)
     let rc = xml.withCString { text in
       withUnsafeMutablePointer(to: &pair) { pointer in

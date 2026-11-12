@@ -45,6 +45,8 @@ public final class EditSession {
 
   public var model: AdjustmentModel {
     didSet {
+      guard !importedAuto.isOverlaying else { return }
+      overlayImportedAutoPair()
       guard model != oldValue else { return }
       if let selectedMaskId, !model.localAdjustments.contains(where: { $0.id == selectedMaskId }) {
         self.selectedMaskId = nil
@@ -561,6 +563,6 @@ public final class EditSession {
   }
 
   deinit {
-    for task in [sidecarErrorTask, sidecarReconciliationTask] { task?.cancel() }
+    for task in [sidecarErrorTask, sidecarReconciliationTask, importedAuto.request] { task?.cancel() }
   }
 }

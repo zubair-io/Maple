@@ -21,9 +21,11 @@ extension EditSession {
   // MARK: - Preview cache persistence
 
   /// A render may finish after another application has replaced the XMP.
-  /// Do not stamp its pixels with that newer sidecar's cache revision.
+  /// Do not stamp its pixels with that newer sidecar's cache revision. A
+  /// name-only Auto model still waiting for its pair renders As Shot, which
+  /// must never become a thumbnail or a persisted preview (#4669).
   func canPublishDerivedPixels() async -> Bool {
-    guard !sidecarWritesDisabled else { return false }
+    guard !sidecarWritesDisabled, !model.awaitsImportedAutoPair else { return false }
     guard let localStore = sidecarStore as? XMPSidecarStore else { return true }
     do {
       try await localStore.requireObservedRevisionCurrent()
@@ -63,6 +65,7 @@ extension EditSession {
   @discardableResult
   func persistCurrentPreviewToCache() -> Bool {
     guard !sidecarWritesDisabled,
+      !model.awaitsImportedAutoPair,
       previewIsFullRender,
       !isFullQualityDecoding,
       let url = asset.primaryURL,

@@ -47,7 +47,8 @@ public struct BatchAdjustmentLibrary {
       if let error = live.partialWhiteBalanceImportError, live.model.partialWhiteBalance != nil {
         throw error
       }
-      return live.model
+      // Never the As Shot placeholder of name-only Auto (#4669).
+      return try await live.resolvedForOutput(live.model)
     }
     let scope = asset.scopeParentURL ?? asset.primaryURL
     let accessing = scope?.startAccessingSecurityScopedResource() ?? false

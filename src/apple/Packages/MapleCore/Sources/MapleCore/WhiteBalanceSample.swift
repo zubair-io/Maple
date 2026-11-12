@@ -49,7 +49,9 @@ enum RawProbeStaging {
     asset: AssetRef, model: AdjustmentModel, stagedRaw: URL? = nil,
     _ body: @escaping @Sendable (_ rawURL: URL, _ xmpURL: URL) throws -> T
   ) async throws -> T {
-    try await Task.detached(priority: .userInitiated) {
+    // The caller's cancellation reaches the staging (a closed editor's
+    // estimate stops before the FFI call); the FFI call itself runs to the end.
+    let staging = Task.detached(priority: .userInitiated) {
       let directory = FileManager.default.temporaryDirectory
         .appendingPathComponent("maple-probe-\(UUID().uuidString)", isDirectory: true)
       try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -74,7 +76,12 @@ enum RawProbeStaging {
       try xml.write(to: xmpURL, atomically: true, encoding: .utf8)
       try Task.checkCancellation()
       return try body(rawURL, xmpURL)
-    }.value
+    }
+    return try await withTaskCancellationHandler {
+      try await staging.value
+    } onCancel: {
+      staging.cancel()
+    }
   }
 }
 

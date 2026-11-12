@@ -65,6 +65,11 @@ extension EditSession {
   /// review, #2009).
   public func persistDisplayPreviewOnExit() async {
     guard !sidecarWritesDisabled else { return }
+    // A pair still being estimated lands (and re-renders) first: the final
+    // thumbnail and preview are never name-only Auto's As Shot frame (#4669).
+    let pairLanding = model.awaitsImportedAutoPair ? importedAuto.request : nil
+    await pairLanding?.value
+    guard !sidecarWritesDisabled else { return }
     let exitModel = model
     // Files bookmarks grant access on the resolved parent, not on child URLs.
     // Access extends the process sandbox, including the background writers.
@@ -100,10 +105,16 @@ extension EditSession {
     // CPU render publishes enqueue a thumbnail write. Await a final write here
     // as well, so the reload signal below always follows the final pixels.
     if workflow.selectedVariantId == WorkflowContract.primaryVariantID,
+      !exitModel.awaitsImportedAutoPair,
       !gpuFramePresented, previewIsFullRender, !isFullQualityDecoding,
       let url = asset.primaryURL, let image = renderedPreview
     {
       await ThumbnailLoader.shared.updateThumbnailFromRender(image, for: url)
+      // The pair landed during this exit, before any refine could persist it.
+      if pairLanding != nil {
+        scheduleDisplayPreviewPersist(image)
+        persistCurrentPreviewToCache()
+      }
     }
     guard !sidecarWritesDisabled else { return }
     await refreshThumbnailFromCurrentGpuFrame(expectedModel: exitModel)
