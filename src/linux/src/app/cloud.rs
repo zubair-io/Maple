@@ -7,6 +7,8 @@ use crate::cloud::{
     CloudEntry, CloudFolder, CloudLibrary,
 };
 use std::collections::{HashMap, HashSet, VecDeque};
+/// `Ok(Some)` is the merge after the server's XMP had changed.
+pub(super) type SyncResult = Result<Option<Box<crate::sidecar::Merged>>, String>;
 
 pub(super) struct CloudState {
     worker: worker::Worker,
@@ -14,7 +16,7 @@ pub(super) struct CloudState {
     pub edit_error: Option<String>,
     pub ready: Option<(crate::library::Photo, CloudEntry, bool)>,
     pub reloaded: Option<(u64, crate::library::Photo)>,
-    pub synchronized: std::collections::VecDeque<(u64, Result<(), String>)>,
+    pub synchronized: std::collections::VecDeque<(u64, u64, SyncResult)>,
     pub edit_request: Option<CloudEntry>,
     connecting: bool,
     loading: bool,
@@ -92,9 +94,19 @@ impl CloudState {
         self.message = "Downloading original for editing…".into();
         self.worker.send(Command::Download(self.epoch, entry));
     }
-    pub fn synchronize(&self, id: u64, photo: &crate::library::Photo, document: SidecarDocument) {
-        self.worker
-            .send(Command::Sync(id, photo.path.clone(), Box::new(document)));
+    pub fn synchronize(
+        &self,
+        id: u64,
+        revision: u64,
+        photo: &crate::library::Photo,
+        document: SidecarDocument,
+    ) {
+        self.worker.send(Command::Sync(
+            id,
+            revision,
+            photo.path.clone(),
+            Box::new(document),
+        ));
     }
     pub fn reload(&mut self, id: u64, photo: &crate::library::Photo) {
         self.downloading = true;
@@ -119,8 +131,8 @@ impl CloudState {
                     self.downloading = false;
                     self.reloaded = Some((id, photo));
                 }
-                Event::Synced(id, result) => {
-                    self.synchronized.push_back((id, result));
+                Event::Synced(id, revision, result) => {
+                    self.synchronized.push_back((id, revision, result));
                 }
                 Event::Resumed(synchronized, unsynchronized) => {
                     if !synchronized.is_empty() {

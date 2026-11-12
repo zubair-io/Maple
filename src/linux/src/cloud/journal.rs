@@ -1,6 +1,6 @@
 //! Durable pending cloud edits. Credentials never enter this journal (#4317).
 use super::{CloudClient, CloudEntry, CloudError, DownloadedPhoto, RemoteXmp};
-use crate::sidecar::{sidecar_path, SidecarDocument};
+use crate::sidecar::{sidecar_path, Merged, SidecarDocument};
 use sha2::{Digest, Sha256};
 use std::{
     fs,
@@ -8,6 +8,9 @@ use std::{
     os::unix::fs::PermissionsExt,
     path::{Path, PathBuf},
 };
+
+/// A server whose XMP keeps changing under the merge is reported, not chased.
+const MERGE_ATTEMPTS: usize = 3;
 
 #[derive(serde::Serialize, serde::Deserialize)]
 struct Record {
@@ -191,11 +194,13 @@ impl EditJournal {
         }
     }
 
+    /// `Ok(Some)` carries the merge when the server's XMP changed since the
+    /// last synchronization and the edit was reconciled onto it.
     pub fn synchronize(
         &mut self,
         client: &mut CloudClient,
         document: &SidecarDocument,
-    ) -> Result<(), CloudError> {
+    ) -> Result<Option<Merged>, CloudError> {
         let mut record = self
             .record
             .take()
@@ -211,23 +216,46 @@ impl EditJournal {
             let xml = document
                 .serialize()
                 .map_err(|error| CloudError::Protocol(error.to_string()))?;
-            record.attempt = Some(xml.clone());
-            publish(
-                &self.directory.join("remote.json"),
-                &serde_json::to_vec(&record)
-                    .map_err(|error| CloudError::Protocol(error.to_string()))?,
-            )?;
-            let baseline =
-                client.save_versioned_xmp(&record.entry.path, document, &record.baseline)?;
-            record.baseline = baseline;
-            record.acknowledged_local = Some(xml);
-            record.attempt = None;
-            publish(
-                &self.directory.join("remote.json"),
-                &serde_json::to_vec(&record)
-                    .map_err(|error| CloudError::Protocol(error.to_string()))?,
-            )?;
-            Ok(())
+            // `xml` is this edit relative to the last synchronized version, which
+            // stays the merge base; `expected` is the version the upload replaces.
+            let mut expected = record.baseline.clone();
+            let mut sent = (document.clone(), xml.clone());
+            let mut merged = None;
+            for _ in 0..MERGE_ATTEMPTS {
+                record.attempt = Some(sent.1.clone());
+                self.persist(&record)?;
+                match client.save_versioned_xmp(&record.entry.path, &sent.0, &expected) {
+                    Ok(saved) => {
+                        record.baseline = saved;
+                        record.acknowledged_local = Some(sent.1);
+                        record.attempt = None;
+                        self.persist(&record)?;
+                        return Ok(merged);
+                    }
+                    Err(CloudError::Conflict) => {}
+                    Err(error) => return Err(error),
+                }
+                // The server's XMP changed: apply this edit on top of it with the
+                // shared #4983 merge instead of refusing.
+                let remote = client.read_versioned_xmp(&record.entry.path)?;
+                let current = remote.xml.as_deref().ok_or(CloudError::Conflict)?;
+                let merge = Merged::reconcile(record.baseline.xml.as_deref(), current, &xml)
+                    .map_err(|error| CloudError::Protocol(error.to_string()))?;
+                let document_xml = merge
+                    .document
+                    .serialize()
+                    .map_err(|error| CloudError::Protocol(error.to_string()))?;
+                // A newer local save supersedes this one; its own sync merges.
+                if !self.replace_local(&record.entry, &sent.1, &document_xml)? {
+                    record.attempt = None;
+                    self.persist(&record)?;
+                    return Ok(None);
+                }
+                expected = remote;
+                sent = (merge.document.clone(), document_xml);
+                merged = Some(merge);
+            }
+            Err(CloudError::Conflict)
         })();
         self.record = Some(record);
         result
@@ -277,6 +305,32 @@ impl EditJournal {
 
     pub fn directory(&self) -> &Path {
         &self.directory
+    }
+
+    fn persist(&self, record: &Record) -> Result<(), CloudError> {
+        publish(
+            &self.directory.join("remote.json"),
+            &serde_json::to_vec(record).map_err(|error| CloudError::Protocol(error.to_string()))?,
+        )
+    }
+
+    /// Publishes the merged sidecar only while the local file still holds the
+    /// edit that was being synchronized.
+    fn replace_local(
+        &self,
+        entry: &CloudEntry,
+        expected: &str,
+        merged: &str,
+    ) -> Result<bool, CloudError> {
+        let path = sidecar_path(&original_path(&self.directory, entry)?)
+            .map_err(|error| CloudError::Protocol(error.to_string()))?;
+        publish_if(&path, merged.as_bytes(), || {
+            match fs::read_to_string(&path) {
+                Ok(xml) => Ok(xml == expected),
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
+                Err(error) => Err(error.into()),
+            }
+        })
     }
 }
 impl Drop for EditJournal {
@@ -333,7 +387,19 @@ fn reject_symlink(path: &Path) -> Result<(), CloudError> {
     }
 }
 fn publish(path: &Path, bytes: &[u8]) -> Result<(), CloudError> {
+    publish_if(path, bytes, || Ok(true)).map(|_| ())
+}
+/// `guard` is re-checked immediately before the atomic rename; `false` leaves
+/// the file as it is.
+fn publish_if(
+    path: &Path,
+    bytes: &[u8],
+    guard: impl Fn() -> Result<bool, CloudError>,
+) -> Result<bool, CloudError> {
     reject_symlink(path)?;
+    if !guard()? {
+        return Ok(false);
+    }
     let parent = path
         .parent()
         .ok_or_else(|| CloudError::Protocol("Journal has no directory".into()))?;
@@ -341,7 +407,10 @@ fn publish(path: &Path, bytes: &[u8]) -> Result<(), CloudError> {
     file.write_all(bytes)?;
     file.as_file().sync_all()?;
     reject_symlink(path)?;
+    if !guard()? {
+        return Ok(false);
+    }
     file.persist(path).map_err(|error| error.error)?;
     fs::File::open(parent)?.sync_all()?;
-    Ok(())
+    Ok(true)
 }

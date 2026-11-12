@@ -190,7 +190,14 @@ pub struct Merged {
 }
 
 impl Merged {
-    fn reconcile(base: Option<&str>, current: &str, incoming: &str) -> Result<Self, SidecarError> {
+    /// The shared merge of `incoming` (Maple's edit, based on `base`) onto
+    /// `current`, the file a save found or the server version a cloud upload
+    /// was refused against.
+    pub fn reconcile(
+        base: Option<&str>,
+        current: &str,
+        incoming: &str,
+    ) -> Result<Self, SidecarError> {
         let now_ms = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map_or(0, |elapsed| elapsed.as_millis() as u64);

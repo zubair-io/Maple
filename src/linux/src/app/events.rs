@@ -21,12 +21,17 @@ impl MapleApp {
                 self.load_photo(photo);
             }
         }
-        while let Some((id, result)) = self.cloud.synchronized.pop_front() {
+        while let Some((id, revision, result)) = self.cloud.synchronized.pop_front() {
+            if let Ok(Some(merged)) = &result {
+                self.adopt_merged(id, revision, merged);
+            }
             self.saving = self.saving.saturating_sub(1);
             match result {
-                Ok(()) if id == self.session => {
+                Ok(merged) if id == self.session => {
                     self.save_failed = false;
-                    self.status = "Synchronized to Maple".into();
+                    if merged.is_none() {
+                        self.status = "Synchronized to Maple".into();
+                    }
                 }
                 Err(error) => {
                     self.pending_navigation = None;
@@ -246,10 +251,12 @@ impl MapleApp {
                     match result {
                         Ok(_) if id == self.session && self.cloud_editor.is_some() => {
                             match (&self.selected, saved) {
-                                (Some(photo), Some((saved_id, _, document))) if saved_id == id => {
+                                (Some(photo), Some((saved_id, revision, document)))
+                                    if saved_id == id =>
+                                {
                                     let published =
                                         merged.map_or(document, |merged| merged.document);
-                                    self.cloud.synchronize(id, photo, published);
+                                    self.cloud.synchronize(id, revision, photo, published);
                                     self.status = "Synchronizing XMP…".into();
                                 }
                                 _ => {

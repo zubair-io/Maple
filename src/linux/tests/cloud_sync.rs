@@ -202,6 +202,10 @@ fn an_edit_that_cannot_be_resumed_stays_pending_without_blocking_other_photos() 
         conditional_save("someone-else", "e2"),
         Box::new(|head, _| {
             assert!(head.starts_with("get /api/xmp?"), "{head}");
+            Some((404, versioned("e2"), String::new()))
+        }),
+        Box::new(|head, _| {
+            assert!(head.starts_with("get /api/xmp?"), "{head}");
             Some((200, versioned("e2"), BASELINE.into()))
         }),
     ]);
@@ -275,4 +279,95 @@ fn startup_never_pushes_pending_edits_onto_a_replaced_original() {
     assert!(resumed.unsynchronized[0].contains("remote original changed"));
     assert_eq!(fs::read(path.with_extension("xmp")).unwrap(), xml);
     assert_eq!(fs::read(directory.join("remote.json")).unwrap(), record);
+}
+
+fn remote_read(xml: String, etag: &'static str) -> Handler {
+    Box::new(move |head, _| {
+        assert!(head.starts_with("get /api/xmp?"), "{head}");
+        Some((200, versioned(etag), xml))
+    })
+}
+
+fn remote_vibrance() -> String {
+    BASELINE.replace(
+        "crs:Exposure2012=\"0.25\"/>",
+        "crs:Exposure2012=\"0.25\" crs:Vibrance=\"25\"/>",
+    )
+}
+
+#[test]
+fn a_stale_upload_merges_the_server_change_and_retries_against_its_version() {
+    let base = tempfile::tempdir().unwrap();
+    let (sent, uploaded) = std::sync::mpsc::channel();
+    let (url, server) = serve(vec![
+        conditional_save("someone-else", "e2"),
+        remote_read(remote_vibrance(), "e2"),
+        Box::new(move |head, body| {
+            assert!(head.contains("if-match: \"e2\""), "{head}");
+            sent.send(body.to_owned()).unwrap();
+            Some((200, versioned("e3"), body.to_owned()))
+        }),
+    ]);
+    let mut connection = client(&url);
+    let (mut journal, document) = pending_edit(base.path(), connection.server_url());
+    let merged = journal
+        .synchronize(&mut connection, &document)
+        .unwrap()
+        .expect("a changed server XMP is merged, not refused")
+        .document;
+    server.join().unwrap();
+    let body = uploaded.recv().unwrap();
+    let stored = SidecarDocument::parse(&body).unwrap();
+    assert_eq!((stored.model.exposure, stored.model.vibrance), (1.0, 25.0));
+    let record = raw_core::workflow::SidecarWorkflow::from_xmp(&body)
+        .unwrap()
+        .expect("the server's state is recorded");
+    assert_eq!(record.history.last().unwrap().action, "external");
+    let local = journal.path().unwrap().with_extension("xmp");
+    assert_eq!(fs::read_to_string(local).unwrap(), body);
+    assert_eq!(merged.serialize().unwrap(), body);
+    assert!(!journal.pending().unwrap());
+    assert_eq!(fs::read(journal.path().unwrap()).unwrap(), FIXTURE);
+}
+
+#[test]
+fn a_newer_local_save_supersedes_the_merge_and_a_moving_server_is_bounded() {
+    let base = tempfile::tempdir().unwrap();
+    let local = std::sync::Arc::new(std::sync::Mutex::new(None::<std::path::PathBuf>));
+    let writer = local.clone();
+    let (url, server) = serve(vec![
+        conditional_save("someone-else", "e2"),
+        Box::new(move |head, _| {
+            assert!(head.starts_with("get /api/xmp?"), "{head}");
+            let path = writer.lock().unwrap().clone().unwrap();
+            let (mut store, mut newer) = SidecarStore::open(&path).unwrap();
+            Control::Contrast.set(&mut newer.model, 40.0).unwrap();
+            store.save(&newer).unwrap();
+            Some((200, versioned("e2"), remote_vibrance()))
+        }),
+    ]);
+    let mut connection = client(&url);
+    let (mut journal, document) = pending_edit(base.path(), connection.server_url());
+    let original = journal.path().unwrap();
+    *local.lock().unwrap() = Some(original.clone());
+    let newer_local = || SidecarStore::open(&original).unwrap().1;
+    assert!(journal
+        .synchronize(&mut connection, &document)
+        .unwrap()
+        .is_none());
+    server.join().unwrap();
+    assert_eq!(newer_local().model.contrast, 40.0, "the newer save is kept");
+    assert!(journal.pending().unwrap());
+
+    let mut moving = Vec::<Handler>::new();
+    for etag in ["e3", "e4", "e5"] {
+        moving.push(conditional_save("someone-else", "never"));
+        moving.push(remote_read(remote_vibrance(), etag));
+    }
+    let (url, server) = serve(moving);
+    let mut connection = client(&url);
+    let document = newer_local();
+    assert!(journal.synchronize(&mut connection, &document).is_err());
+    server.join().unwrap();
+    assert!(journal.pending().unwrap());
 }

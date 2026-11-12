@@ -405,7 +405,17 @@ AVIF derivatives decode through raw-core's patched native decoder. Full-image
 previews, retry, parent/child navigation and explicit credential deletion are
 wired. “Edit original” downloads a photograph into the native editor, with the same
 controls, export and cloud filmstrip. Navigation and closing wait for a confirmed
-XMP save. Conflicts retain local edits; explicit Reload XMP adopts the server version.
+XMP save. When the server's XMP changed since the last synchronization, the
+conditional upload's 412 is not the end: the journal reads the current server
+version, applies the edit on top of it with the same shared `reconcile_xmp` merge
+as local saves (based on the last synchronized version, recording the server's
+state as an `external` history entry), publishes the merge to the private local
+sidecar and retries against the new ETag, at most three times. The editor adopts
+the merged document when no newer edit is waiting. A newer local save made while
+the merge ran supersedes it and merges in its own synchronization. A server
+sidecar removed by another client, a rejected merge, or a server that keeps
+changing still refuses with local edits retained; explicit Reload XMP adopts the
+server version.
 
 The cloud tests exercise actual HTTP requests against a loopback protocol
 fixture, including PKCE state validation, refresh rotation/rejection/retry,
@@ -413,10 +423,10 @@ address escaping, reverse-proxy prefixes and real AVIF encode/decode. They do
 not prove production server connectivity, browser authentication or native
 Secret Service persistence; those require a real server/account and desktop.
 
-The transfer layer now downloads a real original into a private owned directory,
+The transfer layer downloads a real original into a private owned directory,
 validates its size, parses the versioned remote XMP and saves through exact-content
-HTTP preconditions. It refuses servers lacking the precondition capability and
-retains local document state when the server rejects a stale version. Pending edits and their remote content baseline persist in a private journal
+HTTP preconditions. It refuses servers lacking the precondition capability.
+Pending edits and their remote content baseline persist in a private journal
 under the desktop data directory (`maple/cloud-edits`). Journals exclude concurrent
 editors and resume unsynced edits after restart: on the next connection every pending
 journal for that server is checked against live original metadata before synchronization.
@@ -426,17 +436,23 @@ pending edits still prevent navigation until synchronized or explicitly reloaded
 Changed remote originals are refused while their pending edits remain on disk.
 Credentials stay in Secret Service.
 
-For cross-process qualification against the actual Maple API XMP routes:
+For cross-process qualification against the actual Maple API XMP routes (the
+merged document carries a `papp:Workflow` record, so the route needs a current
+native library: build it with `src/api/scripts/build-raw-ffi.sh` or point
+`MAPLE_NATIVE_LIB` at a fresh `libraw_ffi` build):
 
 ```bash
+(cd src/api && bun install)
 cargo run --manifest-path src/linux/Cargo.toml --example cloud-transaction -- /path/to/bun
 ```
 
 The example starts a disposable Elysia fixture using the real route implementation
 and committed synthetic RAW, downloads it, conditionally creates an XMP, simulates
 an external edit and proves conflict rejection, size-mismatch rejection and original
-immutability, durable resume and explicit conflict reload. Browser auth and Secret Service use explicit test fixtures in this
-example; the sidecar layer uses real files and real API writes throughout.
+immutability, the shared merge of a changed server XMP, refusal when the server
+sidecar was removed, durable resume and explicit reload. Browser auth and Secret
+Service use explicit test fixtures in this example; the sidecar layer uses real
+files and real API writes throughout.
 
 The preview worker keeps one pending slider snapshot rather than queuing every
 tick. A newer tick replaces that snapshot; results superseded during a CPU
