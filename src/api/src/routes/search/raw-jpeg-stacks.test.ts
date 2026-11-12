@@ -254,4 +254,26 @@ describe('RAW+JPEG stacks in search and the timeline #5849', () => {
     expect(filenames(page)).toEqual(['IMG_1.JPG', 'IMG_2.JPG']);
     expect(page.results[0]?.stack).toBeUndefined();
   });
+
+  it('a hidden RAW hides its stack from a ranked search and its map, whether or not it ranked', async () => {
+    run(live.db, 'UPDATE assets SET hidden = 1 WHERE id = ?', raw);
+    expect(filenames(await get<Page>('/?stack=1'))).toEqual(['IMG_2.JPG']);
+
+    // Both engines: the in-process child (RAW ranked, RAW not ranked) and the database's FTS.
+    for (const ranked of [['jpeg', 'lone', 'raw'], ['jpeg', 'lone'], null]) {
+      setInProcessSearchForTests(fakeInProcessSearch(ranked));
+      _resetCacheForTests();
+      const page = await get<Page>('/?placeQuery=harbour&stack=1');
+      expect(filenames(page)).toEqual(['IMG_2.JPG']);
+      expect(page.total).toBe(1);
+      const { cells } = await get<{ cells: unknown[] }>(
+        '/clusters?bbox=-74,42,-73,43&zoom=10&placeQuery=harbour&stack=1',
+      );
+      expect(cells).toEqual([]);
+    }
+
+    // Without stack=1 the visible JPEG is an ordinary result.
+    setInProcessSearchForTests(fakeInProcessSearch(['jpeg', 'lone', 'raw']));
+    expect(filenames(await get<Page>('/?placeQuery=harbour'))).toEqual(['IMG_1.JPG', 'IMG_2.JPG']);
+  });
 });
