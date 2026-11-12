@@ -30,6 +30,9 @@ pub struct Container {
     /// The `rdf:Seq` when the container holds nothing but corrections, so
     /// Android may edit, remove and append its entries.
     pub seq: Option<Element>,
+    /// Corrections raw-core models in a container without a clean sequence:
+    /// Android can neither move nor key them.
+    pub opaque: usize,
 }
 
 pub struct Correction {
@@ -52,6 +55,9 @@ pub struct Document {
     /// Whether every correction raw-core models carries a valid key, so it
     /// reads the stack in key order rather than document order.
     pub all_keyed: bool,
+    /// Whether a correction Android keeps verbatim is modeled but unkeyed, so
+    /// keying Android's layers alone never makes raw-core read keys.
+    pub verbatim_unkeyed: bool,
     /// Whether raw-core models any correction at all; when none, it falls
     /// back to the legacy `papp:LocalAdjustments` attribute.
     pub any_modeled: bool,
@@ -171,6 +177,7 @@ impl Document {
             target,
             verbatim_keys: Vec::new(),
             all_keyed: true,
+            verbatim_unkeyed: false,
             any_modeled: false,
             legacy,
         };
@@ -207,6 +214,7 @@ impl Document {
             .and_then(|name| CONTAINERS.iter().position(|c| *c == name));
         let seq = rank.and_then(|_| clean_sequence(&root));
         let index = self.containers.len();
+        let mut opaque = 0;
         match (&seq, rank) {
             (Some(seq), Some(rank)) => {
                 let close = text[..seq.span.end]
@@ -244,6 +252,7 @@ impl Document {
                         self.any_modeled = true;
                         if key.is_none() {
                             self.all_keyed = false;
+                            self.verbatim_unkeyed |= authored.is_none();
                         }
                     }
                     if authored.is_none() {
@@ -260,11 +269,13 @@ impl Document {
             }
             _ => {
                 let modeled = single_layer(&text[root.span.clone()], &scope)?.len();
+                opaque = modeled;
                 self.any_modeled |= modeled > 0;
                 let mut keys = Vec::new();
                 all_keys(&root, &mut keys);
                 if keys.len() < modeled {
                     self.all_keyed = false;
+                    self.verbatim_unkeyed = true;
                 }
                 self.verbatim_keys.extend(keys);
             }
@@ -275,6 +286,7 @@ impl Document {
             scopes,
             rank,
             seq,
+            opaque,
         });
         Ok(())
     }

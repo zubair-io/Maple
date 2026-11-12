@@ -232,7 +232,8 @@ fun MapleViewModel.armMaskPick(armed: Boolean) {
 /**
  * Seeds the selected layer's colour range from raw-core's sample at the full-frame
  * point: one undo entry. A refused pick leaves the layer alone and replaces only the
- * panel's message line.
+ * panel's message line. A sample lands only on the layers it was taken from: any mask
+ * edit meanwhile (a deleted or reordered layer moves what the selection addresses) drops it.
  */
 fun MapleViewModel.sampleMaskRangeAt(x: Float, y: Float) {
     val current = state.value
@@ -244,7 +245,13 @@ fun MapleViewModel.sampleMaskRangeAt(x: Float, y: Float) {
     viewModelScope.launch {
         try {
             val result = JSONObject(renderer.sampleMaskRange(document.serialize(), x, y))
+            val sampled = maskLayers(document)
             if (token != editGeneration || state.value.maskSelection != selection) return@launch
+            // A save swaps in the reparsed document, so compare what the selection addresses: the layers.
+            if (maskLayers(state.value.document) != sampled) {
+                updateMaskState { it.copy(maskMessage = "The masks changed while sampling. Pick again.") }
+                return@launch
+            }
             val seed = result.optJSONObject("seed")
             if (seed == null) {
                 updateMaskState { it.copy(maskMessage = result.optString("refused", "No colour to sample here")) }

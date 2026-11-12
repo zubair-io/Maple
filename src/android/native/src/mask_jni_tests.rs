@@ -562,3 +562,6 @@ fn the_eyedropper_seeds_from_raw_core_and_refuses_neutral_or_outside_points() {
     assert!(seed["hue_deg"].as_f64().unwrap().is_finite(), "{coloured}");
     assert!(seed["l_min"].as_f64().unwrap() < seed["l_max"].as_f64().unwrap());
 }
+
+#[path = "mask_stack_tests.rs"]
+mod stack;

@@ -12,6 +12,7 @@ import app.justmaple.aperture.data.PhotoLibrary
 import app.justmaple.aperture.data.PreviewRenderer
 import app.justmaple.aperture.data.XmpDocument
 import java.io.File
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
@@ -32,6 +33,8 @@ internal class MaskTestRenderer : PreviewRenderer {
     var latest: EditSnapshot? = null
     var weightRequests = 0
     val samples = mutableListOf<Pair<Float, Float>>()
+    /** When set, a sample stays in flight until the test completes it. */
+    var sampleGate: CompletableDeferred<Unit>? = null
 
     override fun invalidateDraws() = ++revision
     override fun invalidateModel() {}
@@ -83,6 +86,7 @@ internal class MaskTestRenderer : PreviewRenderer {
 
     override suspend fun sampleMaskRange(document: String, x: Float, y: Float): String {
         samples += x to y
+        sampleGate?.await()
         return JSONObject().put("seed", JSONObject().put("hue_deg", 40.0).put("chroma_min", .05).put("l_min", .2)
             .put("l_max", .8)).toString()
     }
