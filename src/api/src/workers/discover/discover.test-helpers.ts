@@ -40,20 +40,25 @@ export async function createDiscoverLibrary(prefix: string): Promise<DiscoverLib
 
 /**
  * One full sweep generation of a registered root, through the production slice
- * with no pacing: the slice ends once the generation drains and the next one
- * is seeded, so consecutive calls walk consecutive generations.
+ * with no pacing. A slice keeps sweeping across generations, so this one is
+ * stopped as soon as it completes one: consecutive calls walk consecutive
+ * generations.
  */
 export function sweepGeneration(
   folderId: ObjectId,
   root: string,
   handleEvent: ReconcileDeps['handleEvent'],
 ): Promise<SweepSliceSummary> {
+  const stop = new AbortController();
   return runSweepSlice({
     folderId,
     root,
     deps: { folderId, handleEvent },
     loadConfig: async () => ({ paused: false, sweepDirIntervalMs: 0 }),
-    heartbeat: () => {},
+    heartbeat: (progress) => {
+      if (progress.generationsCompleted > 0) stop.abort();
+    },
+    signal: stop.signal,
     sleep: async () => {},
   });
 }

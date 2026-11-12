@@ -1,6 +1,8 @@
 /**
  * A sweep slice: the per-directory sweep, bounded so a Temporal activity can
- * run it. Every way a slice ends is covered here against a real database and a
+ * run it. A slice keeps sweeping across generations, so the cases that do not
+ * test a particular way of ending stop it after a set number of generations.
+ * Every way a slice ends is covered here against a real database and a
  * real directory tree; the workflow around it is covered by
  * `temporal/discover-lane.integration.test.ts`.
  */
@@ -14,15 +16,26 @@ import { runSweepSlice, type SliceProgress, type SweepSliceOpts } from './sweep-
 
 const unpaced = async () => ({ paused: false, sweepDirIntervalMs: 0 });
 
-function sliceOf(library: DiscoverLibrary, overrides: Partial<SweepSliceOpts> = {}) {
+/** Stopped once `generations` walks have completed, unless the case passes its own signal. */
+function sliceOf(
+  library: DiscoverLibrary,
+  overrides: Partial<SweepSliceOpts> = {},
+  generations = 1,
+) {
+  const stop = new AbortController();
+  const heartbeat = overrides.heartbeat ?? (() => {});
   return runSweepSlice({
     folderId: library.folderId,
     root: library.root,
     deps: { folderId: library.folderId, handleEvent: async () => {} },
     loadConfig: unpaced,
-    heartbeat: () => {},
     sleep: async () => {},
+    signal: stop.signal,
     ...overrides,
+    heartbeat: (progress) => {
+      heartbeat(progress);
+      if (progress.generationsCompleted >= generations) stop.abort();
+    },
   });
 }
 
@@ -31,18 +44,22 @@ function withDirs(library: DiscoverLibrary, names: readonly string[]): void {
 }
 
 describe('runSweepSlice', () => {
-  it('walks one whole generation, seeds the next, and stops there', async () => {
+  it('keeps sweeping across a generation advance', async () => {
     using library = await createDiscoverLibrary('maple-slice-gen-');
     withDirs(library, ['a', 'b']);
     const visited: string[] = [];
+    const tree = [library.root, join(library.root, 'a'), join(library.root, 'b')];
 
-    const summary = await sliceOf(library, { onVisit: (dir) => visited.push(dir) });
+    const summary = await sliceOf(library, { onVisit: (dir) => visited.push(dir) }, 2);
 
-    expect(summary).toEqual({ generation: 2, directoriesVisited: 3, registered: true });
-    expect(visited.toSorted()).toEqual(
-      [library.root, join(library.root, 'a'), join(library.root, 'b')].toSorted(),
-    );
-    expect(await frontier.remainingForGen(library.folderId, 2)).toBe(1);
+    expect(summary).toEqual({
+      generation: 3,
+      generationsCompleted: 2,
+      directoriesVisited: 6,
+      registered: true,
+    });
+    expect(visited.toSorted()).toEqual([...tree, ...tree].toSorted());
+    expect(await frontier.remainingForGen(library.folderId, 3)).toBe(1);
   });
 
   it('consecutive slices walk consecutive generations', async () => {
@@ -51,7 +68,12 @@ describe('runSweepSlice', () => {
     await sliceOf(library);
     const second = await sliceOf(library);
 
-    expect(second).toEqual({ generation: 3, directoriesVisited: 1, registered: true });
+    expect(second).toEqual({
+      generation: 3,
+      generationsCompleted: 1,
+      directoriesVisited: 1,
+      registered: true,
+    });
   });
 
   it('resumes the generation its checkpoint records, without re-walking generation one', async () => {
@@ -100,7 +122,12 @@ describe('runSweepSlice', () => {
 
     const summary = await sliceOf(library, { maxSliceMs: 0 });
 
-    expect(summary).toEqual({ generation: 1, directoriesVisited: 0, registered: true });
+    expect(summary).toEqual({
+      generation: 1,
+      generationsCompleted: 0,
+      directoriesVisited: 0,
+      registered: true,
+    });
     expect(await frontier.remainingForGen(library.folderId, 1)).toBe(1);
   });
 
@@ -114,7 +141,12 @@ describe('runSweepSlice', () => {
       onVisit: () => stop.abort(),
     });
 
-    expect(summary).toEqual({ generation: 1, directoriesVisited: 1, registered: true });
+    expect(summary).toEqual({
+      generation: 1,
+      generationsCompleted: 0,
+      directoriesVisited: 1,
+      registered: true,
+    });
     expect(await frontier.remainingForGen(library.folderId, 1)).toBe(2);
   });
 
@@ -171,7 +203,12 @@ describe('runSweepSlice', () => {
       },
     });
 
-    expect(summary).toEqual({ generation: 1, directoriesVisited: 0, registered: true });
+    expect(summary).toEqual({
+      generation: 1,
+      generationsCompleted: 0,
+      directoriesVisited: 0,
+      registered: true,
+    });
     expect(Math.max(...naps)).toBe(10);
     expect(beats).toBe(naps.length);
     expect(await frontier.remainingForGen(library.folderId, 1)).toBe(1);
@@ -186,7 +223,12 @@ describe('runSweepSlice', () => {
       onVisit: (dir) => visited.push(dir),
     });
 
-    expect(summary).toEqual({ generation: 1, directoriesVisited: 0, registered: false });
+    expect(summary).toEqual({
+      generation: 1,
+      generationsCompleted: 0,
+      directoriesVisited: 0,
+      registered: false,
+    });
     expect(visited).toEqual([]);
   });
 
@@ -203,6 +245,11 @@ describe('runSweepSlice', () => {
       isRegistered: async () => visits === 0,
     });
 
-    expect(summary).toEqual({ generation: 1, directoriesVisited: 1, registered: false });
+    expect(summary).toEqual({
+      generation: 1,
+      generationsCompleted: 0,
+      directoriesVisited: 1,
+      registered: false,
+    });
   });
 });

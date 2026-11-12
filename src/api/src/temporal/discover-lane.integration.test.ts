@@ -13,6 +13,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import type { TestWorkflowEnvironment } from '@temporalio/testing';
+import { readCheckpoint } from '../db/repos/indexer-checkpoints.repo.ts';
 import { patchDiscoverConfig } from '../db/repos/worker-config.repo.ts';
 import {
   createLiveTestDatabase,
@@ -114,6 +115,28 @@ describe('the discover sweep on Temporal', () => {
         path.join(root, 'nested/b.dng'),
       ]);
       expect((await describeOf(folderId)).status).toBe('RUNNING');
+    } finally {
+      await host.stop();
+    }
+  }, 60_000);
+
+  test('a small root sweeps generation after generation inside one activity', async () => {
+    using live = await createLiveTestDatabase();
+    const root = await libraryWith('one-activity', ['only.jpg']);
+    const folderId = insertFolder(live.db, { path: root });
+    const events = recorder();
+    const host = await hostFor(events.handleEvent);
+    try {
+      await until(
+        async () => (await readCheckpoint(folderId))?.sweepGen ?? 1,
+        (generation) => generation >= 4,
+      );
+
+      const { events: history } = await workflowOf(folderId).fetchHistory();
+      const scheduled = (history ?? []).filter(
+        (event) => event.activityTaskScheduledEventAttributes,
+      );
+      expect(scheduled).toHaveLength(1);
     } finally {
       await host.stop();
     }

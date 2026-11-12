@@ -11,7 +11,10 @@ export const DISCOVER_TASK_QUEUE = 'maple-discover';
 
 export const discoverWorkflowId = (rootKey: string): string => `discover-${rootKey}`;
 
-/** Keeps each run's history short even when the server never suggests a new run. */
+/**
+ * About seventeen hours of ten-minute slices: keeps each run's history short
+ * even when the server never suggests a new run.
+ */
 const SLICES_PER_RUN = 100;
 
 const { sweepRoot } = proxyActivities<DiscoverActivities>({
