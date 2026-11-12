@@ -1,11 +1,13 @@
 import { describe, expect, it } from 'bun:test';
 import { Elysia } from 'elysia';
-import { createLiveTestDatabase } from '../workers/derivative-audit/test-support.ts';
+import { addLibrary, createLiveTestDatabase } from '../workers/derivative-audit/test-support.ts';
 import { derivativeAuditRoutes } from './derivative-audit.ts';
 import { fakeAuth } from '../../tests/helpers/test-auth.ts';
 import { patchAppSettings } from '../db/repos/app-settings.repo.ts';
 import { emptySummary, saveDerivativeAuditProgress } from '../workers/derivative-audit/progress.ts';
 import { pendingMaintenanceRuns } from '../workers/maintenance/run-now.repo.ts';
+import { runDerivativeAuditPass } from '../workers/derivative-audit/scan.ts';
+import { insertAsset, insertLocation } from '../db/sqlite/test-sqlite.test-helpers.ts';
 
 const app = new Elysia().use(fakeAuth()).use(derivativeAuditRoutes);
 
@@ -80,6 +82,30 @@ describe('derivative-audit routes', () => {
     ]);
     expect(await status()).toMatchObject({ running: true });
     expect(await run()).toEqual({ started: false, reason: 'already-running' });
+  });
+
+  it('a pass that throws is finished, with its error, and Run now starts another', async () => {
+    using live = await createLiveTestDatabase();
+    insertLocation(live.db, {
+      assetId: insertAsset(live.db),
+      libraryId: addLibrary(live.db, '/srv/library'),
+      path: '',
+      filename: 'a.dng',
+    });
+    live.db.exec('ALTER TABLE stage_state RENAME TO stage_state_unreadable');
+
+    const thrown = await runDerivativeAuditPass(undefined, { force: true }).then(
+      () => null,
+      (error: unknown) => error,
+    );
+
+    expect(thrown).toBeInstanceOf(Error);
+    expect(await status()).toMatchObject({
+      running: false,
+      finishedAt: expect.any(String),
+      failure: expect.stringContaining('stage_state'),
+    });
+    expect(await run()).toEqual({ started: true });
   });
 
   it('POST /run refuses while a scheduled pass is in progress', async () => {

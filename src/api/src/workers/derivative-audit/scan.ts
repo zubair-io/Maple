@@ -196,22 +196,13 @@ function logPassFailures({ r2Health, rowFailures, summary }: PassContext): void 
   if (rowFailures.count > 0) log.warn(rowFailures.fields(), 'audit rows failed');
 }
 
-/**
- * One audit pass, publishing its progress as it goes (`progress.ts`). Not
- * guarded itself: the maintenance activity runs one pass of a task at a time.
- * A stop takes effect between chunks; every re-arm already made is written.
- */
-export async function runDerivativeAuditOnce(
-  override: Partial<DerivativeAuditConfig> = {},
+/** Walks every candidate into `summary`, stopping early on the pass's own limits or `signal`. */
+async function auditCandidatesInto(
+  cfg: DerivativeAuditConfig,
+  summary: DerivativeAuditSummary,
   signal?: AbortSignal,
-): Promise<DerivativeAuditSummary> {
-  const cfg = { ...(await loadDerivativeAuditConfig()), ...override };
-  const summary = emptySummary();
-  summary.startedAt = new Date().toISOString();
-  summary.running = true;
-  await saveDerivativeAuditProgress(summary);
+): Promise<void> {
   const publish = throttledProgressSaver(summary);
-
   const r2Health = createR2Health();
   const ctx: PassContext = {
     libs: await loadLibraryRoots(),
@@ -242,12 +233,40 @@ export async function runDerivativeAuditOnce(
   summary.r2Deferred = r2Health.deferred;
   summary.abortedReason = r2Health.tripped ? 'r2-unreachable' : null;
   logPassFailures(ctx);
+}
+
+/**
+ * One audit pass, publishing its progress as it goes (`progress.ts`). Not
+ * guarded itself: the maintenance activity runs one pass of a task at a time.
+ * A stop takes effect between chunks; every re-arm already made is written.
+ * However the pass ends, its last saved state is finished, so a pass that
+ * throws never reads as still running.
+ */
+export async function runDerivativeAuditOnce(
+  override: Partial<DerivativeAuditConfig> = {},
+  signal?: AbortSignal,
+): Promise<DerivativeAuditSummary> {
+  const cfg = { ...(await loadDerivativeAuditConfig()), ...override };
+  const summary = emptySummary();
+  summary.startedAt = new Date().toISOString();
+  summary.running = true;
+  await saveDerivativeAuditProgress(summary);
+
+  const thrown = await auditCandidatesInto(cfg, summary, signal).then(
+    () => null,
+    (error: unknown) => ({ error }),
+  );
+  summary.failure = thrown === null ? null : errorText(thrown.error);
   summary.finishedAt = new Date().toISOString();
   summary.running = false;
   await saveDerivativeAuditProgress(summary);
+  if (thrown !== null) throw thrown.error;
   if (summary.scanned > 0) log.info(summary, 'derivative-audit pass complete');
   return summary;
 }
+
+const errorText = (error: unknown): string =>
+  error instanceof Error ? error.message : String(error);
 
 /**
  * How long the `derivative-audit` schedule waits between passes: the
