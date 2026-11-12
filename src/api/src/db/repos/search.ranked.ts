@@ -334,8 +334,10 @@ export function ftsRanker(where: SearchWhere, dbOverride?: SqliteDb): WindowRank
  * When both ranked, the RAW leads the stack from the better of the two ranks and its later rank
  * drops out, like a later copy of a shot (`collapseShots`). That keeps the fold prefix-stable: a
  * wider ladder step that admits a RAW ranked past a narrower one only turns the JPEG already
- * served into its stack, and never shifts the rows behind it. A lookahead row folds against the
- * served rows and the lookahead alike.
+ * served into its stack, and never shifts the rows behind it. The leader keeps the shot (capture
+ * time, kind, filename) of the half that ranked first, so the copies a narrower step collapsed
+ * into the JPEG stay collapsed into the stack. A lookahead row folds against the served rows and
+ * the lookahead alike.
  */
 export function foldRankedStacks(where: SearchWhere, pass: WindowPass): WindowPass {
   if (where.foldStacks !== true) return pass;
@@ -351,7 +353,10 @@ export function foldRankedStacks(where: SearchWhere, pass: WindowPass): WindowPa
         return [];
       }
       const raw = row.stack_primary_id ? byId.get(row.stack_primary_id) : undefined;
-      const leader = raw ? { ...raw, stack_companion_r: row.r } : { ...row };
+      const { captured_at, media_kind, filename } = row;
+      const leader = raw
+        ? { ...raw, captured_at, media_kind, filename, stack_companion_r: row.r }
+        : { ...row };
       leaders.set(key, leader);
       return [leader];
     });
