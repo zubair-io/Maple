@@ -60,7 +60,7 @@ export { THUMB_MISSING_REASON, THUMB_UNDECODABLE_REASON };
  * cross-model vector migration). Assets carrying the lower version (legacy
  * faces, or anything below v2) go stale and reprocess through the normal
  * loop. */
-export const FACE_EMBED_TARGET_VERSION = 2;
+const FACE_EMBED_TARGET_VERSION = 2;
 
 export async function faceEmbedHandler(image: ImageDoc, _ctx: StageContext): Promise<StageResult> {
   const detector = defaultFaceDetector();
