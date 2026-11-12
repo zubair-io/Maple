@@ -364,6 +364,66 @@ describe('connection state', () => {
     }
   }, 60_000);
 
+  test('says it is waiting while a running job holds back a change of server', async () => {
+    using _live = await createLiveTestDatabase();
+    let release = () => {};
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const host = await hostFor(async () => {
+      await held;
+      return { kind: 'done', result: {} };
+    });
+    try {
+      const job = await queueExportJob();
+      await jobStatus(job._id, 'running');
+
+      await saveTemporalSettings({ address: '127.0.0.1:9', namespace: 'default' });
+
+      const waiting = await until(readTemporalStatus, (s) => s.connection.state === 'unreachable');
+      expect(waiting.connection.error).toMatch(/waiting for running work/i);
+
+      release();
+
+      await jobStatus(job._id, 'done');
+      await until(readTemporalStatus, (s) => !/waiting/i.test(s.connection.error ?? 'waiting'));
+    } finally {
+      release();
+      await host.stop();
+    }
+  }, 60_000);
+
+  test('a lane that cannot reconcile is reported while the other lanes keep running', async () => {
+    using _live = await createLiveTestDatabase();
+    await saveTemporalSettings({ address: env.address, namespace: 'default' });
+    const working = jobLane({
+      handlers: { batch_jpeg_export: { run: async () => ({ kind: 'done', result: {} }) } },
+    });
+    const broken = {
+      activities: {},
+      queue: {
+        ...working.queue,
+        taskQueue: 'broken-lane',
+        nextId: async () => null,
+        heldIds: async (): Promise<string[]> => {
+          throw new Error('ledger unreadable');
+        },
+      },
+    };
+    const host = new TemporalHost({ ...FAST, lanes: [broken, working] });
+    host.start();
+    try {
+      const job = await queueExportJob();
+
+      await jobStatus(job._id, 'done');
+
+      const status = await until(readTemporalStatus, (s) => s.connection.state === 'unreachable');
+      expect(status.connection.error).toBe('ledger unreadable');
+    } finally {
+      await host.stop();
+    }
+  }, 60_000);
+
   test('a namespace the server does not have is reported, not silently retried', async () => {
     using _live = await createLiveTestDatabase();
     await saveTemporalSettings({ address: env.address, namespace: 'no-such-namespace' });

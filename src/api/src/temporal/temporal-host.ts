@@ -37,6 +37,8 @@ export interface TemporalHostOptions {
 
 type Served = 'reconfigured' | 'stopped';
 
+const DRAINING = 'Waiting for running work to finish before reconnecting';
+
 const WORKFLOWS_PATH = fileURLToPath(new URL('./workflows.ts', import.meta.url));
 
 /**
@@ -186,8 +188,9 @@ export class TemporalHost {
           taskQueue: lane.queue.taskQueue,
           workflowBundle: bundle,
           activities: lane.activities,
-          // Exports and stitches saturate the native pool on their own, and pano
-          // admission counts on a preview never running beside a stitch.
+          // One row at a time per lane: exports and stitches saturate the native
+          // pool on their own, pano admission counts on a preview never running
+          // beside a stitch, and an import's writes are not fenced to its attempt.
           maxConcurrentActivityTaskExecutions: 1,
           // A cancel made in Temporal reaches a handler on a heartbeat reply, and
           // handlers heartbeat whenever they report progress or ask about cancel.
@@ -203,15 +206,38 @@ export class TemporalHost {
     } finally {
       this.abort.signal.removeEventListener('abort', endSession);
       for (const lane of running) if (lane.worker.getState() === 'RUNNING') lane.worker.shutdown();
-      await Promise.all(running.map((lane) => lane.done));
+      await this.drain(running);
       await connection.close();
     }
   }
 
   /**
+   * A worker drains for as long as its running job or import takes, and nothing
+   * is relayed meanwhile. Settings → Workers says so instead of going stale.
+   */
+  private async drain(running: LaneRun[]): Promise<void> {
+    const draining = new AbortController();
+    const drained = Promise.all(running.map((lane) => lane.done)).then(() => draining.abort());
+    while (!draining.signal.aborted) {
+      await pause(this.refreshMs, draining.signal);
+      if (!draining.signal.aborted && !this.stopping) await this.reportDraining();
+    }
+    await drained;
+  }
+
+  private async reportDraining(): Promise<void> {
+    const saved = await failureOf(() =>
+      loadTemporalSettings().then((settings) => this.report(settings, new Error(DRAINING))),
+    );
+    if (saved !== null) log.warn({ err: errorMessage(saved) }, 'Temporal settings unreadable');
+  }
+
+  /**
    * The worker reconnects by itself, so a failure here is only reported. A
    * failed check stands until the next check: the quiet ticks in between have
-   * nothing to send and would otherwise report the server as back.
+   * nothing to send and would otherwise report the server as back. Only a
+   * server that does not answer stops the relay; a lane that cannot reconcile
+   * is reported while every lane keeps receiving its rows.
    */
   private async supervise(
     settings: TemporalSettings,
@@ -220,11 +246,16 @@ export class TemporalHost {
   ): Promise<Served> {
     let refreshAt = 0;
     let health: unknown = null;
+    let drift: unknown = null;
     let reported: string | null | undefined;
     while (!session.aborted) {
       const refreshing = Date.now() >= refreshAt;
-      if (refreshing) health = await failureOf(() => this.check(client, settings));
-      const error = health ?? (await failureOf(() => this.relay(client)));
+      if (refreshing) {
+        health = await failureOf(() => this.probe(client, settings));
+        drift = health ?? (await failureOf(() => this.reconcile(client)));
+      }
+      const relayed = health === null ? await failureOf(() => this.relay(client)) : null;
+      const error = drift ?? relayed;
       const message = error === null ? null : errorMessage(error);
       if (refreshing || message !== reported) {
         reported = message;
@@ -239,13 +270,23 @@ export class TemporalHost {
     return 'stopped';
   }
 
-  private async relay(client: Client): Promise<void> {
-    for (const lane of this.lanes) await relayNext(client, lane.queue);
+  /** Every lane gets its turn whatever the others do; the first failure is the one reported. */
+  private async eachLane(work: (lane: TemporalLane) => Promise<void>): Promise<void> {
+    const failures = await Promise.all(this.lanes.map((lane) => failureOf(() => work(lane))));
+    const failed = failures.find((failure) => failure !== null);
+    if (failed !== undefined) throw failed;
   }
 
-  private async check(client: Client, settings: TemporalSettings): Promise<void> {
+  private relay(client: Client): Promise<void> {
+    return this.eachLane((lane) => relayNext(client, lane.queue));
+  }
+
+  private reconcile(client: Client): Promise<void> {
+    return this.eachLane((lane) => reconcileHeld(client, lane.queue));
+  }
+
+  private async probe(client: Client, settings: TemporalSettings): Promise<void> {
     await client.workflowService.describeNamespace({ namespace: settings.namespace });
-    for (const lane of this.lanes) await reconcileHeld(client, lane.queue);
   }
 }
 
