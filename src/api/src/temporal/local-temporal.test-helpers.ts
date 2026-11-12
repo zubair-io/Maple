@@ -1,7 +1,8 @@
 import { setTimeout as sleep } from 'node:timers/promises';
 import { TestWorkflowEnvironment } from '@temporalio/testing';
+import { jobLane } from '../job-runner/job-queue.ts';
 import { saveTemporalSettings } from './temporal-config.ts';
-import { defaultTemporalLanes, TemporalHost } from './temporal-host.ts';
+import { TemporalHost } from './temporal-host.ts';
 
 /**
  * Pinned so every machine runs the same server, and so the binary CI fetches
@@ -28,13 +29,16 @@ export interface LocalTemporal {
 
 /**
  * A throwaway server saved as the process-wide database's Temporal setting,
- * with a host already serving it. The caller must have installed its test
- * database first.
+ * with a host already running user jobs on it. The caller must have installed
+ * its test database first. Only the jobs lane is served: the fixture servers
+ * that use this exercise batch sync and export, and a lane they never use
+ * would pull its whole import graph into what their native consumers depend on
+ * (`tools/ci_changes.py`).
  */
 export async function startLocalTemporal(): Promise<LocalTemporal> {
   const env = await startLocalTemporalServer();
   await saveTemporalSettings({ address: env.address, namespace: env.namespace ?? 'default' });
-  const host = new TemporalHost({ relayMs: 20, lanes: defaultTemporalLanes() });
+  const host = new TemporalHost({ relayMs: 20, lanes: [jobLane()] });
   host.start();
   return {
     env,

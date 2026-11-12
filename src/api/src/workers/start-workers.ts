@@ -176,7 +176,7 @@ export async function startWorkers(): Promise<void> {
   // still boot the rest of this tier (stages and the sweep then wait in the
   // database; maintenance does not run).
   await startSubsystem(async () => {
-    const temporal = await import('../temporal/temporal-host.ts');
+    const temporal = await import('../temporal/worker-tier-host.ts');
     temporal.startTemporalHost();
     _stopTemporalHost = temporal.stopTemporalHost;
   }, 'Temporal host failed to start');

@@ -9,9 +9,8 @@
 import type { Client } from '@temporalio/client';
 import { listLibraryRoots } from '../../db/repos/folders.repo.ts';
 import type { TemporalLane } from '../../temporal/temporal-lane.ts';
-import { discoverWorkflow } from '../../temporal/workflows.ts';
 import { createDiscoverActivities, type DiscoverSliceOptions } from './discover-activity.ts';
-import { DISCOVER_TASK_QUEUE, discoverWorkflowId } from './discover-workflow.ts';
+import { DISCOVER_TASK_QUEUE, discoverWorkflow, discoverWorkflowId } from './discover-workflow.ts';
 
 /**
  * Fixed when the worker is created, so it is set well above any real library

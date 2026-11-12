@@ -9,10 +9,9 @@ import { ObjectId } from '../db/object-id.ts';
 import { heldOperationIds, nextOperationId } from '../db/repos/operations.repo.ts';
 import { rowLane, type RowQueue } from '../temporal/row-queue.ts';
 import type { TemporalLane } from '../temporal/temporal-lane.ts';
-import { jobWorkflow } from '../temporal/workflows.ts';
 import type { ExecuteJobOptions } from './execute-job.ts';
 import { createJobActivities } from './job-activity.ts';
-import { jobWorkflowId } from './job-workflow.ts';
+import { jobWorkflow, jobWorkflowId } from './job-workflow.ts';
 import { cancelUnfinishedJob, markJobDispatched } from './jobs.repo.ts';
 
 const OPERATION_TASK_QUEUE = 'maple-operations';

@@ -17,7 +17,8 @@ import { createJob, getJob, markJobDispatched, resumeBatchJob } from '../job-run
 import { startLocalTemporalServer, until } from './local-temporal.test-helpers.ts';
 import { readTemporalStatus, saveTemporalSettings } from './temporal-config.ts';
 import { dispatchSignal } from './row-workflow.ts';
-import { defaultTemporalLanes, TemporalHost } from './temporal-host.ts';
+import { TemporalHost } from './temporal-host.ts';
+import { defaultTemporalLanes } from './worker-tier-host.ts';
 
 const EXPORT_PAYLOAD = { assetIds: [], outputDir: '/tmp', quality: 80 };
 const FAST = { relayMs: 20, refreshMs: 100, retryMs: 100 };

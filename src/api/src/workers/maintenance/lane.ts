@@ -19,12 +19,11 @@ import {
 } from '@temporalio/client';
 import { child as childLogger } from '../../log.ts';
 import type { TemporalLane } from '../../temporal/temporal-lane.ts';
-import { maintenanceWorkflow } from '../../temporal/workflows.ts';
 import { createMaintenanceActivities } from './activity.ts';
 import { maintenanceRunNowId, maintenanceScheduleId, SCHEDULE_PREFIX } from './ids.ts';
 import { clearMaintenanceRun, pendingMaintenanceRuns } from './run-now.repo.ts';
 import { MAINTENANCE_TASKS, type DesiredSchedule, type MaintenanceTask } from './tasks.ts';
-import { MAINTENANCE_TASK_QUEUE } from './workflow.ts';
+import { MAINTENANCE_TASK_QUEUE, maintenanceWorkflow } from './workflow.ts';
 
 const log = childLogger('maintenance');
 

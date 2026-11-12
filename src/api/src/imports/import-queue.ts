@@ -1,9 +1,8 @@
 import { ObjectId } from '../db/object-id.ts';
 import { rowLane, type RowQueue } from '../temporal/row-queue.ts';
 import type { TemporalLane } from '../temporal/temporal-lane.ts';
-import { importWorkflow } from '../temporal/workflows.ts';
 import { createImportActivities } from './import-activity.ts';
-import { IMPORT_TASK_QUEUE, importWorkflowId } from './import-workflow.ts';
+import { IMPORT_TASK_QUEUE, importWorkflow, importWorkflowId } from './import-workflow.ts';
 import {
   cancelUnfinishedImport,
   heldImportIds,

@@ -179,6 +179,24 @@ class SwiftApiClosureTests(unittest.TestCase):
         self.assertNotIn(unrelated, closure)
         self.assertNotIn("swift", ci.dependencies(unrelated))
 
+    def test_fixture_temporal_host_pulls_in_only_the_jobs_lane(self):
+        closure, complete = ci.swift_api_closure()
+        self.assertTrue(complete)
+        self.assertIn("src/api/src/job-runner/job-queue.ts", closure)
+        for path in (
+            "src/api/src/temporal/worker-tier-host.ts",
+            "src/api/src/job-runner/operation-queue.ts",
+            "src/api/src/imports/import-queue.ts",
+            "src/api/src/workers/stage-lane.ts",
+            "src/api/src/workers/discover/discover-lane.ts",
+            "src/api/src/workers/discover/sweep-slice.ts",
+            "src/api/src/workers/maintenance/lane.ts",
+            "src/api/src/workers/maintenance/tasks.ts",
+        ):
+            with self.subTest(path=path):
+                self.assertNotIn(path, closure)
+                self.assertNotIn("swift", ci.dependencies(path))
+
     def test_closure_follows_transitive_relative_imports(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

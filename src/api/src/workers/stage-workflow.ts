@@ -6,7 +6,6 @@
  */
 
 import { continueAsNew, proxyActivities, workflowInfo } from '@temporalio/workflow';
-import type { StageActivities } from './stage-lane.ts';
 
 export const STAGE_TASK_QUEUE = 'maple-stages';
 
@@ -19,6 +18,10 @@ export const stageWorkflowId = (stage: string): string => `stage-${stage}`;
 export interface StageSlice {
   claimed: number;
   drained: boolean;
+}
+
+export interface StageActivities {
+  runStageSlice: (stage: string) => Promise<StageSlice>;
 }
 
 /** About 83 minutes of continuous work per run, so no history grows without bound. */
