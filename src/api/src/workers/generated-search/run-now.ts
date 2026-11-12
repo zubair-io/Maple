@@ -4,63 +4,41 @@
  * schedule checks every 15 minutes and backs off after a failed attempt, so
  * the next scheduled pass can be an hour or more away).
  *
- * `runGeneratedSearchOnce` checks `paused` itself, which would defeat the
- * two things the button exists for: a first run right after enabling (config
- * may still be settling) and a dry run WHILE paused to evaluate the prompt
- * before enabling. So the trigger runs the per-library pass machinery with
- * the paused gate bypassed via `force`.
+ * The route asks for a forced run of the `generated-search` maintenance task
+ * and returns; the worker tier runs {@link runGeneratedSearchNow}.
+ * `runGeneratedSearchOnce` checks `paused` itself, which would defeat the two
+ * things the button exists for: a first run right after enabling and a dry run
+ * WHILE paused to evaluate the prompt before enabling. So the run bypasses the
+ * paused gate via `force`.
  *
- * One run at a time: an in-flight run makes minutes of LLM calls, and a
- * double-clicked button must be refused — two concurrent runs would write
- * duplicate collections for the same day. Same shape as
- * `derivative-audit/scan.ts`'s `startAuditPass`.
+ * One run at a time: a run makes minutes of LLM calls, and a double-clicked
+ * button must be refused. {@link generatedSearchRunBusy} reads the request and
+ * the per-library run records, so it sees a run whichever process started it;
+ * the per-library claim (`claimLibraryRun`) is what finally keeps two passes
+ * off one library.
  */
 
 import { child as childLogger } from '../../log.ts';
-import { runGeneratedSearchOnce, type GeneratedSearchSummary } from './run.ts';
+import { maintenanceRunRequested } from '../maintenance/run-now.repo.ts';
+import { runGeneratedSearchOnce } from './run.ts';
+import { loadRunRecords, STALE_RUNNING_MS } from './run-state.repo.ts';
 
 const log = childLogger('generated-search');
 
-let inFlight = false;
-let current: Promise<void> | null = null;
-/** Test seam: the route calls `startRunNow()` with no args, so route tests
- * install a stub here rather than letting a real pass hit DB + the text model. */
-let runnerOverride: (() => Promise<GeneratedSearchSummary>) | null = null;
+export const GENERATED_SEARCH_TASK = 'generated-search';
 
-export interface RunNowResult {
-  started: boolean;
-  reason?: string;
+export async function runGeneratedSearchNow(signal?: AbortSignal): Promise<void> {
+  const summary = await runGeneratedSearchOnce(new Date(), { force: true, signal });
+  log.info({ ...summary }, 'run-now pass finished');
 }
 
-/** Kick one pass in the background. Returns immediately; the settings page
- * sees the outcome as new collections (or their absence) on its next load. */
-export function startRunNow(
-  run: () => Promise<GeneratedSearchSummary> = runnerOverride ??
-    (() => runGeneratedSearchOnce(new Date(), { force: true })),
-): RunNowResult {
-  if (inFlight) return { started: false, reason: 'already-running' };
-  inFlight = true;
-  current = run()
-    .then((summary) => log.info({ ...summary }, 'run-now pass finished'))
-    .catch((err: unknown) =>
-      log.warn({ err: err instanceof Error ? err.message : String(err) }, 'run-now pass failed'),
-    )
-    .finally(() => {
-      inFlight = false;
-    });
-  return { started: true };
-}
-
-export function _resetRunNowForTests(
-  runner: (() => Promise<GeneratedSearchSummary>) | null = null,
-): void {
-  inFlight = false;
-  current = null;
-  runnerOverride = runner;
-}
-
-/** Test-only: settle the in-flight pass so a suite's teardown (which drops
- * the database) doesn't race a background run into a closed client. */
-export async function _awaitRunNowForTests(): Promise<void> {
-  await current;
+/** A requested run counts from the moment it is asked for; then while any library's pass holds a live claim. */
+export async function generatedSearchRunBusy(now: Date = new Date()): Promise<boolean> {
+  if (await maintenanceRunRequested(GENERATED_SEARCH_TASK)) return true;
+  const records = [...(await loadRunRecords()).values()];
+  return records.some(
+    (record) =>
+      record.outcome === 'running' &&
+      now.getTime() - Date.parse(record.started_at) < STALE_RUNNING_MS,
+  );
 }

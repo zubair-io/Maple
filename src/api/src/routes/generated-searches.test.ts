@@ -29,7 +29,7 @@ import { seedSearchAsset, type SeedAsset } from '../db/repos/search.test-helpers
 import { invalidateLibraryRoots } from '../indexer/libraries.cache.ts';
 import { generatedSearchesRoutes } from './generated-searches.ts';
 import { generatedSearchConfigRoutes } from '../workers/generated-search/routes.ts';
-import { _resetRunNowForTests, _awaitRunNowForTests } from '../workers/generated-search/run-now.ts';
+import { pendingMaintenanceRuns } from '../workers/maintenance/run-now.repo.ts';
 import {
   claimLibraryRun,
   type LibraryRunRecord,
@@ -337,31 +337,55 @@ describe('GET /api/generated-searches/:id/assets — stored first page', () => {
 });
 
 describe('POST /api/workers/generated-search/run', () => {
-  it('starts a pass and refuses a concurrent second one', async () => {
-    // Stubbed runner: a real pass hits the database + Ollama with timing that
-    // varies under the full suite. The route contract under test is only the
-    // immediate started/refused response and the in-flight guard.
-    let release: () => void = () => {};
-    _resetRunNowForTests(
-      () =>
-        new Promise((r) => {
-          release = () => r({ libraries: 0, saved: 0, pruned: 0, skipped: false });
-        }),
-    );
+  const post = async () =>
+    (
+      await app.handle(
+        new Request('http://localhost/api/workers/generated-search/run', { method: 'POST' }),
+      )
+    ).json();
 
-    const first = await app.handle(
-      new Request('http://localhost/api/workers/generated-search/run', { method: 'POST' }),
-    );
-    expect((await first.json()).started).toBe(true);
+  it('asks the worker tier for a forced pass and refuses a second click while it waits', async () => {
+    expect(await post()).toEqual({ started: true });
+    expect(await pendingMaintenanceRuns()).toMatchObject([
+      { taskId: 'generated-search', options: { force: true } },
+    ]);
 
-    const second = await app.handle(
-      new Request('http://localhost/api/workers/generated-search/run', { method: 'POST' }),
-    );
-    expect(await second.json()).toEqual({ started: false, reason: 'already-running' });
+    expect(await post()).toEqual({ started: false, reason: 'already-running' });
+  });
 
-    release();
-    await _awaitRunNowForTests();
-    _resetRunNowForTests();
+  it('refuses while a pass written by another process holds a live claim', async () => {
+    await saveRunRecord({
+      library_id: libraryId,
+      claim_id: 'worker',
+      day: new Date().toISOString().slice(0, 10),
+      attempts: 1,
+      started_at: new Date().toISOString(),
+      finished_at: null,
+      outcome: 'running',
+      saved: 0,
+      error: null,
+      trigger: 'schedule',
+    });
+
+    expect(await post()).toEqual({ started: false, reason: 'already-running' });
+    expect(await pendingMaintenanceRuns()).toEqual([]);
+  });
+
+  it('ignores a claim left by a pass that died long ago', async () => {
+    await saveRunRecord({
+      library_id: libraryId,
+      claim_id: 'dead',
+      day: '2026-01-01',
+      attempts: 1,
+      started_at: '2026-01-01T00:00:00.000Z',
+      finished_at: null,
+      outcome: 'running',
+      saved: 0,
+      error: null,
+      trigger: 'run-now',
+    });
+
+    expect(await post()).toEqual({ started: true });
   });
 });
 
