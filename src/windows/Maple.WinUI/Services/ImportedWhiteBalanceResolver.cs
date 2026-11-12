@@ -36,17 +36,19 @@ public static unsafe class ImportedWhiteBalanceResolver
     }
 
     /// <summary>Hydrate only the same imported intent. A manual WB edit made
-    /// while the decode ran has cleared that intent and remains authoritative.</summary>
-    public static void ApplyResolved(AdjustmentState target, AdjustmentState source)
+    /// while the decode ran has cleared that intent and remains authoritative.
+    /// True when <paramref name="target"/> took a pair it did not hold yet.</summary>
+    public static bool ApplyResolved(AdjustmentState target, AdjustmentState source)
     {
         if (target.ImportedWhiteBalance is not { } current
             || source.ImportedWhiteBalance is not { Resolved: { } pair } resolved
             || current.Temperature != resolved.Temperature || current.Tint != resolved.Tint
-            || current.Version != resolved.Version) return;
+            || current.Version != resolved.Version) return false;
         target.ImportedWhiteBalance = resolved;
         target.Temperature = pair.Temperature;
         target.Tint = pair.Tint;
         target.WhiteBalanceScaleVersion = 5;
+        return current.Resolved != pair;
     }
 
     /// <summary>A final derivative (sidecar thumbnail, persisted preview) has no first

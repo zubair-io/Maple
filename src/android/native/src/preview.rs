@@ -1,5 +1,5 @@
 use crate::auto_white_balance::ImportedAutoWhiteBalanceWork;
-use raw_core::stages::imported_auto_wb::{needs_resolution, CachedEstimate};
+use raw_core::stages::imported_auto_wb::{apply_pair, needs_resolution, CachedEstimate};
 use raw_core::{
     gpu_host::{
         capture::{develop_capture_prefix_rgba_cancellable, LiveCreative},
@@ -220,6 +220,19 @@ impl Session {
             .map_or((as_shot.temperature, as_shot.tint), |creative| {
                 slider_values(creative, &as_shot)
             })
+    }
+    /// The slider pair of the adopted estimate itself, whatever the current
+    /// model renders: a WB edit made while it ran must not be published as the
+    /// resolved Auto pair.
+    pub fn imported_auto_white_balance_values(&self) -> Option<(f32, f32)> {
+        let pair = self.imported_wb.pair()?;
+        let mut resolved = self.model.clone();
+        apply_pair(&mut resolved, pair);
+        Some(
+            self.creative
+                .as_ref()
+                .map_or(pair, |creative| slider_values(creative, &resolved)),
+        )
     }
     fn orientation(&self) -> ExifOrientation {
         self.raw

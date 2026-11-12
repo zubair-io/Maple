@@ -83,11 +83,15 @@ namespace Maple.WinUI.ViewModels
 
         private void PublishImportedWhiteBalance(AdjustmentState resolved)
         {
-            foreach (var snapshot in new[] { Adjustments, _undoBaseline, _originalModel }
+            foreach (var snapshot in new[] { Adjustments, _undoBaseline }
                 .Concat(_undoStack).Concat(_redoStack))
             {
                 if (snapshot != null) ImportedWhiteBalanceResolver.ApplyResolved(snapshot, resolved);
             }
+            // Before renders a clone of the opening snapshot: one prepared while it was
+            // still As Shot is stale once it takes the pair.
+            if (_originalModel != null && ImportedWhiteBalanceResolver.ApplyResolved(_originalModel, resolved))
+                OpeningSnapshotVersion++;
             SyncSlidersFromModel();
         }
 

@@ -139,11 +139,13 @@ public sealed class ImportedWhiteBalanceTests
         var resolved = original.Clone();
         resolved.ImportedWhiteBalance = resolved.ImportedWhiteBalance! with { Resolved = new(5300, 17) };
         var undo = original.Clone();
-        ImportedWhiteBalanceResolver.ApplyResolved(undo, resolved);
+        Assert.True(ImportedWhiteBalanceResolver.ApplyResolved(undo, resolved));
         Assert.Equal((5300, 17), (undo.Temperature, undo.Tint));
         Assert.NotNull(undo.ImportedWhiteBalance);
+        // Publishing again changes nothing, so it must not invalidate a Before view twice.
+        Assert.False(ImportedWhiteBalanceResolver.ApplyResolved(undo, resolved));
         WhiteBalanceProvenance.SetManualTemperature(original, 4500);
-        ImportedWhiteBalanceResolver.ApplyResolved(original, resolved);
+        Assert.False(ImportedWhiteBalanceResolver.ApplyResolved(original, resolved));
         Assert.Equal(4500, original.Temperature);
         Assert.Null(original.ImportedWhiteBalance);
         var stripped = RenderEngine.StripChainStages(undo);

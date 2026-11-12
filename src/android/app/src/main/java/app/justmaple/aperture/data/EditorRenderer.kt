@@ -280,17 +280,23 @@ class EditorRenderer(library: PhotoLibrary, private val onPresented: (Int) -> Un
 
     /**
      * After the As Shot first frame, estimate a name-only imported Auto WB once per session off
-     * the render thread, then adopt it here, re-render once and publish the slider values the
-     * native model now holds (#4669). Failure or cancellation keeps As Shot; the next open retries.
+     * the render thread, then adopt it here, re-render once and publish the estimate's own slider
+     * pair (#4669), not the current model's: a WB edit made while it ran stays authored and must
+     * not be recorded as the Auto result. Failure or cancellation keeps As Shot; the next open
+     * retries.
      */
     private fun startImportedAutoWhiteBalance() {
         val openEpoch = epoch
         importedWhiteBalance.start(handle, { openEpoch == epoch && handle != 0L }) { work ->
             val adopted = runCatching {
                 NativeBridge.adoptImportedAutoWhiteBalance(handle, work)
-                values = readValues()
+                val native = JSONObject(NativeBridge.values(handle))
+                values = readValues(native)
                 renderCurrent(revision)
-                values
+                mapOf(
+                    "temperature" to native.getDouble("_imported_temperature").toFloat(),
+                    "tint" to native.getDouble("_imported_tint").toFloat(),
+                )
             }
             importedWhiteBalanceListener?.invoke(openEpoch, adopted)
         }
@@ -299,8 +305,9 @@ class EditorRenderer(library: PhotoLibrary, private val onPresented: (Int) -> Un
     override suspend fun shutdown() = withContext(dispatcher) { release() }
 
     /** Also records whether the native model now renders an adopted imported pair. */
-    private fun readValues(): Map<String, Float> {
-        val objectValues = JSONObject(NativeBridge.values(handle))
+    private fun readValues(
+        objectValues: JSONObject = JSONObject(NativeBridge.values(handle))
+    ): Map<String, Float> {
         importedWhiteBalanceAdopted = objectValues.optDouble("_imported_wb", 0.0) == 1.0
         return AdjustmentFields.all.associate {
             it.name to objectValues.optDouble(it.name, it.initial.toDouble()).toFloat()

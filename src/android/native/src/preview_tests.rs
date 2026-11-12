@@ -302,16 +302,67 @@ fn imported_auto_fixture() -> std::path::PathBuf {
         .join("../../../test-fixtures/batch-transfer/source.dng")
 }
 
-/// The `_imported_wb` value the Kotlin renderer reads through the values FFI.
-fn imported_wb_flag(session: &mut Session) -> f64 {
+/// The values JSON the Kotlin renderer reads through the values FFI.
+fn values_json(session: &mut Session) -> serde_json::Value {
     unsafe {
         let json = crate::maple_android_values((session as *mut Session).cast());
         let text = std::ffi::CStr::from_ptr(json).to_str().unwrap().to_owned();
         crate::maple_android_free_string(json);
-        serde_json::from_str::<serde_json::Value>(&text).unwrap()["_imported_wb"]
-            .as_f64()
-            .unwrap()
+        serde_json::from_str(&text).unwrap()
     }
+}
+
+fn imported_wb_flag(session: &mut Session) -> f64 {
+    values_json(session)["_imported_wb"].as_f64().unwrap()
+}
+
+/// The slider pair under `keys` in the values JSON.
+fn slider_pair(values: &serde_json::Value, keys: [&str; 2]) -> (f64, f64) {
+    (
+        values[keys[0]].as_f64().unwrap(),
+        values[keys[1]].as_f64().unwrap(),
+    )
+}
+
+#[test]
+fn the_published_estimate_is_the_pair_even_when_a_wb_edit_lands_first() {
+    let path = imported_auto_fixture();
+    let open = || Session::open(path.to_str().unwrap(), IMPORTED_AUTO_XMP, 64).unwrap();
+    let mut untouched = open();
+    let mut work = untouched.prepare_imported_auto_white_balance().unwrap();
+    work.run(&CancelToken::new()).unwrap();
+    untouched.adopt_imported_auto_white_balance(&work);
+    let untouched_values = values_json(&mut untouched);
+    let estimate = slider_pair(&untouched_values, ["temperature", "tint"]);
+    assert_eq!(
+        slider_pair(
+            &untouched_values,
+            ["_imported_temperature", "_imported_tint"]
+        ),
+        estimate
+    );
+
+    let mut edited = open();
+    let mut work = edited.prepare_imported_auto_white_balance().unwrap();
+    work.run(&CancelToken::new()).unwrap();
+    // The user sets white balance while the estimate is still running.
+    edited.set_model(
+        crate::xmp::parse(&IMPORTED_AUTO_XMP.replace(
+            r#"crs:WhiteBalance="Auto""#,
+            r#"crs:WhiteBalance="Custom" crs:Temperature="3000" crs:Tint="40""#,
+        ))
+        .unwrap(),
+    );
+    edited.adopt_imported_auto_white_balance(&work);
+    let edited_values = values_json(&mut edited);
+    assert_ne!(
+        slider_pair(&edited_values, ["temperature", "tint"]),
+        estimate
+    );
+    assert_eq!(
+        slider_pair(&edited_values, ["_imported_temperature", "_imported_tint"]),
+        estimate
+    );
 }
 
 #[test]

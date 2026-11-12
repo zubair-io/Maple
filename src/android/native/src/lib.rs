@@ -156,6 +156,13 @@ pub unsafe extern "C" fn maple_android_values(handle: *mut c_void) -> *mut c_cha
                 0.0
             }),
         );
+        if let Some((temperature, tint)) = session.imported_auto_white_balance_values() {
+            values.insert(
+                "_imported_temperature".into(),
+                serde_json::json!(temperature),
+            );
+            values.insert("_imported_tint".into(), serde_json::json!(tint));
+        }
         Ok(CString::new(serde_json::Value::Object(values).to_string())
             .map_err(|e| e.to_string())?
             .into_raw())

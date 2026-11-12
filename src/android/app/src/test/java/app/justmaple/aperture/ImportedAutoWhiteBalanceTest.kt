@@ -144,9 +144,14 @@ class ImportedAutoWhiteBalanceTest {
     fun aWhiteBalanceEditMadeBeforeTheEstimateLandsIsNeverReplaced() = runBlocking {
         exercise { model, renderer, _, _ ->
             model.setField("temperature", 6000f)
+            model.commitGesture()
             renderer.adopt()
             assertEquals(6000f, model.state.value.values.getValue("temperature"), 0f)
             assertEquals("6000", model.state.value.document.attribute("crs:Temperature"))
+            // Undoing the manual edit returns to the name-only request, shown at the estimate.
+            model.undo()
+            assertEquals(5100f to 9f, model.whiteBalance())
+            assertNull(model.state.value.document.attribute("crs:Temperature"))
         }
     }
 
