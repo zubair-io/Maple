@@ -119,8 +119,10 @@ internal object CloudDocumentRows {
             Document.FLAG_SUPPORTS_WRITE or
                 Document.FLAG_SUPPORTS_DELETE or
                 Document.FLAG_SUPPORTS_REMOVE,
-            failure?.let { "Not uploaded: $it" } ?: "Waiting to upload to Maple",
+            status(failure),
         )
+
+    fun status(failure: String?) = failure?.let { "Not uploaded: $it" } ?: "Waiting to upload to Maple"
 
     // Originals are never modified and sidecars are written only through Maple's
     // conditional XMP saves, so neither is writable here. The server has no folder

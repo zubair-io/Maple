@@ -85,15 +85,28 @@ internal class CloudDocumentStore(
         val entries = loaded ?: first!!.entries
         val loading = first?.next != null
         if (loading) loadRest(folder, first!!)
-        val rows = entries.map { entry -> CloudDocumentRows.entry(remembered(folder, entry), entry) }
+        // A staged replacement of a listed file shows on the server's row: a rejected one stays discoverable.
+        val pending = uploads.children(account(folder.server), folder).associateBy { it.path }
+        val rows =
+            entries.map { entry ->
+                val row = CloudDocumentRows.entry(remembered(folder, entry), entry)
+                pending[entry.path]?.takeIf { entry.kind != CloudEntryKind.Folder }?.let { overlaid(row, it) } ?: row
+            }
         if (loading) return CloudChildren(rows, loading = true)
         val listed = entries.mapTo(HashSet()) { it.path }
-        val pending =
-            uploads.children(account(folder.server), folder).filter { it.path !in listed }.map { upload ->
+        val created =
+            pending.values.filter { it.path !in listed }.map { upload ->
                 val data = uploads.data(upload)
                 CloudDocumentRows.pending(upload.document(folder.server), data.length(), data.lastModified(), upload.failure)
             }
-        return CloudChildren(rows + pending, loading = false)
+        return CloudChildren(rows + created, loading = false)
+    }
+
+    /** The server's row for a file with a save waiting on it: the save's status, and its size once complete. */
+    private fun overlaid(row: CloudDocumentRow, upload: CloudPendingUploads.Upload): CloudDocumentRow {
+        val data = uploads.data(upload)
+        val saved = if (upload.readable) row.copy(size = data.length(), modified = data.lastModified()) else row
+        return saved.copy(summary = CloudDocumentRows.status(upload.failure))
     }
 
     private fun loadRest(folder: CloudDocumentId, first: CloudListingPage) {
@@ -128,8 +141,10 @@ internal class CloudDocumentStore(
         if (id.isServerRoot)
             return CloudDocumentRow(id.server, TITLE, DocumentsContract.Document.MIME_TYPE_DIR, null, null, 0)
         if (id.isLibraryRoot) return CloudDocumentRows.library(id, library(id).label)
-        if (!id.directory && lookup(id) == null)
+        if (!id.directory)
             uploads.find(account(id.server), id)?.let { upload ->
+                val cached = lookup(id)
+                if (cached != null) return overlaid(CloudDocumentRows.entry(id, cached), upload)
                 val data = uploads.data(upload)
                 return CloudDocumentRows.pending(id, data.length(), data.lastModified(), upload.failure)
             }

@@ -89,8 +89,12 @@ internal class CloudDocumentWrites(
                 held.forEach { uploads.moved(it, "${target.path}/${it.path.removePrefix(prefix)}") }
             }
         } else
-            uploads.holding(account, { it.library == id.library && it.path == id.path }) { held ->
-                val pending = held.singleOrNull()
+            // The destination's records are held too: one cannot start sending into the new name mid-rename.
+            uploads.holding(account, { it.library == id.library && (it.path == id.path || it.path == target.path) }) {
+                held ->
+                val pending = held.singleOrNull { it.path == id.path }
+                // The server cannot see a name that is only waiting to upload; its upload would replace this file.
+                check(held.none { it.path == target.path }) { "An item named \"${target.name}\" already exists" }
                 if (pending != null && !onServer(id)) {
                     check(target.name !in store.names(id.parent())) { "An item named \"${target.name}\" already exists" }
                 } else
