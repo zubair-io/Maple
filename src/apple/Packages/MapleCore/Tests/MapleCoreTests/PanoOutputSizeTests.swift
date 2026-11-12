@@ -66,6 +66,27 @@ final class PanoMemoryModelTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(model.compositeBytes(pano01, canvasWidth: 26_981), Int(2.8 * gib))
     }
 
+    /// #5891 re-fitted only the server's calibration: the sheet's estimates
+    /// are the #5555 numbers to the byte, and a 100 MP set an iPad with
+    /// 2 GB available stitches at full size still does, where the server's
+    /// Mac-fitted calibration would refuse it outright.
+    func testTheAppleCalibrationIsUnchangedByTheServerRefit() {
+        XCTAssertEqual(model.calibration, .apple)
+        XCTAssertEqual(model.headBytes(pano01), 21 * (80 << 20) + 12 * 20_813_856)
+        XCTAssertEqual(model.headBytes(pano01), 2_011_373_952)
+        XCTAssertEqual(model.compositeBytes(pano01, canvasWidth: 26_981), 3_197_189_310)
+        let pano00 = PanoStitchSizes(
+            canvasWidth: 12_315, canvasHeight: 12_760, largestFramePixels: 11_648 * 8_640, frameCount: 3, scratchBytes: 0)
+        XCTAssertEqual(model.estimatedPeakBytes(sizes: pano00, canvasWidth: 12_315), 1_459_322_880)
+        let available = 2_000_000_000
+        XCTAssertEqual(model.fit(sizes: pano00, availableBytes: available), .fullFits(estimatedBytes: 1_459_322_880))
+        // Same bytes raw-core's server profile prints for pano_01 × 21 (1.96 GB).
+        XCTAssertEqual(PanoMemoryModel(calibration: .server).headBytes(pano01), 21 * 13 * 2_560_000 + 226_000 * 5_587)
+        guard case .tooLarge = PanoMemoryModel(calibration: .server).fit(sizes: pano00, availableBytes: available) else {
+            return XCTFail("the server calibration should not fit pano_00 in 2 GB")
+        }
+    }
+
     private let phoneModel = PanoMemoryModel(smallerDefaultFraction: PanoMemoryModel.phoneSmallerDefaultFraction)
 
     private var pano01Full: Int { model.estimatedPeakBytes(sizes: pano01, canvasWidth: pano01.canvasWidth) }
