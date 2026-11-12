@@ -13,15 +13,11 @@
 import { Context } from '@temporalio/activity';
 import type { Client } from '@temporalio/client';
 import type { TemporalLane } from '../temporal/temporal-lane.ts';
+import { stageWorkflow } from '../temporal/workflows.ts';
 import { bootedStages } from './orchestrator.ts';
 import type { RunStageHandle } from './run-stage.ts';
 import { ALL_STAGE_NAMES } from './stages/stage-names.ts';
-import {
-  STAGE_TASK_QUEUE,
-  stageWorkflow,
-  stageWorkflowId,
-  type StageSlice,
-} from './stage-workflow.ts';
+import { STAGE_TASK_QUEUE, stageWorkflowId, type StageSlice } from './stage-workflow.ts';
 
 export interface StageActivities {
   runStageSlice: (stage: string) => Promise<StageSlice>;
@@ -36,7 +32,7 @@ const HEARTBEAT_MS = 30_000;
  * A slice ignores Temporal's cancellation on purpose: a claimed batch always
  * finishes its writeback. Only the stage's own `stop()` aborts its handlers.
  */
-export function createStageActivities(booted: BootedStages = bootedStages): StageActivities {
+function createStageActivities(booted: BootedStages = bootedStages): StageActivities {
   return {
     runStageSlice: async (stage) => {
       const runner = booted().get(stage);
