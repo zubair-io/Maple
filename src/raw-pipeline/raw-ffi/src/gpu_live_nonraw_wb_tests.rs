@@ -187,6 +187,8 @@ fn cpu_params_nonraw() -> MapleAdjustmentParams {
         wb_frame_render_cct_warm: 0.0,
         wb_frame_render_fm_cold: [0.0; 9],
         wb_frame_render_fm_warm: [0.0; 9],
+        wb_frame_render_individual_cold: [0.0; 9],
+        wb_frame_render_individual_warm: [0.0; 9],
         bw_active: 0.0,
         bw_mix_red: 0.0,
         bw_mix_orange: 0.0,

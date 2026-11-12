@@ -25,6 +25,7 @@ fn grey_raw(width: u32, height: u32) -> RawImage {
         unique_camera_model: None,
         color_matrices: std::collections::HashMap::new(),
         forward_matrices: std::collections::HashMap::new(),
+        individual_calibrations: std::collections::HashMap::new(),
         orientation: ExifOrientation::Normal,
         baseline_exposure: 0.0,
         hsm_data: std::collections::HashMap::new(),

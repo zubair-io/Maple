@@ -531,6 +531,7 @@ pub fn retargeted_render_profile(
         endpoints: e,
         cct: render_cct,
         forward_matrix,
+        ..
     }) = render_retarget(frame, &profile, temperature, tint)
     else {
         return profile;

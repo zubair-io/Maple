@@ -9,6 +9,16 @@ pub type Vec3 = [f32; 3];
 impl Matrix3 {
     pub const IDENTITY: Self = Self([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]);
 
+    /// `self`, or the identity when every entry is zero: a zero-initialised
+    /// FFI matrix is "absent", which for a calibration means no correction.
+    pub fn identity_if_zero(self) -> Self {
+        if self.0.iter().flatten().all(|v| *v == 0.0) {
+            Self::IDENTITY
+        } else {
+            self
+        }
+    }
+
     pub fn mul_vec(&self, v: Vec3) -> Vec3 {
         let m = &self.0;
         [

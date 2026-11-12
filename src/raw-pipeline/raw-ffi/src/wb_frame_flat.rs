@@ -35,6 +35,8 @@ pub(crate) struct WbFrameFlat<'a> {
     pub render_cct_warm: f32,
     pub render_fm_cold: &'a [f32; 9],
     pub render_fm_warm: &'a [f32; 9],
+    pub render_individual_cold: &'a [f32; 9],
+    pub render_individual_warm: &'a [f32; 9],
 }
 
 /// Rebuild the raw-core [`raw_core::stages::wb_camera::SliderFrameExport`]
@@ -69,6 +71,8 @@ pub(crate) fn wb_frame_from_flat(
         render_cct_warm: f.render_cct_warm,
         render_fm_cold: mat(f.render_fm_cold),
         render_fm_warm: mat(f.render_fm_warm),
+        render_individual_cold: mat(f.render_individual_cold),
+        render_individual_warm: mat(f.render_individual_warm),
     }
 }
 

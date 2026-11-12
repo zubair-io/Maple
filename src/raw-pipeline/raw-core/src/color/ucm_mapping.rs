@@ -115,6 +115,7 @@ mod tests {
             unique_camera_model: Some(model.into()),
             color_matrices: Default::default(),
             forward_matrices: Default::default(),
+            individual_calibrations: Default::default(),
             orientation: ExifOrientation::Normal,
             baseline_exposure: 0.0,
             hsm_data: std::collections::HashMap::new(),

@@ -130,6 +130,8 @@ pub unsafe extern "C" fn maple_scene_linear_chain_haze_key(
             &p.wb_frame_render_cm_warm,
             &p.wb_frame_render_fm_cold,
             &p.wb_frame_render_fm_warm,
+            &p.wb_frame_render_individual_cold,
+            &p.wb_frame_render_individual_warm,
             slice(p.noise_profile_ptr, p.noise_profile_len as usize),
         ]
         .iter()

@@ -369,6 +369,8 @@ fn assert_exact_c_does_not_regress_vs_fixed_c(raw_name: &str, target: (f32, f32)
         render_cct_warm: 0.0,
         render_fm_cold: raw_core::math::Matrix3([[0.0; 3]; 3]),
         render_fm_warm: raw_core::math::Matrix3([[0.0; 3]; 3]),
+        render_individual_cold: raw_core::math::Matrix3([[0.0; 3]; 3]),
+        render_individual_warm: raw_core::math::Matrix3([[0.0; 3]; 3]),
         ..frame_exact
     };
 

@@ -155,6 +155,12 @@ pub struct SliderFrameExport {
     /// the DNG spec. All-zero ⇒ that side's FM is absent.
     pub render_fm_cold: Matrix3,
     pub render_fm_warm: Matrix3,
+    /// `profile.cm_endpoints.individual_cold/warm` — the unit's
+    /// `AnalogBalance · CameraCalibrationN` the render ForwardMatrices are
+    /// reference matrices for (#5093). All-zero ⇒ identity (an export that
+    /// predates #5093, or a file with no calibration).
+    pub render_individual_cold: Matrix3,
+    pub render_individual_warm: Matrix3,
 }
 
 impl SliderFrameExport {
@@ -177,6 +183,8 @@ impl SliderFrameExport {
         render_cct_warm: 0.0,
         render_fm_cold: Matrix3([[0.0; 3]; 3]),
         render_fm_warm: Matrix3([[0.0; 3]; 3]),
+        render_individual_cold: Matrix3([[0.0; 3]; 3]),
+        render_individual_warm: Matrix3([[0.0; 3]; 3]),
     };
 
     /// Resolve the export for a source: [`SliderFrame::resolve`] plus the
@@ -212,6 +220,11 @@ impl SliderFrameExport {
             .and_then(|e| e.fm_warm)
             .unwrap_or(Matrix3([[0.0; 3]; 3]));
         let render_scene_white_xyz = profile.scene_white_xyz;
+        let (render_individual_cold, render_individual_warm) = profile
+            .cm_endpoints
+            .map_or((Matrix3([[0.0; 3]; 3]), Matrix3([[0.0; 3]; 3])), |e| {
+                (e.individual_cold, e.individual_warm)
+            });
         match frame.endpoints {
             Some((m_cold, cct_cold, m_warm, cct_warm)) => SliderFrameExport {
                 m_cold,
@@ -230,6 +243,8 @@ impl SliderFrameExport {
                 render_cct_warm,
                 render_fm_cold,
                 render_fm_warm,
+                render_individual_cold,
+                render_individual_warm,
             },
             None => SliderFrameExport {
                 m_cold: frame.cm_as_shot,
@@ -248,6 +263,8 @@ impl SliderFrameExport {
                 render_cct_warm,
                 render_fm_cold,
                 render_fm_warm,
+                render_individual_cold,
+                render_individual_warm,
             },
         }
     }
@@ -332,6 +349,8 @@ impl SliderFrameExport {
                 cct_warm: self.render_cct_warm,
                 fm_cold: fm_cold_present.then_some(self.render_fm_cold),
                 fm_warm: fm_warm_present.then_some(self.render_fm_warm),
+                individual_cold: self.render_individual_cold.identity_if_zero(),
+                individual_warm: self.render_individual_warm.identity_if_zero(),
             });
         DcpProfile {
             illuminant: Illuminant::D65,
