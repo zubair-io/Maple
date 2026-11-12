@@ -14,6 +14,7 @@ import { child as childLogger } from '../log.ts';
 import { importLane } from '../imports/import-queue.ts';
 import { discoverLane } from '../workers/discover/discover-lane.ts';
 import { jobLane } from '../job-runner/job-queue.ts';
+import { maintenanceLane } from '../workers/maintenance/lane.ts';
 import { stageLane } from '../workers/stage-lane.ts';
 import type { TemporalLane } from './temporal-lane.ts';
 import {
@@ -91,6 +92,7 @@ export const defaultTemporalLanes = (): TemporalLane[] => [
   importLane(),
   stageLane(),
   discoverLane(),
+  maintenanceLane(),
 ];
 
 interface LaneRun {

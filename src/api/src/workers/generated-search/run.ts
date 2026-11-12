@@ -3,10 +3,10 @@ import { assignedAi } from '../../enrichment/ai-connections.ts';
  * Generated-search maintenance job: one pass per library per day. When a pass
  * is owed is decided by the restart-safe schedule in `schedule.ts`.
  *
- * A library-wide, timer-fired job — NOT a per-asset stage. Stages in
+ * A library-wide, scheduled job — NOT a per-asset stage. Stages in
  * `workers/stages/` exist to bring every asset to a version; this produces a
- * handful of library-level documents on a schedule, which is why it lives
- * beside trash-gc and dedupe in `maintenance.ts`.
+ * handful of library-level documents on a schedule, which is why it is a
+ * maintenance task beside trash-gc and dedupe (`workers/maintenance/tasks.ts`).
  *
  * Starts PAUSED (see `config.repo.ts`). The job needs a text model configured
  * and reachable, and a paused start keeps a fresh install from quietly filling

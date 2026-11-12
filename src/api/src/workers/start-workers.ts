@@ -8,7 +8,7 @@
  *   - FFI decode pool sizing
  *   - geocode / face / describe enrichment workers
  *   - worker-side enrichment config refresh
- *   - Temporal host (user-triggered jobs, folder imports, pipeline stages, the discover sweep)
+ *   - Temporal host (user-triggered jobs, folder imports, pipeline stages, the discover sweep and scheduled maintenance)
  *
  * `stopWorkers()` tears them all down in the correct order, mirroring the
  * `shutdown()` function in `index.ts`.
@@ -41,7 +41,7 @@ import {
   type ProcessMemoryRow,
 } from '../runtime/memory-telemetry.ts';
 import { startStatusCountsRefresher, type RefresherHandle } from './status-counts.ts';
-import { startMaintenanceJobs, stopMaintenanceJobs } from './maintenance.ts';
+import { startMaintenanceSupport, stopMaintenanceSupport } from './maintenance/support.ts';
 import { flushPendingMirrorOps } from '../fs/mirrored.ts';
 import {
   refreshWorkerEnrichmentConfig,
@@ -164,21 +164,22 @@ export async function startWorkers(): Promise<void> {
     startWorkerEnrichmentConfigRefresh();
   }
 
-  // User-triggered jobs (export, batch sync, pano, restore), folder imports and
-  // the pipeline stages booted above and the discover sweep run on Temporal.
-  // Imported here, not at the top: the SDK loads a native bridge on import, and
-  // a platform without one must still boot the rest of this tier (stages and the
-  // sweep then wait in the database).
+  // Before the Temporal host, so the maintenance workers' Settings → Workers
+  // entries exist by the time their first scheduled pass reports through them.
+  startMaintenanceSupport();
+
+  // User-triggered jobs (export, batch sync, pano, restore), folder imports,
+  // the pipeline stages booted above, the discover sweep and scheduled
+  // maintenance (trash-gc, missing-reaper, migration, session clean-up, the
+  // nightly database backup, …) run on Temporal. Imported here, not at the top:
+  // the SDK loads a native bridge on import, and a platform without one must
+  // still boot the rest of this tier (stages and the sweep then wait in the
+  // database; maintenance does not run).
   await startSubsystem(async () => {
     const temporal = await import('../temporal/temporal-host.ts');
     temporal.startTemporalHost();
     _stopTemporalHost = temporal.stopTemporalHost;
   }, 'Temporal host failed to start');
-
-  // Library-wide maintenance jobs (trash-gc + missing-reaper + migration).
-  // Moved here from index.ts so maintenance load is off the API event loop and
-  // these workers are gated by MAPLE_INDEXER_AUTOSTART like everything else.
-  await startSubsystem(startMaintenanceJobs, 'Maintenance jobs failed to start');
 
   // Publish stageRegistry.statuses() to the `worker_status` row every 2 s
   // so the API process (which has an empty in-process registry) can serve
@@ -228,12 +229,7 @@ export async function stopWorkers(): Promise<void> {
   _countsRefresher?.stop();
   _countsRefresher = null;
 
-  // Stop maintenance jobs first so their timers don't fire mid-shutdown.
-  try {
-    await stopMaintenanceJobs();
-  } catch (e) {
-    log.warn({ err: e }, 'error stopping maintenance jobs');
-  }
+  stopMaintenanceSupport();
 
   // The sweep itself stops with the Temporal host below.
   unregisterDiscoverWorker();

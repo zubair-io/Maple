@@ -18,8 +18,17 @@ import { insertAsset, insertLocation, run } from '../../db/sqlite/test-sqlite.te
 import { addLibrary, createLiveTestDatabase } from './test-support.ts';
 import { saveCloudflareConfig } from '../../cloudflare/cloudflare-config.repo.ts';
 import { R2_TRIP_AFTER_CONSECUTIVE_FAILURES } from './r2-health.ts';
-import { ABORTED_PASS_RETRY_MS, runDerivativeAuditOnce, startDerivativeAudit } from './scan.ts';
-import { DEFAULT_DERIVATIVE_AUDIT_CONFIG } from './config.repo.ts';
+import {
+  ABORTED_PASS_RETRY_MS,
+  derivativeAuditEveryMs,
+  runDerivativeAuditOnce,
+  runDerivativeAuditPass,
+} from './scan.ts';
+import {
+  DEFAULT_DERIVATIVE_AUDIT_CONFIG,
+  loadDerivativeAuditConfig,
+  saveDerivativeAuditConfig,
+} from './config.repo.ts';
 
 let root: string;
 
@@ -265,24 +274,10 @@ describe('runDerivativeAuditOnce against an unreachable R2', () => {
     expect(summary.r2Deferred).toBe(0);
   });
 
-  /** Start the loop, wait for its first pass to schedule the next, return that delay. */
-  async function delayAfterFirstPass(): Promise<number> {
-    const delays: number[] = [];
-    const timers = spyOn(globalThis, 'setTimeout').mockImplementation(((
-      _fn: unknown,
-      ms: number,
-    ) => {
-      delays.push(ms);
-      return { unref() {}, ref() {} };
-    }) as unknown as typeof setTimeout);
-    const handle = startDerivativeAudit();
-    try {
-      for (let i = 0; i < 200 && delays.length === 0; i++) await Bun.sleep(10);
-      return delays[0];
-    } finally {
-      handle.stop();
-      timers.mockRestore();
-    }
+  /** Run one scheduled pass, then ask how long the schedule should wait for the next. */
+  async function delayAfterScheduledPass(): Promise<number> {
+    await runDerivativeAuditPass();
+    return derivativeAuditEveryMs(await loadDerivativeAuditConfig());
   }
 
   it('retries soon after an outage aborted the pass', async () => {
@@ -294,7 +289,7 @@ describe('runDerivativeAuditOnce against an unreachable R2', () => {
       throw dnsFailure();
     });
 
-    expect(await delayAfterFirstPass()).toBe(ABORTED_PASS_RETRY_MS);
+    expect(await delayAfterScheduledPass()).toBe(ABORTED_PASS_RETRY_MS);
   });
 
   it('waits the configured interval after a healthy pass', async () => {
@@ -303,6 +298,27 @@ describe('runDerivativeAuditOnce against an unreachable R2', () => {
     await seedSyncedAsset(live.db, addLibrary(live.db, root), 'loop-ok.dng');
     stubR2(async () => new Response(null, { status: 200 }));
 
-    expect(await delayAfterFirstPass()).toBe(DEFAULT_DERIVATIVE_AUDIT_CONFIG.interval_ms);
+    expect(await delayAfterScheduledPass()).toBe(DEFAULT_DERIVATIVE_AUDIT_CONFIG.interval_ms);
+  });
+});
+
+describe('runDerivativeAuditPass', () => {
+  it('runs nothing once the audit has been disabled', async () => {
+    using live = await createLiveTestDatabase();
+    const assetId = seedMovedAsset(live.db);
+    await saveDerivativeAuditConfig({ enabled: false });
+
+    await runDerivativeAuditPass();
+
+    expect(stageVersion(live.db, assetId, 'thumb')).toBe(THUMB_TARGET_VERSION);
+  });
+
+  it('re-arms drifted stages when enabled', async () => {
+    using live = await createLiveTestDatabase();
+    const assetId = seedMovedAsset(live.db);
+
+    await runDerivativeAuditPass();
+
+    expect(stageVersion(live.db, assetId, 'thumb')).toBe(0);
   });
 });

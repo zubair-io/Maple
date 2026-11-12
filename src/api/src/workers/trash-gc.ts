@@ -24,8 +24,8 @@
  * index instead of scanning every asset on a daily timer — is stated beside
  * the table and not re-derived at each call site (#3787).
  *
- * NOT a stage controller — this is a library-wide, interval-fired job.
- * Started from `src/api/src/index.ts` via setInterval.
+ * NOT a stage controller — this is a library-wide job, scheduled daily as the
+ * `trash-gc` maintenance task (`workers/maintenance/`).
  */
 
 import { refusesFileUnderMarker } from '../fs/mapleignore-guard.ts';
@@ -58,8 +58,6 @@ const log = childLogger('trash-gc');
 const unlinkFailure = logPurgeFailure(log, 'purge unlink failed');
 const DAY_MS = 86_400_000;
 const DEFAULT_RETENTION_DAYS = 30;
-const DEFAULT_INTERVAL_MS = DAY_MS;
-const CLEANUP_INTERVAL_MS = 60_000;
 
 export interface TrashGcOptions {
   retentionDays?: number;
@@ -220,8 +218,12 @@ function logAssetsWithoutTrashCopy(assetIds: readonly string[]): void {
 
 let draining: Promise<void> | null = null;
 
-/** Drain owed purge unlinks; overlapping calls share the one in flight. */
-function drainCleanup(): Promise<void> {
+/**
+ * Drain owed unlinks of kept-photo purges. Runs every minute as its own
+ * maintenance task rather than waiting for the daily pass; overlapping calls
+ * share the one in flight.
+ */
+export function drainTrashPurgeCleanup(): Promise<void> {
   draining ??= drainLocalPurges()
     .then(() => undefined)
     .catch((err: unknown) => log.warn({ err: String(err) }, 'purge cleanup drain failed'))
@@ -231,11 +233,11 @@ function drainCleanup(): Promise<void> {
   return draining;
 }
 
-/** One pass. Exported for tests + callable from setInterval. */
+/** One pass; runs daily as the `trash-gc` maintenance task. */
 export async function runTrashGcOnce(opts: TrashGcOptions = {}): Promise<TrashGcSummary> {
   const retentionDays = opts.retentionDays ?? DEFAULT_RETENTION_DAYS;
   const cutoffIso = new Date(Date.now() - retentionDays * DAY_MS).toISOString();
-  await drainCleanup();
+  await drainTrashPurgeCleanup();
   const candidates = await listTrashedBefore(cutoffIso);
   // A library-root lookup that fails leaves every path unresolvable, which the
   // per-asset branch above reports and skips — better than aborting the pass,
@@ -262,40 +264,4 @@ export async function runTrashGcOnce(opts: TrashGcOptions = {}): Promise<TrashGc
   );
   if (summary.scanned > 0) log.info(summary, 'trash-gc pass complete');
   return summary;
-}
-
-export interface TrashGcHandle {
-  stop: () => void;
-}
-
-/** Start a background loop. Returns a handle whose `stop()` cancels it. */
-export function startTrashGc(opts: TrashGcOptions & { intervalMs?: number } = {}): TrashGcHandle {
-  const intervalMs = opts.intervalMs ?? DEFAULT_INTERVAL_MS;
-  let stopped = false;
-  const tick = async () => {
-    if (stopped) return;
-    try {
-      await runTrashGcOnce(opts);
-    } catch (err) {
-      log.error({ err: err instanceof Error ? err.message : err }, 'trash-gc pass crashed');
-    }
-  };
-  const timer = setInterval(() => {
-    void tick();
-  }, intervalMs);
-  // Owed unlinks of kept-photo purges retry on the stage ladder, not daily.
-  const cleanupTimer = setInterval(() => {
-    if (!stopped) void drainCleanup();
-  }, CLEANUP_INTERVAL_MS);
-  // Fire once on startup so a freshly-booted server doesn't wait 24h
-  // before its first sweep. Errors are swallowed by tick() so a stray
-  // failure doesn't crash boot.
-  void tick();
-  return {
-    stop: () => {
-      stopped = true;
-      clearInterval(timer);
-      clearInterval(cleanupTimer);
-    },
-  };
 }
