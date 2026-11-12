@@ -7,6 +7,7 @@ import { AssetRenameService } from './asset-rename.service';
 import { BunApiBackendService } from '../api/bun-api-backend.service';
 import { LibraryStateService } from '../state/library-state.service';
 import type { Asset } from '../models/asset';
+import { FolderOccupancyService } from '../stack/folder-occupancy.service';
 
 const ASSET: Asset = {
   id: 'library:2026/IMG_0001.CR3',
@@ -24,6 +25,7 @@ describe('AssetRenameService', () => {
   let stateRenameSpy: ReturnType<typeof vi.fn>;
   let navigateSpy: ReturnType<typeof vi.fn>;
   let refreshSpy: ReturnType<typeof vi.fn>;
+  let occupiedSpy: ReturnType<typeof vi.fn>;
   let service: AssetRenameService;
 
   function setup(
@@ -33,6 +35,7 @@ describe('AssetRenameService', () => {
     stateRenameSpy = vi.fn();
     navigateSpy = vi.fn();
     refreshSpy = vi.fn();
+    occupiedSpy = vi.fn();
 
     const fakeApi = { renameAsset: renameAssetSpy };
     const fakeState = {
@@ -51,6 +54,7 @@ describe('AssetRenameService', () => {
         { provide: BunApiBackendService, useValue: fakeApi },
         { provide: LibraryStateService, useValue: fakeState },
         { provide: Router, useValue: fakeRouter },
+        { provide: FolderOccupancyService, useValue: { occupiedNames: occupiedSpy } },
       ],
     });
     service = TestBed.inject(AssetRenameService);
@@ -256,20 +260,62 @@ describe('AssetRenameService', () => {
       expect(service.collision()).toEqual({ assetId: STACKED.id, filename: 'Trip_01.CR3' });
     });
 
-    it('reports a JPEG that cannot follow and keeps the field open', () => {
+    it('never sends Replace chosen for the RAW to the JPEG: the JPEG gets its own prompt', () => {
+      renameAssetSpy
+        .mockReturnValueOnce(of({ kind: 'skipped', reason: 'collision' }))
+        .mockReturnValueOnce(renamed('Trip_01.CR3'))
+        .mockReturnValueOnce(of({ kind: 'skipped', reason: 'collision' }));
+      service.startEditing(STACKED);
+      service.commit(STACKED, 'Trip_01.CR3');
+      service.resolveCollision(STACKED, 'replace');
+
+      expect(renameAssetSpy.mock.calls).toEqual([
+        [STACKED.id, 'Trip_01.CR3', 'skip'],
+        [STACKED.id, 'Trip_01.CR3', 'replace'],
+        ['library:2026/IMG_0001.JPG', 'Trip_01.JPG', 'skip'],
+      ]);
+      expect(service.collision()).toEqual({
+        assetId: 'library:2026/Trip_01.CR3',
+        filename: 'Trip_01.JPG',
+        companion: { id: 'library:2026/IMG_0001.JPG', filename: 'IMG_0001.JPG' },
+      });
+    });
+
+    it('replaces the JPEG target only after the user chooses Replace on the JPEG’s prompt', () => {
+      renameAssetSpy
+        .mockReturnValueOnce(renamed('Trip_01.CR3'))
+        .mockReturnValueOnce(of({ kind: 'skipped', reason: 'collision' }))
+        .mockReturnValueOnce(renamed('Trip_01.JPG'));
+      service.startEditing(STACKED);
+      service.commit(STACKED, 'Trip_01.CR3');
+      const raw = { ...STACKED, id: 'library:2026/Trip_01.CR3', filename: 'Trip_01.CR3' };
+      service.resolveCollision(raw, 'keep-both');
+      expect(renameAssetSpy).toHaveBeenCalledTimes(2);
+
+      service.resolveCollision(raw, 'replace');
+      expect(renameAssetSpy).toHaveBeenLastCalledWith(
+        'library:2026/IMG_0001.JPG',
+        'Trip_01.JPG',
+        'replace',
+      );
+      expect(service.editingAssetId()).toBeNull();
+    });
+
+    it('keeps the field open on the renamed RAW while the JPEG’s prompt is pending', () => {
       renameAssetSpy
         .mockReturnValueOnce(renamed('Trip_01.CR3'))
         .mockReturnValueOnce(of({ kind: 'skipped', reason: 'collision' }));
       service.startEditing(STACKED);
       service.commit(STACKED, 'Trip_01.CR3');
 
-      expect(service.error()).toBe('IMG_0001.JPG could not be renamed to Trip_01.JPG: collision');
-      expect(service.editingAssetId()).toBe(STACKED.id);
+      expect(service.editingAssetId()).toBe('library:2026/Trip_01.CR3');
       expect(service.busy()).toBe(false);
+      service.resolveCollision({ ...STACKED, id: 'library:2026/Trip_01.CR3' }, 'skip');
       expect(refreshSpy).toHaveBeenCalledWith('library:2026');
+      expect(service.editingAssetId()).toBeNull();
     });
 
-    it('reports a JPEG rename that fails outright', () => {
+    it('reports a JPEG rename that fails outright on the renamed RAW’s field', () => {
       renameAssetSpy
         .mockReturnValueOnce(renamed('Trip_01.CR3'))
         .mockReturnValueOnce(throwError(() => new Error('disk full')));
@@ -278,6 +324,25 @@ describe('AssetRenameService', () => {
 
       expect(service.error()).toContain('IMG_0001.JPG could not be renamed to Trip_01.JPG');
       expect(service.error()).toContain('disk full');
+      expect(service.editingAssetId()).toBe('library:2026/Trip_01.CR3');
+    });
+
+    it('Keep Both picks one stem free for the RAW, the JPEG and their sidecar', () => {
+      occupiedSpy.mockReturnValue(
+        of(new Set(['img_0001.cr3', 'img_0001.jpg', 'trip_01.cr3', 'trip_01.1.jpg'])),
+      );
+      renameAssetSpy
+        .mockReturnValueOnce(of({ kind: 'skipped', reason: 'collision' }))
+        .mockImplementation((_id: string, name: string) => renamed(name));
+      service.startEditing(STACKED);
+      service.commit(STACKED, 'Trip_01.CR3');
+      service.resolveCollision(STACKED, 'keep-both');
+
+      expect(occupiedSpy).toHaveBeenCalledWith('library:2026');
+      expect(renameAssetSpy.mock.calls.slice(1)).toEqual([
+        [STACKED.id, 'Trip_01.2.CR3', 'skip'],
+        ['library:2026/IMG_0001.JPG', 'Trip_01.2.JPG', 'skip'],
+      ]);
     });
   });
 });

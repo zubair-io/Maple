@@ -122,7 +122,7 @@ describe('TrashService', () => {
       getAssetDetailsByAddress: getAssetDetailsByAddressSpy,
     };
     const fakeState = {
-      assetsInSelectedFolder: () => [ASSET_A, ASSET_B, ASSET_C_SUBFOLDER, ASSET_D_STACKED],
+      assets: () => [ASSET_A, ASSET_B, ASSET_C_SUBFOLDER, ASSET_D_STACKED],
       refreshFolderListing: refreshFolderListingSpy,
       currentRegisteredFolder: () => LIBRARY,
       registeredFolders: () => [LIBRARY],
@@ -219,7 +219,7 @@ describe('TrashService', () => {
         ['507f1f77bcf86cd799439014', 'trash'],
         ['507f1f77bcf86cd799439015', 'trash'],
       ]);
-      expect(service.resultSummary()).toEqual({ total: 2, trashed: 2, failed: [] });
+      expect(service.resultSummary()).toEqual({ total: 1, trashed: 1, failed: [] });
     });
 
     it('does not trash the companion twice when it is already part of the request', async () => {
@@ -227,6 +227,26 @@ describe('TrashService', () => {
       service.trashAssets([ASSET_D_STACKED.id, 'photos:IMG_0004.JPG'], LIBRARY_ID);
       await vi.waitFor(() => expect(service.busy()).toBe(false));
       expect(deleteAssetSpy).toHaveBeenCalledTimes(2);
+    });
+
+    it('keeps the JPEG when its RAW cannot be trashed', async () => {
+      deleteAssetSpy.mockReturnValueOnce(throwError(() => new Error('locked')));
+      service.trashAssets([ASSET_D_STACKED.id], LIBRARY_ID);
+      await vi.waitFor(() => expect(service.busy()).toBe(false));
+      expect(deleteAssetSpy).toHaveBeenCalledTimes(1);
+      expect(service.resultSummary()).toMatchObject({ total: 1, trashed: 0 });
+    });
+
+    it('reports a JPEG that did not follow its RAW to Trash, naming both files', async () => {
+      deleteAssetSpy
+        .mockReturnValueOnce(of({ kind: 'ok' }))
+        .mockReturnValueOnce(throwError(() => new Error('locked')));
+      service.trashAssets([ASSET_D_STACKED.id], LIBRARY_ID);
+      await vi.waitFor(() => expect(service.busy()).toBe(false));
+      const summary = service.resultSummary();
+      expect(summary).toMatchObject({ total: 1, trashed: 0 });
+      expect(summary?.failed[0]).toMatchObject({ assetId: 'photos:IMG_0004.JPG' });
+      expect(summary?.failed[0]?.reason).toContain('its JPEG IMG_0004.JPG was not: locked');
     });
 
     // #2841 — this is the exact bug: `TrashApiService.deleteAsset` used to

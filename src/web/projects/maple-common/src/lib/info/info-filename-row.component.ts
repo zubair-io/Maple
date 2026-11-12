@@ -40,9 +40,10 @@ export class InfoFilenameRowComponent {
     return a ? this.renameSvc.disabledReason(a) : 'No asset selected';
   });
 
-  protected readonly isCollision = computed(() => {
+  protected readonly pendingCollision = computed(() => {
     const a = this.asset();
-    return a !== null && this.renameSvc.collision()?.assetId === a.id;
+    const pending = this.renameSvc.collision();
+    return a !== null && pending?.assetId === a.id ? pending : null;
   });
 
   onDblClick(): void {

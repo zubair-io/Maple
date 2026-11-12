@@ -36,6 +36,7 @@ export * from './lib/api/library-backend.token';
 export * from './lib/workspace/workspace-capabilities';
 export * from './lib/workspace/workspace-persistence';
 export * from './lib/workspace/server-library-io';
+export * from './lib/stack/stack-preference.service';
 export * from './lib/workspace/hosted-workspace.providers';
 export * from './lib/workspace/self-hosted-workspace.providers';
 export * from './lib/api/api-base-url.token';

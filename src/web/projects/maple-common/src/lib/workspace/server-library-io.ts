@@ -20,8 +20,9 @@ export interface ApiFolder {
 /** `GET/PUT /api/display/config`; a PUT carries only the fields it changes. */
 export interface ApiDisplayConfig {
   show_hidden_images: boolean;
-  /** One tile for a same-stem RAW+JPEG pair (#5050). */
-  stack_raw_jpeg: boolean;
+  /** The user's RAW+JPEG stacking preference (#5050): stack-aware clients send
+   * `stack=1` when it is on. Older servers omit it; treat that as on. */
+  stack_raw_jpeg?: boolean;
 }
 
 export interface ApiHistogram {

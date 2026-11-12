@@ -12,7 +12,13 @@ import { provideRouter, Router } from '@angular/router';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { signal } from '@angular/core';
 import { of, throwError } from 'rxjs';
-import { API_BASE_URL, AuthService, LibraryStateService, type AuthUser } from '@maple-common';
+import {
+  API_BASE_URL,
+  AuthService,
+  LibraryStateService,
+  StackPreferenceService,
+  type AuthUser,
+} from '@maple-common';
 import { AccountComponent } from './account.component';
 
 describe('AccountComponent', () => {
@@ -261,6 +267,7 @@ describe('AccountComponent', () => {
 
     expect(toggleText('stack-raw-jpeg-toggle')).toBe('Off');
     expect(reloadListings).toHaveBeenCalledOnce();
+    expect(await TestBed.inject(StackPreferenceService).load()).toBe(false);
   });
 
   it('keeps RAW+JPEG stacking and the listing when the save reports ok:false', async () => {
@@ -273,5 +280,34 @@ describe('AccountComponent', () => {
 
     expect(toggleText('stack-raw-jpeg-toggle')).toBe('On');
     expect(reloadListings).not.toHaveBeenCalled();
+    expect(el().querySelector('[data-testid="preference-error"]')?.textContent).toContain(
+      'Could not change "Show one image for RAW+JPEG pairs"',
+    );
+  });
+
+  it('shows a failed stacking save instead of failing silently', async () => {
+    await setup();
+    await initWithMock([]);
+
+    el().querySelector<HTMLButtonElement>('[data-testid="stack-raw-jpeg-toggle"] button')!.click();
+    http
+      .expectOne('/api/display/config')
+      .flush({ error: 'forbidden' }, { status: 403, statusText: 'Forbidden' });
+    fixture.detectChanges();
+
+    expect(toggleText('stack-raw-jpeg-toggle')).toBe('On');
+    expect(el().querySelector('[role="alert"][data-testid="preference-error"]')).not.toBeNull();
+  });
+
+  it('shows stacking On when an older server omits stack_raw_jpeg', async () => {
+    await setup();
+    fixture.detectChanges();
+    http.expectOne('/api/auth/me').flush({ user: owner, credentials: [] });
+    await Promise.resolve();
+    await Promise.resolve();
+    http.expectOne('/api/display/config').flush({ show_hidden_images: false });
+    fixture.detectChanges();
+
+    expect(toggleText('stack-raw-jpeg-toggle')).toBe('On');
   });
 });
