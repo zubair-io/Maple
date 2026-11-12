@@ -611,9 +611,6 @@ export interface AssetDoc {
    * worker's `complete()` so the value stays consistent without a
    * separate write. The full-text search index (FTS5) lives on this field. */
   search_blob?: string;
-  /** Retired: the fingerprint the Meilisearch vector coverage stamped. Nothing writes it
-   * any more; the column is kept because dropping it needs a table rebuild. */
-  semantic_vector_fingerprint?: string;
   /** Per-device link from Apple Photos. Multiple entries when the same
    * content has been observed on more than one device. See
    * `.archived-plans/specs/2026-05-09-photokit-backup-design.md` §16. */

@@ -62,6 +62,7 @@ import { bundledEmbedderMigration } from './0037-bundled-embedder.ts';
 import { motionPhotoMigration } from './0038-motion-photo.ts';
 import { livePhotoMigration } from './0039-live-photo.ts';
 import { backupDestinationCountsMigration } from './0040-backup-destination-counts.ts';
+import { dropVectorFingerprintIndexMigration } from './0041-drop-vector-fingerprint-index.ts';
 
 export const ALL_MIGRATIONS: readonly Migration[] = [
   initialSchemaMigration,
@@ -104,4 +105,5 @@ export const ALL_MIGRATIONS: readonly Migration[] = [
   motionPhotoMigration,
   livePhotoMigration,
   backupDestinationCountsMigration,
+  dropVectorFingerprintIndexMigration,
 ];

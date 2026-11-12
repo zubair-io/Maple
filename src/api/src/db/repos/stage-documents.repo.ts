@@ -60,7 +60,7 @@ const STAGE_ASSET_COLUMNS = `
   deleted_at, maple_id, sha1_head,
   damaged_since, damaged_stage, damaged_reason,
   live_location_count, deleted_from_photos, apple_rendered_path, apple_live_video_path,
-  cf_thumb_synced_at, semantic_vector_fingerprint, geo_backfill_skipped,
+  cf_thumb_synced_at, geo_backfill_skipped,
   exif, place`;
 
 interface StageAssetRow {
@@ -89,7 +89,6 @@ interface StageAssetRow {
   apple_rendered_path: string | null;
   apple_live_video_path: string | null;
   cf_thumb_synced_at: string | null;
-  semantic_vector_fingerprint: string | null;
   geo_backfill_skipped: string | null;
   exif: string | null;
   place: string | null;
@@ -292,9 +291,6 @@ function sparseFields(row: StageAssetRow) {
     ...(row.sha1_head === null ? {} : { sha1_head: row.sha1_head }),
     ...presentAppleCompanions(row),
     ...(row.cf_thumb_synced_at === null ? {} : { cf_thumb_synced_at: row.cf_thumb_synced_at }),
-    ...(row.semantic_vector_fingerprint === null
-      ? {}
-      : { semantic_vector_fingerprint: row.semantic_vector_fingerprint }),
     ...(row.geo_backfill_skipped === null
       ? {}
       : { geo_backfill_skipped: row.geo_backfill_skipped as 'no-donor' | 'skip' }),
