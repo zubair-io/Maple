@@ -83,7 +83,11 @@ final class MuiPad2DTests: XCTestCase {
     var steps: [MuiPad2DDirection] = []
     let pad = MuiPad2D(
       value: Binding(get: { stored }, set: { stored = $0 }), size: nil,
-      onEditingChanged: { events.append($0) }, onStep: { steps.append($0) })
+      onEditingChanged: { events.append($0) },
+      onStep: {
+        steps.append($0)
+        return nil
+      })
     pad.onEditingChanged?(true)
     pad.value = MuiPad2DValue(x: 0.25, y: -0.5)
     pad.onStep?(.up)
@@ -92,5 +96,25 @@ final class MuiPad2DTests: XCTestCase {
     XCTAssertEqual(events, [true, false])
     XCTAssertEqual(steps, [.up])
     XCTAssertNil(pad.size)
+  }
+
+  /// A key step against an edge used to open an edit anyway, and opening one
+  /// drops the consumer's redo stack.
+  @MainActor
+  func testAStepThatCannotMoveTheValueHasNoWrite() {
+    var stored = MuiPad2DValue(x: 1, y: 0)
+    let builtIn = MuiPad2D(value: Binding(get: { stored }, set: { stored = $0 }))
+    XCTAssertNil(builtIn.stepWrite(.right))
+    builtIn.stepWrite(.left)?()
+    XCTAssertEqual(stored, MuiPad2D.stepped(MuiPad2DValue(x: 1, y: 0), .left))
+    XCTAssertLessThan(stored.x, 1)
+
+    var wrote = false
+    let consumer = MuiPad2D(
+      value: .constant(MuiPad2DValue(x: 0, y: 0)),
+      onStep: { $0 == .up ? { wrote = true } : nil })
+    XCTAssertNil(consumer.stepWrite(.down))
+    consumer.stepWrite(.up)?()
+    XCTAssertTrue(wrote)
   }
 }

@@ -78,8 +78,8 @@ final class WhiteBalancePadTransactionTests: XCTestCase {
     let pad = WhiteBalancePad(state: state).pad
 
     pad.onEditingChanged?(true)
-    for _ in 1...3 { pad.onStep?(.right) }
-    pad.onStep?(.down)
+    for _ in 1...3 { pad.onStep?(.right)?() }
+    pad.onStep?(.down)?()
     pad.onEditingChanged?(false)
 
     XCTAssertEqual(session.undoHistory.count, 1)
@@ -87,6 +87,29 @@ final class WhiteBalancePadTransactionTests: XCTestCase {
     XCTAssertEqual(session.model.tint, before.tint - 1)
     session.undo()
     XCTAssertEqual(session.model, before)
+  }
+
+  /// Undoing back to the warm edge and pressing Right there used to open an
+  /// edit (`commit()` → `beginEdit()`), which drops the redo stack, though
+  /// the photo could not change.
+  func testAStepAgainstTheEdgeHasNothingToWriteSoRedoSurvives() {
+    let session = EditSession.preview()
+    let state = EditorState(session: session)
+    let pad = WhiteBalancePad(state: state).pad
+    for x in [1.0, 0.0] {
+      pad.onEditingChanged?(true)
+      pad.value = MuiPad2DValue(x: x, y: 0)
+      pad.onEditingChanged?(false)
+    }
+    session.undo()
+    XCTAssertEqual(session.model.temperature, AdjustmentModel.temperatureRange.upperBound)
+    let undone = session.model
+
+    let pressed = WhiteBalancePad(state: state).pad
+    XCTAssertNil(pressed.onStep?(.right), "A clamped step has nothing to write: no edit opens")
+    XCTAssertTrue(session.canRedo)
+    XCTAssertEqual(session.model, undone)
+    XCTAssertNotNil(pressed.onStep?(.left), "Stepping back off the edge still writes")
   }
 
   func testSeparateDragsKeepTheirOwnBeforeValues() {

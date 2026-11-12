@@ -107,12 +107,16 @@ struct WhiteBalancePad: View {
         }
       },
       onStep: { direction in
+        let next: AdjustmentModel
         switch direction {
-        case .left: write(WhiteBalancePadMath.stepping(model, temperatureSteps: -1))
-        case .right: write(WhiteBalancePadMath.stepping(model, temperatureSteps: 1))
-        case .up: write(WhiteBalancePadMath.stepping(model, tintSteps: 1))
-        case .down: write(WhiteBalancePadMath.stepping(model, tintSteps: -1))
+        case .left: next = WhiteBalancePadMath.stepping(model, temperatureSteps: -1)
+        case .right: next = WhiteBalancePadMath.stepping(model, temperatureSteps: 1)
+        case .up: next = WhiteBalancePadMath.stepping(model, tintSteps: 1)
+        case .down: next = WhiteBalancePadMath.stepping(model, tintSteps: -1)
         }
+        // A pair already at that edge: no edit, so the redo stack survives.
+        guard next.temperature != model.temperature || next.tint != model.tint else { return nil }
+        return { write(next) }
       },
       onHover: { hover = $0 })
   }
