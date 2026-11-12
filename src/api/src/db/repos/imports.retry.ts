@@ -156,8 +156,8 @@ async function requeueRecoveredFiles(
 }
 
 /**
- * Re-queue a failed (or partially-failed `done`) import so a worker re-claims
- * it. Resets every `failed` file back to `pending`, clears the import-level
+ * Re-queue a failed (or partially-failed `done`) import so the relay dispatches
+ * it again. Resets every `failed` file back to `pending`, clears the import-level
  * error, recomputes the failure count, sets the status back to `pending`, and
  * clears the lease and the cancel flag. Already-copied and skipped files keep
  * their state, so the worker does not re-copy them.
