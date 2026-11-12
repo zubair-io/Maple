@@ -1,19 +1,22 @@
 import type { Migration, MigrationDb } from '../migrate.ts';
 
-/** 0045 — what a backup send carried when the server merged it into something else
- * (#5796). The device keeps what it sent, not the merged sidecar, so its next send
- * is reconciled from these adjustments. Keyed by the history entry the send became. */
+/** 0045 — what a backup device sent where the sidecar's history cannot show it (#5796):
+ * a send the server merged into other adjustments, keyed by the entry it became, and a
+ * send acknowledged as unchanged, keyed by the entry it was acknowledged at (`''` for
+ * none). The device's next send names the digest and is reconciled from these
+ * adjustments. Keyed by asset so a moved photo keeps them; `library_id` and
+ * `sidecar_rel_path` only say which sidecar last held the entry, for pruning. */
 export const backupSidecarSendsMigration: Migration = {
   id: '0045-backup-sidecar-sends',
   async up(db: MigrationDb): Promise<void> {
     await db.exec(`CREATE TABLE backup_sidecar_sends (
+      asset_id         TEXT NOT NULL REFERENCES assets(id) ON DELETE CASCADE,
+      sent_sha256      TEXT NOT NULL,
+      entry_id         TEXT NOT NULL,
+      sent_checkpoint  TEXT NOT NULL,
       library_id       TEXT NOT NULL,
       sidecar_rel_path TEXT NOT NULL,
-      entry_id         TEXT NOT NULL,
-      asset_id         TEXT NOT NULL REFERENCES assets(id) ON DELETE CASCADE,
-      sent_checkpoint  TEXT NOT NULL,
-      PRIMARY KEY (library_id, sidecar_rel_path, entry_id)
+      PRIMARY KEY (asset_id, sent_sha256, entry_id)
     )`);
-    await db.exec(`CREATE INDEX backup_sidecar_sends_asset ON backup_sidecar_sends(asset_id)`);
   },
 };

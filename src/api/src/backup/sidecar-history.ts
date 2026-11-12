@@ -9,10 +9,11 @@
  * is applied and recoverable instead of being parked outside the sidecar.
  *
  * Entry ids derive from the base entry and the sent bytes, so a retried send finds its
- * own entry and changes nothing, and a digest base is resolved to the latest entry it
- * produced. The device keeps what it sent, not what the server merged it into, so a
- * merged send's own adjustments are kept beside the sidecar (`sentOf`) and are the merge
- * base of the next send that names it.
+ * own entry and changes nothing, and a digest base is resolved to the latest place the
+ * device sent it. The device keeps what it sent, not what the server merged it into, and
+ * names it by digest: what the history cannot show (a merged send's own adjustments, a
+ * send acknowledged as unchanged) is kept beside the sidecar (`SentRecord`) and is the
+ * merge base of the next send that names it.
  */
 import { createHash } from 'node:crypto';
 import { nativeValue, record } from '../fs/workflow-variants';
@@ -22,16 +23,25 @@ export type SidecarBase =
   | { kind: 'head'; head: string | null }
   | { kind: 'digest'; sha256: string | null };
 
-/** The sent adjustments to keep for a sidecar once a send lands on it. */
+/** A send kept beside the sidecar: the device sent `sha256`, whose adjustments are
+ * `checkpoint`, and it became, or was acknowledged at, history entry `entryId` (`''`
+ * for none). */
+export interface SentRecord {
+  sha256: string;
+  entryId: string;
+  checkpoint: string;
+}
+
+/** The sends to keep for a sidecar once one was placed on it. */
 export interface SentUpdate {
-  /** Entries whose sent adjustments stay: the history the send landed on, and its own. */
+  /** Entries whose sends stay: the sidecar's history, and `''`. */
   retained: string[];
-  /** This send's own, when the server merged it into other adjustments. */
-  sent: { entryId: string; checkpoint: string } | null;
+  /** This send, when the history cannot show what the device holds now. */
+  sent: SentRecord | null;
 }
 
 export type AppliedBackupSidecar =
-  | { kind: 'unchanged'; head: string | null }
+  | { kind: 'unchanged'; head: string | null; sends?: SentUpdate }
   | { kind: 'shared' }
   | { kind: 'publish'; xmp: string; head: string; reconciled: boolean; sends: SentUpdate };
 
@@ -86,21 +96,6 @@ export async function firstBackupSidecar(
   return { xmp, head };
 }
 
-/** The entry `base` names; a digest a device sent more than once names its latest send. */
-function baseEntry(
-  history: readonly WorkflowHistoryEntry[],
-  base: SidecarBase,
-): WorkflowHistoryEntry | null {
-  if (base.kind === 'head') {
-    return base.head === null ? null : (history.find((entry) => entry.id === base.head) ?? null);
-  }
-  const sent = base.sha256;
-  if (sent === null) return null;
-  return (
-    history.findLast((entry) => entry.id === backupEntryId(entry.parentId ?? '', sent)) ?? null
-  );
-}
-
 export interface BackupSidecarSend {
   current: string;
   incoming: string;
@@ -108,13 +103,13 @@ export interface BackupSidecarSend {
   /** A same-stem sibling shares the sidecar (#4692): only the exact base may replace it. */
   shared: boolean;
   now: number;
-  /** What the device sent for an entry the server merged into other adjustments. */
-  sentOf: (entryId: string) => Promise<string | null>;
+  /** The kept sends with this digest, or kept for this entry. */
+  sentFor: (query: { sha256: string } | { entryId: string }) => Promise<SentRecord[]>;
 }
 
-/** The entry a send continues from: the base it named, or the head when it was
- * built from the current bytes. `ancestor` is what the device held there: what it
- * sent when the server merged that send, else the entry's adjustments. */
+/** Where a send continues from: the entry it names (`known`, its `id`), and `ancestor`,
+ * what the device held there: what it sent when the history cannot show it, else the
+ * entry's adjustments. */
 interface SendParent {
   known: WorkflowHistoryEntry | null;
   fromCurrent: boolean;
@@ -124,20 +119,66 @@ interface SendParent {
   exact: boolean;
 }
 
+type Found = Omit<SendParent, 'fromCurrent'>;
+
+const landedBy = (entry: WorkflowHistoryEntry, sha256: string) =>
+  entry.id === backupEntryId(entry.parentId ?? '', sha256);
+
+/** The entry a head names, from what that send carried when the server merged it. */
+async function headParent(
+  history: readonly WorkflowHistoryEntry[],
+  head: string,
+  send: BackupSidecarSend,
+): Promise<Found | null> {
+  const known = history.find((entry) => entry.id === head);
+  if (known === undefined) return null;
+  const own = (await send.sentFor({ entryId: head })).find((row) => landedBy(known, row.sha256));
+  return { known, id: known.id, ancestor: own?.checkpoint ?? known.adjustmentXmp, exact: !own };
+}
+
+/** The latest place in the history the device sent `sha256`: the entry it became, or one
+ * it was acknowledged at; else an acknowledgement when the sidecar had no history. */
+async function digestParent(
+  history: readonly WorkflowHistoryEntry[],
+  sha256: string,
+  send: BackupSidecarSend,
+): Promise<Found | null> {
+  const rows = await send.sentFor({ sha256 });
+  for (const known of history.toReversed()) {
+    const row = rows.find((candidate) => candidate.entryId === known.id);
+    if (landedBy(known, sha256)) {
+      return { known, id: known.id, ancestor: row?.checkpoint ?? known.adjustmentXmp, exact: !row };
+    }
+    if (row) return { known, id: known.id, ancestor: row.checkpoint, exact: true };
+  }
+  const unrecorded = rows.find((row) => row.entryId === '');
+  return unrecorded ? { known: null, id: '', ancestor: unrecorded.checkpoint, exact: false } : null;
+}
+
+function namedParent(
+  history: readonly WorkflowHistoryEntry[],
+  send: BackupSidecarSend,
+): Promise<Found | null> {
+  const { base } = send;
+  if (base.kind === 'head') {
+    return base.head === null ? Promise.resolve(null) : headParent(history, base.head, send);
+  }
+  return base.sha256 === null ? Promise.resolve(null) : digestParent(history, base.sha256, send);
+}
+
 async function sendParent(
   history: readonly WorkflowHistoryEntry[],
   send: BackupSidecarSend,
   currentSha256: string,
 ): Promise<SendParent> {
-  const known = baseEntry(history, send.base);
   const fromCurrent = send.base.kind === 'digest' && send.base.sha256 === currentSha256;
-  if (known !== null) {
-    const sent = await send.sentOf(known.id);
-    const ancestor = sent ?? known.adjustmentXmp;
-    return { known, fromCurrent, id: known.id, ancestor, exact: sent === null };
+  const found = await namedParent(history, send);
+  if (found?.known) return { ...found, fromCurrent };
+  if (fromCurrent) {
+    const id = history.at(-1)?.id ?? '';
+    return { known: null, fromCurrent, id, ancestor: send.current, exact: true };
   }
-  if (!fromCurrent) return { known, fromCurrent, id: '', ancestor: '', exact: false };
-  return { known, fromCurrent, id: history.at(-1)?.id ?? '', ancestor: send.current, exact: true };
+  return { known: null, fromCurrent, id: '', ancestor: found?.ancestor ?? '', exact: false };
 }
 
 /** Whether the merge recorded an entry `history` lacks: an outside edit it captured. */
@@ -150,22 +191,36 @@ async function capturedOutsideEdit(
   return entries.some((entry) => !prior.has(entry.id));
 }
 
-/** The sent adjustments to keep once a send landed as `landed`: its own when the merge
- * made them something other than the send applied as is (`reconcile_xmp` from `current`
- * itself, so both sides carry the same record layout). */
+const retainedBy = (history: readonly WorkflowHistoryEntry[]) => [
+  ...history.map((entry) => entry.id),
+  '',
+];
+
+/** Acknowledged without a write: kept, so the digest the device now holds names the
+ * head it was acknowledged at even once another writer moved past it. */
+function acknowledged(
+  history: readonly WorkflowHistoryEntry[],
+  sha256: string,
+  checkpoint: string,
+): AppliedBackupSidecar {
+  const head = history.at(-1)?.id ?? null;
+  const sent = { sha256, entryId: head ?? '', checkpoint };
+  return { kind: 'unchanged', head, sends: { retained: retainedBy(history), sent } };
+}
+
+/** The sends to keep once a send landed as `landed`: its own when the merge made it
+ * something other than the send applied as is (`reconcile_xmp` from `current` itself,
+ * so both sides carry the same record layout). */
 async function sentUpdate(
   send: BackupSidecarSend,
-  history: readonly WorkflowHistoryEntry[],
-  landed: { head: string; adjustments: string },
-  sent: string,
+  landed: { xmp: string; head: string; adjustments: string },
+  sent: SentRecord,
 ): Promise<SentUpdate> {
   const { current, incoming, now } = send;
   const applied = await nativeValue('workflowReconcileXmp', [current, current, incoming, `${now}`]);
   const merged = landed.adjustments !== (await checkpointOf(applied));
-  return {
-    retained: [...history.map((entry) => entry.id), landed.head],
-    sent: merged ? { entryId: landed.head, checkpoint: sent } : null,
-  };
+  const retained = retainedBy((await record(landed.xmp))?.history ?? []);
+  return { retained, sent: merged ? sent : null };
 }
 
 /** What publishing `incoming` over the stored `current` does. */
@@ -177,13 +232,13 @@ export async function reconcileBackupSidecar(
   const currentSha256 = sha256Hex(current);
   const history = (await record(current))?.history ?? [];
   const head = history.at(-1)?.id ?? null;
-  if (currentSha256 === sentSha256) return { kind: 'unchanged', head };
+  const sent = await checkpointOf(incoming);
+  if (currentSha256 === sentSha256) return acknowledged(history, sentSha256, sent);
 
   const parent = await sendParent(history, send, currentSha256);
   const ownEntry = backupEntryId(parent.id, sentSha256);
   if (history.some((entry) => entry.id === ownEntry)) return { kind: 'unchanged', head: ownEntry };
-  const sent = await checkpointOf(incoming);
-  if (sent === (await checkpointOf(current))) return { kind: 'unchanged', head };
+  if (sent === (await checkpointOf(current))) return acknowledged(history, sentSha256, sent);
 
   const merged = await nativeValue('workflowReconcileXmp', [
     parent.ancestor,
@@ -198,6 +253,7 @@ export async function reconcileBackupSidecar(
     (parent.known?.id === head && parent.exact && !(await capturedOutsideEdit(merged, history)));
   if (!fresh && send.shared) return { kind: 'shared' };
   const landed = await commitBackupEntry(merged, parent.id, sentSha256, now);
-  const sends = await sentUpdate(send, history, landed, sent);
+  const own = { sha256: sentSha256, entryId: landed.head, checkpoint: sent };
+  const sends = await sentUpdate(send, landed, own);
   return { kind: 'publish', xmp: landed.xmp, head: landed.head, reconciled: !fresh, sends };
 }

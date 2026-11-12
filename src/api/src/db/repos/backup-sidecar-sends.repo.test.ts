@@ -7,44 +7,86 @@ import {
   insertLocation,
 } from '../sqlite/test-sqlite.test-helpers.ts';
 import { mergeIntoSurvivor } from './assets.merge.ts';
-import { recordBackupSidecarSends, sentCheckpointOf } from './backup-sidecar-sends.repo.ts';
+import type { SentRecord } from '../../backup/sidecar-history.ts';
+import {
+  recordBackupSidecarSends,
+  sentRecordsOf,
+  type BackupSidecarKey,
+} from './backup-sidecar-sends.repo.ts';
 
-test('a sidecar keeps the sent checkpoints its history still holds, and only its own', async () => {
+const sent = (sha256: string, entryId: string): SentRecord => ({
+  sha256,
+  entryId,
+  checkpoint: `<x:${sha256}/>`,
+});
+
+test('a sidecar keeps the sends its history still holds, and only its own', async () => {
   using live = await createLiveTestDatabase();
   const libraryId = new ObjectId(insertFolder(live.db, { path: '/photos' }));
   const assetId = new ObjectId(insertAsset(live.db));
   const sidecar = { assetId, libraryId, sidecarRelPath: 'IMG.xmp' };
   const other = { ...sidecar, sidecarRelPath: 'OTHER.xmp' };
-  const sent = (entryId: string) => ({ entryId, checkpoint: `<x:${entryId}/>` });
+  const record = (key: BackupSidecarKey, retained: string[], row: SentRecord | null) =>
+    recordBackupSidecarSends(key, { retained, sent: row }, live.handle);
 
-  await recordBackupSidecarSends(sidecar, { retained: [], sent: sent('a') }, live.handle);
-  await recordBackupSidecarSends(other, { retained: [], sent: sent('a') }, live.handle);
-  await recordBackupSidecarSends(sidecar, { retained: ['a', 'b'], sent: sent('b') }, live.handle);
-  expect(await sentCheckpointOf(sidecar, 'a', live.handle)).toBe('<x:a/>');
-  expect(await sentCheckpointOf(sidecar, 'b', live.handle)).toBe('<x:b/>');
+  await record(sidecar, ['', 'a'], sent('d1', 'a'));
+  await record(other, ['', 'x'], sent('d9', 'x'));
+  await record(sidecar, ['', 'a', 'b'], sent('d2', 'b'));
+  expect(await sentRecordsOf(assetId, { sha256: 'd1' }, live.handle)).toEqual([sent('d1', 'a')]);
+  expect(await sentRecordsOf(assetId, { entryId: 'b' }, live.handle)).toEqual([sent('d2', 'b')]);
 
   // History compaction retired `a`; the next send drops its row, not the other sidecar's.
-  await recordBackupSidecarSends(sidecar, { retained: ['b', 'c'], sent: null }, live.handle);
-  expect(await sentCheckpointOf(sidecar, 'a', live.handle)).toBeNull();
-  expect(await sentCheckpointOf(sidecar, 'b', live.handle)).toBe('<x:b/>');
-  expect(await sentCheckpointOf(other, 'a', live.handle)).toBe('<x:a/>');
+  await record(sidecar, ['', 'b', 'c'], null);
+  expect(await sentRecordsOf(assetId, { sha256: 'd1' }, live.handle)).toEqual([]);
+  expect(await sentRecordsOf(assetId, { sha256: 'd2' }, live.handle)).toEqual([sent('d2', 'b')]);
+  expect(await sentRecordsOf(assetId, { sha256: 'd9' }, live.handle)).toEqual([sent('d9', 'x')]);
 });
 
-test("merging duplicate assets keeps the condemned asset's sent checkpoints", async () => {
+test('a moved sidecar adopts the sends of the entries its history holds', async () => {
+  using live = await createLiveTestDatabase();
+  const libraryId = new ObjectId(insertFolder(live.db, { path: '/photos' }));
+  const assetId = new ObjectId(insertAsset(live.db));
+  const before = { assetId, libraryId, sidecarRelPath: 'a/IMG.xmp' };
+  const after = { ...before, sidecarRelPath: 'b/IMG.xmp' };
+  await recordBackupSidecarSends(
+    before,
+    { retained: ['', 'a'], sent: sent('d1', 'a') },
+    live.handle,
+  );
+
+  expect(await sentRecordsOf(assetId, { sha256: 'd1' }, live.handle)).toEqual([sent('d1', 'a')]);
+  await recordBackupSidecarSends(after, { retained: ['', 'a', 'b'], sent: null }, live.handle);
+  // Adopted: a later send to the old path no longer prunes it.
+  await recordBackupSidecarSends(before, { retained: [''], sent: null }, live.handle);
+  expect(await sentRecordsOf(assetId, { sha256: 'd1' }, live.handle)).toEqual([sent('d1', 'a')]);
+});
+
+test("merging duplicate assets keeps the condemned asset's sends", async () => {
   using live = await createLiveTestDatabase();
   const libraryId = insertFolder(live.db, { path: '/photos' });
   const survivor = insertAsset(live.db);
   const condemned = insertAsset(live.db);
   insertLocation(live.db, { assetId: survivor, libraryId, ordinal: 0 });
   insertLocation(live.db, { assetId: condemned, libraryId, ordinal: 0, filename: 'dup.dng' });
-  const sidecar = {
-    assetId: new ObjectId(condemned),
+  const key = (assetId: string, sidecarRelPath: string) => ({
+    assetId: new ObjectId(assetId),
     libraryId: new ObjectId(libraryId),
-    sidecarRelPath: 'dup.xmp',
-  };
+    sidecarRelPath,
+  });
+  // The same send kept for both: the merge must not collide on it.
+  for (const [assetId, file] of [
+    [condemned, 'dup.xmp'],
+    [survivor, 'IMG.xmp'],
+  ] as const) {
+    await recordBackupSidecarSends(
+      key(assetId, file),
+      { retained: [''], sent: sent('d1', 'e') },
+      live.handle,
+    );
+  }
   await recordBackupSidecarSends(
-    sidecar,
-    { retained: [], sent: { entryId: 'e', checkpoint: '<x:sent/>' } },
+    key(condemned, 'dup.xmp'),
+    { retained: ['', 'e'], sent: sent('d2', 'f') },
     live.handle,
   );
 
@@ -55,7 +97,11 @@ test("merging duplicate assets keeps the condemned asset's sent checkpoints", as
     dbOverride: live.handle,
   });
 
-  expect(live.db.query(`SELECT asset_id, sent_checkpoint FROM backup_sidecar_sends`).all()).toEqual(
-    [{ asset_id: survivor, sent_checkpoint: '<x:sent/>' }],
-  );
+  const rows = live.db
+    .query(`SELECT asset_id, sent_sha256 FROM backup_sidecar_sends ORDER BY sent_sha256`)
+    .all();
+  expect(rows).toEqual([
+    { asset_id: survivor, sent_sha256: 'd1' },
+    { asset_id: survivor, sent_sha256: 'd2' },
+  ]);
 });

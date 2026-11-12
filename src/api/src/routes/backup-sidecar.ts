@@ -79,10 +79,7 @@ import {
   hasSidecarDivergence,
   recordSidecarDivergence,
 } from '../db/repos/sidecar-divergences.repo.ts';
-import {
-  recordBackupSidecarSends,
-  sentCheckpointOf,
-} from '../db/repos/backup-sidecar-sends.repo.ts';
+import { recordBackupSidecarSends, sentRecordsOf } from '../db/repos/backup-sidecar-sends.repo.ts';
 import { isLiveLocationOfAsset } from '../db/repos/backup.repo.ts';
 
 const log = childLogger('backup-sidecar');
@@ -176,7 +173,7 @@ function keepAsideShared(
 }
 
 /** What this send keeps beside the sidecar: an edit a shared sidecar refused, and what
- * the device sent when the server merged it into other adjustments (#5796). */
+ * the device sent where the sidecar's history cannot show it (#5796). */
 function sendLedger(req: BackupSidecarCasRequest): SendLedger {
   const sidecar = {
     assetId: req.assetId,
@@ -185,7 +182,7 @@ function sendLedger(req: BackupSidecarCasRequest): SendLedger {
   };
   return {
     keepAside: keepAsideShared(req),
-    sentOf: (entryId) => sentCheckpointOf(sidecar, entryId),
+    sentFor: (query) => sentRecordsOf(req.assetId, query),
     recordSent: (update) => recordBackupSidecarSends(sidecar, update),
   };
 }

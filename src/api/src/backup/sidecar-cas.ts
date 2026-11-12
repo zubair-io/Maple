@@ -5,7 +5,9 @@
  * sidecar's edit history, or the SHA-256 of the XMP it last delivered (`none` for
  * neither). Under the shared sidecar write barrier:
  *   - nothing on disk yet → create it as sent, with the send's history entry on top;
- *   - the server already holds exactly this edit → leave it alone;
+ *   - the server already holds exactly this edit → leave it alone, keeping in the
+ *     ledger (`recordSent`) where it was acknowledged, since the device's next send
+ *     names it by digest;
  *   - the server still holds the base version → the send replaces the adjustments;
  *   - anything else is reconciled onto the stored sidecar (`sidecar-history.ts`):
  *     the send lands on top and what it displaced stays in the history; when the
@@ -30,6 +32,7 @@ import {
   firstBackupSidecar,
   reconcileBackupSidecar,
   sha256Hex,
+  type SentRecord,
   type SentUpdate,
   type SidecarBase,
 } from './sidecar-history.ts';
@@ -75,9 +78,9 @@ class RefusedPath extends Error {}
 export interface SendLedger {
   /** Keeps an edit a shared sidecar refused to take. */
   keepAside(incoming: { xmp: string; sha256: string }): Promise<void>;
-  /** What the device sent for a history entry the server merged into other adjustments. */
-  sentOf(entryId: string): Promise<string | null>;
-  /** Runs before a send's sidecar is written over the stored one. */
+  /** The kept sends with this digest, or kept for this history entry. */
+  sentFor(query: { sha256: string } | { entryId: string }): Promise<SentRecord[]>;
+  /** Runs before a send is acknowledged or its sidecar written over the stored one. */
   recordSent(update: SentUpdate): Promise<void>;
 }
 
@@ -110,9 +113,12 @@ async function publishOver(
     base: send.base,
     shared: send.shared,
     now: Date.now(),
-    sentOf: (entryId) => send.ledger.sentOf(entryId),
+    sentFor: (query) => send.ledger.sentFor(query),
   });
-  if (applied.kind === 'unchanged') return applied;
+  if (applied.kind === 'unchanged') {
+    if (applied.sends) await send.ledger.recordSent(applied.sends);
+    return { kind: 'unchanged', head: applied.head };
+  }
   if (applied.kind === 'shared') {
     await send.ledger.keepAside({ xmp: send.xmp, sha256: sha256Hex(send.xmp) });
     return applied;
