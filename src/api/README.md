@@ -11,11 +11,11 @@ Architecture: `docs/api.md`, `docs/server-api.md`, `docs/indexer-enrichment.md`.
 - [Bun](https://bun.sh) ≥ 1.3
 - Node / npm (only needed to rebuild the Angular UI)
 
-- A [Temporal](https://temporal.io) server. Maple runs its background jobs (exports, batch edits, panorama stitches, restores), folder imports, the per-asset pipeline stages (thumbnails, previews, EXIF, faces, search, …), the discover sweep that keeps the library in step with disk, and scheduled maintenance (trash purge, missing-file reaper, migrations, mirror upkeep, expired sign-in cleanup, the nightly database backup, …) on it. For development the single-binary one is enough: install the [Temporal CLI](https://docs.temporal.io/cli) and run `temporal server start-dev`, which listens on `127.0.0.1:7233`, the address Maple tries by default.
+- A [Temporal](https://temporal.io) server. Maple runs its background jobs (exports, batch edits, panorama stitches, restores), the operator's one-shots (mirror reconcile, face clustering, folder scans), folder imports, the per-asset pipeline stages (thumbnails, previews, EXIF, faces, search, …), the discover sweep that keeps the library in step with disk, and scheduled maintenance (trash purge, missing-file reaper, migrations, mirror upkeep, expired sign-in cleanup, the nightly database backup, …) on it. For development the single-binary one is enough: install the [Temporal CLI](https://docs.temporal.io/cli) and run `temporal server start-dev`, which listens on `127.0.0.1:7233`, the address Maple tries by default.
 
 There is no database to install. Maple keeps its entire library index in one SQLite file, which the server creates for itself the first time it starts.
 
-Without a reachable Temporal server the API still starts and serves the library, but new or changed files are not discovered or processed, jobs and imports stay queued, and maintenance does not run, until one appears. Settings → Workers shows whether the server can be reached and lets you change its address and namespace without a restart.
+Without a reachable Temporal server the API still starts and serves the library, but new or changed files are not discovered or processed, jobs, operations and imports stay queued, and maintenance does not run, until one appears. Clustering, folder scans and rescans answer 504 after 90 seconds of waiting. Settings → Workers shows whether the server can be reached and lets you change its address and namespace without a restart.
 
 ### 1. (Optional) Build the native RAW thumbnail library
 
