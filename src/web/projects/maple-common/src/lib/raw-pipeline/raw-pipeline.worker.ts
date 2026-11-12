@@ -56,12 +56,11 @@ import {
   handleOpenSession,
   handleRenderSession,
   handleSetFilmLut,
+  handleResolveImportedWb,
   handleCloseSession,
 } from './raw-pipeline.session-handler';
 
-// Forward worker console output to the main thread so Rust panic-hook messages
-// (which call console.error inside the worker) are visible in browser DevTools
-// and in test harnesses that only read the main-frame console.
+// Forward worker console output (incl. Rust panic hooks) to the main thread's console.
 {
   const forward =
     (level: 'log' | 'warn' | 'error', orig: (...args: unknown[]) => void) =>
@@ -95,6 +94,7 @@ addEventListener('message', (event: MessageEvent<WorkerRequest>) => {
   const req = event.data;
   if (req.type === 'lens-profile-restored') return lensProfileRestored(req.id);
   if (req.type === 'close-native-detail') return closeNativeDetail();
+  if (req.type === 'resolve-imported-wb') return enqueueMessage(() => handleResolveImportedWb(req));
   if (req.type === 'native-detail')
     return enqueueMessage(() => handleMessage(req, nativeDetailEpoch()));
   enqueueMessage(() => handleMessage(req));

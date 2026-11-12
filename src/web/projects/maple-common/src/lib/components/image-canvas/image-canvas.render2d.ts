@@ -24,6 +24,7 @@ import type { RenderSizing } from './image-canvas.two-phase';
 import type { ImageCanvasNativeDetail } from './image-canvas.native-detail';
 import type { ImageCanvasFilmSync } from './image-canvas.film';
 import { imageDataToBitmap } from '../../raw-pipeline/image-utils';
+import { resolveImportedAutoAfterFirstFrame } from './image-canvas.imported-auto-wb';
 
 /**
  * The shared canvas surface the 2D render paths read/write. The component
@@ -231,6 +232,7 @@ function publishColdOpenMetadata(
     host.lastRenderedXmp = serializeOpened(coldOpenRenderedModel(openModel, decoded));
   }
   host.markColdOpenDone();
+  resolveImportedAutoAfterFirstFrame(host.state, host.pipeline, assetId);
 }
 
 /**

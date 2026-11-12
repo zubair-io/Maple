@@ -152,6 +152,16 @@ const settleSetFilmLut: Settler<'set-film-lut'> = (msg, handler) => {
   return false;
 };
 
+const settleResolveImportedWb: Settler<'resolve-imported-wb'> = (msg, handler) => {
+  if (msg.type === 'resolve-imported-wb-success') {
+    handler.resolve({ temperature: msg.temperature, tint: msg.tint });
+    return true;
+  }
+  if (msg.type !== 'session-error') return false;
+  handler.reject(new Error(msg.message));
+  return true;
+};
+
 const settleAutoAdjust: Settler<'auto-adjust'> = (msg, handler) => {
   if (msg.type === 'auto-adjust-success') {
     handler.resolve(msg.patch);
@@ -317,6 +327,7 @@ const SETTLERS: { [K in NonNativeKind]: Settler<K> } = {
   'open-session': settleOpenSession,
   'render-session': settleRenderSession,
   'set-film-lut': settleSetFilmLut,
+  'resolve-imported-wb': settleResolveImportedWb,
   'auto-adjust': settleAutoAdjust,
   'sample-wb': settleSampleWb,
   'sample-range': settleSampleRange,

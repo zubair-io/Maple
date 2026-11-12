@@ -47,6 +47,7 @@ import type {
 } from '../gpu-fallback-notice/gpu-fallback-notice.service';
 import { coldOpen2d, decodeSupportFrom, type Render2dHost } from './image-canvas.render2d';
 import { canUseLiveFastPath } from './image-canvas.live-params';
+import { resolveImportedAutoAfterFirstFrame } from './image-canvas.imported-auto-wb';
 
 /**
  * The slice of `ImageCanvasComponent` the GPU present path reaches back into. Defined
@@ -342,6 +343,7 @@ export class ImageCanvasGpuPresent {
       this.host.lastRenderedXmp = serializeOpened(coldOpenRenderedModel(openModel, info));
     }
     this.host.markColdOpenDone();
+    resolveImportedAutoAfterFirstFrame(this.host.state, this.host.pipeline, assetId);
   }
 
   /**

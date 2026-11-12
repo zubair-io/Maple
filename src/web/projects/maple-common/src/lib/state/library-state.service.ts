@@ -265,6 +265,11 @@ export class LibraryStateService {
     this.store.seedAsShotWhiteBalance(id, temperature, tint, calibrated);
   }
 
+  /** The session's resolved name-only Auto pair, render/display only (#4669). */
+  resolveImportedAutoWhiteBalance(id: AssetId, pair: { temperature: number; tint: number }): void {
+    this.store.resolveImportedAutoWhiteBalance(id, pair);
+  }
+
   /** Camera As-Shot white balance for `id` (Kelvin + tint), or undefined. */
   asShotWbFor(id: AssetId): { temperature: number; tint: number } | undefined {
     return this.store.asShotWbFor(id);

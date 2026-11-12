@@ -84,6 +84,8 @@ export interface WebLiveSessionInstance {
    * `render_with_params` tick.
    */
   set_film_lut(bytes: Uint8Array, lookKey: number): void;
+  /** Name-only imported Auto WB pair `[temperature, tint]`, estimated once (#4669). */
+  resolve_imported_white_balance(): Float32Array;
   /** Drop the session's film-look LUT — the next tick renders with none. */
   clear_film_lut(): void;
   /** Developed (viewport-sized per #1080) dims == the canvas dims. */
