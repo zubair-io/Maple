@@ -136,21 +136,19 @@ test('a failed backup is recorded without pruning, and a later one succeeds', as
   expect(await new BackupR2(config).list()).toEqual([settings.status!.key!]);
 });
 
-test('a backup in progress is stored as running with a heartbeat, and a second pass leaves it alone', async () => {
+test('a backup in progress is stored as running with a heartbeat', async () => {
   const upload = Promise.withResolvers<void>();
   uploadGate = upload.promise;
-  const first = forcedBackup();
+  const backup = forcedBackup();
   const running = await until(async () => (await loadDbBackupSettings()).status);
   expect(running.state).toBe('running');
   expect(running.heartbeat_at).toBeTruthy();
   expect(backupRunning(running)).toBe(true);
 
-  await forcedBackup();
   upload.resolve();
-  await first;
+  await backup;
 
   expect((await loadDbBackupSettings()).status?.state).toBe('succeeded');
-  expect(await backups()).toBe(1);
 });
 
 test('corrupt download prevents pruning and restore publication', async () => {

@@ -83,6 +83,17 @@ describe('invites', () => {
     expect(await listInvites(db)).toHaveLength(1);
   });
 
+  test('an expired invite is left out of the list before the sweep removes it', async () => {
+    using handle = await createTestDatabase();
+    const db = testSqliteDb(handle.db);
+    const owner = await seedUser(db);
+    const expired = await createInvite(owner, db);
+    const live = await createInvite(owner, db);
+    await db.write(`UPDATE invites SET expires_at = ? WHERE code = ?`, [PAST, expired.code]);
+
+    expect((await listInvites(db)).map(({ code }) => code)).toEqual([live.code]);
+  });
+
   test('expires_at comes back as the Date the DTO promises', async () => {
     using handle = await createTestDatabase();
     const db = testSqliteDb(handle.db);
