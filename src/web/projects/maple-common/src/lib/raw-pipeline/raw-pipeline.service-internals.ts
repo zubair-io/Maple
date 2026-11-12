@@ -134,6 +134,11 @@ export type PendingHandler =
       reject: (err: Error) => void;
     }
   | {
+      kind: 'resolve-imported-wb';
+      resolve: (pair: { temperature: number; tint: number }) => void;
+      reject: (err: Error) => void;
+    }
+  | {
       kind: 'auto-adjust';
       resolve: (patch: AutoAdjustPatch) => void;
       reject: (err: Error) => void;

@@ -287,14 +287,17 @@ export function normalizeParsedWb(
   const temperatureSeen = appliedModelKeys.has('temperature');
   const tintSeen = appliedModelKeys.has('tint');
   const partial = temperatureSeen !== tintSeen;
-  model.partialWhiteBalance = partial
-    ? {
-        ...(temperatureSeen ? { temperature: model.temperature } : {}),
-        ...(tintSeen ? { tint: model.tint } : {}),
-        version: wbScale.sourceVersion,
-      }
-    : null;
-  if (partial) {
+  // Name-only Auto (#4669) keeps its intent until the opened RAW resolves it.
+  const unresolvedAuto = model.whiteBalancePreset === 'Auto' && !temperatureSeen && !tintSeen;
+  model.partialWhiteBalance =
+    partial || unresolvedAuto
+      ? {
+          ...(temperatureSeen ? { temperature: model.temperature } : {}),
+          ...(tintSeen ? { tint: model.tint } : {}),
+          version: wbScale.sourceVersion,
+        }
+      : null;
+  if (partial || unresolvedAuto) {
     // Joint legacy conversion must wait for the real missing camera axis.
     model.wbScaleVersion = wbScale.sourceVersion;
     model.temperature = temperatureSeen ? model.temperature : 6500;

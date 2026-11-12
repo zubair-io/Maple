@@ -20,9 +20,11 @@ import * as wasm from './pkg/raw_wasm';
 import type {
   OpenSessionRequest,
   RenderSessionRequest,
+  ResolveImportedWbRequest,
   SetFilmLutRequest,
   WorkerResponse,
 } from './raw-pipeline.types';
+import { resolveRetainedCpuImportedWb } from './raw-pipeline.cpu-handler';
 import {
   type WebLiveSessionInstance,
   type WebLiveSessionCtor,
@@ -320,6 +322,32 @@ export async function handleSetFilmLut(req: SetFilmLutRequest): Promise<void> {
         console.error('[raw-pipeline.worker] set-film-lut threw:', err.message, err.stack);
       }
       postSessionError(req.id, err?.message ?? String(e));
+    }
+  });
+}
+
+/**
+ * Resolve the open session's name-only imported Auto WB (#4669). Queued behind
+ * the first frame's render on `sessionChain`, so it never delays that frame; the
+ * session keeps the pair, and the caller re-renders once with it.
+ */
+export async function handleResolveImportedWb(req: ResolveImportedWbRequest): Promise<void> {
+  await enqueueSessionOp(async () => {
+    try {
+      const pair = liveSession?.resolve_imported_white_balance() ?? resolveRetainedCpuImportedWb();
+      if (!pair) {
+        postSessionError(req.id, 'resolve-imported-wb: no retained session');
+        return;
+      }
+      const response: WorkerResponse = {
+        id: req.id,
+        type: 'resolve-imported-wb-success',
+        temperature: pair[0],
+        tint: pair[1],
+      };
+      (self as unknown as Worker).postMessage(response);
+    } catch (e) {
+      postSessionError(req.id, e instanceof Error ? e.message : String(e));
     }
   });
 }

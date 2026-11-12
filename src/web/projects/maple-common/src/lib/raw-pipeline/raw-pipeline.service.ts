@@ -2,9 +2,6 @@ import { CpuSourceTransfer } from './raw-pipeline.cpu-source';
 // RawPipelineService — Angular wrapper around the raw-decode Web Worker.
 // Lazy-creates the worker on first call, reuses for subsequent calls,
 // terminates on app destroy. All decodes run off the main thread.
-//
-// The worker's thread-pool status protocol outlived the public observables
-// #3048 removed; the subjects below still receive those messages.
 
 import { Injectable, Injector, OnDestroy, inject, signal } from '@angular/core';
 import { BehaviorSubject } from 'rxjs';
@@ -31,6 +28,8 @@ import type { ImportedLensProfile, LensProfileStatus } from '../lens/lens-profil
 import type { CompatibleLensProfile, LensProfileEvidence } from '../lens/lens-profile-choice.types';
 import { LIBRARY_BACKEND } from '../api/library-backend.token';
 import type { SampleQueue } from './raw-pipeline.samplers';
+import type { ImportedWhiteBalancePair } from './raw-pipeline.imported-wb-request';
+import { dispatchResolveImportedWb } from './raw-pipeline.imported-wb-request';
 import {
   sampleColorCurve as runColorCurveSample,
   sampleMaskRange as runMaskRangeSample,
@@ -396,6 +395,11 @@ export class RawPipelineService implements OnDestroy {
     return this.dispatchNow((worker, id, register) =>
       dispatchRegisterBrushRaster(worker, id, register, upload),
     );
+  }
+
+  /** Resolve the retained session's name-only imported Auto WB once (#4669). */
+  resolveImportedWhiteBalance(): Promise<ImportedWhiteBalancePair> {
+    return this.dispatchNow((w, id, register) => dispatchResolveImportedWb(w, id, register));
   }
 
   /** Forget a raster registered by `registerMaskRaster`. Fire-and-forget. */
