@@ -249,8 +249,9 @@ async function spawnPanoCli(
     progress = units;
     await ctx.reportProgress(progress, PROGRESS_TOTAL).catch(() => {});
   };
-  // A lost lease makes shouldCancel throw mid-run; the CLI must still be
-  // stopped before the caller releases the memory budget it holds.
+  // A job taken over by a later attempt makes shouldCancel throw mid-run; the
+  // CLI must still be stopped before the caller releases the memory budget it
+  // holds.
   try {
     const [exitCode] = await Promise.all([
       proc.exited,

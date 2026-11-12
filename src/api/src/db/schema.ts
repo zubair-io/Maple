@@ -1184,11 +1184,10 @@ export function normaliseEnrichment(raw: Partial<Enrichment> | undefined | null)
 }
 
 // ---------------------------------------------------------------------------
-// JobRunner — sibling subsystem to the indexer pipeline for user-triggered
-// long-running work (export, batch reprocess, …). See
-// `docs/workers-architecture.md` §9, §11. Persisted job documents with
-// progress reporting, atomic claim-and-lease (mirrors the geocode worker),
-// and cooperative cancellation.
+// Jobs — user-triggered long-running work (export, batch reprocess, …) and
+// operator one-shots. The row is the record; Temporal runs it (see
+// `docs/temporal.md`). Progress reporting, a per-attempt claim fence and
+// cooperative cancellation.
 // ---------------------------------------------------------------------------
 
 /** Operator one-shots: run on their own lane (`maple-operations`), at most one
@@ -1230,9 +1229,6 @@ export interface JobDoc {
   /** The activity attempt running the job; `temporal` while it is queued in
    * Temporal; null before it is relayed and once it has finished. */
   locked_by: string | null;
-  /** When the running attempt last renewed its claim, plus the renewal window.
-   * Informational: Temporal's heartbeat, not this, decides a worker is gone. */
-  lease_expires_at: string | null;
   /** Cancellation flag. Routes flip this; the handler observes it between
    * progress steps and exits cleanly. */
   cancel_requested: boolean;
@@ -1246,8 +1242,8 @@ export type JobWithId = WithId<JobDoc>;
 // Imports (ticket #742)
 //
 // Copy a server-local folder into a registered Library, laid out as
-// `<LibRoot>/<YEAR>/<MM-or-label>/<filename>`. The `imports` collection IS
-// the work queue — claim/lease fields live on the doc, mirroring `JobDoc`.
+// `<LibRoot>/<YEAR>/<MM-or-label>/<filename>`. The `imports` row is the
+// record and Temporal runs it, with the same claim fence as `JobDoc`.
 // See `docs/plans/2026-05-31-imports-feature.md`.
 // ---------------------------------------------------------------------------
 
@@ -1309,10 +1305,9 @@ export interface ImportDoc {
   progress: { current: number; total: number };
   counts: { copied: number; skipped: number; failed: number };
   error: string | null;
-  /** Worker id holding the claim; null when available. */
+  /** The activity attempt running the import; `temporal` while it is queued in
+   * Temporal; null before it is relayed and once it has finished. */
   locked_by: string | null;
-  /** Lease expiry (ISO). A crashed worker's claim auto-releases. */
-  lease_expires_at: string | null;
   /** Cancellation flag; observed between files. */
   cancel_requested: boolean;
   created_at: string;

@@ -97,9 +97,9 @@ async function context(jobId: ObjectId, worker = 'worker-a'): Promise<JobHandler
     jobId,
     checkpoint: (await jobs.getJob(jobId))?.checkpoint,
     saveCheckpoint: (value, entryIndex) =>
-      jobs.saveJobCheckpoint(jobId, worker, value, 60000, undefined, entryIndex),
+      jobs.saveJobCheckpoint(jobId, worker, value, undefined, entryIndex),
     reportProgress: (current, total) =>
-      jobs.updateProgress(jobId, { current, total }, 60000, undefined, worker),
+      jobs.updateProgress(jobId, { current, total }, undefined, worker),
     shouldCancel: () => jobs.isCancelRequested(jobId),
   };
 }
@@ -108,9 +108,7 @@ async function claimed(targets: Awaited<ReturnType<typeof target>>[]) {
     kind: 'batch_adjustment_sync',
     payload: { targets, patch },
   });
-  expect((await jobs.claimJob(job._id, 'worker-a', 60000))?._id.toHexString()).toBe(
-    job._id.toHexString(),
-  );
+  expect((await jobs.claimJob(job._id, 'worker-a'))?._id.toHexString()).toBe(job._id.toHexString());
   return job;
 }
 
@@ -273,7 +271,7 @@ describe('persisted batch adjustment sync', () => {
       kind: 'batch_adjustment_sync',
       payload,
     });
-    await jobs.claimJob(job._id, 'worker-a', 60000);
+    await jobs.claimJob(job._id, 'worker-a');
     const ctx = await context(job._id);
     const save = ctx.saveCheckpoint!;
     ctx.saveCheckpoint = async (ledger) => {

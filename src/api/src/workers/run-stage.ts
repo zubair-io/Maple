@@ -56,7 +56,6 @@ export type {
 };
 
 export { deriveBatchSize } from './loop-policy.ts';
-export { ThroughputWindow };
 
 export const _test = { bootConfig, versionBumpReset, runOnce };
 
@@ -67,7 +66,7 @@ export interface RunStageHandle {
   /** A slice is running. */
   readonly busy: boolean;
   /**
-   * About ten seconds of what a poll loop would do: a full batch claims again
+   * About ten seconds of claiming: a full batch claims again
    * at once, anything less waits a second first, and a pause ends the slice.
    * A second call while one runs gets the running one, and once the runner has
    * stopped it settles with an error even if a stuck handler still holds its

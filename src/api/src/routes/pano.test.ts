@@ -442,11 +442,10 @@ describe('POST /api/pano/stitch (provisioned)', () => {
     run(
       live.db,
       `INSERT INTO jobs
-         (id, kind, status, locked_by, lease_expires_at, cancel_requested,
+         (id, kind, status, locked_by, cancel_requested,
           progress_current, progress_total, error, created_at, updated_at, params)
-       VALUES (?, 'pano_stitch', 'running', 'worker-1', ?, 0, 0, 0, NULL, ?, ?, '{}')`,
+       VALUES (?, 'pano_stitch', 'running', 'worker-1', 0, 0, 0, NULL, ?, ?, '{}')`,
       new ObjectId().toHexString(),
-      new Date(Date.now() + 60_000).toISOString(),
       now,
       now,
     );

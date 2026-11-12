@@ -1,18 +1,13 @@
 /**
  * One import attempt's dealings with the engine: what a redelivery for a
- * finished import reports, how a running import keeps its lease and its
- * heartbeat alive, and when it has to stop.
+ * finished import reports, how a running import keeps its heartbeat alive, and
+ * when it has to stop.
  */
 
 import type { ObjectId } from '../db/object-id.ts';
 import { AttemptSuperseded, finishedRun, type RowAttempt } from '../temporal/activity-attempt.ts';
 import type { RowRun } from '../temporal/row-workflow.ts';
-import {
-  getImport,
-  isImportCancelRequested,
-  renewImportLease,
-  type ClaimedImport,
-} from './repo.ts';
+import { getImport, isImportCancelRequested, type ClaimedImport } from './repo.ts';
 
 export interface HeldImport {
   claim: ClaimedImport;
@@ -29,18 +24,12 @@ export function heartbeat(held: HeldImport): void {
 }
 
 /**
- * A single large movie copy reports nothing for minutes, so the lease and the
- * engine's heartbeat are renewed on a timer rather than on file progress.
- * Returns the function that stops the timer.
+ * A single large movie copy reports nothing for minutes, so the engine's
+ * heartbeat is sent on a timer rather than on file progress. Returns the
+ * function that stops the timer.
  */
-export function keepImportAlive(held: HeldImport, leaseMs: number, now: () => Date): () => void {
-  const timer = setInterval(
-    () => {
-      heartbeat(held);
-      void renewImportLease(held.claim._id, leaseMs, now).catch(() => {});
-    },
-    Math.max(1, Math.floor(leaseMs / 3)),
-  );
+export function keepImportAlive(held: HeldImport, everyMs: number): () => void {
+  const timer = setInterval(() => heartbeat(held), everyMs);
   timer.unref?.();
   return () => clearInterval(timer);
 }

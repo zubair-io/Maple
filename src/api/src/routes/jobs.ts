@@ -1,5 +1,5 @@
 /**
- * /api/jobs — JobRunner HTTP surface.
+ * /api/jobs — the HTTP surface of user jobs.
  *
  *   POST /api/jobs                  — create a queued job, returns `{ id }`
  *   GET  /api/jobs/:id              — full job document with progress

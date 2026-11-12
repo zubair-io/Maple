@@ -134,7 +134,6 @@ describe('operations lane', () => {
     run(
       live.db,
       `UPDATE jobs SET status = 'running', locked_by = 'worker-41-dead',
-          lease_expires_at = '2026-01-01T00:00:00.000Z',
           ledger = json('{"reconcile":{"phase":"copying"}}')
         WHERE id = ?`,
       job._id.toHexString(),

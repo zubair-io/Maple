@@ -34,7 +34,7 @@ const flushIntervalMs = Number(process.env.MAPLE_TEST_OTEL_FLUSH_MS ?? '2000');
 const death = process.env.MAPLE_TEST_OTEL_DEATH ?? 'abort';
 
 // Something must keep the event loop alive after the death timer fires,
-// the way the worker tier's own poll loops do; with an empty loop the
+// the way the worker tier's own timers do; with an empty loop the
 // process simply exits 0 before a self-sent SIGTERM is ever dispatched.
 setInterval(() => {}, 1_000);
 

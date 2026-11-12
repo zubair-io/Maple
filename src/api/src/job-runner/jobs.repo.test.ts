@@ -66,7 +66,6 @@ describe('createJob', () => {
     expect(created.result).toBeNull();
     expect(created.error).toBeNull();
     expect(created.locked_by).toBeNull();
-    expect(created.lease_expires_at).toBeNull();
     expect(created.cancel_requested).toBe(false);
     expect(created.created_at).toBe('2026-04-01T10:00:00.000Z');
     expect(created.updated_at).toBe('2026-04-01T10:00:00.000Z');
@@ -144,7 +143,7 @@ describe('claimJob', () => {
     const older = await newExportJob('2026-04-01T10:00:00.000Z');
     const newer = await newExportJob('2026-04-02T10:00:00.000Z');
 
-    const claim = await claimJob(newer._id, 'worker-1', 60_000, at('2026-04-03T00:00:00.000Z'));
+    const claim = await claimJob(newer._id, 'worker-1', at('2026-04-03T00:00:00.000Z'));
     expect(claim!._id.toHexString()).toBe(newer._id.toHexString());
     expect(claim!.kind).toBe('batch_jpeg_export');
     expect(claim!.payload).toEqual(EXPORT_PAYLOAD);
@@ -153,7 +152,7 @@ describe('claimJob', () => {
     const claimed = (await getJob(newer._id))!;
     expect(claimed.status).toBe('running');
     expect(claimed.locked_by).toBe('worker-1');
-    expect(claimed.lease_expires_at).toBe('2026-04-03T00:01:00.000Z');
+    expect(claimed.updated_at).toBe('2026-04-03T00:00:00.000Z');
     expect((await getJob(older._id))!.status).toBe('queued');
   });
 
@@ -161,8 +160,8 @@ describe('claimJob', () => {
     using _live = await createLiveTestDatabase();
     const created = await newExportJob();
 
-    expect(await claimJob(created._id, 'dead-attempt', 60_000)).not.toBeNull();
-    const retaken = await claimJob(created._id, 'live-attempt', 60_000);
+    expect(await claimJob(created._id, 'dead-attempt')).not.toBeNull();
+    const retaken = await claimJob(created._id, 'live-attempt');
 
     expect(retaken!._id.toHexString()).toBe(created._id.toHexString());
     expect((await getJob(created._id))!.locked_by).toBe('live-attempt');
@@ -173,38 +172,32 @@ describe('claimJob', () => {
     const created = await newExportJob();
     await failJob(created._id, 'boom');
 
-    expect(await claimJob(created._id, 'worker-1', 60_000)).toBeNull();
+    expect(await claimJob(created._id, 'worker-1')).toBeNull();
     expect((await getJob(created._id))!.status).toBe('failed');
   });
 });
 
 describe('updateProgress', () => {
-  test('advances the counters and renews the lease', async () => {
+  test('advances the counters and stamps the write', async () => {
     using _live = await createLiveTestDatabase();
     const created = await newExportJob();
-    await claimJob(created._id, 'worker-1', 60_000, at('2026-04-03T00:00:00.000Z'));
+    await claimJob(created._id, 'worker-1', at('2026-04-03T00:00:00.000Z'));
 
-    await updateProgress(
-      created._id,
-      { current: 1, total: 5 },
-      60_000,
-      at('2026-04-03T00:00:20.000Z'),
-    );
+    await updateProgress(created._id, { current: 1, total: 5 }, at('2026-04-03T00:00:20.000Z'));
 
     const mid = (await getJob(created._id))!;
     expect(mid.progress).toEqual({ current: 1, total: 5 });
-    expect(mid.lease_expires_at).toBe('2026-04-03T00:01:20.000Z');
     expect(mid.updated_at).toBe('2026-04-03T00:00:20.000Z');
   });
 
   test('throws when the named worker no longer holds the claim', async () => {
     using live = await createLiveTestDatabase();
     const created = await newExportJob();
-    await claimJob(created._id, 'worker-1', 60_000);
+    await claimJob(created._id, 'worker-1');
     run(live.db, `UPDATE jobs SET locked_by = 'worker-2' WHERE id = ?`, created._id.toHexString());
 
     await expect(
-      updateProgress(created._id, { current: 1, total: 5 }, 60_000, undefined, 'worker-1'),
+      updateProgress(created._id, { current: 1, total: 5 }, undefined, 'worker-1'),
     ).rejects.toThrow('lease was claimed by another worker');
     expect((await getJob(created._id))!.progress).toEqual({ current: 0, total: 0 });
   });
@@ -234,7 +227,7 @@ describe('cancellation', () => {
   test('markCancelled keeps the partial result and releases the claim', async () => {
     using _live = await createLiveTestDatabase();
     const created = await newExportJob();
-    await claimJob(created._id, 'worker-1', 60_000);
+    await claimJob(created._id, 'worker-1');
 
     await markCancelled(created._id, { partial: true });
 
@@ -242,7 +235,6 @@ describe('cancellation', () => {
     expect(cancelled.status).toBe('cancelled');
     expect(cancelled.result).toEqual({ partial: true });
     expect(cancelled.locked_by).toBeNull();
-    expect(cancelled.lease_expires_at).toBeNull();
   });
 });
 
@@ -250,7 +242,7 @@ describe('terminal transitions', () => {
   test('completeJob writes the result, clears the error and releases the claim', async () => {
     using live = await createLiveTestDatabase();
     const created = await newExportJob();
-    await claimJob(created._id, 'worker-1', 60_000);
+    await claimJob(created._id, 'worker-1');
     run(
       live.db,
       `UPDATE jobs SET error = 'an earlier attempt failed' WHERE id = ?`,
@@ -264,14 +256,13 @@ describe('terminal transitions', () => {
     expect(done.result).toEqual({ successCount: 5 });
     expect(done.error).toBeNull();
     expect(done.locked_by).toBeNull();
-    expect(done.lease_expires_at).toBeNull();
     expect(done.updated_at).toBe('2026-04-03T01:00:00.000Z');
   });
 
   test('failJob records the message and releases the claim', async () => {
     using _live = await createLiveTestDatabase();
     const created = await newExportJob();
-    await claimJob(created._id, 'worker-1', 60_000);
+    await claimJob(created._id, 'worker-1');
 
     await failJob(created._id, 'boom');
 
@@ -279,7 +270,6 @@ describe('terminal transitions', () => {
     expect(failed.status).toBe('failed');
     expect(failed.error).toBe('boom');
     expect(failed.locked_by).toBeNull();
-    expect(failed.lease_expires_at).toBeNull();
   });
 });
 
@@ -288,7 +278,7 @@ describe('listJobs', () => {
     using _live = await createLiveTestDatabase();
     const a = await newExportJob('2026-04-01T10:00:00.000Z');
     const b = await newExportJob('2026-04-02T10:00:00.000Z');
-    await claimJob(a._id, 'w', 60_000);
+    await claimJob(a._id, 'w');
     await completeJob(a._id, {});
 
     expect((await listJobs({ status: 'queued' })).map((j) => j._id.toHexString())).toEqual([

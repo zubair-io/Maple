@@ -104,7 +104,7 @@ describe('POST /api/people/cluster', () => {
 
   it('waits out a pass already running, then answers from one of its own', async () => {
     const earlier = await createJob({ kind: 'people_cluster', payload: {} });
-    await claimJob(earlier._id, 'automatic', 60_000);
+    await claimJob(earlier._id, 'automatic');
     const answered = { yet: false };
 
     const response = withOperationsRunning(

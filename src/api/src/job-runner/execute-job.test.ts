@@ -39,7 +39,6 @@ describe('executeJob', () => {
     expect(after.status).toBe('done');
     expect(after.result).toEqual({ ok: true });
     expect(after.locked_by).toBeNull();
-    expect(after.lease_expires_at).toBeNull();
   });
 
   test('progress reaches both the row and the engine heartbeat', async () => {
@@ -176,21 +175,20 @@ describe('executeJob', () => {
     using _live = await createLiveTestDatabase();
     const job = await queueExportJob();
     const attempt = attemptNamed('long-render');
-    let leaseMidRun: string | null = null;
+    const stamps = { claimed: '', midRun: '' };
 
     const outcome = await executeJob(job._id.toHexString(), attempt, {
-      leaseMs: 300,
+      renewEveryMs: 100,
       handlers: exportHandlers(async () => {
-        const claimedUntil = (await getJob(job._id))!.lease_expires_at!;
+        stamps.claimed = (await getJob(job._id))!.updated_at;
         await new Promise((resolve) => setTimeout(resolve, 450));
-        leaseMidRun = (await getJob(job._id))!.lease_expires_at;
-        expect(Date.parse(leaseMidRun!)).toBeGreaterThan(Date.parse(claimedUntil));
+        stamps.midRun = (await getJob(job._id))!.updated_at;
         return { kind: 'done', result: {} };
       }),
     });
 
     expect(outcome).toEqual({ outcome: 'done' });
-    expect(leaseMidRun).not.toBeNull();
+    expect(Date.parse(stamps.midRun)).toBeGreaterThan(Date.parse(stamps.claimed));
     expect(attempt.beats.length).toBeGreaterThan(2);
   });
 
@@ -199,9 +197,9 @@ describe('executeJob', () => {
     const job = await queueExportJob();
 
     const outcome = await executeJob(job._id.toHexString(), attemptNamed('old-render'), {
-      leaseMs: 150,
+      renewEveryMs: 50,
       handlers: exportHandlers(async (_payload, ctx) => {
-        await claimJob(job._id, 'new-render', 60_000);
+        await claimJob(job._id, 'new-render');
         await new Promise((resolve) => setTimeout(resolve, 250));
         await ctx.saveCheckpoint!({ wouldPublish: true });
         throw new Error('Publication guard was bypassed');

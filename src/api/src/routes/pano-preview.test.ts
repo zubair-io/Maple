@@ -89,9 +89,9 @@ function insertJob(kind: string, status: string, params: Record<string, unknown>
   run(
     live.db,
     `INSERT INTO jobs
-       (id, kind, status, locked_by, lease_expires_at, cancel_requested,
+       (id, kind, status, locked_by, cancel_requested,
         progress_current, progress_total, error, created_at, updated_at, params)
-     VALUES (?, ?, ?, NULL, NULL, 0, 0, 0, NULL, ?, ?, ?)`,
+     VALUES (?, ?, ?, NULL, 0, 0, 0, NULL, ?, ?, ?)`,
     id,
     kind,
     status,

@@ -64,6 +64,7 @@ import { livePhotoMigration } from './0039-live-photo.ts';
 import { backupDestinationCountsMigration } from './0040-backup-destination-counts.ts';
 import { dropVectorFingerprintIndexMigration } from './0041-drop-vector-fingerprint-index.ts';
 import { removeUnusedStageHandlersMigration } from './0042-remove-unused-stage-handlers.ts';
+import { removeRowLeasesMigration } from './0043-remove-row-leases.ts';
 
 export const ALL_MIGRATIONS: readonly Migration[] = [
   initialSchemaMigration,
@@ -108,4 +109,5 @@ export const ALL_MIGRATIONS: readonly Migration[] = [
   backupDestinationCountsMigration,
   dropVectorFingerprintIndexMigration,
   removeUnusedStageHandlersMigration,
+  removeRowLeasesMigration,
 ];

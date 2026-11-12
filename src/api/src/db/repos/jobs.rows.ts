@@ -32,7 +32,6 @@ export interface JobRow {
   kind: JobKind;
   status: JobStatus;
   locked_by: string | null;
-  lease_expires_at: string | null;
   cancel_requested: number;
   progress_current: number;
   progress_total: number;
@@ -77,7 +76,6 @@ export function toJobDoc(row: JobRow): JobWithId {
       row.result === null ? null : parseJson<Record<string, unknown> | null>(row.result, null),
     error: row.error,
     locked_by: row.locked_by,
-    lease_expires_at: row.lease_expires_at,
     cancel_requested: toBool(row.cancel_requested),
     created_at: row.created_at,
     updated_at: row.updated_at,

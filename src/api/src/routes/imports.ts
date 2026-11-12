@@ -338,9 +338,9 @@ export const importsRoutes = new Elysia({ prefix: '/api/imports' })
   })
 
   // Re-queue a failed (or partially-failed) import: reset its failed files to
-  // pending and clear the lease so a worker re-claims it. Already-copied files
-  // stay copied (they dedup-skip on the re-run). Only valid for a `failed`
-  // import or a `done` import with `counts.failed > 0`.
+  // pending and clear the claim so the relay hands it to Temporal again.
+  // Already-copied files stay copied (they dedup-skip on the re-run). Only
+  // valid for a `failed` import or a `done` import with `counts.failed > 0`.
   .post('/:id/retry', async ({ params, set }) => {
     if (!ObjectId.isValid(params.id)) {
       set.status = 400;

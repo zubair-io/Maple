@@ -52,7 +52,6 @@ export interface ImportRow {
   count_failed: number;
   error: string | null;
   locked_by: string | null;
-  lease_expires_at: string | null;
   cancel_requested: number;
   created_at: string;
   updated_at: string;
@@ -97,7 +96,6 @@ export function toImportDoc(row: ImportRow): ImportWithId {
     },
     error: row.error,
     locked_by: row.locked_by,
-    lease_expires_at: row.lease_expires_at,
     cancel_requested: toBool(row.cancel_requested),
     created_at: row.created_at,
     updated_at: row.updated_at,

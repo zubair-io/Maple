@@ -6,8 +6,8 @@
  *
  * Discover is NOT a stage controller — it does not use `defineStage` or
  * `runStage`. It owns only the insert side: on a new or modified file it
- * upserts the image doc with the skeleton, letting exif/thumb controllers pick
- * it up naturally on their next poll tick. On remove it soft-deletes (sets
+ * upserts the image doc with the skeleton, and the exif/thumb stages pick it
+ * up on their next slice. On remove it soft-deletes (sets
  * deleted_at) via handleEvent.
  *
  * Layout (split per #253, refs #134):

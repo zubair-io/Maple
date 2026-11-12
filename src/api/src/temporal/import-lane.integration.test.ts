@@ -203,8 +203,7 @@ describe('imports on Temporal', () => {
     const { id } = await pendingImport(live.db, 'adopted');
     run(
       live.db,
-      `UPDATE imports SET status = 'running', locked_by = 'import-worker-123-abc',
-          lease_expires_at = '2026-01-01T00:00:00.000Z' WHERE id = ?`,
+      `UPDATE imports SET status = 'running', locked_by = 'import-worker-123-abc' WHERE id = ?`,
       id.toHexString(),
     );
     const host = await hostFor(async () => {});
