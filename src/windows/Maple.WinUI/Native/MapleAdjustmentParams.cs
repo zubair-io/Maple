@@ -7,7 +7,7 @@ namespace Maple.WinUI.Native
     /// C-ABI mirror of raw-ffi's MapleAdjustmentParams (scene_linear_chain.rs).
     /// Field order matches the Rust declaration byte-for-byte; fields are only
     /// ever appended at the tail (offset-stable ABI convention). Expected size
-    /// on x64: 728 bytes — asserted at startup by RawFfi.VerifyAbi().
+    /// on x64: 800 bytes — asserted at startup by RawFfi.VerifyAbi().
     /// </summary>
     [StructLayout(LayoutKind.Sequential)]
     public unsafe struct MapleAdjustmentParams
@@ -135,6 +135,8 @@ namespace Maple.WinUI.Native
         // decoded_* and wb_frame_*. Null (a raster) keeps the
         // scene-linear white-balance delta.
         public MapleCaptureCreative* creative_ptr;
+        public fixed float wb_frame_render_individual_cold[9];
+        public fixed float wb_frame_render_individual_warm[9];
 
         /// <summary>
         /// Build params from the canonical model, mirroring the Swift reference

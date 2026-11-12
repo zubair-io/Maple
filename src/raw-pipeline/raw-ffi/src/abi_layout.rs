@@ -147,6 +147,8 @@ pub(crate) fn describe(name: &str) -> Option<String> {
                 color_grade_shadow_edge,
                 color_grade_highlight_edge,
                 creative_ptr,
+                wb_frame_render_individual_cold,
+                wb_frame_render_individual_warm,
             }))
         }
         "MapleToneCurves" => Some(layout!(crate::scene_linear_chain_curves::MapleToneCurves {
@@ -220,6 +222,8 @@ pub(crate) fn describe(name: &str) -> Option<String> {
             camera_support_json,
             whites_anchor_ev,
             nr_sampling_scale,
+            wb_frame_render_individual_cold,
+            wb_frame_render_individual_warm,
         })),
         "MapleCreativeTable" => Some(layout!(crate::capture_creative::MapleCreativeTable {
             offset,
@@ -265,6 +269,8 @@ pub(crate) fn describe(name: &str) -> Option<String> {
             look,
             tables,
             tables_len,
+            individual_cold,
+            individual_warm,
         })),
         "MapleCaptureBufferF32" => Some(layout!(crate::capture_creative::MapleCaptureBufferF32 {
             scene,
@@ -524,6 +530,8 @@ pub(crate) fn describe(name: &str) -> Option<String> {
             color_curve_sat_vs_luma_ptr,
             color_curve_sat_vs_luma_len,
             creative_ptr,
+            wb_frame_render_individual_cold,
+            wb_frame_render_individual_warm,
         })),
         #[cfg(feature = "gpu")]
         "MapleGpuLiveSession" => Some(layout!(crate::gpu_live::MapleGpuLiveSession { inner })),

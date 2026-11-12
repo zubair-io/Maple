@@ -56,6 +56,8 @@ fn synthetic_frame() -> SliderFrameExport {
         render_cct_warm: 0.0,
         render_fm_cold: raw_core::math::Matrix3([[0.0; 3]; 3]),
         render_fm_warm: raw_core::math::Matrix3([[0.0; 3]; 3]),
+        render_individual_cold: raw_core::math::Matrix3([[0.0; 3]; 3]),
+        render_individual_warm: raw_core::math::Matrix3([[0.0; 3]; 3]),
     }
 }
 
@@ -97,6 +99,8 @@ pub(super) fn synthetic_frame_with_render_profile() -> SliderFrameExport {
             [0.26, 0.73, 0.00],
             [0.00, -0.06, 1.07],
         ]),
+        render_individual_cold: raw_core::math::Matrix3([[0.0; 3]; 3]),
+        render_individual_warm: raw_core::math::Matrix3([[0.0; 3]; 3]),
         ..synthetic_frame()
     }
 }
@@ -122,6 +126,8 @@ pub(super) fn set_frame(p: &mut MapleGpuLiveParams, frame: &SliderFrameExport) {
     p.wb_frame_render_cct_warm = frame.render_cct_warm;
     p.wb_frame_render_fm_cold = flat(frame.render_fm_cold);
     p.wb_frame_render_fm_warm = flat(frame.render_fm_warm);
+    p.wb_frame_render_individual_cold = flat(frame.render_individual_cold);
+    p.wb_frame_render_individual_warm = flat(frame.render_individual_warm);
 }
 
 /// LEGACY EQUIVALENCE: a zero-filled frame tail (what every pre-#1781 host

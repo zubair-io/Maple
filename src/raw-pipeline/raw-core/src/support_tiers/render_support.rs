@@ -77,6 +77,7 @@ mod tests {
             unique_camera_model: Some("Unknown lens-specific body".into()),
             color_matrices: HashMap::new(),
             forward_matrices: HashMap::new(),
+            individual_calibrations: HashMap::new(),
             orientation: ExifOrientation::Normal,
             baseline_exposure: 0.,
             lens_metadata: Default::default(),

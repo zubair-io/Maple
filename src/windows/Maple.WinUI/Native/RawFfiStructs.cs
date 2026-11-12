@@ -53,6 +53,8 @@ namespace Maple.WinUI.Native
         public byte* camera_support_json;
         public float whites_anchor_ev;
         public float nr_sampling_scale;
+        public fixed float wb_frame_render_individual_cold[9];
+        public fixed float wb_frame_render_individual_warm[9];
     }
 
     /// <summary>
@@ -117,6 +119,8 @@ namespace Maple.WinUI.Native
         public MapleCreativeTable look;
         public float* tables;              // process-lifetime; never freed by the host
         public nuint tables_len;
+        public fixed float individual_cold[9];
+        public fixed float individual_warm[9];
     }
 
     /// <summary>
