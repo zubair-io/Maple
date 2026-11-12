@@ -1218,6 +1218,10 @@ export function normaliseEnrichment(raw: Partial<Enrichment> | undefined | null)
 // and cooperative cancellation.
 // ---------------------------------------------------------------------------
 
+/** Operator one-shots: run on their own lane (`maple-operations`), at most one
+ * active per kind, and per folder for a scan. */
+export type OperationKind = 'mirror_reconcile' | 'people_cluster' | 'folder_scan';
+
 /** Job kinds the runner knows how to dispatch. Add new kinds by extending
  * this union and registering a handler in `job-runner/handlers/index.ts`. */
 export type JobKind =
@@ -1226,7 +1230,8 @@ export type JobKind =
   | 'pano_preview'
   | 'batch_adjustment_sync'
   | 'batch_recipe_export'
-  | 'cloud_backup_restore';
+  | 'cloud_backup_restore'
+  | OperationKind;
 
 /** Lifecycle: queued → running → (done | failed | cancelled).
  * `cancelled` is set when a running job observes `cancel_requested` between

@@ -1,8 +1,9 @@
 /**
  * Hands rows to Temporal. A route only ever inserts or resets a waiting row;
  * this is the other half, and it runs in the worker tier so a Temporal outage
- * delays the work instead of losing it. Jobs and imports each describe their
- * table as a {@link RowQueue}, and the host runs one lane per queue.
+ * delays the work instead of losing it. Jobs, operator one-shots and imports
+ * each describe their rows as a {@link RowQueue}, and the host runs one lane
+ * per queue.
  */
 
 import { WorkflowNotFoundError, type Client } from '@temporalio/client';
@@ -13,7 +14,7 @@ export interface RowQueue {
   taskQueue: string;
   workflow: (rowId: string) => Promise<RowRun['outcome']>;
   workflowId: (rowId: string) => string;
-  /** The oldest waiting row, once nothing else in the table is held. */
+  /** The oldest waiting row the lane may start now; null while it must wait. */
   nextId: () => Promise<string | null>;
   /** Rows Temporal holds: running, or waiting with their workflow already started. */
   heldIds: () => Promise<string[]>;
@@ -32,10 +33,20 @@ async function dispatch(client: Client, queue: RowQueue, rowId: string): Promise
   await queue.markDispatched(rowId);
 }
 
-/** The next row in creation order, once the one before it has finished. */
-async function relayNext(client: Client, queue: RowQueue): Promise<void> {
+/**
+ * Every row the queue lets start, in creation order. A queue that runs one row
+ * at a time answers null once it has handed one over; the guard stops a row
+ * that could not be marked from being dispatched in a loop.
+ */
+async function relayReady(
+  client: Client,
+  queue: RowQueue,
+  previous: string | null = null,
+): Promise<void> {
   const rowId = await queue.nextId();
-  if (rowId !== null) await dispatch(client, queue, rowId);
+  if (rowId === null || rowId === previous) return;
+  await dispatch(client, queue, rowId);
+  await relayReady(client, queue, rowId);
 }
 
 type WorkflowState = 'running' | 'stopped' | 'missing' | 'closed';
@@ -76,13 +87,14 @@ async function reconcileHeld(client: Client, queue: RowQueue): Promise<void> {
 }
 
 /**
- * One row at a time: exports and stitches saturate the native pool on their
- * own, and pano admission counts on a preview never running beside a stitch.
+ * One row at a time by default: exports and stitches saturate the native pool
+ * on their own, and pano admission counts on a preview never running beside a
+ * stitch. A queue whose rows may overlap says how many run at once.
  */
-export const rowLane = (queue: RowQueue, activities: object): TemporalLane => ({
+export const rowLane = (queue: RowQueue, activities: object, concurrency = 1): TemporalLane => ({
   taskQueue: queue.taskQueue,
   activities,
-  concurrency: 1,
-  relay: (client) => relayNext(client, queue),
+  concurrency,
+  relay: (client) => relayReady(client, queue),
   reconcile: (client) => reconcileHeld(client, queue),
 });

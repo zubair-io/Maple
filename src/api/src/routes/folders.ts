@@ -10,8 +10,8 @@ import { Elysia, t } from 'elysia';
 import { ObjectId } from '../db/object-id.ts';
 // Mirror-aware drop-in: uploads, folder moves, and mkdir replicate to the
 // library's backup root(s). `rename` is directory-aware for folder moves.
-import { readdir, rename, stat, mkdir } from '../fs/mirrored.ts';
-import type { Dirent, Stats } from 'node:fs';
+import { rename, stat, mkdir } from '../fs/mirrored.ts';
+import type { Stats } from 'node:fs';
 import * as nodePath from 'node:path';
 import { randomUUID } from 'node:crypto';
 import {
@@ -21,7 +21,6 @@ import {
   listFolderSlugs,
   listFolders,
   registerFolder,
-  setFolderLastScan,
 } from '../db/repos/folders.repo.ts';
 import {
   listFolderAssets,
@@ -32,14 +31,12 @@ import { UploadConflictError, streamUploadedBody, finalizeUploadedFile } from '.
 import { parseFolderTrashPage, folderTrashItem } from './folders.trash-page.ts';
 import { validateRoot } from '../fs/root.ts';
 import { rootsConnected } from '../fs/root-connectivity.ts';
-import { DUPLICATES_DIR_NAME } from '../fs/duplicates.ts';
 import { child as childLogger } from '../log.ts';
 import { computeBodyETag, ifNoneMatchEqual } from '../runtime/http-etag.ts';
 import { requireFileAccessBeforeHandle, requireOwnerBeforeHandle } from '../auth/middleware.ts';
-import { handleEvent } from '../workers/discover/index.ts';
+import { awaitOperation, operationDeadline, startOperation } from '../job-runner/operations.ts';
 import { invalidateLibraryRoots, loadLibraryRoots } from '../indexer/libraries.cache.ts';
 import { isCataloguedFilename } from '../indexer/media-types.ts';
-import { listingHasIgnoreMarker } from '../fs/mapleignore.ts';
 import { slugify, dedupeSlug } from '../library/slug.ts';
 import { realpathJailCheck } from '../library/address.ts';
 import { safeObjectId } from '../db/object-id.ts';
@@ -263,30 +260,37 @@ async function scanTargetOrError(rawId: string): Promise<FolderWithId | Response
   return folder ?? Response.json({ ok: false, error: 'Folder not found' }, { status: 404 });
 }
 
-// A walk of a large library outlasts the `last_scan` de-bounce by hours, since
-// the stamp lands only when it finishes. Without this every folder open in that
-// time started another full walk, and the overlapping walks saturated the
-// SQLite pool until every reader timed out. Per process, like `uploadLocks`.
-const walksInProgress = new Map<string, Promise<string>>();
-
 /**
- * Re-walks a library and stamps the time it finished, which is what both scan
- * routes mean by scanning: the walk pushes every supported file through the
- * discover producer, and `last_scan` is what the de-bounce on `/:id/scan`
- * reads afterwards. Returns the stamp so the caller can hand it back.
+ * Re-walks a library on the worker tier and waits for it, which is what both
+ * scan routes mean by scanning: a `folder_scan` row whose handler pushes every
+ * supported file through the discover producer and stamps `last_scan`, which
+ * the de-bounce on `/:id/scan` reads. A scan of the folder already queued or
+ * running is joined rather than doubled — a walk of a large library outlasts
+ * the de-bounce by hours, and overlapping walks once saturated the database.
+ * Answers the stamp, or the response to send instead.
  */
-function rewalkFolder(folder: FolderWithId): Promise<string> {
-  const key = folder._id.toHexString();
-  const inProgress = walksInProgress.get(key);
-  if (inProgress) return inProgress;
-  const walk = (async () => {
-    await scanFolderAndDiscover(folder.path, folder._id, folder.path);
-    const scannedAt = new Date().toISOString();
-    await setFolderLastScan(folder._id, scannedAt);
-    return scannedAt;
-  })().finally(() => walksInProgress.delete(key));
-  walksInProgress.set(key, walk);
-  return walk;
+async function rewalkFolder(folder: FolderWithId): Promise<string | Response> {
+  const deadline = operationDeadline();
+  const { job } = await startOperation('folder_scan', { folderId: folder._id.toHexString() });
+  const finished = await awaitOperation(job._id, deadline);
+  if (finished === null) {
+    return Response.json(
+      {
+        ok: false,
+        error: 'The scan is still running and will finish in the background',
+        job_id: job._id.toHexString(),
+      },
+      { status: 504 },
+    );
+  }
+  const scannedAt = finished.result?.['last_scan'];
+  if (finished.status !== 'done' || typeof scannedAt !== 'string') {
+    return Response.json(
+      { ok: false, error: finished.error ?? `The scan was ${finished.status}` },
+      { status: 500 },
+    );
+  }
+  return scannedAt;
 }
 
 export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
@@ -412,17 +416,10 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
       // re-read after this insert so the new library is visible.
       invalidateLibraryRoots();
 
-      // Fire-and-forget: walk the new folder and push each supported image
-      // file through the discover producer so the pipeline starts indexing
-      // immediately without waiting for the next watcher tick. The library
-      // root is `path` itself (we just inserted the row with that path),
-      // passed through so handleEvent doesn't re-fetch the folder doc.
-      void scanFolderAndDiscover(path, folderId, path).catch((err) =>
-        log.warn(
-          { path, err: err instanceof Error ? err.message : err },
-          'initial folder scan failed — files will be indexed on next watcher tick',
-        ),
-      );
+      // Index the new library right away rather than on the next watcher
+      // tick: a `folder_scan` row the worker tier walks, so a restart mid-walk
+      // walks it again and a failure is recorded on the row.
+      await startOperation('folder_scan', { folderId: id });
 
       set.status = 201;
       return {
@@ -520,9 +517,9 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
       // (handleEvent dedups by maple_id/sha1_head, appends a live fileinfo, and
       // clears deleted_at). Without this the button only zeroed stage versions —
       // it could not recover a file whose only fileinfo was a soft-deleted old
-      // path. The walk runs to completion within the request: libraries are
-      // bounded and the dedup path is idempotent + concurrency-safe.
+      // path. The worker tier walks it while the request waits for the result.
       const scannedAt = await rewalkFolder(folder);
+      if (scannedAt instanceof Response) return scannedAt;
 
       log.info(
         {
@@ -551,8 +548,7 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
   // `/:id/rescan` this does NOT zero stage versions — zeroing on every folder
   // open would reprocess the whole library. Gated by `last_scan`: a folder
   // scanned within SCAN_RECENT_WINDOW_MS short-circuits so rapid navigation
-  // doesn't re-walk. The walk runs to completion within the request (bounded
-  // libraries; the dedup path is idempotent + concurrency-safe), so callers
+  // doesn't re-walk. The request waits for the worker tier's walk, so callers
   // get an authoritative "scan done" before refreshing their listing.
   .post(
     '/:id/scan',
@@ -577,6 +573,7 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
       }
 
       const scannedAt = await rewalkFolder(folder);
+      if (scannedAt instanceof Response) return scannedAt;
 
       log.info(
         { folderId: folderIdStr, path: folder.path },
@@ -864,132 +861,3 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
       }),
     },
   );
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-/** Supported image extensions (lowercase with leading dot). Pre-filter for
- * `scanFolderAndDiscover` below — cheap to skip an unsupported file here
- * rather than calling `handleEvent` (which is itself gated by the canonical
- * `SUPPORTED_EXTS` in `workers/discover/types.ts`) and having it no-op.
- * Note: this list has drifted narrower than the canonical one (missing
- * video/psd/psb/hdr) — out of scope to reconcile here; adding the #1835
- * metadata-only stub/audio formats so a newly-registered folder containing
- * them gets those files indexed on the initial scan, not just via the live
- * file watcher. */
-const SUPPORTED_EXTS = new Set([
-  '.dng',
-  '.cr2',
-  '.cr3',
-  '.nef',
-  '.arw',
-  '.raf',
-  '.orf',
-  '.rw2',
-  '.pef',
-  '.srw',
-  '.x3f',
-  '.3fr',
-  '.mef',
-  '.erf',
-  '.mrw',
-  '.raw',
-  '.fff',
-  '.jpg',
-  '.jpeg',
-  '.tif',
-  '.tiff',
-  '.heic',
-  '.heif',
-  // Metadata-only stub images + audio (#1835) — see media-types.ts.
-  '.eip',
-  '.braw',
-  '.afphoto',
-  '.ai',
-  '.mp3',
-  '.wav',
-  '.m4a',
-  '.aac',
-]);
-
-/**
- * Bounded async dispatcher — runs at most `limit` concurrent invocations of
- * `run` across all `items`. Errors from individual items are swallowed (callers
- * log before throwing or after the pool drains).
- */
-async function dispatchPool<T>(
-  items: T[],
-  limit: number,
-  run: (i: T) => Promise<void>,
-): Promise<void> {
-  let idx = 0;
-  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
-    while (idx < items.length) {
-      const item = items[idx++]!;
-      await run(item).catch(() => {});
-    }
-  });
-  await Promise.all(workers);
-}
-
-/**
- * Recursively walk `rootPath` and call `handleEvent({ kind: "created" })` for
- * every supported image file found. Uses a bounded directory queue (CONCURRENCY=8)
- * to avoid file-descriptor exhaustion and a dispatchPool to limit concurrent
- * handleEvent calls (also 8) so DB write pressure stays bounded on large trees.
- * Silently skips permission-denied subtrees.
- */
-async function scanFolderAndDiscover(
-  rootPath: string,
-  folderId: ObjectId,
-  libraryRoot: string,
-): Promise<void> {
-  const CONCURRENCY = 8;
-  const queue: string[] = [rootPath];
-
-  while (queue.length > 0) {
-    const batch = queue.splice(0, CONCURRENCY);
-    const fileBatch: string[] = [];
-
-    await Promise.all(
-      batch.map(async (dir) => {
-        let entries: Dirent[];
-        try {
-          entries = (await readdir(dir, {
-            withFileTypes: true,
-          })) as unknown as Dirent[];
-        } catch {
-          return; // permission denied or not a directory
-        }
-        const names = entries.map((e) => e.name as unknown as string);
-        if (await listingHasIgnoreMarker(dir, names)) return;
-        for (const entry of entries) {
-          const entryName = entry.name as unknown as string;
-          // Skip dotdirs (`.maple`, `.thumbnails`, …) and the DeDuplicate
-          // quarantine — `_duplicates` holds relocated copies that must not be
-          // re-indexed (they are byte-identical to the kept originals).
-          if (entryName.startsWith('.') || entryName === DUPLICATES_DIR_NAME) continue;
-          const absPath = nodePath.join(dir, entryName);
-          if (entry.isDirectory()) {
-            queue.push(absPath);
-          } else if (entry.isFile()) {
-            const ext = nodePath.extname(entryName).toLowerCase();
-            if (!SUPPORTED_EXTS.has(ext)) continue;
-            fileBatch.push(absPath);
-          }
-        }
-      }),
-    );
-
-    // Dispatch the files found in this directory batch with bounded concurrency.
-    await dispatchPool(fileBatch, CONCURRENCY, async (absPath) => {
-      await handleEvent({ kind: 'created', absPath }, folderId, libraryRoot).catch((err) =>
-        log.warn(
-          { absPath, err: err instanceof Error ? err.message : err },
-          'discover upsert failed during initial folder scan',
-        ),
-      );
-    });
-  }
-}

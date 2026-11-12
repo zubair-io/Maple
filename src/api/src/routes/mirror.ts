@@ -7,11 +7,11 @@
  *                                    reloads the in-memory registry)
  *   POST /api/mirror/test          — validate a candidate mirror path without
  *                                    saving (UI "Test" button)
- *   GET  /api/mirror/status        — standing queue depth (pending/dead) + live
- *                                    two-stage "Reconcile now" progress
+ *   GET  /api/mirror/status        — standing queue depth (pending/dead) + the
+ *                                    latest "Reconcile now" run's progress
  *   POST /api/mirror/retry-dead    — re-arm dead-lettered mirror copies
- *   POST /api/mirror/reconcile     — run a full reconcile now (scan → copy) with
- *                                    live progress on /status
+ *   POST /api/mirror/reconcile     — queue a full reconcile (scan → copy) for the
+ *                                    worker tier, with progress on /status
  *   GET  /api/mirror/orphans       — dry-run report of mirror files with no
  *                                    primary counterpart (deletes nothing). The
  *                                    deletion itself is the operator-toggled
@@ -40,7 +40,10 @@ import { loadMirrorConfig } from '../fs/mirror-config.ts';
 import { mirrorQueueCounts, retryDeadMirrorCopies } from '../fs/mirror-queue.repo.ts';
 import { benchedMirrors } from '../fs/mirror-read.ts';
 import { runMirrorScrubOnce } from '../workers/mirror/scrub.ts';
-import { getMirrorReconcileProgress, startMirrorReconcileNow } from './mirror-reconcile-runner.ts';
+import { isMirroringActive } from '../fs/mirror-registry.ts';
+import { listJobs } from '../job-runner/jobs.repo.ts';
+import { startOperation } from '../job-runner/operations.ts';
+import { reconcileProgressOf } from '../workers/mirror/reconcile-progress.ts';
 import type { MirrorLocation } from '../db/schema.ts';
 import { requireAuth, requireOwner } from '../auth/middleware.ts';
 
@@ -170,26 +173,30 @@ export const mirrorRoutes = new Elysia()
     { body: t.Object({ path: t.String({ minLength: 1 }) }) },
   )
   // Mirror reconcile status — the standing queue depth (pending/dead) plus the
-  // live two-stage "Reconcile now" progress, for the mirror section of the
-  // Workers settings page.
+  // latest "Reconcile now" run, read from its job row so a run the worker tier
+  // is doing (or did before a restart) shows here.
   // Also reports the read-replica health bench: mirror roots this API process
   // has stopped routing reads to after an I/O failure or timeout, with the
   // remaining cooldown. Empty in the normal case. Process-local by design —
   // this is the state of the process that actually serves the reads.
   .get('/api/mirror/status', async () => {
     const counts = await mirrorQueueCounts();
+    const [latest] = await listJobs({ kind: 'mirror_reconcile', limit: 1 });
     return {
       queue: counts,
-      reconcile: getMirrorReconcileProgress(),
+      reconcile: reconcileProgressOf(latest ?? null),
       reads: { benched: benchedMirrors() },
     };
   })
-  // Run a full reconcile now (operator "Reconcile now" button): scan (enqueue
-  // missing/stale) then copy (drain the queue), with live two-stage progress on
-  // GET /api/mirror/status. Returns immediately; a run already in flight is a
-  // no-op. The background worker still auto-reconciles on its own cadence.
+  // "Reconcile now": queue one reconcile (scan, then copy until drained) on the
+  // worker tier's operations lane and return. A reconcile already queued or
+  // running answers `started: false` with its phase. The scheduled mirror
+  // passes keep running on their own cadence.
   .post('/api/mirror/reconcile', async () => {
-    return startMirrorReconcileNow();
+    if (!isMirroringActive())
+      return { started: false, phase: 'idle' as const, reason: 'no mirror configured' };
+    const { job, joined } = await startOperation('mirror_reconcile', {});
+    return { started: !joined, phase: reconcileProgressOf(job).phase };
   })
   // Re-arm every dead-lettered copy (operator "retry" button). Returns how
   // many rows were revived.

@@ -1,9 +1,10 @@
 /**
  * The worker tier's link to Temporal: one connection, one worker per lane (jobs,
- * imports and pipeline stages) executing Maple's workflows and activities on
- * it, and the relay that hands each lane its work. It follows the saved settings without a
- * restart and keeps trying while the server is away, publishing what it sees
- * for Settings → Workers.
+ * operations, imports, pipeline stages, the discover sweep and maintenance)
+ * executing Maple's workflows and activities on it, and the relay that hands
+ * each lane its work. It follows the saved settings without a restart and keeps
+ * trying while the server is away, publishing what it sees for Settings →
+ * Workers.
  */
 
 import { setTimeout as sleep } from 'node:timers/promises';
@@ -14,6 +15,7 @@ import { child as childLogger } from '../log.ts';
 import { importLane } from '../imports/import-queue.ts';
 import { discoverLane } from '../workers/discover/discover-lane.ts';
 import { jobLane } from '../job-runner/job-queue.ts';
+import { operationLane } from '../job-runner/operation-queue.ts';
 import { maintenanceLane } from '../workers/maintenance/lane.ts';
 import { stageLane } from '../workers/stage-lane.ts';
 import type { TemporalLane } from './temporal-lane.ts';
@@ -89,6 +91,7 @@ const sameTarget = (a: TemporalSettings, b: TemporalSettings): boolean =>
 /** Each lane gets a worker of its own, so none waits on another. */
 export const defaultTemporalLanes = (): TemporalLane[] => [
   jobLane(),
+  operationLane(),
   importLane(),
   stageLane(),
   discoverLane(),

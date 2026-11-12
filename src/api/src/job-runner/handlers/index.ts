@@ -6,6 +6,8 @@
  *
  * To add a new kind:
  *   1. Extend the `JobKind` union in `db/schema.ts`.
+ *      An operator one-shot goes in `OperationKind` instead, which puts it
+ *      on the operations lane.
  *   2. Add a handler under this directory and register it in `HANDLERS`.
  *   3. Make sure `JobHandler.run` reports progress periodically and
  *      consults `ctx.shouldCancel()` between steps.
@@ -19,6 +21,9 @@ import { panoPreviewHandler } from './pano-preview.ts';
 import { batchAdjustmentSyncHandler } from './batch-adjustment-sync.ts';
 import { batchRecipeExportHandler } from './batch-recipe-export.ts';
 import { cloudBackupRestoreHandler } from './cloud-backup-restore.ts';
+import { folderScanHandler } from './folder-scan.ts';
+import { mirrorReconcileHandler } from './mirror-reconcile.ts';
+import { peopleClusterHandler } from './people-cluster.ts';
 
 /** Per-step context passed to handlers by the runner. */
 export interface JobHandlerContext {
@@ -57,4 +62,7 @@ export const HANDLERS: Record<JobKind, JobHandler> = {
   batch_adjustment_sync: batchAdjustmentSyncHandler,
   batch_recipe_export: batchRecipeExportHandler,
   cloud_backup_restore: cloudBackupRestoreHandler,
+  mirror_reconcile: mirrorReconcileHandler,
+  people_cluster: peopleClusterHandler,
+  folder_scan: folderScanHandler,
 };

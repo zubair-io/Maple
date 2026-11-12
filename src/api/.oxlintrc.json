@@ -228,6 +228,12 @@
         "src/routes/folders.register-owner.test.ts",
         "src/routes/folders.ts",
         "src/routes/folders.upload.test.ts",
+        // #5822: the folder-scan walk only lists directories; its tests and the reconcile tests stage disposable libraries and mirrors under os.tmpdir().
+        "src/job-runner/handlers/folder-scan.ts",
+        "src/job-runner/handlers/folder-scan.test.ts",
+        "src/job-runner/handlers/mirror-reconcile.test.ts",
+        "src/routes/folders.scan-operation.test.ts",
+        "src/temporal/operations-lane.integration.test.ts",
         "src/routes/fs-jail.ts",
         "src/routes/library/preview.cache.test.ts",
         "src/routes/fs.ts",
