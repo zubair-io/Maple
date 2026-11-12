@@ -62,6 +62,7 @@ namespace Maple.WinUI.Models
         {
             state.WhiteBalancePreset = WhiteBalancePresets.Auto;
             state.WbSource = WbSource.Auto;
+            state.WhiteBalanceScaleVersion = 5;
             ClearDerived(state);
             state.WbAlgorithmVersion = WhiteBalancePresets.AutoWhiteBalanceAlgorithmVersion;
         }
@@ -73,6 +74,8 @@ namespace Maple.WinUI.Models
         public static void MarkSampled(
             AdjustmentState state, double temperature, double tint, double x, double y, double algorithmVersion)
         {
+            state.ImportedWhiteBalance = null;
+            state.WhiteBalanceScaleVersion = 5;
             state.Temperature = temperature;
             state.Tint = tint;
             state.WhiteBalancePreset = WhiteBalancePresets.Custom;
@@ -90,6 +93,7 @@ namespace Maple.WinUI.Models
             state.Tint = tint;
             state.WhiteBalancePreset = WhiteBalancePresets.AsShot;
             state.WbSource = WbSource.AsShot;
+            state.WhiteBalanceScaleVersion = 5;
             ClearDerived(state);
         }
 
@@ -114,6 +118,7 @@ namespace Maple.WinUI.Models
             state.Tint = pair.Tint;
             state.WhiteBalancePreset = name;
             state.WbSource = WbSource.Preset;
+            state.WhiteBalanceScaleVersion = 5;
             ClearDerived(state);
             return true;
         }
@@ -152,6 +157,7 @@ namespace Maple.WinUI.Models
 
         private static void ClearDerived(AdjustmentState state)
         {
+            state.ImportedWhiteBalance = null;
             state.WbSampleX = 0;
             state.WbSampleY = 0;
             state.WbAlgorithmVersion = 0;

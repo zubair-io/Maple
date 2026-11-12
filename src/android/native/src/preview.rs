@@ -1,3 +1,5 @@
+use crate::auto_white_balance::ImportedAutoWhiteBalanceWork;
+use raw_core::stages::imported_auto_wb::{needs_resolution, CachedEstimate};
 use raw_core::{
     gpu_host::{
         capture::{develop_capture_prefix_rgba_cancellable, LiveCreative},
@@ -21,6 +23,10 @@ pub struct Session {
     pub ctx: Rc<GpuContext>,
     pub model: AdjustmentModel,
     raw: Option<Arc<RawImage>>,
+    /// Name-only imported Auto (#4669): renders As Shot until the background
+    /// estimate is adopted; `imported_auto` remembers the request.
+    imported_wb: CachedEstimate,
+    imported_auto: bool,
     bytes: Arc<Vec<u8>>,
     ext: String,
     detail: std::sync::OnceLock<crate::native_detail::SharedDetail>,
@@ -142,12 +148,46 @@ fn update_inputs(
 impl Session {
     pub fn detail_source(&self) -> crate::native_detail::SharedDetail {
         Arc::clone(self.detail.get_or_init(|| {
-            crate::native_detail::DetailSource::new(
+            let detail = crate::native_detail::DetailSource::new(
                 self.raw.clone(),
                 Arc::clone(&self.bytes),
                 self.ext.clone(),
-            )
+            );
+            if let Ok(mut source) = detail.lock() {
+                source.imported_wb = self.imported_wb;
+            }
+            detail
         }))
+    }
+    /// Replace the render model; name-only imported Auto takes the adopted
+    /// pair, As Shot until then. No estimation here (#4669).
+    pub fn set_model(&mut self, mut model: AdjustmentModel) {
+        self.imported_auto = needs_resolution(&model);
+        self.imported_wb.apply(&mut model);
+        self.model = model;
+    }
+    /// Off-thread work for the pending imported Auto estimate, if any.
+    pub fn prepare_imported_auto_white_balance(&self) -> Option<ImportedAutoWhiteBalanceWork> {
+        let raw = self.raw.clone().filter(|_| self.imported_auto)?;
+        self.imported_wb
+            .pair()
+            .is_none()
+            .then(|| ImportedAutoWhiteBalanceWork {
+                raw,
+                estimate: self.imported_wb,
+            })
+    }
+    /// Adopt a finished estimate: the current model and native detail re-render
+    /// with the pair once. A WB edit made meanwhile has cleared the request.
+    pub fn adopt_imported_auto_white_balance(&mut self, work: &ImportedAutoWhiteBalanceWork) {
+        self.imported_wb = work.estimate;
+        if let Some(Ok(mut detail)) = self.detail.get().map(|d| d.lock()) {
+            detail.imported_wb = work.estimate;
+        }
+        if self.imported_auto && !self.model.temperature_seen && !self.model.tint_seen {
+            self.model.unresolved_auto_wb = true;
+            self.imported_wb.apply(&mut self.model);
+        }
     }
     pub fn source_is_raw(&self) -> bool {
         self.raw.is_some()
@@ -216,7 +256,9 @@ impl Session {
         xml: &str,
         edge: u32,
     ) -> Result<Self, String> {
-        let model = crate::xmp::parse(xml)?;
+        let mut model = crate::xmp::parse(xml)?;
+        let imported_auto = needs_resolution(&model);
+        CachedEstimate::default().apply(&mut model);
         let bytes = Arc::new(std::fs::read(path).map_err(|e| e.to_string())?);
         let ext = std::path::Path::new(path)
             .extension()
@@ -298,6 +340,8 @@ impl Session {
             ctx,
             model,
             raw,
+            imported_wb: CachedEstimate::default(),
+            imported_auto,
             bytes,
             ext,
             prefix,

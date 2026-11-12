@@ -179,6 +179,7 @@ impl MapleApp {
                 }
                 Event::Opened(id, result) if id == self.session => match result {
                     Ok((document, white_balance)) => {
+                        self.imported_auto = None;
                         self.worker.send(Command::NativeSize(id));
                         self.white_balance = Some(white_balance);
                         self.comparison_baseline = Some(document.model.clone());
@@ -241,6 +242,11 @@ impl MapleApp {
                         }
                     }
                     self.status = "Preview ready · resident GPU renderer".into();
+                }
+                Event::ImportedWhiteBalance(id, pair) if id == self.session => {
+                    // One re-render once the background estimate lands (#4669).
+                    self.imported_auto = Some(pair);
+                    self.render();
                 }
                 Event::Saved(id, result) => {
                     let saved = self.save_documents.pop_front();

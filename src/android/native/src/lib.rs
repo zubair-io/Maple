@@ -219,6 +219,57 @@ pub unsafe extern "C" fn maple_android_auto_wb_free(work: *mut c_void) {
     }
 }
 
+/// Background work for a session's name-only imported Auto WB (#4669), or
+/// null when there is nothing to resolve.
+#[no_mangle]
+pub unsafe extern "C" fn maple_android_imported_wb_new(handle: *mut c_void) -> *mut c_void {
+    guarded(ptr::null_mut(), || {
+        let session = handle.cast::<Session>().as_ref().ok_or("Closed editor")?;
+        Ok(session
+            .prepare_imported_auto_white_balance()
+            .map_or(ptr::null_mut(), |work| Box::into_raw(Box::new(work)).cast()))
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn maple_android_imported_wb_run(work: *mut c_void) -> i32 {
+    guarded(-1, || {
+        let work = work
+            .cast::<auto_white_balance::ImportedAutoWhiteBalanceWork>()
+            .as_mut()
+            .ok_or("Closed imported white balance")?;
+        work.run().map(|_| 0)
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn maple_android_imported_wb_adopt(
+    handle: *mut c_void,
+    work: *const c_void,
+) -> i32 {
+    guarded(-1, || {
+        let session = handle.cast::<Session>().as_mut().ok_or("Closed editor")?;
+        let work = work
+            .cast::<auto_white_balance::ImportedAutoWhiteBalanceWork>()
+            .as_ref()
+            .ok_or("Closed imported white balance")?;
+        session.adopt_imported_auto_white_balance(work);
+        Ok(0)
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn maple_android_imported_wb_free(work: *mut c_void) {
+    if !work.is_null() {
+        guarded((), || {
+            drop(Box::from_raw(
+                work.cast::<auto_white_balance::ImportedAutoWhiteBalanceWork>(),
+            ));
+            Ok(())
+        });
+    }
+}
+
 #[no_mangle]
 pub unsafe extern "C" fn maple_android_free_string(value: *mut c_char) {
     if !value.is_null() {
@@ -246,7 +297,7 @@ pub unsafe extern "C" fn maple_android_model(handle: *mut c_void, xml: *const c_
         if !session.source_is_raw() {
             raw_core::pipeline::validate_raster_adjustments(&model).map_err(|e| e.to_string())?;
         }
-        session.model = model;
+        session.set_model(model);
         Ok(0)
     })
 }

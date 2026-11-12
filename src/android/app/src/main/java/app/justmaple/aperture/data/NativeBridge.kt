@@ -55,6 +55,10 @@ object NativeBridge {
     external fun createAutoWhiteBalance(handle: Long, xml: String): Long
     external fun runAutoWhiteBalance(work: Long): String
     external fun closeAutoWhiteBalance(work: Long)
+    external fun createImportedAutoWhiteBalance(handle: Long): Long
+    external fun runImportedAutoWhiteBalance(work: Long): Boolean
+    external fun adoptImportedAutoWhiteBalance(handle: Long, work: Long)
+    external fun closeImportedAutoWhiteBalance(work: Long)
 
     /** `{"layers": [...]}` of the mask containers described by [input] (see `mask_document.rs`). */
     external fun masksRead(input: String): String

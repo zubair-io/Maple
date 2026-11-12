@@ -168,6 +168,7 @@ class EditorRenderer(library: PhotoLibrary, private val onPresented: (Int) -> Un
             ) {
                 hasPresented = true
                 onPresented(epoch)
+                resolveImportedAutoWhiteBalance(epoch)
             }
         } catch (failure: Exception) {
             if (expectedRevision == revision && binding === currentSurface) throw failure
@@ -263,6 +264,29 @@ class EditorRenderer(library: PhotoLibrary, private val onPresented: (Int) -> Un
                 }
             }
         }
+
+    /**
+     * After the As Shot first frame, estimate a name-only imported Auto WB once
+     * off the GPU thread from the session's RAW, then adopt it and re-render
+     * once (#4669). Failure keeps As Shot; the next open retries.
+     */
+    private fun resolveImportedAutoWhiteBalance(openEpoch: Int) {
+        val work = NativeBridge.createImportedAutoWhiteBalance(handle)
+        if (work == 0L) return
+        Thread {
+            val resolved = NativeBridge.runImportedAutoWhiteBalance(work)
+            dispatcher.executor.execute {
+                try {
+                    if (resolved && openEpoch == epoch && handle != 0L) {
+                        NativeBridge.adoptImportedAutoWhiteBalance(handle, work)
+                        renderCurrent(revision)
+                    }
+                } finally {
+                    NativeBridge.closeImportedAutoWhiteBalance(work)
+                }
+            }
+        }.start()
+    }
 
     override suspend fun shutdown() = withContext(dispatcher) { release() }
 

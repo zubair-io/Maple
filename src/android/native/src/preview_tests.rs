@@ -294,3 +294,39 @@ fn generated_scalar_access_validates_ranges_and_marks_manual_wb() {
     assert!(model.temperature_seen && model.tint_seen);
     assert_eq!(model.wb_source, raw_core::types::WbSource::Manual);
 }
+
+#[test]
+fn imported_auto_white_balance_renders_as_shot_until_the_background_estimate_is_adopted() {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../../test-fixtures/batch-transfer/source.dng");
+    let raw = raw_core::decode::decode(&path).unwrap();
+    let expected =
+        raw_core::stages::imported_auto_wb::estimate(&raw, raw_core::CancelToken::never()).unwrap();
+    let xml = r#"<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/" xmlns:papp="http://ns.justmaple.app/photo/1.0/" crs:WhiteBalance="Auto" papp:Profile="Neutral" /></rdf:RDF></x:xmpmeta>"#;
+    let mut session = Session::open(path.to_str().unwrap(), xml, 64).unwrap();
+    // The first frame renders As Shot: nothing was estimated on open.
+    assert!(!session.model.unresolved_auto_wb);
+    assert!(!session.model.temperature_seen && !session.model.tint_seen);
+    let mut work = session.prepare_imported_auto_white_balance().unwrap();
+    work.run().unwrap();
+    session.adopt_imported_auto_white_balance(&work);
+    assert_eq!((session.model.temperature, session.model.tint), expected);
+    assert!(session.prepare_imported_auto_white_balance().is_none());
+    // Later models reuse the adopted pair without analysis.
+    let mut edited = crate::xmp::parse(xml).unwrap();
+    edited.exposure = 1.0;
+    session.set_model(edited);
+    assert_eq!((session.model.temperature, session.model.tint), expected);
+    assert_eq!(session.model.exposure, 1.0);
+    // A numeric WB edit is authored and never replaced.
+    let authored = crate::xmp::parse(&xml.replace(
+        r#"crs:WhiteBalance="Auto""#,
+        r#"crs:WhiteBalance="Auto" crs:Temperature="5300" crs:Tint="17""#,
+    ))
+    .unwrap();
+    session.set_model(authored);
+    assert_eq!(
+        (session.model.temperature, session.model.tint),
+        (5300., 17.)
+    );
+}

@@ -80,6 +80,8 @@ fn read_admitted_source(mut file: std::fs::File, length: u64) -> Result<Vec<u8>,
 
 pub struct DetailSource {
     raw: Option<Arc<RawImage>>,
+    /// The session's name-only imported Auto pair, As Shot until adopted (#4669).
+    pub(crate) imported_wb: raw_core::stages::imported_auto_wb::CachedEstimate,
     bytes: Arc<Vec<u8>>,
     ext: String,
     raster: Option<RasterDetailImage>,
@@ -96,6 +98,7 @@ impl DetailSource {
     pub fn new(raw: Option<Arc<RawImage>>, bytes: Arc<Vec<u8>>, ext: String) -> SharedDetail {
         Arc::new(Mutex::new(Self {
             raw,
+            imported_wb: Default::default(),
             bytes,
             ext,
             raster: None,
@@ -146,7 +149,8 @@ impl DetailSource {
         if cancel.is_cancelled() {
             return Err("Native detail cancelled".into());
         }
-        let model = crate::xmp::parse(xml)?;
+        let mut model = crate::xmp::parse(xml)?;
+        self.imported_wb.apply(&mut model);
         let film = crate::film::resolve(&model.film_look)?;
         if !model.film_look.is_empty() && film.is_none() {
             return Err("Selected film look is unavailable".into());

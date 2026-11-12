@@ -52,6 +52,8 @@ pub enum Event {
         Option<AutoFitOutcome>,
     ),
     GpuRendered(u64, u64, crate::gpu_texture::GpuFrame),
+    /// The session's name-only imported Auto pair, resolved off the first frame (#4669).
+    ImportedWhiteBalance(u64, (f32, f32)),
     GpuFallback(u64, u64, String),
     Detail(u64, u64, Result<crate::detail::DetailFrame, String>),
     /// `Ok(Some)` is the published merge after an outside change was merged.
@@ -69,6 +71,7 @@ struct Session {
     native_size: (u32, u32),
     gpu: Option<crate::gpu_preview::GpuPreview>,
     gpu_failed: bool,
+    imported_auto_requested: bool,
 }
 
 impl Session {
@@ -111,6 +114,7 @@ impl Session {
                 native_size,
                 gpu: None,
                 gpu_failed: false,
+                imported_auto_requested: false,
             },
             document,
         ))
@@ -197,6 +201,25 @@ impl Session {
     }
 }
 
+impl Session {
+    /// Start the session's one background estimate for name-only imported
+    /// Auto; the first frame never waits for it (#4669).
+    fn resolve_imported_auto(
+        &mut self,
+        model: &AdjustmentModel,
+        results: &mpsc::Sender<Event>,
+        context: &egui::Context,
+    ) {
+        if let Some(raw) = self.raw.clone().filter(|_| {
+            !self.imported_auto_requested
+                && raw_core::stages::imported_auto_wb::needs_resolution(model)
+        }) {
+            self.imported_auto_requested = true;
+            crate::imported_auto::spawn_estimate(self.id, raw, results.clone(), context.clone());
+        }
+    }
+}
+
 enum Work {
     Command(Box<Command>),
     Render,
@@ -258,6 +281,7 @@ impl Worker {
                     ),
                     Command::Detail(..) => unreachable!("detail uses its independent mailbox"),
                     Command::Comparison(id, model) => {
+                        let model = crate::imported_auto::as_shot_until_resolved(model);
                         let image = session
                             .as_ref()
                             .filter(|session| session.id == id)
@@ -324,6 +348,10 @@ impl Worker {
                         }
                     }
                     Command::Render(id, generation, model) => {
+                        if let Some(opened) = session.as_mut().filter(|s| s.id == id) {
+                            opened.resolve_imported_auto(&model, &results, &context);
+                        }
+                        let model = crate::imported_auto::as_shot_until_resolved(model);
                         let cancel = raw_gpu::CancelToken::new();
                         *render_cancel.lock().expect("active GPU render") = Some(cancel.clone());
                         // Check again after publishing cancellation ownership.
@@ -420,7 +448,12 @@ impl Worker {
             }
         }
         if let Command::Detail(id, generation, model, rect) = command {
-            self.detail.request(id, generation, model, rect);
+            self.detail.request(
+                id,
+                generation,
+                crate::imported_auto::as_shot_until_resolved(model),
+                rect,
+            );
             return;
         }
         if matches!(command, Command::Render(..) | Command::Open(..)) {

@@ -317,6 +317,7 @@ namespace Maple.WinUI.ViewModels
             {
                 try
                 {
+                    var deferredAuto = ResolveImportedWhiteBalanceBeforeDecode(photo, model);
                     // Cold open always decodes at Preview — the first paint
                     // must never wait on a full AMaZE demosaic (#3417
                     // review). A worthwhile upgrade is scheduled separately
@@ -326,6 +327,7 @@ namespace Maple.WinUI.ViewModels
                     if (generation != _decodeGeneration)
                         return;
                     RegisterBrushRastersAndPublish(generation, photo, decoded, model);
+                    if (deferredAuto) ResolveImportedAutoAfterFirstFrame(generation, photo, model);
                 }
                 catch (Exception ex)
                 {

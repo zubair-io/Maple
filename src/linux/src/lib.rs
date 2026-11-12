@@ -26,6 +26,7 @@ pub mod film;
 pub mod detail;
 
 mod detail_worker;
+mod imported_auto;
 mod raster_detail;
 
 mod whole_detail;

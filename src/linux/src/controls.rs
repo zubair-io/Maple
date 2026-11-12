@@ -81,6 +81,7 @@ impl Control {
         if matches!(self, Self::Temperature | Self::Tint) {
             model.temperature_seen = true;
             model.tint_seen = true;
+            model.unresolved_auto_wb = false;
             model.wb_source = WbSource::Manual;
             model.wb_sample_x = 0.0;
             model.wb_sample_y = 0.0;

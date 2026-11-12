@@ -15,6 +15,7 @@ impl MapleApp {
         }
         let mut model = baseline.clone();
         model.crop = document.model.crop;
+        let model = self.render_model(&model);
         self.comparison_model = Some(model.clone());
         self.comparison_texture = None;
         self.comparison_error = None;

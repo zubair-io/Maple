@@ -35,8 +35,51 @@ namespace Maple.WinUI.ViewModels
             Renderer.RequestRender(Adjustments.Clone());
         }
 
+        // Unresolved name-only Auto displays and renders As Shot until its pair lands (#4669).
         private static bool UntouchedWhiteBalance(AdjustmentState state) =>
-            state.WbSource == WbSource.AsShot && Math.Abs(state.Temperature - 6500.0) < 1e-6 && Math.Abs(state.Tint) < 1e-6;
+            (state.ImportedWhiteBalance == null && state.WbSource == WbSource.AsShot
+                || ImportedWhiteBalanceResolver.IsUnresolvedAuto(state))
+            && Math.Abs(state.Temperature - 6500.0) < 1e-6 && Math.Abs(state.Tint) < 1e-6;
+
+        /// <summary>Partial imports resolve before the decode; name-only Auto never
+        /// delays the first frame and returns true to resolve after it (#4669).</summary>
+        private static bool ResolveImportedWhiteBalanceBeforeDecode(PhotoItem photo, AdjustmentState model)
+        {
+            if (ImportedWhiteBalanceResolver.IsUnresolvedAuto(model)) return true;
+            ImportedWhiteBalanceResolver.ResolveInPlace(photo.EditPath, model);
+            return false;
+        }
+
+        /// <summary>Runs on the decode task after the first frame is published: one
+        /// estimate from the shared decode, then one re-render with the pair. Failure
+        /// leaves As Shot on screen; the next open retries (#4669).</summary>
+        private void ResolveImportedAutoAfterFirstFrame(int generation, PhotoItem photo, AdjustmentState model)
+        {
+            try
+            {
+                ImportedWhiteBalanceResolver.ResolveInPlace(photo.EditPath, model);
+            }
+            catch (Exception)
+            {
+                return;
+            }
+            OnUi(() =>
+            {
+                if (_disposed || generation != _decodeGeneration) return;
+                PublishImportedWhiteBalance(model);
+                Renderer.RequestRender(Adjustments.Clone());
+            });
+        }
+
+        private void PublishImportedWhiteBalance(AdjustmentState resolved)
+        {
+            foreach (var snapshot in new[] { Adjustments, _undoBaseline, _originalModel }
+                .Concat(_undoStack).Concat(_redoStack))
+            {
+                if (snapshot != null) ImportedWhiteBalanceResolver.ApplyResolved(snapshot, resolved);
+            }
+            SyncSlidersFromModel();
+        }
 
         private void NormalizeWhiteBalanceHistory()
         {
