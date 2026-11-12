@@ -321,6 +321,12 @@ enum ChangeObserverWiring {
           library.forget.map { BackupTaskID(deviceId: deviceId, phassetLocalId: $0) })) ?? []
       await queue.cancel(removedPending)
     }
+    if !library.dropExcluded.isEmpty {
+      let removedPending =
+        (try? await state.removeExcluded(
+          library.dropExcluded.map { BackupTaskID(deviceId: deviceId, phassetLocalId: $0) })) ?? []
+      await queue.cancel(removedPending)
+    }
     if !library.suspend.isEmpty {
       let suspended =
         (try? await state.suspendExcluded(
