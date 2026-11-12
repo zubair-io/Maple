@@ -426,3 +426,5 @@ mod tests_defringe;
 mod tests_highlight_bounds;
 #[cfg(test)]
 mod tests_sized_lateral_ca;
+#[cfg(test)]
+mod tests_sized_quad;
