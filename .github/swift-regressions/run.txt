@@ -361,6 +361,9 @@ RawJpegStackListingTests
 RawJpegStackFileOperationsTests
 RawJpegStackSMBFileOperationsTests
 RawJpegStackCloudTests
+RawJpegStackServerTests # #5050 review: server stack carry, rollback address, trash order, stack=1
+RawJpegStackCollisionAskTests # #5050 review: RAW and JPEG collisions are asked about separately
+RawJpegStackSMBSourceTests # #5050 review: SMBSource stack carry on owned Samba
 
 # Unified native folder readers and the production API contract (#4006).
 UnifiedFolderConsumerTests

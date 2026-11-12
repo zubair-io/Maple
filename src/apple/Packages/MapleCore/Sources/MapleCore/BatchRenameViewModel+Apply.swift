@@ -101,6 +101,10 @@ extension BatchRenameViewModel {
           BatchRenameApplyResult(
             id: asset.id, oldFilename: item.oldFilename,
             outcome: .renamed(newFilename: (outcome.primaryPath as NSString).lastPathComponent)))
+      } catch FileOperationError.destinationExists(let path)
+        where StackCollisionAsk(stack: asset.stack).namesCompanion(path)
+      {
+        results.append(Self.companionTaken(asset, oldFilename: item.oldFilename, path: path))
       } catch FileOperationError.destinationExists where collision == .skip {
         results.append(
           BatchRenameApplyResult(
@@ -153,9 +157,7 @@ extension BatchRenameViewModel {
         let newPath: String
         if let stack = asset.stack, let companionRef = stack.smbCompanionRef {
           newPath = try await smbSource.renameAsset(
-            ref, companion: companionRef, to: newName,
-            companionFilename: stack.companionFilename(forPrimaryFilename: newName),
-            collision: collision.localPolicy
+            ref, companion: companionRef, to: newName, collision: collision.localPolicy
           ).primary
         } else {
           newPath = try await smbSource.renameAsset(
@@ -165,6 +167,10 @@ extension BatchRenameViewModel {
           BatchRenameApplyResult(
             id: asset.id, oldFilename: item.oldFilename,
             outcome: .renamed(newFilename: (newPath as NSString).lastPathComponent)))
+      } catch FileOperationError.destinationExists(let path)
+        where StackCollisionAsk(stack: asset.stack).namesCompanion(path)
+      {
+        results.append(Self.companionTaken(asset, oldFilename: item.oldFilename, path: path))
       } catch FileOperationError.destinationExists where collision == .skip {
         results.append(
           BatchRenameApplyResult(
@@ -248,21 +254,55 @@ extension BatchRenameViewModel {
   }
 
   /// A stacked RAW's JPEG follows the batch: the server renamed the RAW, so the JPEG takes its new
-  /// stem here (#5050).
+  /// stem here (#5050). A JPEG that cannot follow puts the RAW back under its old name, so the
+  /// result reports what is on disk.
   private func renamedWithCompanion(
     _ asset: AssetRef, as newFilename: String, catalog: RemoteCatalog
   ) async -> BatchRenameApplyResult {
     let renamed = BatchRenameApplyResult(
       id: asset.id, oldFilename: asset.fullFilename, outcome: .renamed(newFilename: newFilename))
-    guard let stack = asset.stack else { return renamed }
+    guard let stack = asset.stack, newFilename != asset.fullFilename else { return renamed }
     do {
       try await catalog.renameCompanion(of: stack, toMatch: newFilename)
       return renamed
     } catch {
+      let restored: Bool
+      if let assetID = asset.stableID,
+        case .ok = try? await catalog.renameAsset(
+          assetID: assetID, newFilename: asset.fullFilename)
+      {
+        restored = true
+      } else {
+        restored = false
+      }
+      let reason = Self.companionFailureReason(error)
       return BatchRenameApplyResult(
         id: asset.id, oldFilename: asset.fullFilename,
-        outcome: .failed(
-          "Renamed the RAW, but its JPEG could not follow: \(error.localizedDescription)"))
+        outcome: restored
+          ? .skipped(reason: "\(reason) The RAW keeps its name.")
+          : .failed(
+            "Renamed the RAW to \(newFilename), but \(reason.prefix(1).lowercased() + reason.dropFirst()) Rename it back by hand."
+          ))
     }
+  }
+
+  private static func companionFailureReason(_ error: Error) -> String {
+    if case FileOperationError.destinationExists(let name) = error {
+      return "Its JPEG could not follow: \((name as NSString).lastPathComponent) already exists."
+    }
+    return "Its JPEG could not follow: \(error.localizedDescription)."
+  }
+
+  /// The JPEG's new name is taken: the pair was left as it was, whatever the RAW's policy said,
+  /// since the RAW's collision choice never replaces an unrelated JPEG (#5050).
+  static func companionTaken(_ asset: AssetRef, oldFilename: String, path: String)
+    -> BatchRenameApplyResult
+  {
+    BatchRenameApplyResult(
+      id: asset.id, oldFilename: oldFilename,
+      outcome: .skipped(
+        reason:
+          "\((path as NSString).lastPathComponent) already exists, so this RAW and its JPEG kept their names."
+      ))
   }
 }

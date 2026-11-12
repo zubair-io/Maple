@@ -108,4 +108,36 @@ final class RawJpegStackListingTests: XCTestCase {
     XCTAssertEqual(unfolded.tiles.count, 3)
     XCTAssertTrue(unfolded.stacks.isEmpty)
   }
+
+  /// A Live Photo's still is the JPEG half of a pair; folding it must not drop the link.
+  func testTheTileKeepsTheLivePhotoLinkOfItsJpegHalf() throws {
+    let raw = URL(fileURLWithPath: "/Trip/IMG_1.CR3")
+    let jpeg = URL(fileURLWithPath: "/Trip/IMG_1.JPG")
+    let link = LivePhotoLink(role: .still, partner: "IMG_1.MOV")
+
+    let refs = RawJpegStacking.localRefs(
+      [raw, jpeg], scopeParentURL: nil, livePhotoLinks: [jpeg.path: link], stacksPairs: true)
+
+    XCTAssertEqual(refs.count, 1)
+    XCTAssertEqual(refs.first?.livePhoto, link)
+    let smbStack = RawJpegStack(
+      primary: .init(name: "IMG_1.CR3", size: nil), companion: .init(name: "IMG_1.JPG", size: nil),
+      location: .smb(ImageRef(id: "j", displayName: "IMG_1.JPG", smbPath: "/Trip/IMG_1.JPG")))
+    XCTAssertEqual(
+      RawJpegStacking.smbLivePhoto(
+        rawPath: "/Trip/IMG_1.CR3", stack: smbStack, links: ["/Trip/IMG_1.JPG": link]), link)
+  }
+
+  func testADraggedLocalTileHandsOverItsJpegToo() {
+    let jpeg = URL(fileURLWithPath: "/Trip/IMG_1.JPG")
+    let tile = AssetRef(
+      url: URL(fileURLWithPath: "/Trip/IMG_1.CR3"), scopeParentURL: URL(fileURLWithPath: "/Trip"),
+      stack: RawJpegStack(
+        primary: .init(name: "IMG_1.CR3", size: nil),
+        companion: .init(name: "IMG_1.JPG", size: nil), location: .local(jpeg)))
+
+    XCTAssertEqual(tile.stackCompanionDragAsset?.primaryURL, jpeg)
+    XCTAssertEqual(AssetDragFiles.fileName(for: tile.stackCompanionDragAsset!), "IMG_1.JPG")
+    XCTAssertNil(AssetRef(url: jpeg).stackCompanionDragAsset)
+  }
 }

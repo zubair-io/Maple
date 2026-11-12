@@ -88,6 +88,14 @@ public struct RawJpegStack: Hashable, Sendable {
   }
 }
 
+extension AssetRef {
+  /// The stacked JPEG as its own file for drag-out to Finder, so a dragged tile hands over both
+  /// files (#5050). Local folders only: SMB and server companions have no original writer here.
+  public var stackCompanionDragAsset: AssetRef? {
+    stack?.localCompanionURL.map { AssetRef(url: $0, scopeParentURL: scopeParentURL) }
+  }
+}
+
 /// The Settings control 'Show one image for RAW+JPEG pairs' for local folders and SMB shares. On by
 /// default; with it off both files show as separate tiles. Server libraries keep the same switch in
 /// `stack_raw_jpeg` on `/api/display/config`.

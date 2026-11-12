@@ -3,7 +3,9 @@ import Foundation
 /// A stacked RAW+JPEG tile on a server library (#5050): the RAW's rename, move and trash carry the
 /// JPEG's asset with it, addressed by the `id` and `address` the folder listing reported for the
 /// companion (docs/api.md "RAW+JPEG stacks"). The server relocates one asset at a time, so the
-/// pair is two calls; a JPEG that cannot follow puts the RAW back.
+/// pair is two calls. The RAW's collision choice never reaches the JPEG: the JPEG replaces an
+/// occupant only when the caller passes `companionCollision: .replace` after a prompt that named
+/// it, and a JPEG that cannot follow puts the RAW back.
 extension RemoteCatalog {
   private func companionID(of stack: RawJpegStack) throws -> String {
     guard case .cloud(_, _, let id?) = stack.location else {
@@ -52,11 +54,14 @@ extension RemoteCatalog {
     }
   }
 
-  /// Move or copy the RAW, then the JPEG under the RAW's final stem. `restore` is where a move
-  /// puts the RAW back when the JPEG cannot follow.
+  /// Move or copy the RAW, then the JPEG under the RAW's final stem. `collision` is the RAW's
+  /// policy; the JPEG uses `companionCollision` and throws `destinationExists` naming the JPEG when
+  /// its name is taken. `restore` is where a move puts the RAW back when the JPEG cannot follow;
+  /// the RAW is addressed there by the location the move gave it, not its old `sourceAddress`.
   public func relocateAsset(
     assetID: String, mode: RelocateMode, collision: CollisionPolicy, destinationPath: String,
-    sourceAddress: String?, stack: RawJpegStack, restore: (path: String, filename: String)
+    sourceAddress: String?, stack: RawJpegStack, restore: (path: String, filename: String),
+    companionCollision: CollisionPolicy = .fail
   ) async throws -> RelocateAssetResult {
     let companion = try companionID(of: stack)
     let primary = try await relocateAsset(
@@ -68,7 +73,8 @@ extension RemoteCatalog {
       ? nil : stack.companionFilename(forPrimaryFilename: moved.newFilename)
     do {
       switch try await relocateAsset(
-        assetID: companion, mode: mode, collision: collision == .replace ? .replace : .fail,
+        assetID: companion, mode: mode,
+        collision: collision != .autoSuffix && companionCollision == .replace ? .replace : .fail,
         destinationPath: destinationPath, destinationFilename: companionName,
         sourceAddress: companionAddress(of: stack))
       {
@@ -85,23 +91,41 @@ extension RemoteCatalog {
       if mode == .move {
         _ = try? await relocateAsset(
           assetID: assetID, mode: .move, collision: .fail, destinationPath: restore.path,
-          destinationFilename: restore.filename, sourceAddress: sourceAddress)
+          destinationFilename: restore.filename,
+          sourceAddress: sourceAddress.flatMap { Self.address($0, movedTo: moved) })
       }
       throw error
     }
   }
 
-  /// Trash the JPEG, then the RAW: a RAW that then fails to trash is still whole.
+  /// Trash the RAW, then the JPEG. A RAW the server refuses leaves both untouched; a JPEG it then
+  /// refuses brings the trashed RAW back, so the tile is never left half trashed.
   public func deleteAsset(
     assetID: String, intent: DeleteAssetIntent, stack: RawJpegStack
   ) async throws -> DeleteAssetResult {
     let companion = try companionID(of: stack)
-    switch try await deleteAsset(assetID: companion, intent: intent) {
-    case .ok:
-      return try await deleteAsset(assetID: assetID, intent: intent)
-    case let refused:
-      return refused
+    let primary = try await deleteAsset(assetID: assetID, intent: intent)
+    guard primary == .ok else { return primary }
+    do {
+      let companionResult = try await deleteAsset(assetID: companion, intent: intent)
+      if companionResult != .ok, intent == .trash {
+        _ = try? await restoreAsset(assetID: assetID, targetRelativePath: nil)
+      }
+      return companionResult
+    } catch {
+      if intent == .trash {
+        _ = try? await restoreAsset(assetID: assetID, targetRelativePath: nil)
+      }
+      throw error
     }
+  }
+
+  /// `sourceAddress` (`<library>:<relative path>`) re-pointed at where a relocate put the file.
+  static func address(_ sourceAddress: String, movedTo moved: RelocateAssetResponse) -> String? {
+    guard let colon = sourceAddress.firstIndex(of: ":") else { return nil }
+    let relative =
+      moved.newPath.isEmpty ? moved.newFilename : "\(moved.newPath)/\(moved.newFilename)"
+    return "\(sourceAddress[..<colon]):\(relative)"
   }
 }
 

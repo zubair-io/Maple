@@ -202,15 +202,18 @@ public actor SMBSource {
   /// `_assets` reconciliation, and a no-op for `mode: .copy` (the source
   /// entry keeps pointing at the original, matching the API's "copy never
   /// repoints the source" contract for Cloud — see
-  /// `relocateAsset` in `RemoteCatalog.swift`).
+  /// `relocateAsset` in `RemoteCatalog.swift`). `newBasename` lands the file
+  /// under a new name in the same call (a stacked JPEG following its RAW's stem).
   public func relocateAsset(
-    _ ref: ImageRef, to destinationDir: String, mode: RelocateMode, collision: CollisionPolicy
+    _ ref: ImageRef, to destinationDir: String, newBasename: String? = nil, mode: RelocateMode,
+    collision: CollisionPolicy
   ) async throws -> RelocateOutcome {
     guard let client else { throw SMBError.notConnected }
     let sourcePath = try mutationPath(for: ref)
     let identity = listingID
     let outcome = try await SMBFileOperations.relocate(
-      sourcePath, to: destinationDir, mode: mode, collision: collision, transport: client)
+      sourcePath, to: destinationDir, newBasename: newBasename, mode: mode, collision: collision,
+      transport: client)
     guard mode == .move,
       recordRelocation(ref, from: sourcePath, to: outcome.primaryPath, listedAs: identity)
     else { return outcome }
