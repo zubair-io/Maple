@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Net;
 using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
@@ -9,8 +10,8 @@ namespace Maple.WinUI.Services.Cloud
     /// <summary>Culling sync (rating/flag/color-label merged into the
     /// server-side sidecar), Trash/restore (#2741 — resolve a server path
     /// to its indexed asset id, soft-delete, restore, and one page of a
-    /// library's server-side Trash), and opening the original bytes as a
-    /// headers-read stream (#2589) for the Cloud Files hydration
+    /// library's server-side Trash), and opening a library file's bytes as
+    /// a headers-read stream (#2589) for the Cloud Files hydration
     /// callback.</summary>
     public sealed partial class CloudClient
     {
@@ -105,30 +106,48 @@ namespace Maple.WinUI.Services.Cloud
             return GetJsonAsync<CloudTrashPage>(route, ct);
         }
 
-        // --- Original bytes as a stream (#2589) ---
+        // --- Library file bytes as a stream (#2589, #5852) ---
 
-        /// <summary>Opens GET /api/fs/raw as a headers-read response for
-        /// streaming consumers (the Cloud Files hydration callback) that
-        /// must not spool the whole RAW to disk first. The caller owns the
-        /// response and must dispose it — the content stream dies with it.
-        /// Null on any non-success status.
+        /// <summary>Opens the bytes of the library file at a `slug:relPath`
+        /// address as a headers-read response for streaming consumers (the
+        /// Cloud Files hydration callback) that must not spool the whole
+        /// file to disk first. The caller owns the response and must dispose
+        /// it — the content stream dies with it. Null on any non-success.
         ///
-        /// Stays on /api/fs/raw rather than /api/image/:slug/* for the same
-        /// reason as <see cref="DownloadOriginalAsync"/>: the #926 mirror
-        /// failover lives only on the legacy route, and the placeholder
-        /// identity Explorer hands back is the absolute server path the
-        /// /api/fs/dir listing named the file by. Neither route honours a
-        /// Range header — the sync root's FULL hydration policy asks for the
-        /// whole file from offset 0, which is what the body stream is.</summary>
-        public async Task<HttpResponseMessage?> OpenOriginalAsync(
-            string serverAbsPath, CancellationToken ct)
+        /// GET /api/image/:slug/* first: it carries the #926 mirror failover.
+        /// That route streams only image, stub and audio types and answers
+        /// 415 for the rest (video, sidecars, ordinary files), which
+        /// GET /api/folders/:id/file?path= streams by library-relative path —
+        /// the pair the Apple File Provider reads non-asset files
+        /// through.</summary>
+        public async Task<HttpResponseMessage?> OpenLibraryFileAsync(string address, CancellationToken ct)
         {
-            var route = $"api/fs/raw?path={Uri.EscapeDataString(serverAbsPath)}";
-            var response = await SendStreamAsync(
-                () => new HttpRequestMessage(HttpMethod.Get, route), ct);
+            var image = await SendStreamAsync(
+                () => new HttpRequestMessage(HttpMethod.Get, $"api/image/{EncodeAddress(address)}"), ct);
+            if (image.StatusCode != HttpStatusCode.UnsupportedMediaType)
+                return SuccessOrNull(image, address);
+            image.Dispose();
+
+            var (slug, relPath) = SplitAddress(address);
+            var libraries = await GetFoldersAsync(ct);
+            var library = Array.Find(libraries ?? Array.Empty<CloudFolder>(), folder => folder.Slug == slug);
+            if (library == null)
+            {
+                DiagLog.Write($"[cloud] no library for {address}");
+                return null;
+            }
+            var file = await SendStreamAsync(
+                () => new HttpRequestMessage(HttpMethod.Get,
+                    $"api/folders/{Uri.EscapeDataString(library.Id)}/file?path={Uri.EscapeDataString(relPath)}"),
+                ct);
+            return SuccessOrNull(file, address);
+        }
+
+        private static HttpResponseMessage? SuccessOrNull(HttpResponseMessage response, string address)
+        {
             if (response.IsSuccessStatusCode)
                 return response;
-            DiagLog.Write($"[cloud] raw open {(int)response.StatusCode} for {serverAbsPath}");
+            DiagLog.Write($"[cloud] file open {(int)response.StatusCode} for {address}");
             response.Dispose();
             return null;
         }

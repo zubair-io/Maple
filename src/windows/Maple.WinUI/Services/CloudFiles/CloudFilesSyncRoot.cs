@@ -6,29 +6,26 @@
 //
 //   FETCH_PLACEHOLDERS — on-demand directory population. The sync root
 //     lists one directory per registered cloud library
-//     (GET /api/folders); every level below comes from GET /api/fs/dir —
-//     the same walk the in-app browser and the Apple File Provider use.
-//     Each placeholder's FileIdentity is the entry's absolute server
-//     path, so a callback can address the server without any local state.
+//     (GET /api/folders); every level below comes from the unified
+//     GET /api/folder/:slug/* listing, cursor-paged — the route the Apple
+//     File Provider enumerates (#4006, #5852). Folders, images, ordinary
+//     files and paired sidecars all become placeholders, stamped with the
+//     size and mtime the listing reports (a wrong FileSize breaks
+//     hydration). Each placeholder's FileIdentity is the entry's
+//     `slug:relPath` address (CloudFilesIdentity.cs), so a callback can
+//     address the server with no local state.
 //
 //   FETCH_DATA — on-demand hydration. Opening a placeholder streams the
-//     original through GET /api/fs/raw straight into CfExecute
-//     TRANSFER_DATA chunks (CloudFilesHydration.cs); nothing spools to
-//     disk first. Explorer's pin-for-offline ("Always keep on this
-//     device") rides the same callback — the platform requests full
-//     hydration, which the FULL hydration policy already makes the only
-//     mode.
-//
-// Both callbacks stay on the path-addressed /api/fs/* routes after the
-// #1325 cutover, for the same reasons the Apple File Provider does: the
-// unified /api/folder/:slug/* listing carries no size or mtime, and a
-// placeholder's FileSize must be right for hydration to complete; and
-// only /api/fs/raw carries the #926 mirror read-failover, so a library
-// whose primary volume is unmounted still hydrates from its mirror.
-// Neither /api/fs/raw nor /api/image/:slug/* honours a Range header —
-// hydration relies on the FULL policy asking for the whole file from
-// offset 0, and refuses anything else (CloudFilesHydration.IsSupportedRequest).
-// Moving these two calls is a route swap once the server closes both gaps.
+//     file (CloudClient.OpenLibraryFileAsync: GET /api/image/:slug/*, which
+//     carries the #926 mirror failover, or /api/folders/:id/file for the
+//     types that route refuses) straight into CfExecute TRANSFER_DATA
+//     chunks (CloudFilesHydration.cs); nothing spools to disk first.
+//     Explorer's pin-for-offline ("Always keep on this device") rides the
+//     same callback — the platform requests full hydration, which the FULL
+//     hydration policy already makes the only mode. The fallback route
+//     honours no Range header, so hydration serves whole-file requests
+//     from offset 0 and refuses anything else
+//     (CloudFilesHydration.IsSupportedRequest).
 //
 // v1 is browse/hydrate/pin only: Explorer-initiated deletes, renames and
 // writes are not propagated to the server (no NOTIFY_* callbacks are
@@ -258,7 +255,7 @@ namespace Maple.WinUI.Services.CloudFiles
                     var e = entries[i];
                     var nameHandle = GCHandle.Alloc(
                         Encoding.Unicode.GetBytes(e.Name + "\0"), GCHandleType.Pinned);
-                    var identityBytes = Encoding.Unicode.GetBytes(e.ServerPath);
+                    var identityBytes = Encoding.Unicode.GetBytes(e.Identity);
                     var idHandle = GCHandle.Alloc(identityBytes, GCHandleType.Pinned);
                     pins.Add(nameHandle);
                     pins.Add(idHandle);
@@ -311,9 +308,10 @@ namespace Maple.WinUI.Services.CloudFiles
 
         /// <summary>Directory listing behind a placeholder identity: the sync
         /// root itself (empty identity) lists the registered libraries; any
-        /// other identity is an absolute server directory path listed via
-        /// /api/fs/dir, cursor-paged to completion (the only listing that
-        /// reports the size and mtime a placeholder is stamped with).</summary>
+        /// other identity is resolved to a `slug:relPath` address and listed
+        /// via /api/folder/:slug/*, cursor-paged to completion. Resolution
+        /// runs inside the first page fetch, so its failures complete the
+        /// listing as failed rather than escaping the native callback.</summary>
         private async Task<PlaceholderListing> ListEntriesAsync(string identity)
         {
             var client = _client();
@@ -323,32 +321,35 @@ namespace Maple.WinUI.Services.CloudFiles
             if (identity.Length == 0)
                 return await CloudFilesListing.PageAllAsync(async _ =>
                 {
-                    var folders = await client.GetFoldersAsync(CancellationToken.None).ConfigureAwait(false);
-                    return folders == null
+                    var libraries = await client.GetFoldersAsync(CancellationToken.None).ConfigureAwait(false);
+                    return libraries == null
                         ? null
-                        : new PlaceholderPage(
-                            folders.Select(folder => new PlaceholderEntry(
-                                SanitizeName(folder.DisplayName), folder.Path, true, 0, DateTime.UtcNow)).ToList(),
-                            null);
+                        : new PlaceholderPage(libraries.Select(CloudFilesListing.LibraryEntry).ToList(), null);
                 }).ConfigureAwait(false);
 
+            string? address = null;
             return await CloudFilesListing.PageAllAsync(async cursor =>
             {
-                var page = await client.ListDirAsync(identity, cursor, 500, CancellationToken.None)
-                    .ConfigureAwait(false);
-                if (page == null)
+                address ??= await ResolveAddressAsync(client, identity).ConfigureAwait(false);
+                if (address == null)
                     return null;
-                // The server hides its own bookkeeping dirs, but be
-                // defensive: a `.maple` placeholder would invite Explorer
-                // into the trash/previews store.
-                var dirs = page.Dirs
-                    .Where(dir => !dir.Name.StartsWith('.'))
-                    .Select(dir => new PlaceholderEntry(
-                        SanitizeName(dir.Name), dir.Path, true, 0, ParseMtime(dir.Mtime)));
-                var images = page.Images.Select(img => new PlaceholderEntry(
-                    SanitizeName(img.Name), img.Path, false, img.Size, ParseMtime(img.Mtime)));
-                return new PlaceholderPage(dirs.Concat(images).ToList(), page.NextCursor);
+                var page = await client.ListFolderAsync(address, cursor, 500, CancellationToken.None)
+                    .ConfigureAwait(false);
+                return page == null ? null : CloudFilesListing.FromFolderListing(page);
             }).ConfigureAwait(false);
+        }
+
+        /// <summary>The library list is fetched only for a placeholder an
+        /// earlier build stamped with an absolute server path.</summary>
+        private static async Task<string?> ResolveAddressAsync(CloudClient client, string identity)
+        {
+            var libraries = CloudFilesIdentity.IsAddress(identity)
+                ? null
+                : await client.GetFoldersAsync(CancellationToken.None).ConfigureAwait(false);
+            var address = CloudFilesIdentity.ToAddress(identity, libraries);
+            if (address == null)
+                DiagLog.Write($"[cloudfiles] no library address for placeholder identity {identity}");
+            return address;
         }
 
         // --- FETCH_DATA ---
@@ -383,8 +384,8 @@ namespace Maple.WinUI.Services.CloudFiles
                 cts.Cancel();
         }
 
-        /// <summary>Streams the required range from GET /api/fs/raw into
-        /// TRANSFER_DATA chunks. The FULL hydration policy makes the
+        /// <summary>Streams the required range of the file the placeholder
+        /// addresses into TRANSFER_DATA chunks. The FULL policy makes the
         /// required range the whole file, so a plain sequential body read
         /// covers it; every delivered chunk is 4096-aligned except the last
         /// (which ends at EOF, where the platform accepts a short tail) —
@@ -410,7 +411,10 @@ namespace Maple.WinUI.Services.CloudFiles
                 return;
             }
 
-            using var response = await client.OpenOriginalAsync(identity, ct).ConfigureAwait(false);
+            var address = await ResolveAddressAsync(client, identity).ConfigureAwait(false);
+            using var response = address == null
+                ? null
+                : await client.OpenLibraryFileAsync(address, ct).ConfigureAwait(false);
             if (response == null)
             {
                 CompleteTransfer(info, fetch.RequiredFileOffset, fetch.RequiredLength,
@@ -423,7 +427,7 @@ namespace Maple.WinUI.Services.CloudFiles
                 body, CfApi.HydrationChunkAlignment,
                 (buffer, length, offset) => DeliverChunk(info, buffer, length, offset), ct)
                 .ConfigureAwait(false);
-            DiagLog.Write($"[cloudfiles] hydrated {Path.GetFileName(identity.Replace('\\', '/'))} ({delivered} bytes)");
+            DiagLog.Write($"[cloudfiles] hydrated {address} ({delivered} bytes)");
         }
 
         private void DeliverChunk(CfApi.CF_CALLBACK_INFO info, byte[] data, int length, long offset)
@@ -482,18 +486,5 @@ namespace Maple.WinUI.Services.CloudFiles
             info.FileIdentity == IntPtr.Zero || info.FileIdentityLength == 0
                 ? string.Empty
                 : Marshal.PtrToStringUni(info.FileIdentity, (int)(info.FileIdentityLength / 2)) ?? string.Empty;
-
-        private static DateTime ParseMtime(string? mtime) =>
-            DateTime.TryParse(mtime, null, System.Globalization.DateTimeStyles.AdjustToUniversal, out var t)
-                ? DateTime.SpecifyKind(t, DateTimeKind.Utc)
-                : DateTime.UtcNow;
-
-        private static string SanitizeName(string name)
-        {
-            var invalid = Path.GetInvalidFileNameChars();
-            return name.Any(c => invalid.Contains(c))
-                ? new string(name.Select(c => invalid.Contains(c) ? '_' : c).ToArray())
-                : name;
-        }
     }
 }
