@@ -59,7 +59,7 @@ automatically.
 - the FFI decode pool (`ffi/ffi-pool-bootstrap.ts`)
 - enrichment bootstraps (Nominatim health check, face-model preload, describe config)
 - enrichment config refresh (`workers/enrichment-config-refresh.ts`)
-- the Temporal host, which runs user jobs and folder imports
+- the Temporal host, which runs user jobs, folder imports and the pipeline stages
 - maintenance jobs (`workers/maintenance.ts`)
 
 It also publishes a status snapshot into the `worker_status` table every 2 s. That is how the API process — which has an empty in-process registry — can answer `GET /api/workers/status`.
@@ -134,7 +134,7 @@ Safety: only a regular file of that exact name counts (an `lstat`, so a director
 
 ## The stage machinery
 
-A stage is one object built with `defineStage()` (`workers/stage-config.ts`) and handed to `runStage()` (`workers/run-stage.ts`). There are no child processes and no IPC — every stage is a poll loop in the worker process.
+A stage is one object built with `defineStage()` (`workers/stage-config.ts`) and handed to `runStage()` (`workers/run-stage.ts`). There are no child processes and no IPC: every stage runs in the worker process, and Temporal decides when (see [Scheduling](#scheduling-stages-on-temporal)).
 
 ### What a stage declares
 
@@ -147,7 +147,7 @@ A stage is one object built with `defineStage()` (`workers/stage-config.ts`) and
 | `claimResidual`           | optional extra SQL predicate `AND`-ed into the claim query                        |
 | `tagsMissingOnEnoent`     | ENOENT means the original vanished — tag for the reaper                           |
 | `tagsDamagedOnDeadLetter` | exhausting retries means the bytes are unreadable — tag `damaged`                 |
-| `onProgress`              | optional per-tick hook; only `face-embed` uses it (auto-clustering)               |
+| `onProgress`              | optional per-batch and idle hook; `face-embed` (clustering) and `embed` use it    |
 | `handler`                 | `(image, ctx) => Promise<StageResult>`                                            |
 
 `pausedOnFirstBoot` is the mechanism for a stage that cannot work until an operator configures something external — a Nominatim URL, an Ollama endpoint, Cloudflare credentials, a whisper model. It seeds `paused: true` on the very first boot only; from then on the saved value wins. Without it, a version-gated stage would mark every asset permanently handled before its configuration existed.
@@ -160,15 +160,20 @@ Taking a candidate is a compare-and-swap rather than a read-then-write: the clai
 
 A stage's optional `claimResidual` is `AND`-ed onto the claim, so it can only narrow. `transcribe` and `video-describe` use it to select on `stage_state.media_kind`, carried by a partial index over the video and audio rows, so they never sweep the photo library stamping "not media" skips — before that narrowing existed, each poll tick walked 323,000 rows to find nothing and burned 418 ms of CPU per second (#3795).
 
-### The poll loop
+### Scheduling: stages on Temporal
 
-Each tick claims up to `5 × concurrency` documents (`deriveBatchSize`), dispatches them through a bounded pool (`workers/dispatch-pool.ts`), then decides the next delay (`workers/loop-policy.ts`):
+`stage_state` stays the record of what every asset still needs and `worker_config` of whether a stage may run; Temporal only decides when a stage runs. Work goes to Temporal in batches, never one activity per asset.
 
-- a full batch → poll again immediately, so a backlog drains as fast as the pool allows;
-- otherwise → the global 1 s idle cadence (there is no per-stage poll-interval knob);
-- after a tick that threw → exponential backoff 1 s → 30 s, and the error is published to the registry so it shows on `/status` rather than being log-only.
+1. **The lane asks.** The stage lane (`workers/stage-lane.ts`, task queue `maple-stages`) runs in the worker tier's Temporal host. About once a second, for every booted stage that is not paused and not already running a slice, it asks whether a claim would find anything — the claim's own candidate scan with a limit of one, which writes nothing (`stageHasWork` in `db/repos/stage-claim.ts`).
+2. **Work starts a workflow.** If there is work, the lane makes sure the stage's workflow, `stage-<name>`, is running. Starting one that already runs is a no-op that adds nothing to its history.
+3. **The workflow runs slices.** `stageWorkflow` (`workers/stage-workflow.ts`) calls one activity, `runStageSlice`, until a slice reports the stage drained, then completes. A slice claims up to `5 × concurrency` rows (`deriveBatchSize`), dispatches them through a bounded pool (`workers/dispatch-pool.ts`), writes them back, and claims again, until a claim comes back empty or about ten seconds have passed. A batch is never cut short. After 500 slices, or when Temporal suggests it, the workflow continues as new so a backlog of millions never grows one history without bound.
+4. **No work means idle.** If there is nothing to claim, the lane calls the stage's idle hook instead (`onProgress(0, true)`), about once a second, which is what `embed`'s foreign-vector sweep and `face-embed`'s cluster-on-drain wait for.
 
-`worker_config` is re-read at most every 2 s, which is how a pause written by the API process reaches the running loop with no IPC.
+Each stage runs at most one slice at a time, even if Temporal delivers an attempt twice; a stage's own `concurrency` lives inside its slice. A slice heartbeats every 30 s, so Temporal notices a lost worker after five minutes without ever timing out a healthy long batch. A slice that throws (a claim or writeback the database refused) is recorded on `/status` and retried by Temporal from 1 s, doubling to 30 s, without limit; a handler that throws is the stage's own per-asset retry below, not Temporal's. A slice ignores a cancel or terminate made in Temporal: its batch always finishes its writeback, and if work remains the lane starts the workflow again. Only shutdown aborts handlers: the worker tier stops every stage first, each waiting at most 30 s for its batch, and only then stops the Temporal host, whose own drain waits for running activities.
+
+`worker_config` is re-read at most every 2 s, from a slice or an idle call (a paused stage still gets idle calls for exactly this), which is how a pause or resume written by the API process reaches the stage with no IPC. A paused stage's slice claims nothing and ends the workflow.
+
+**While Temporal is unreachable, stages do not advance.** Nothing is lost: the rows wait in `stage_state`, and the lane picks them up once the server answers. Settings → Workers shows the connection state.
 
 ### Result shapes
 
@@ -192,7 +197,7 @@ Operators triage dead assets at `GET /api/workers/:name/dead` and reset them wit
 
 ### Registering a stage
 
-Three additions, all mechanical: export `start<Name>Stage()` from `workers/stages/<name>.ts`; add the stage to both `stageManifest` and `ALL_STAGE_NAMES` in `workers/stages/manifest.ts` (this is what makes existing assets retroactively eligible and what the status counters key off); add an entry to `STAGE_STARTERS` in `workers/orchestrator.ts` (this boots the poll loop). A fourth, optional, gives the UI a real label instead of the generic fallback: a `STAGE_META` entry in `src/web/projects/maple/src/app/settings/workers/workers.vm.ts`.
+Three additions, all mechanical: export `start<Name>Stage()` from `workers/stages/<name>.ts`; add the stage to both `stageManifest` and `ALL_STAGE_NAMES` in `workers/stages/manifest.ts` (this is what makes existing assets retroactively eligible and what the status counters key off); add an entry to `STAGE_STARTERS` in `workers/orchestrator.ts` (this boots the stage; Temporal schedules it from there). A fourth, optional, gives the UI a real label instead of the generic fallback: a `STAGE_META` entry in `src/web/projects/maple/src/app/settings/workers/workers.vm.ts`.
 
 Boot is best-effort and retried: a stage whose starter throws (a missing ONNX model, say) is retried with the same 1 s → 30 s ladder while every other stage comes up, and it is pre-registered so `/status` reports it as an error row rather than silently omitting it.
 
@@ -362,7 +367,7 @@ The pure clustering core is isolated in `people/cluster-embeddings.ts` so it can
 | `dead`                                          | assets at `dead: true` for this stage                                                      |
 | `config`, `batchSize`                           | `worker_config`, with `batchSize` derived as 5 × concurrency                               |
 
-`status` is `running`, `idle`, `paused`, `stopped`, `error` or `stalled`. A stage is `stalled` (#5038) when it has made no progress for its stall threshold (`worker_config.stall_after_minutes`, default 60, editable per stage on Settings → Workers as "Stall after (min)") while it still holds claimed work, keeps claiming work that only defers, or its poll loop has stopped turning. A deferral is not progress, so a stage whose every claim defers ("Backup destination pending or requires reconnect") reads as stalled instead of idle. `lastError` then explains it ("No progress for N minutes while work is waiting") unless a real error is already reported. A paused stage reports `paused`, never `stalled`.
+`status` is `running`, `idle`, `paused`, `stopped`, `error` or `stalled`. A stage is `stalled` (#5038) when it has made no progress for its stall threshold (`worker_config.stall_after_minutes`, default 60, editable per stage on Settings → Workers as "Stall after (min)") while it still holds claimed work, keeps claiming work that only defers, or nothing has polled it — a batch that hangs, or no connection to Temporal for that long. A deferral is not progress, so a stage whose every claim defers ("Backup destination pending or requires reconnect") reads as stalled instead of idle. `lastError` then explains it ("No progress for N minutes while work is waiting") unless a real error is already reported. A paused stage reports `paused`, never `stalled`.
 
 Plus library-wide `damaged` and `newlyHiddenTotal` counts and a `countsAt` timestamp. None of the counts are computed on the request path (#3491): the worker's count refresher (`workers/status-counts.ts`) runs them one query at a time and persists the result as `worker_status.counts`, and the route reads that with the same keyed read that fetches the registry snapshot. The refresher is demand-aware — the status and migration routes and the WS broadcaster bump `worker_status.counts_wanted_until`, and only while that is in the future does it refresh quickly (backing off to 3× the last pass's duration, between 5 s and 2 min); idle, stage counts refresh every 10 min and migration counts not at all.
 
