@@ -16,6 +16,8 @@ fn the_struct_round_trips_every_header() {
         Tables::SingleHueSatMap,
         Tables::DualHueSatMap { srgb: true },
         Tables::DualHueSatMapAndLook,
+        Tables::DualUnitCalibration,
+        Tables::SingleUnitCalibration,
     ] {
         for stage in [creative_stage(tables, 1.4), fallback_stage(tables, 0.7)] {
             for recovery in [
@@ -29,6 +31,31 @@ fn the_struct_round_trips_every_header() {
                 assert_eq!(back, header);
                 assert_eq!(tables, wire.floats());
             }
+        }
+    }
+}
+
+/// A struct whose calibration slots are zero (written before #5093) reads an
+/// identity calibration, not a zero matrix.
+#[test]
+fn zeroed_unit_calibrations_read_as_identity() {
+    for tables in [Tables::None, Tables::SingleUnitCalibration] {
+        let stage = creative_stage(tables, 1.0);
+        let (header, wire) = stage.transport(HighlightRecoveryMode::Off).unwrap();
+        let interned = crate::wb_frame_flat::intern_table_wire(wire.floats());
+        let stale = MapleCaptureCreative {
+            individual_cold: [0.0; 9],
+            individual_warm: [0.0; 9],
+            ..MapleCaptureCreative::new(&header, interned)
+        };
+        let (back, _) = unsafe { stale.header() }.unwrap();
+        let identity = Matrix3::IDENTITY;
+        match (back.profile.cm_endpoints, back.profile.forward_reference) {
+            (Some(e), _) => {
+                assert_eq!((e.individual_cold, e.individual_warm), (identity, identity))
+            }
+            (None, Some(r)) => assert_eq!(r.individual, identity),
+            (None, None) => panic!("{tables:?}: the profile carries no ForwardMatrix reference"),
         }
     }
 }
