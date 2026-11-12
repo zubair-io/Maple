@@ -137,14 +137,6 @@ impl GpuPreview {
                 "An imported tone curve exceeds the GPU preview's control-point capacity".into(),
             );
         }
-        let crop = raw_core::stages::crop::CropPresentation::new(&model.crop, 1, 1);
-        if crop.resamples
-            && !raw_core::stages::perspective::Perspective::from_model(model).is_identity()
-        {
-            return Err(
-                "Combined perspective and straighten GPU sampling is pending (#4317)".into(),
-            );
-        }
         crate::film::resolve(&model.film_look)?;
         Ok(())
     }
@@ -225,7 +217,9 @@ impl GpuPreview {
 
 /// The display → sensor transform for the present pass. An identity
 /// composition must take the shader's direct-load path: the resample arm
-/// would bilinearly blend neighbours and drift from the CPU reference.
+/// would bilinearly blend neighbours and drift from the CPU reference. A
+/// resampling crop over active perspective is its own second resample, as
+/// the CPU path warps and then crops (#5844).
 fn present_geometry(
     orientation: ExifOrientation,
     (sensor_width, sensor_height): (u32, u32),
@@ -238,10 +232,13 @@ fn present_geometry(
         (sensor_width, sensor_height)
     };
     let crop = raw_core::stages::crop::CropPresentation::new(&model.crop, width, height);
-    let inverse = Perspective::from_model(model).inverse_matrix(aspect_ratio(width, height));
-    let composed = Homography(orientation.display_to_sensor_matrix())
-        .mul(&inverse)
-        .mul(&crop.inverse);
+    let perspective = Perspective::from_model(model);
+    let display_to_sensor = Homography(orientation.display_to_sensor_matrix())
+        .mul(&perspective.inverse_matrix(aspect_ratio(width, height)));
+    if crop.resamples && !perspective.is_identity() {
+        return PresentGeometry::from_stages(display_to_sensor.0, crop.inverse.0, (width, height));
+    }
+    let composed = display_to_sensor.mul(&crop.inverse);
     if composed == Homography::IDENTITY {
         PresentGeometry::IDENTITY
     } else {
@@ -252,7 +249,9 @@ fn present_geometry(
 #[cfg(test)]
 #[path = "gpu_preview_capture_tests.rs"]
 mod capture_tests;
-
+#[cfg(test)]
+#[path = "gpu_preview_geometry_tests.rs"]
+mod geometry_tests;
 #[cfg(test)]
 mod present_geometry_tests {
     use super::*;

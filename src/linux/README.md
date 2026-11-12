@@ -233,9 +233,9 @@ code value in the native compositor regression. Hot edits reuse the RAW prefix;
 upstream edits replace it. New render requests share one cancellation signal
 with CPU prefix development, RGBA packing and the active GPU chain, and
 reject obsolete results. Imported crops, orthogonal rotations and off-axis straighten use the same core
-rect rounding/angle snapping and resident presentation mapping. Combined perspective
-and off-axis straighten retain the CPU path until the two required resampling
-steps are implemented on the GPU (#4317). Failed GPU sessions use the
+rect rounding/angle snapping and resident presentation mapping. An off-axis crop
+over perspective presents as its own second resample after the perspective warp,
+matching the CPU path (#5844). Failed GPU sessions use the
 shared CPU renderer with a visible fallback reason; raster previews remain CPU.
 Imported point curves that exceed the GPU's normalized knot capacity also use
 the shared CPU renderer. Their complete control points remain in the XMP;
