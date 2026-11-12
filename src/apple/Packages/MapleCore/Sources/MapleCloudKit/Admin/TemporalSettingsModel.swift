@@ -86,7 +86,7 @@ public final class TemporalSettingsModel {
     saveState = .running
     do {
       form.adopt(try await saveTarget(target), token: token)
-      saveState = .succeeded
+      saveState = form.target == target ? .succeeded : .idle
     } catch {
       saveState = .failed(error.localizedDescription)
     }
