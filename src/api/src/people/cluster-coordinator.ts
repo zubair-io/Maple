@@ -177,8 +177,8 @@ export class ClusterCoordinator {
 
   /**
    * Run a clustering pass now, coalescing with any in-flight pass. Public so
-   * the manual `POST /api/people/cluster` route shares the same single-flight
-   * lock as the auto-triggers. Resolves with the result of a pass that ran
+   * the `people_cluster` job handler (`POST /api/people/cluster`) shares the
+   * same single-flight lock as the auto-triggers. Resolves with the result of a pass that ran
    * AT OR AFTER this call (so a manual click always reflects fresh state).
    *
    * Manual-vs-auto concurrency: a manual click during an in-flight pass does
@@ -282,8 +282,8 @@ export class ClusterCoordinator {
 }
 
 // ── Process-wide singleton ─────────────────────────────────────────────
-// One coordinator per process so the `face-embed` stage hook and the manual
-// `/api/people/cluster` route share the same single-flight lock. Lazily
+// One coordinator per process so the `face-embed` stage hook and the
+// `people_cluster` job handler, both in the worker tier, share one lock. Lazily
 // constructed so the env knob is read at first use, not import time.
 
 let singleton: ClusterCoordinator | null = null;

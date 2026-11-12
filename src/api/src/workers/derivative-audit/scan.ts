@@ -281,7 +281,7 @@ export async function derivativeAuditEveryMs(cfg: DerivativeAuditConfig): Promis
 /**
  * One pass of the `derivative-audit` task. A scheduled pass is skipped if the
  * audit was disabled after the run was on its way; an operator's Run now
- * (`force`) runs whatever the switch says, as the button always has.
+ * (`force`) runs whatever the switch says.
  */
 export async function runDerivativeAuditPass(
   signal?: AbortSignal,

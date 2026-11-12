@@ -76,9 +76,8 @@ export type ClaimMode = { force: true } | { force: false; expectedStartedAt: str
 /**
  * Atomically write `claim` (a `running` record) as the library's marker, or do
  * nothing. One upsert decides it inside SQLite's single writer, so of two
- * callers racing — Run now in the API process and the schedule in the worker
- * process — exactly one sees `true`; the in-process guards cannot do that
- * across processes.
+ * passes racing for a library — a forced Run now and a scheduled pass, or a
+ * pass still running from a process that died — exactly one sees `true`.
  */
 export async function claimLibraryRun(
   claim: LibraryRunRecord,

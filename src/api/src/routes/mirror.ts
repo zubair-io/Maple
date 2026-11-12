@@ -172,13 +172,7 @@ export const mirrorRoutes = new Elysia()
     },
     { body: t.Object({ path: t.String({ minLength: 1 }) }) },
   )
-  // Mirror reconcile status — the standing queue depth (pending/dead) plus the
-  // latest "Reconcile now" run, read from its job row so a run the worker tier
-  // is doing (or did before a restart) shows here.
-  // Also reports the read-replica health bench: mirror roots this API process
-  // has stopped routing reads to after an I/O failure or timeout, with the
-  // remaining cooldown. Empty in the normal case. Process-local by design —
-  // this is the state of the process that actually serves the reads.
+  // The read-replica bench is this process's own: it is the process serving the reads.
   .get('/api/mirror/status', async () => {
     const counts = await mirrorQueueCounts();
     const [latest] = await listJobs({ kind: 'mirror_reconcile', limit: 1 });
@@ -188,10 +182,6 @@ export const mirrorRoutes = new Elysia()
       reads: { benched: benchedMirrors() },
     };
   })
-  // "Reconcile now": queue one reconcile (scan, then copy until drained) on the
-  // worker tier's operations lane and return. A reconcile already queued or
-  // running answers `started: false` with its phase. The scheduled mirror
-  // passes keep running on their own cadence.
   .post('/api/mirror/reconcile', async () => {
     if (!isMirroringActive())
       return { started: false, phase: 'idle' as const, reason: 'no mirror configured' };

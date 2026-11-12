@@ -60,8 +60,6 @@ export const derivativeAuditRoutes = new Elysia()
       }),
     },
   )
-  // Ask for a pass now, whether or not the audit is enabled. Refused while a
-  // pass is requested or in progress, scheduled or not.
   .post(
     '/api/derivative-audit/run',
     async () => {

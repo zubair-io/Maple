@@ -1,7 +1,7 @@
 /**
  * "Reconcile now" as a job row: the route queues one reconcile for the worker
- * tier and answers as the in-process runner did, and the status route reads
- * the latest reconcile row whichever process wrote it.
+ * tier and answers with its phase, and the status route reads the latest
+ * reconcile row whichever process wrote it.
  */
 
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
