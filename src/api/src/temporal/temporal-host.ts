@@ -39,6 +39,12 @@ type Served = 'reconfigured' | 'stopped';
 
 const DRAINING = 'Waiting for running work to finish before reconnecting';
 
+/** What the last check found: whether the server answers, and whether any lane failed to reconcile. */
+interface Standing {
+  health: unknown;
+  drift: unknown;
+}
+
 const WORKFLOWS_PATH = fileURLToPath(new URL('./workflows.ts', import.meta.url));
 
 /**
@@ -245,17 +251,12 @@ export class TemporalHost {
     session: AbortSignal,
   ): Promise<Served> {
     let refreshAt = 0;
-    let health: unknown = null;
-    let drift: unknown = null;
+    let standing: Standing = { health: null, drift: null };
     let reported: string | null | undefined;
     while (!session.aborted) {
       const refreshing = Date.now() >= refreshAt;
-      if (refreshing) {
-        health = await failureOf(() => this.probe(client, settings));
-        drift = health ?? (await failureOf(() => this.reconcile(client)));
-      }
-      const relayed = health === null ? await failureOf(() => this.relay(client)) : null;
-      const error = drift ?? relayed;
+      if (refreshing) standing = await this.inspect(client, settings);
+      const error = await this.relayUnder(client, standing);
       const message = error === null ? null : errorMessage(error);
       if (refreshing || message !== reported) {
         reported = message;
@@ -268,6 +269,17 @@ export class TemporalHost {
       await pause(this.relayMs, session);
     }
     return 'stopped';
+  }
+
+  private async inspect(client: Client, settings: TemporalSettings): Promise<Standing> {
+    const health = await failureOf(() => this.probe(client, settings));
+    return { health, drift: health ?? (await failureOf(() => this.reconcile(client))) };
+  }
+
+  private async relayUnder(client: Client, standing: Standing): Promise<unknown> {
+    if (standing.health !== null) return standing.health;
+    const relayed = await failureOf(() => this.relay(client));
+    return standing.drift ?? relayed;
   }
 
   /** Every lane gets its turn whatever the others do; the first failure is the one reported. */
