@@ -167,6 +167,7 @@ fun MapleShell(model: MapleViewModel) {
                                         servers,
                                         onServer = model.search::selectServer,
                                         onText = model.search::setText,
+                                        onSubmit = model.search::submit,
                                         onDate = model.search::setDate,
                                         onPerson = model.search::togglePerson,
                                         onPlace = model.search::togglePlace,

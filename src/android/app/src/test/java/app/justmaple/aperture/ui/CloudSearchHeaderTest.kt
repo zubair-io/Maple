@@ -56,6 +56,7 @@ class CloudSearchHeaderTest {
                 listOf(home, work),
                 onServer = { events += "server:${it.name}" },
                 onText = { events += "text:$it" },
+                onSubmit = { events += "submit:$it" },
                 onDate = { events += "date:$it" },
                 onPerson = { events += "person:$it" },
                 onPlace = { events += "place:$it" },
@@ -128,7 +129,7 @@ class CloudSearchHeaderTest {
         val restoration = StateRestorationTester(compose)
         restoration.setContent {
             val state by search.state.collectAsState()
-            CloudSearchHeader(state, listOf(home), search::selectServer, search::setText, {}, {}, {}, {})
+            CloudSearchHeader(state, listOf(home), search::selectServer, search::setText, search::submit, {}, {}, {}, {})
         }
         compose.onNodeWithTag("cloud-search-query").performTextInput("red barn")
         // Process death: the activity restores its saved state over a brand-new model.
@@ -140,6 +141,20 @@ class CloudSearchHeaderTest {
             assertTrue(paths.isNotEmpty())
             assertTrue(paths.all { "placeQuery=red%20barn" in it })
         }
+    }
+
+    @Test
+    fun aFailedSearchOffersARetryOfTheSameText() {
+        val home = Folder(Uri.parse("maple-cloud://home"), "home.example.com")
+        val events = mutableListOf<String>()
+        var search by mutableStateOf(CloudSearchState(server = home, query = CloudSearchQuery(text = "barn")))
+        compose.setContent {
+            CloudSearchHeader(search, listOf(home), {}, {}, { events += "submit:$it" }, {}, {}, {}, {})
+        }
+        compose.onNodeWithTag("cloud-search-retry").assertDoesNotExist()
+        search = search.copy(error = "Maple Cloud is unavailable")
+        compose.onNodeWithTag("cloud-search-retry").performClick()
+        compose.runOnIdle { assertEquals(listOf("submit:barn"), events) }
     }
 
     private fun photo(name: String) =
