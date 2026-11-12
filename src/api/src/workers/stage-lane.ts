@@ -15,15 +15,15 @@
 import { Context } from '@temporalio/activity';
 import type { Client } from '@temporalio/client';
 import type { TemporalLane } from '../temporal/temporal-lane.ts';
-import { stageWorkflow } from '../temporal/workflows.ts';
 import { bootedStages } from './orchestrator.ts';
 import type { RunStageHandle } from './run-stage.ts';
 import { ALL_STAGE_NAMES } from './stages/stage-names.ts';
-import { STAGE_TASK_QUEUE, stageWorkflowId, type StageSlice } from './stage-workflow.ts';
-
-export interface StageActivities {
-  runStageSlice: (stage: string) => Promise<StageSlice>;
-}
+import {
+  STAGE_TASK_QUEUE,
+  type StageActivities,
+  stageWorkflow,
+  stageWorkflowId,
+} from './stage-workflow.ts';
 
 export type BootedStages = () => ReadonlyMap<string, RunStageHandle>;
 
