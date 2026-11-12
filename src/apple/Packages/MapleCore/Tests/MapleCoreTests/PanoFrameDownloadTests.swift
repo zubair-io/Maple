@@ -334,7 +334,7 @@ private func temporaryRoot() -> URL {
 }
 
 /// Remembers the frames it was handed; returns a fixed result.
-private final class LocalCopyRecorder: PanoStitching {
+final class LocalCopyRecorder: PanoStitching {
   private let handed = OSAllocatedUnfairLock<[URL?]>(initialState: [])
   private let output: URL
   var frames: [URL?] { handed.withLock { $0 } }

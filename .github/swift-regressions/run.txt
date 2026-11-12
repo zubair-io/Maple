@@ -511,6 +511,11 @@ PanoAlignmentHandoffTests
 # claiming a name writes nothing.
 PanoOutputDestinationTests
 
+# Panorama added to the server without its crop sidecar (#5628): the upload,
+# sidecar and removal requests against URLProtocolStub, with a real PNG and
+# sidecar in a temp dir; no FFI, no network.
+PanoServerUploadRemovalTests
+
 # RGB bias precision (#4667): generated large images, no external fixtures.
 CIEDE2000BiasTests
 

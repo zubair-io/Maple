@@ -2,30 +2,12 @@ import CoreGraphics
 import Foundation
 import ImageIO
 import Testing
-import UniformTypeIdentifiers
 
 @testable import MapleCore
 
 @Suite struct PanoAutoCropRecordTests {
   private let crop = PanoAutoCrop(
     outputWidth: 1000, outputHeight: 400, x: 100, y: 40, width: 800, height: 320)
-
-  private func pngData(width: Int, height: Int) throws -> Data {
-    let context = try #require(
-      CGContext(
-        data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
-        space: CGColorSpaceCreateDeviceRGB(),
-        bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue))
-    context.setFillColor(CGColor(red: 0.2, green: 0.4, blue: 0.6, alpha: 1))
-    context.fill(CGRect(x: 0, y: 0, width: width, height: height))
-    let image = try #require(context.makeImage())
-    let data = NSMutableData()
-    let destination = try #require(
-      CGImageDestinationCreateWithData(data, UTType.png.identifier as CFString, 1, nil))
-    CGImageDestinationAddImage(destination, image, nil)
-    #expect(CGImageDestinationFinalize(destination))
-    return data as Data
-  }
 
   @Test func theSidecarCropsToTheRectangleAsNormalizedEdges() throws {
     let xml = try #require(PanoAutoCropRecord.sidecarXML(for: crop))
@@ -55,7 +37,7 @@ import UniformTypeIdentifiers
   }
 
   @Test func theMarkKeepsThePixelsAndChangesTheBytes() throws {
-    let original = try pngData(width: 32, height: 16)
+    let original = try PanoTestPanorama.pngData(width: 32, height: 16)
     let url = FileManager.default.temporaryDirectory.appendingPathComponent(
       "mark-\(UUID().uuidString).png")
     defer { try? FileManager.default.removeItem(at: url) }
@@ -75,7 +57,7 @@ import UniformTypeIdentifiers
   private struct DiskFull: Error {}
 
   @Test func aFailureWhileMarkingLeavesThePngByteForByteIntact() throws {
-    let original = try pngData(width: 32, height: 16)
+    let original = try PanoTestPanorama.pngData(width: 32, height: 16)
     let url = FileManager.default.temporaryDirectory.appendingPathComponent(
       "intact-\(UUID().uuidString).png")
     defer { try? FileManager.default.removeItem(at: url) }
@@ -112,7 +94,7 @@ import UniformTypeIdentifiers
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
     defer { try? FileManager.default.removeItem(at: directory) }
     let panorama = directory.appendingPathComponent("panorama-1.png")
-    try pngData(width: 32, height: 16).write(to: panorama)
+    try PanoTestPanorama.pngData(width: 32, height: 16).write(to: panorama)
 
     try PanoAutoCropRecord.record(crop, forPanorama: panorama)
 

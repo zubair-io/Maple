@@ -328,12 +328,18 @@ public enum PanoFrameDownloadError: Error, LocalizedError, Equatable {
   case incomplete(String)
   case notOnServer(String)
   case uploadRefused(String)
+  /// The server took the panorama but not its crop sidecar, and removing the
+  /// panorama again failed too. `reason` is why the sidecar did not get there.
+  case addedWithoutCrop(String, reason: String)
 
   public var errorDescription: String? {
     switch self {
     case .incomplete(let name): return "\(name) didn’t download completely."
     case .notOnServer(let name): return "\(name) isn’t on a Maple server."
     case .uploadRefused(let name): return "The server wouldn’t take \(name)."
+    case .addedWithoutCrop(let name, let reason):
+      return "\(name) is on the server without its Auto Crop (\(reason)), "
+        + "and Maple couldn’t remove it. Merging again adds a second panorama."
     }
   }
 }

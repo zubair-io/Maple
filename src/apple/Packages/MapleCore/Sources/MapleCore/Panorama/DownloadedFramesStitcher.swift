@@ -145,6 +145,9 @@ public final class DownloadedFramesStitcher: PanoStitching {
 /// in a Panoramas folder beside the first frame, where a server stitch puts
 /// its own (#5488).
 public enum PanoServerUpload {
+  /// What the server answered for a file it took.
+  typealias Uploaded = (absPath: String, assetID: String?)
+
   public static func add(
     _ result: PanoResult, beside frame: CatalogRef, remote: RemoteCatalog,
     folders: CloudFoldersClient
@@ -160,16 +163,23 @@ public enum PanoServerUpload {
           folderID: frame.folderID, targetRelativePath: path, fileURL: file, mtime: nil)
       else { return nil }
       return (uploaded.absPath, uploaded.assetID)
+    } remove: { uploaded in
+      try await trash(
+        assetID: uploaded.assetID, folderID: frame.folderID, path: target, remote: remote)
     }
   }
 
   /// Uploads the panorama, then the crop sidecar the stitch wrote beside it
   /// (#5608): the PNG is the whole canvas, so without its sidecar the server's
   /// copy would show the empty edges. The sidecar goes second because the
-  /// server binds an uploaded sidecar to the photo it belongs to.
+  /// server binds an uploaded sidecar to the photo it belongs to. When the
+  /// sidecar does not get there, the panorama just uploaded is removed again
+  /// (#5628), so a failed add leaves no uncropped copy for the next try to
+  /// duplicate.
   static func add(
     _ result: PanoResult, target: String,
-    upload: (String, URL) async throws -> (absPath: String, assetID: String?)?
+    upload: (String, URL) async throws -> Uploaded?,
+    remove: @escaping @Sendable (Uploaded) async throws -> Void
   ) async throws -> PanoResult {
     guard let uploaded = try await upload(target, result.outputURL) else {
       throw PanoFrameDownloadError.uploadRefused(result.outputURL.lastPathComponent)
@@ -177,11 +187,45 @@ public enum PanoServerUpload {
     let sidecar = SidecarPath.sidecarURL(for: result.outputURL)
     if FileManager.default.fileExists(atPath: sidecar.path) {
       let sidecarTarget = (target as NSString).deletingPathExtension + ".xmp"
-      guard try await upload(sidecarTarget, sidecar) != nil else {
-        throw PanoFrameDownloadError.uploadRefused(sidecar.lastPathComponent)
+      do {
+        guard try await upload(sidecarTarget, sidecar) != nil else {
+          throw PanoFrameDownloadError.uploadRefused(sidecar.lastPathComponent)
+        }
+      } catch {
+        // In its own task: a Stop cancels this one, and a cancelled task's
+        // request fails before it is sent.
+        let removal = await Task { try await remove(uploaded) }.result
+        guard case .success = removal else {
+          throw PanoFrameDownloadError.addedWithoutCrop(
+            result.outputURL.lastPathComponent, reason: error.localizedDescription)
+        }
+        throw error
       }
     }
     return addedResult(from: result, absPath: uploaded.absPath, assetID: uploaded.assetID)
+  }
+
+  /// Moves the panorama this run just uploaded to the server's Trash: by the
+  /// asset id the upload answered with, or by its path when the server did
+  /// not catalogue it.
+  private static func trash(
+    assetID: String?, folderID: String, path: String, remote: RemoteCatalog
+  ) async throws {
+    let catalogued: String
+    if let assetID {
+      catalogued = assetID
+    } else if case .indexedAsset(let indexed) = try await remote.deleteFile(
+      folderID: folderID, relativePath: path)
+    {
+      // The indexer catalogued the file after the upload answered.
+      catalogued = indexed
+    } else {
+      return
+    }
+    switch try await remote.deleteAsset(assetID: catalogued, intent: .trash) {
+    case .ok, .stateMismatch(state: "trashed"): return
+    case .keptSurvivingCopy, .stateMismatch: throw URLError(.badServerResponse)
+    }
   }
 
   /// The result once its output is on the server: the outcome of the

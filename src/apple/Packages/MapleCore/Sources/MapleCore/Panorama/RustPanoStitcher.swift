@@ -135,7 +135,9 @@ public final class RustPanoStitcher: PanoStitching {
                 )
             }
         }
-        let cropNote = Self.recordAutoCrop(edges?.crop, forPanorama: outputURL)
+        let cropNote = withAccess(to: inputURLs[0]) {
+            Self.recordAutoCrop(edges?.crop, forPanorama: outputURL)
+        }
         let summary = "Stitched \(inputURLs.count) frames with the \(matcher.engine.displayName) using \(options.strategy.rawValue) strategy. " +
                       "Local align: \(options.localAlign.rawValue). Retention: \(options.retention.rawValue). " +
                       "Output: \(outputURL.lastPathComponent). \(outcome.summary)\(cropNote)"
@@ -144,7 +146,9 @@ public final class RustPanoStitcher: PanoStitching {
     }
 
     /// Auto Crop leaves the PNG whole and records the crop beside it (#5608). A
-    /// failure keeps the panorama, whole, and says so in the summary.
+    /// failure keeps the panorama, whole, and says so in the summary. Called
+    /// under the first input's security scope, like the reserve: the sidecar
+    /// goes into the folder only that grant may make writable (#5628).
     private static func recordAutoCrop(_ crop: PanoAutoCrop?, forPanorama url: URL) -> String {
         guard let crop else { return "" }
         do {
