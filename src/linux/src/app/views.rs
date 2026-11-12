@@ -204,11 +204,18 @@ impl MapleApp {
                                                 egui::vec2(150.0, 145.0),
                                                 egui::Layout::top_down(egui::Align::Center),
                                                 |ui| {
+                                                    // Every state goes through the same
+                                                    // `add_sized` box, so the tile keeps one
+                                                    // widget id (its accessible node) when its
+                                                    // thumbnail lands: a screen-reader click on
+                                                    // the loading placeholder still opens the
+                                                    // photo (#5207), and the label never jumps.
                                                     let response = match self
                                                         .thumbnail_cache
                                                         .get(&photo.path)
                                                     {
-                                                        Some(Ok(texture)) => ui.add(
+                                                        Some(Ok(texture)) => ui.add_sized(
+                                                            [140.0, 110.0],
                                                             egui::Image::new(texture)
                                                                 .fit_to_exact_size(
                                                                     texture.size_vec2()

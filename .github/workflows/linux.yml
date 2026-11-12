@@ -46,6 +46,8 @@ jobs:
       - uses: actions/checkout@v7.0.1
       - name: Test the support matrix checker
         run: python3 -m unittest discover -s src/linux/packaging -p 'test_*.py'
+      - name: Test the accessibility smoke diagnostics
+        run: python3 -m unittest discover -s tools/qualification/linux-native -p 'test_*.py'
       - name: README support table matches support-matrix.json
         run: python3 src/linux/packaging/support_matrix.py
       - id: matrix
