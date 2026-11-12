@@ -73,12 +73,8 @@ fn native_worker_publishes_resident_frames_and_saves_without_touching_raw() {
     document.model.perspective_vertical = 10.0;
     worker.send(Command::Render(1, 5, document.model.clone()));
     match receive(&worker) {
-        Event::GpuFallback(1, 5, reason) => assert!(reason.contains("Combined perspective")),
-        _ => panic!("Two geometry resampling steps must not silently collapse"),
-    }
-    match receive(&worker) {
-        Event::Rendered(1, 5, Ok(image), _) => assert!(image.size[0] > 0 && image.size[1] > 0),
-        _ => panic!("Combined geometry fallback did not produce CPU pixels"),
+        Event::GpuRendered(1, 5, frame) => assert!(frame.dims.0 < neutral.dims.0),
+        _ => panic!("A crop over perspective must present on the GPU as two resamples"),
     }
     worker.send(Command::Save(1, document));
     assert!(matches!(receive(&worker), Event::Saved(1, Ok(()))));
