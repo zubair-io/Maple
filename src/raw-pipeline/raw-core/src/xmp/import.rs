@@ -41,32 +41,37 @@ pub(super) fn canonical_name(
     }
 }
 
+/// Flat keys beyond the transfer table that score a description as the primary
+/// subject (#4690). Emitted to Android, whose sidecar writer picks the same subject.
+pub const SUBJECT_EXTRA_ATTRIBUTES: &[&str] = &[
+    "crs:WhiteBalance",
+    "papp:WbScaleVersion",
+    "papp:RetouchFrameVersion",
+    "papp:InpaintRemovals",
+    "papp:LensProfile",
+    "papp:LocalAdjustments",
+];
+
+/// Container elements beyond the transfer table that score a description (#4690).
+pub const SUBJECT_EXTRA_CONTAINERS: &[&str] = &[
+    "crs:GradientBasedCorrections",
+    "crs:CircularGradientBasedCorrections",
+    "crs:MaskGroupBasedCorrections",
+    "crs:RetouchAreas",
+    "crs:RetouchInfo",
+    "papp:BrushCorrections",
+];
+
 pub(super) fn flat_key(key: &str) -> bool {
     TRANSFER_XMP_ATTRIBUTES
         .iter()
         .any(|(_, keys)| keys.contains(&key))
-        || matches!(
-            key,
-            "crs:WhiteBalance"
-                | "papp:WbScaleVersion"
-                | "papp:RetouchFrameVersion"
-                | "papp:InpaintRemovals"
-                | "papp:LensProfile"
-                | "papp:LocalAdjustments"
-        )
+        || SUBJECT_EXTRA_ATTRIBUTES.contains(&key)
 }
 
 pub(super) fn container(name: &str) -> bool {
     TRANSFER_XMP_ELEMENTS.iter().any(|(_, key)| *key == name)
-        || matches!(
-            name,
-            "crs:GradientBasedCorrections"
-                | "crs:CircularGradientBasedCorrections"
-                | "crs:MaskGroupBasedCorrections"
-                | "crs:RetouchAreas"
-                | "crs:RetouchInfo"
-                | "papp:BrushCorrections"
-        )
+        || SUBJECT_EXTRA_CONTAINERS.contains(&name)
 }
 
 #[derive(Clone, Copy, PartialEq)]

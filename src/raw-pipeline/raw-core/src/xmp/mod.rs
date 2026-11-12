@@ -12,7 +12,7 @@ mod reader;
 pub use reader::parse;
 mod import;
 mod import_validation;
-pub use import::parse_namespaced;
+pub use import::{parse_namespaced, SUBJECT_EXTRA_ATTRIBUTES, SUBJECT_EXTRA_CONTAINERS};
 mod local_adjustments;
 mod retouch;
 mod subject;

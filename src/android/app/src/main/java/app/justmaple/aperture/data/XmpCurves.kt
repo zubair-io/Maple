@@ -44,16 +44,27 @@ private val TOKEN =
     )
 private val XMLNS = Regex("""\sxmlns:([^\s=]+)\s*=\s*(['"])(.*?)\2""")
 
-/** Curves of the primary descriptions' direct children; nested look curves are not edits. */
-internal fun readPointCurves(xml: String, canonicalUri: (String?) -> String?): Map<PointCurve, List<CurveKnot>> {
+/**
+ * Curves of the primary subject's descriptions' direct children ([primary] flags each
+ * top-level description in order); nested look curves are not edits. Inside a curve only
+ * `rdf:`/`crs:`/`papp:` elements count, as in raw-core's import: a foreign or workflow
+ * element is opaque with everything it contains, so its leaves are never knots.
+ */
+internal fun readPointCurves(
+    xml: String,
+    canonicalUri: (String?) -> String?,
+    primary: List<Boolean>,
+): Map<PointCurve, List<CurveKnot>> {
     val parser = Xml.newPullParser()
     parser.setFeature(XmlPullParser.FEATURE_PROCESS_NAMESPACES, true)
     parser.setInput(StringReader(xml.removePrefix("\uFEFF")))
     val curves = mutableMapOf<PointCurve, List<CurveKnot>>()
     var rdfDepth = -1
+    var descriptions = 0
     var descriptionDepth = -1
     var active: PointCurve? = null
     var activeDepth = -1
+    var opaqueDepth = -1
     val knots = mutableListOf<CurveKnot>()
     val text = StringBuilder()
     var inLeaf = false
@@ -61,20 +72,32 @@ internal fun readPointCurves(xml: String, canonicalUri: (String?) -> String?): M
         when (parser.eventType) {
             XmlPullParser.START_TAG -> when {
                 rdfDepth < 0 && parser.name == "RDF" && parser.namespace == RDF -> rdfDepth = parser.depth
-                parser.depth == rdfDepth + 1 && parser.name == "Description" && parser.namespace == RDF ->
-                    descriptionDepth = parser.depth
+                parser.depth == rdfDepth + 1 && parser.name == "Description" && parser.namespace == RDF -> {
+                    if (primary.getOrElse(descriptions) { false }) descriptionDepth = parser.depth
+                    descriptions += 1
+                }
                 descriptionDepth > 0 && parser.depth == descriptionDepth + 1 -> {
                     active = canonicalUri(parser.namespace)?.let { PointCurve.byElement["$it:${parser.name}"] }
                     activeDepth = parser.depth
+                    opaqueDepth = -1
                     knots.clear()
                 }
-                active != null && parser.name == "li" -> {
-                    inLeaf = true
-                    text.setLength(0)
+                active != null && opaqueDepth < 0 -> {
+                    val owned = if (parser.namespace == RDF) "rdf" else canonicalUri(parser.namespace)
+                    when {
+                        owned != "rdf" && owned != "crs" && owned != "papp" -> opaqueDepth = parser.depth
+                        owned == "papp" && parser.name == "Workflow" -> opaqueDepth = parser.depth
+                        parser.name == "li" -> {
+                            inLeaf = true
+                            text.setLength(0)
+                        }
+                    }
                 }
             }
             XmlPullParser.TEXT -> if (inLeaf) text.append(parser.text)
             XmlPullParser.END_TAG -> when {
+                parser.depth == opaqueDepth -> opaqueDepth = -1
+                opaqueDepth >= 0 -> {}
                 inLeaf && parser.name == "li" -> {
                     inLeaf = false
                     parseKnot(text.toString())?.let(knots::add)

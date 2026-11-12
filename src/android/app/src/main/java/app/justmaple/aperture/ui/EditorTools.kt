@@ -54,6 +54,7 @@ enum class EditorGroup(val label: String, val tools: List<EditorTool>) {
     val resetAttributes: List<String>
         get() =
             when (this) {
+                Light -> listOf("papp:ToneCurveMode")
                 Color -> listOf("crs:ConvertToGrayscale")
                 Effects -> listOf("papp:FilmLook")
                 else -> emptyList()
