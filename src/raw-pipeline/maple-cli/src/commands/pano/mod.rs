@@ -36,6 +36,7 @@ mod edges;
 mod io;
 mod preview;
 mod progress;
+mod refusal;
 mod seam_constraints;
 mod tile;
 
@@ -250,6 +251,7 @@ fn stitch_options(args: &StitchArgs, gate_budgets: (f64, f64)) -> Result<StitchO
         capture_owner: true,
         boundary_warp: args.boundary_warp / 100.0,
         auto_crop: args.auto_crop,
+        memory_limit_bytes: args.memory_limit_bytes,
     })
 }
 
@@ -288,7 +290,7 @@ fn stitch_set(
         progress::stderr_progress(),
         || false,
     )
-    .map_err(|e| e.to_string())?;
+    .map_err(|e| refusal::describe(e, outs.report.as_deref()))?;
     preview::save_alignment(args.alignment_out.as_deref(), &run.alignment)?;
     let t_out = Instant::now();
     sink.finish().map_err(|e| e.to_string())?;

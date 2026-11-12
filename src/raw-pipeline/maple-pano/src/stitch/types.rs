@@ -101,6 +101,10 @@ pub struct StitchOptions {
     /// the output. On a 360° canvas the rectangle spans the whole wrapping
     /// axis, so the wrap survives.
     pub auto_crop: bool,
+    /// Refuse the run with [`StitchError::InsufficientMemory`] when the
+    /// [`raw_core::pano_memory`] model puts its peak above this many bytes
+    /// (#5835). `None` runs whatever the size.
+    pub memory_limit_bytes: Option<u64>,
 }
 
 impl Default for StitchOptions {
@@ -130,6 +134,7 @@ impl Default for StitchOptions {
             capture_owner: false,
             boundary_warp: 0.0,
             auto_crop: false,
+            memory_limit_bytes: None,
         }
     }
 }
@@ -300,6 +305,9 @@ pub enum StitchError {
         needed: u64,
         available: u64,
     },
+    /// The stitch's estimated peak is over `StitchOptions::memory_limit_bytes`
+    /// (#5835). Nothing was decoded or composited past the check.
+    InsufficientMemory { needed: u64, limit: u64 },
 }
 
 impl From<crate::seam::SeamConstraintError> for StitchError {
@@ -357,6 +365,10 @@ impl std::fmt::Display for StitchError {
                 "not enough free space for the decoded frames under {}: needs {needed} bytes, \
                  {available} available",
                 path.display()
+            ),
+            Self::InsufficientMemory { needed, limit } => write!(
+                f,
+                "the stitch needs an estimated {needed} bytes of memory, over the {limit} byte limit"
             ),
         }
     }

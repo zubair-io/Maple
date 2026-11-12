@@ -1,6 +1,7 @@
 /**
  * Admitting pano jobs. One stitch may be queued or running at a time and no
- * preview runs beside it, because a stitch peaks at tens of GB. The job store
+ * preview runs beside it, because a stitch holds the whole decode memory
+ * budget for minutes. The job store
  * enforces that in the insert statement itself (`jobs.sql.ts`), so two requests
  * racing past the read below still produce one job; the read only lets a repeat
  * of the running stitch rejoin it without a failed insert. A new stitch cancels

@@ -128,6 +128,8 @@ TS_TABLES_OUT="src/web/projects/maple-common/src/lib/generated/adjustment-tables
 # Ranked search window ladder (#4545): the API widens up it, the Apple client keys facets on it.
 "$BIN" --schema ranked-window --target ts --out "src/api/src/generated/ranked-window.generated.ts"
 "$BIN" --schema ranked-window --target swift --out "src/apple/Packages/MapleCore/Sources/MapleCloudKit/Generated/RankedWindow+Generated.swift"
+# Panorama stitch memory model (#5835): maple-pano refuses on it, the Apple merge sheet sizes the output with it.
+"$BIN" --schema pano-memory --target swift --out "src/apple/Packages/MapleCore/Sources/MapleCore/Generated/PanoMemory+Generated.swift"
 # raw-ffi develop statuses the API defers on (#5499).
 "$BIN" --schema ffi-status --target ts --out "src/api/src/generated/ffi-status.generated.ts"
 "$BIN" --schema maple-id --target swift --out "src/apple/Packages/MapleCore/Sources/MapleCore/Generated/MapleIdDerivationVersion+Generated.swift"

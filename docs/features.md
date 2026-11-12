@@ -251,6 +251,8 @@ Selecting several frames and choosing "Merge to panorama" runs the stitcher in `
 
 On the server, the Docker image ships a `maple-cli` built with both matchers, so a stock install stitches with no setup: with no path saved, the config resolves that bundled binary and `PanoConfig.enabled` defaults to true. Without a bundled binary it defaults to false, and a stitch request returns `pano_not_provisioned` until Settings → Panorama supplies the path and turns it on. A saved path, or a saved off switch, always wins; only one stitch may run at a time. The server's default matcher is the classical one, which needs no downloads. The ML matcher (ALIKED and LightGlue ONNX models plus a recent ONNX Runtime) is opt-in on the same page and needs both paths set. Apple and Windows provision their own local model directories (`Views/PanoSettingsView.swift`, `Services/Pano/PanoProvisioner.cs`) and stitch in-process. Details in [pano.md](pano.md).
 
+A panorama the server cannot hold is refused rather than attempted: the merge fails with a sentence that says how much memory, or temporary disk space, it needs and how much the server has. The memory allowance is "Decode memory budget" in Settings → Workers.
+
 ---
 
 ## 6. File management

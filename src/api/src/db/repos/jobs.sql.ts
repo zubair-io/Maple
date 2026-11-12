@@ -45,8 +45,9 @@ const NO_ACTIVE_BATCH_OVERLAP = `
        AND os.value IN (SELECT value FROM json_each(json(?))))`;
 
 /**
- * Any queued or running panorama stitch. A stitch peaks at tens of GB, so one
- * may be active at a time, and a preview is not admitted beside it either.
+ * Any queued or running panorama stitch. A stitch holds the whole decode
+ * memory budget for minutes, so one may be active at a time, and a preview is
+ * not admitted beside it either.
  */
 const NO_ACTIVE_PANO_STITCH = `
   NOT EXISTS (

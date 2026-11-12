@@ -50,6 +50,16 @@ impl FeatureEngine {
             Self::Classical => "classical",
         }
     }
+
+    /// Whether a run holds ONNX Runtime and its models in memory.
+    pub fn is_ml(self) -> bool {
+        match self {
+            #[cfg(any(feature = "ml", feature = "ml-static"))]
+            Self::Ml => true,
+            #[cfg(feature = "classical-features")]
+            Self::Classical => false,
+        }
+    }
 }
 
 /// The stage-2 half of a loaded engine (the detector is released once

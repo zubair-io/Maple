@@ -95,6 +95,7 @@ mod focal_bootstrap;
 mod frames;
 mod graph_build;
 mod io;
+mod memory;
 mod photometry;
 mod preview;
 mod refine_pass;

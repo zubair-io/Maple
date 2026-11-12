@@ -98,7 +98,7 @@ pub fn sweep_orphaned_scratch() {
     FrameStore::sweep_orphans(&std::env::temp_dir());
 }
 
-fn input_dims(inputs: &[PathBuf]) -> Result<Vec<(u32, u32)>, StitchError> {
+pub(super) fn input_dims(inputs: &[PathBuf]) -> Result<Vec<(u32, u32)>, StitchError> {
     inputs
         .iter()
         .map(|path| {

@@ -41,6 +41,7 @@ pub fn stitch_reusing(
     is_cancelled: impl Fn() -> bool,
 ) -> Result<AlignedStitch, StitchError> {
     super::validate_request(inputs, opts)?;
+    super::memory::admit_head(inputs, opts)?;
     let key = AlignmentKey::for_run(inputs, opts)?;
     let (reusable, reuse) = usable(offered, &key);
     let t0 = Instant::now();

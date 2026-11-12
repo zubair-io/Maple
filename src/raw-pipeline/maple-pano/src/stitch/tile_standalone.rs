@@ -56,6 +56,7 @@ pub fn stitch_tile(
         return Err(StitchError::TooFewFrames(inputs.len()));
     }
     super::graph_build::validate_grid(opts, inputs.len())?;
+    super::memory::admit_head(inputs, opts)?;
 
     // ── stage 0: develop into the frame store + proxies (#5554) ──────────
     // Same stage 0 as `stitch::stitch`: each frame is developed once into

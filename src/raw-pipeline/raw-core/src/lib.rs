@@ -145,6 +145,8 @@ pub mod scope;
 
 /// The ranked search window's ladder (#4514), emitted to the API and Apple by `tools/codegen.sh`.
 pub mod ranked_window;
+/// What a panorama stitch costs in memory (#5835), read by maple-pano and emitted to Apple by `tools/codegen.sh`.
+pub mod pano_memory;
 pub mod types;
 pub use types::{
     AdjustmentModel, FieldKind, FieldSpec, HighlightRecoveryMode, LocalAdjustment, Mask,

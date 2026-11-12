@@ -84,6 +84,7 @@ pub fn preview(
     is_cancelled: impl Fn() -> bool,
 ) -> Result<PanoPreview, StitchError> {
     super::validate_request(inputs, opts)?;
+    super::memory::admit_head(inputs, opts)?;
     let key = AlignmentKey::for_run(inputs, opts)?;
     let (reusable, reuse) = usable(offered, &key);
     let (alignment, metas, head_timings) = match reusable {
@@ -162,6 +163,7 @@ pub fn preview(
                     natural = (w, h);
                     long_edge_pixel_cap(w, h)
                 },
+                &|_| Ok(()),
                 &mut collector,
                 &mut progress,
                 &is_cancelled,
