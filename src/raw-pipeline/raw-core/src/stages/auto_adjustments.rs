@@ -143,6 +143,9 @@ pub(crate) fn probe_model(model: &AdjustmentModel) -> AdjustmentModel {
         highlight_recovery: crate::xmp::HighlightRecoveryMode::Off,
         temperature: 6500.0,
         tint: 0.0,
+        // The probe meters the as-shot render: an imported Auto request on
+        // the caller's model must not resolve inside its own analysis (#4669).
+        unresolved_auto_wb: false,
         exposure: 0.0,
         contrast: 0.0,
         highlights: 0.0,

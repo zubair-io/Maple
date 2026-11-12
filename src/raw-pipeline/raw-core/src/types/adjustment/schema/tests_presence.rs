@@ -276,9 +276,10 @@ fn schema_exemption_allowlist() {
         "crop",
         "temperature_seen",
         "tint_seen",
+        "unresolved_auto_wb",
         "wb_scale_version",
     ];
-    assert_eq!(ALLOWED.len(), 8);
+    assert_eq!(ALLOWED.len(), 9);
     for expected in [
         "local_adjustments",
         "mask_rasters",

@@ -26,6 +26,7 @@ fn schema_matches_struct() {
         tint,
         temperature_seen,
         tint_seen,
+        unresolved_auto_wb: _,
         wb_method,
         wb_scale_version,
         wb_source,

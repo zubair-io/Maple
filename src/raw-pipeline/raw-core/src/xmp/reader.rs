@@ -230,6 +230,9 @@ pub(super) fn parse_events<'a>(
     } else {
         WbScaleVersion::V5
     });
+    // Either authored component takes precedence over an Auto label, independent
+    // of XML attribute order. Partial authored pairs keep their existing semantics.
+    model.unresolved_auto_wb &= !model.temperature_seen && !model.tint_seen;
     Ok(model)
 }
 

@@ -3,7 +3,10 @@ use crate::error::{set_last_error, with_large_stack};
 use std::ffi::{c_char, CStr};
 
 /// Resolve a partial sidecar against the actual RAW metadata/profile. This cold
-/// operation decodes no display pixels and runs once during sidecar hydration.
+/// operation shares the open's decode of the file (decode cache, single
+/// flight) instead of decoding it a second time. Name-only Auto additionally
+/// develops the shared estimator's 1536 px probe (#4669): shells call it off
+/// the first frame and re-render once with the pair.
 /// It reuses existing resolution/calibration math without new model wire fields.
 ///
 /// # Safety
@@ -43,7 +46,17 @@ pub unsafe extern "C" fn maple_resolve_imported_white_balance_file(
             let Some(path) = path else {
                 return Ok(raw_core::stages::white_balance::resolve_wb(&model));
             };
-            raw_core::decode::decode(std::path::Path::new(&path)).and_then(|raw| {
+            crate::scene_linear_f32::file_decode::decode_file_shared(
+                std::path::Path::new(&path),
+                raw_core::cancel::CancelToken::never(),
+            )
+            .and_then(|raw| {
+                if raw_core::stages::imported_auto_wb::needs_resolution(&model) {
+                    return raw_core::stages::imported_auto_wb::estimate(
+                        &raw,
+                        raw_core::cancel::CancelToken::never(),
+                    );
+                }
                 let (profile, source) = raw_core::color::dcp::profile_for_with_source(&raw)?;
                 let fallback =
                     matches!(source, raw_core::color::dcp::ProfileSource::RawlerFallback)
@@ -94,6 +107,39 @@ pub unsafe extern "C" fn maple_resolve_imported_white_balance_file(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn name_only_auto_uses_shared_estimator_without_overwriting_authored_pairs() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../test-fixtures/batch-transfer/source.dng");
+        let raw = raw_core::decode::decode(&path).unwrap();
+        let expected = raw_core::stages::imported_auto_wb::estimate(
+            &raw,
+            raw_core::cancel::CancelToken::never(),
+        )
+        .unwrap();
+        let c_path = std::ffi::CString::new(path.to_str().unwrap()).unwrap();
+        for (attributes, expected) in [
+            ("", expected),
+            (r#"crs:Temperature="5300" crs:Tint="17""#, (5300., 17.)),
+        ] {
+            let text =
+                std::ffi::CString::new(format!(r#"<x crs:WhiteBalance="Auto" {attributes}/>"#))
+                    .unwrap();
+            let mut output = [0.; 2];
+            assert_eq!(
+                unsafe {
+                    maple_resolve_imported_white_balance_file(
+                        c_path.as_ptr(),
+                        text.as_ptr(),
+                        output.as_mut_ptr(),
+                    )
+                },
+                0
+            );
+            assert_eq!(output, [expected.0, expected.1]);
+        }
+    }
 
     #[test]
     fn rejects_bad_inputs_without_mutating_the_output() {

@@ -82,6 +82,7 @@ pub struct WebLiveSession {
     /// re-decoding (decode is the multi-hundred-ms cost the one-shot path repays
     /// every call).
     raw_img: raw_core::image::RawImage,
+    imported_wb: raw_core::stages::imported_auto_wb::CachedEstimate,
     /// Original RAW bytes + extension — needed for the `auto_will_fit` probe and
     /// the Auto Profile fit (both read the embedded JPEG).
     raw: Vec<u8>,
@@ -219,7 +220,8 @@ impl WebLiveSession {
         // parse result (default on a fresh open).
         let ((as_shot_temperature, as_shot_tint), camera_support) =
             crate::open_metadata::assess(&raw_img);
-        let model = parse_model(&xmp).map_err(|e| JsError::new(&e))?;
+        let mut model = parse_model(&xmp).map_err(|e| JsError::new(&e))?;
+        raw_core::stages::imported_auto_wb::CachedEstimate::default().apply(&mut model);
 
         // Context BEFORE develop: the effective develop target clamps to this
         // device's texture cap (#1080, composing with #1079's adapter-clamped
@@ -270,6 +272,7 @@ impl WebLiveSession {
         let mut handle = WebLiveSession {
             ctx,
             raw_img,
+            imported_wb: Default::default(),
             raw,
             ext,
             present,
@@ -314,8 +317,16 @@ impl WebLiveSession {
     /// (always present after `open`; `None` is treated as a fresh As-Shot import).
     #[wasm_bindgen]
     pub async fn render(&mut self, xmp: Option<String>) -> Result<String, JsError> {
-        let model = parse_model(&xmp).map_err(|e| JsError::new(&e))?;
+        let mut model = parse_model(&xmp).map_err(|e| JsError::new(&e))?;
+        self.imported_wb.apply(&mut model);
         self.render_model(&model).await
+    }
+
+    /// Resolve a name-only imported Auto WB once, off the first frame (#4669),
+    /// as `[temperature, tint]`; later [`WebLiveSession::render`] calls use it.
+    #[wasm_bindgen]
+    pub fn resolve_imported_white_balance(&mut self) -> Result<Vec<f32>, JsError> {
+        crate::open_metadata::resolve_imported(&mut self.imported_wb, &self.raw_img)
     }
 
     /// Re-render the live canvas with a flat parameters array (avoiding XML parsing on hot path).

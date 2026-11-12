@@ -17,11 +17,13 @@ pub struct NativeDetailSession {
     raw: Arc<RawImage>,
     bytes: Vec<u8>,
     ext: String,
+    imported_wb: raw_core::stages::imported_auto_wb::CachedEstimate,
     prepared: Option<PreparedDetail>,
 }
 
 struct PreparedDetail {
     xmp: Option<String>,
+    imported_pair: Option<(f32, f32)>,
     cap: u32,
     preview: bool,
     film_bytes: Vec<u8>,
@@ -60,8 +62,15 @@ impl NativeDetailSession {
             raw: Arc::new(raw),
             bytes: bytes.to_vec(),
             ext: ext.to_owned(),
+            imported_wb: Default::default(),
             prepared: None,
         })
+    }
+
+    /// Resolve a name-only imported Auto WB once, off the first frame (#4669):
+    /// returns `[temperature, tint]`. The next tile re-prepares with it.
+    pub fn resolve_imported_white_balance(&mut self) -> Result<Vec<f32>, JsError> {
+        crate::open_metadata::resolve_imported(&mut self.imported_wb, &self.raw)
     }
 
     /// `rect` = x,y,width,height in oriented DefaultCrop-relative pixels.
@@ -82,13 +91,18 @@ impl NativeDetailSession {
             crate::cpu_budget::clamp_develop_long_edge(self.raw.width, self.raw.height, Some(cap))
                 .unwrap_or(cap);
         let prepare = self.prepared.as_ref().is_none_or(|p| {
-            p.xmp != xmp || p.cap != cap || p.preview != preview || p.film_bytes != film_bytes
+            p.xmp != xmp
+                || p.imported_pair != self.imported_wb.pair()
+                || p.cap != cap
+                || p.preview != preview
+                || p.film_bytes != film_bytes
         });
         if prepare {
             // Release prior artifacts before creating the new bounded reference,
             // keeping only native frame evidence that remains exact.
             let previous = self.prepared.take().map(|prepared| prepared.context);
-            let model = crate::mask_registry::parse_model(xmp.as_deref()).map_err(js_error)?;
+            let mut model = crate::mask_registry::parse_model(xmp.as_deref()).map_err(js_error)?;
+            self.imported_wb.apply(&mut model);
             let film = if film_bytes.is_empty() {
                 None
             } else {
@@ -117,6 +131,7 @@ impl NativeDetailSession {
             .map_err(js_error)?;
             self.prepared = Some(PreparedDetail {
                 xmp,
+                imported_pair: self.imported_wb.pair(),
                 cap,
                 preview,
                 film_bytes: film_bytes.to_vec(),

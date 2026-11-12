@@ -14,7 +14,30 @@ pub(crate) fn decode_file_cached(
     if cancel.is_cancelled() {
         return Err(super::RC_CANCELLED);
     }
-    let key = CacheKey::from_path(path);
+    let result = decode_file_shared(path, cancel);
+    // A warm flight result must also respect this caller's cancellation.
+    if cancel.is_cancelled() {
+        return Err(super::RC_CANCELLED);
+    }
+    result.map_err(|error| match error {
+        Error::Cancelled => super::RC_CANCELLED,
+        Error::Io { source, .. } => {
+            set_last_error(format!("raw read: {source}"));
+            6
+        }
+        other => {
+            set_last_error(format!("decode: {other}"));
+            7
+        }
+    })
+}
+
+/// [`decode_file_cached`] with the core's own error: every file entry that
+/// needs this RAW's mosaic shares one decode, in flight or retained.
+pub(crate) fn decode_file_shared(
+    path: &Path,
+    cancel: CancelToken<'_>,
+) -> raw_core::Result<Arc<RawImage>> {
     let decode = || {
         // A same-key waiter can be cancelled while another caller decodes.
         if cancel.is_cancelled() {
@@ -34,25 +57,10 @@ pub(crate) fn decode_file_cached(
             raw_core::decode::decode_bytes(&bytes, extension).map(Arc::new)
         })
     };
-    let result = match key {
+    match CacheKey::from_path(path) {
         Some(key) => get_or_decode(&key, decode),
         None => decode(),
-    };
-    // A warm flight result must also respect this caller's cancellation.
-    if cancel.is_cancelled() {
-        return Err(super::RC_CANCELLED);
     }
-    result.map_err(|error| match error {
-        Error::Cancelled => super::RC_CANCELLED,
-        Error::Io { source, .. } => {
-            set_last_error(format!("raw read: {source}"));
-            6
-        }
-        other => {
-            set_last_error(format!("decode: {other}"));
-            7
-        }
-    })
 }
 
 #[cfg(test)]

@@ -254,6 +254,13 @@ fn develop_tile_with_frame(
     if cancel.is_cancelled() {
         return Err(crate::error::Error::Cancelled);
     }
+    // A capture tile carries no white balance, so only a scene tile resolves
+    // an imported Auto request (#4669).
+    let resolved_wb = match output {
+        TileOutput::Scene { .. } => crate::stages::imported_auto_wb::resolve(raw, model, cancel)?,
+        TileOutput::Capture => std::borrow::Cow::Borrowed(model),
+    };
+    let model = &*resolved_wb;
     let TileRect {
         src_x,
         src_y,
