@@ -44,6 +44,39 @@ class OpeningComparisonTest {
     }
 
     @Test
+    fun resettingLightClearsPointCurvesAndTheirModeInOneUndo() = runBlocking {
+        Dispatchers.setMain(UnconfinedTestDispatcher())
+        val app = RuntimeEnvironment.getApplication()
+        val raw = File.createTempFile("light-reset-", ".dng", app.cacheDir).apply { writeText("renderer seam") }
+        val photo = Photo(Uri.fromFile(raw), raw.name, raw.length(), raw.lastModified(), null)
+        val library = PhotoLibrary(app)
+        val knots = listOf(CurveKnot(0f, 0f), CurveKnot(.5f, .6f), CurveKnot(1f, 1f))
+        val opening = PointCurve.entries.fold(XmpDocument()) { doc, curve -> doc.withCurve(curve, knots) }
+            .withAttribute("papp:ToneCurveMode", "RatioPreserving")
+        library.save(photo, opening, null)
+        val model = MapleViewModel(app, library, RecordingRenderer())
+        try {
+            model.open(photo)
+            withTimeout(10_000) { model.state.first { it.documentLoaded && !it.loading } }
+            model.edit()
+            withTimeout(10_000) { model.state.first { it.values.isNotEmpty() } }
+            val curved = model.state.value.document.serialize()
+            model.resetGroup(EditorGroup.Light)
+            val reset = model.state.value.document
+            PointCurve.entries.forEach { assertTrue("$it is reset", reset.curve(it).isEmpty()) }
+            assertNull(reset.attribute("papp:ToneCurveMode"))
+            model.undo()
+            assertEquals(curved, model.state.value.document.serialize())
+            model.back()
+            withTimeout(10_000) { model.state.first { it.mode == PhotoMode.Preview && !it.saving } }
+            Unit
+        } finally {
+            raw.delete()
+            Dispatchers.resetMain()
+        }
+    }
+
+    @Test
     fun resettingDetailPreservesFramingAndUndoRestoresDetail() = runBlocking {
         Dispatchers.setMain(UnconfinedTestDispatcher())
         val app = RuntimeEnvironment.getApplication()

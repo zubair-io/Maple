@@ -1,5 +1,6 @@
 package app.justmaple.aperture
 
+import app.justmaple.aperture.data.PointCurve
 import app.justmaple.aperture.data.XmpDocument
 import app.justmaple.aperture.generated.AdjustmentField
 
@@ -21,6 +22,7 @@ internal fun EditSnapshot.withCurrentCrop(current: XmpDocument): EditSnapshot =
 internal fun EditSnapshot.reset(
     fields: List<AdjustmentField>,
     attributes: List<String>,
+    curves: List<PointCurve> = emptyList(),
 ): EditSnapshot {
     val scalar = values + fields.associate { it.name to it.initial }
     val resetValues =
@@ -33,6 +35,7 @@ internal fun EditSnapshot.reset(
         else scalar
     val resetDocument =
         attributes.fold(document.resetFields(fields)) { doc, name -> doc.withAttribute(name, null) }
+            .let { reset -> curves.fold(reset) { doc, curve -> doc.withCurve(curve, emptyList()) } }
     return EditSnapshot(resetValues, resetDocument)
 }
 

@@ -32,14 +32,21 @@ mark modified channels. Dragging empty plot space adds a knot; dragging a knot m
 it, with the endpoints pinned to x = 0 and 1 and interior knots kept 1/256 apart
 (`ToneCurveEditing`, mirroring Apple's rules). The selected knot shows its input/output
 and can be deleted, and Reset curve returns the channel to the empty identity. A drag,
-delete, reset or mode change is one undo entry. The plot is sampled by raw-core's own
-Fritsch–Carlson evaluator over JNI (`point_curve_preview`), so it draws the rendered
-shape; the Scene family also shows the parametric curve and its split markers above the
-region sliders. The XMP writer replaces only changed curve elements that are direct
-children of the primary descriptions, as an `rdf:Seq` of `"x, y"` leaves in the [0, 255]
-wire domain, and writes nothing for an identity curve. Curves nested in a Lightroom
-`crs:Look` and all other foreign bytes are kept, and restoring the loaded knots leaves
-the saved bytes untouched (`docs/xmp-canonical-format.md` § "Tone curves").
+delete, reset or mode change is one undo entry; Reset Light clears all eight curves and
+the mode together with the Light sliders, also as one undo entry. The plot is sampled by
+raw-core's own Fritsch–Carlson evaluator over JNI (`point_curve_preview`), so it draws
+the rendered shape; the Scene family also shows the parametric curve and its split
+markers above the region sliders. The XMP writer replaces only changed curve elements
+that are direct children of the primary subject's descriptions, as an `rdf:Seq` of
+`"x, y"` leaves in the [0, 255] wire domain, and writes nothing for an identity curve.
+The primary subject is raw-core's (#4690): `rdf:about=""`, then anonymous, then any
+other subject, ranked next by how many develop keys a description carries
+(`generated/XmpSubject.kt`, emitted from raw-core). Scalar edits read and write only
+that subject too; other subjects' descriptions are never read or touched. As in
+raw-core's import, only `rdf:`/`crs:`/`papp:` leaves inside a curve are knots: a
+foreign or `papp:Workflow` element is opaque with everything inside it. Curves nested
+in a Lightroom `crs:Look` and all other foreign bytes are kept, and restoring the loaded
+knots leaves the saved bytes untouched (`docs/xmp-canonical-format.md` § "Tone curves").
 
 ## Build
 

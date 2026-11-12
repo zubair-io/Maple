@@ -3,6 +3,7 @@ package app.justmaple.aperture.data
 import android.util.Xml
 import app.justmaple.aperture.generated.AdjustmentField
 import app.justmaple.aperture.generated.AdjustmentFields
+import app.justmaple.aperture.generated.XmpSubject
 import java.io.StringReader
 import java.util.Locale
 import org.xmlpull.v1.XmlPullParser
@@ -26,14 +27,15 @@ private constructor(
 
     // Scalar revisions share the immutable parse, including across undo/redo.
     private class ParsedSource(val xml: String) {
+        private val scopes = validate(xml).let { descriptions(xml) }
         val tags =
-            validate(xml)
-                .let { descriptions(xml) }
-                .also {
-                    require(it.isNotEmpty()) { "XMP has no RDF description" }
-                }
+            scopes.filter { it.second.primary }.also {
+                require(it.isNotEmpty()) { "XMP has no RDF description" }
+            }
         val attributes = buildMap { tags.forEach { putAll(it.second.attributes) } }
-        val curves by lazy { readPointCurves(xml, ::canonicalPrefix) }
+        val curves by lazy {
+            readPointCurves(xml, ::canonicalPrefix, scopes.filter { it.second.topLevel }.map { it.second.primary })
+        }
     }
 
     override fun equals(other: Any?): Boolean =
@@ -221,8 +223,16 @@ private constructor(
         private data class DescriptionScope(
             val bindings: Map<String, String>,
             val attributes: Map<String, String>,
+            /** A direct child of the document's `rdf:RDF`. */
+            val topLevel: Boolean,
+            /** A top-level description of the primary subject: the only ones read and edited. */
             val primary: Boolean,
         )
+
+        /** One top-level description's subject and score, as raw-core's `xmp::subject` ranks them. */
+        private class SubjectCandidate(val subject: String, val tier: Int) {
+            var score = 0
+        }
 
         private fun outputPrefixes(bindings: Map<String, String>): Map<String, String> =
             NAMESPACES.mapValues { (canonical, uri) ->
@@ -255,61 +265,96 @@ private constructor(
             val tags = DESCRIPTION.findAll(xml).filter { it.groupValues[1].isNotEmpty() }.toList()
             val scopes = descriptionBindings(xml)
             require(tags.size == scopes.size) { "Unsupported RDF description syntax" }
-            return tags.zip(scopes).filter { it.second.primary }
+            return tags.zip(scopes)
         }
 
+        private const val RDF_URI = "http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+
+        /**
+         * Every `Description` element in document order. Of the top-level ones only the
+         * primary subject's are editable: raw-core ranks them by subject (`rdf:about=""`,
+         * then anonymous, then any other `about` or `nodeID`) and then by how many develop
+         * keys they carry, and ignores every other subject (#4690).
+         */
         private fun descriptionBindings(xml: String): List<DescriptionScope> {
             val parser = Xml.newPullParser()
             parser.setFeature(XmlPullParser.FEATURE_PROCESS_NAMESPACES, true)
             parser.setInput(StringReader(xml.removePrefix("\uFEFF")))
             var rdfDepth: Int? = null
             var insideRdf = false
-            return buildList {
-                while (parser.next() != XmlPullParser.END_DOCUMENT) {
-                    if (
-                        rdfDepth == null &&
-                            parser.eventType == XmlPullParser.START_TAG &&
-                            parser.name == "RDF" &&
-                            parser.namespace == "http://www.w3.org/1999/02/22-rdf-syntax-ns#"
-                    ) {
-                        rdfDepth = parser.depth
-                        insideRdf = true
-                    }
-                    if (parser.eventType == XmlPullParser.END_TAG && parser.depth == rdfDepth)
-                        insideRdf = false
-                    if (
-                        parser.eventType == XmlPullParser.START_TAG && parser.name == "Description"
-                    ) {
-                        val bindings = buildMap {
-                            for (i in 0 until parser.getNamespaceCount(parser.depth)) {
-                                parser.getNamespacePrefix(i)?.let {
-                                    put(it, parser.getNamespaceUri(i))
-                                }
-                            }
-                        }
-                        add(
-                            DescriptionScope(
-                                bindings,
-                                buildMap {
-                                    for (i in 0 until parser.attributeCount) {
-                                        val prefix = parser.getAttributePrefix(i)
-                                        val local = parser.getAttributeName(i)
-                                        val qualified =
-                                            if (prefix.isNullOrEmpty()) local else "$prefix:$local"
-                                        put(
-                                            attributeName(qualified, bindings),
-                                            parser.getAttributeValue(i),
-                                        )
-                                    }
-                                },
-                                insideRdf &&
-                                    parser.depth == rdfDepth?.plus(1) &&
-                                    parser.namespace ==
-                                        "http://www.w3.org/1999/02/22-rdf-syntax-ns#",
-                            )
-                        )
+            val found = mutableListOf<DescriptionScope>()
+            val candidates = mutableListOf<SubjectCandidate>()
+            var open: SubjectCandidate? = null
+            var openDepth = -1
+            while (parser.next() != XmlPullParser.END_DOCUMENT) {
+                if (
+                    rdfDepth == null &&
+                        parser.eventType == XmlPullParser.START_TAG &&
+                        parser.name == "RDF" &&
+                        parser.namespace == RDF_URI
+                ) {
+                    rdfDepth = parser.depth
+                    insideRdf = true
+                }
+                if (parser.eventType == XmlPullParser.END_TAG) {
+                    if (parser.depth == rdfDepth) insideRdf = false
+                    if (parser.depth == openDepth) open = null
+                    continue
+                }
+                if (parser.eventType != XmlPullParser.START_TAG) continue
+                open?.takeIf { parser.depth == openDepth + 1 }?.let { candidate ->
+                    val prefix = canonicalPrefix(parser.namespace)
+                    if (prefix != null && "$prefix:${parser.name}" in XmpSubject.containers) candidate.score += 1
+                }
+                if (parser.name != "Description") continue
+                val bindings = buildMap {
+                    for (i in 0 until parser.getNamespaceCount(parser.depth)) {
+                        parser.getNamespacePrefix(i)?.let { put(it, parser.getNamespaceUri(i)) }
                     }
                 }
+                val attributes = buildMap {
+                    for (i in 0 until parser.attributeCount) {
+                        val prefix = parser.getAttributePrefix(i)
+                        val local = parser.getAttributeName(i)
+                        val qualified = if (prefix.isNullOrEmpty()) local else "$prefix:$local"
+                        put(attributeName(qualified, bindings), parser.getAttributeValue(i))
+                    }
+                }
+                val topLevel = insideRdf && parser.depth == rdfDepth?.plus(1) && parser.namespace == RDF_URI
+                if (topLevel) {
+                    val candidate = subjectCandidate(parser, candidates.size)
+                    candidate.score = attributes.keys.count { it in XmpSubject.attributes }
+                    candidates += candidate
+                    open = candidate
+                    openDepth = parser.depth
+                }
+                found += DescriptionScope(bindings, attributes, topLevel, primary = false)
+            }
+            val primary =
+                candidates.reduceOrNull { best, next ->
+                    if (next.tier > best.tier || (next.tier == best.tier && next.score > best.score)) next else best
+                }
+            val eligible = candidates.map { it.subject == primary?.subject }.iterator()
+            return found.map { if (it.topLevel) it.copy(primary = eligible.next()) else it }
+        }
+
+        private fun subjectCandidate(parser: XmlPullParser, index: Int): SubjectCandidate {
+            var about: String? = null
+            var nodeId: String? = null
+            for (i in 0 until parser.attributeCount) {
+                val namespace = parser.getAttributeNamespace(i).orEmpty()
+                val rdf = namespace == RDF_URI
+                val unbound = namespace.isEmpty()
+                when (parser.getAttributeName(i)) {
+                    "about" -> if (rdf || (unbound && about == null)) about = parser.getAttributeValue(i)
+                    "nodeID" -> if (rdf || (unbound && nodeId == null)) nodeId = parser.getAttributeValue(i)
+                }
+            }
+            return when {
+                about != null && nodeId == null -> SubjectCandidate("about:$about", if (about.isEmpty()) 2 else 0)
+                about == null && nodeId == null -> SubjectCandidate("anonymous:$index", 1)
+                about == null -> SubjectCandidate("node:$nodeId", 0)
+                else -> SubjectCandidate("anonymous:$index", 0)
             }
         }
 

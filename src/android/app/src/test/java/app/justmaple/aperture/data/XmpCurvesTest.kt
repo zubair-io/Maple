@@ -129,4 +129,56 @@ class XmpCurvesTest {
         assertFalse(untouched.original.contains("ToneCurve"))
         assertTrue(untouched.original.contains("/>"))
     }
+
+    @Test
+    fun leavesInsideOpaqueExtensionsAreNotKnots() {
+        // raw-core's `opaque_foreign_and_workflow_records_cannot_override_current_development` input.
+        val source =
+            """<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description rdf:about="" xmlns:papp="http://ns.justmaple.app/photo/1.0/"><papp:SceneLinearToneCurve><rdf:Seq><f:opaque xmlns:f="urn:foreign"><rdf:li>255, 0</rdf:li></f:opaque><papp:Workflow><rdf:li>128, 0</rdf:li></papp:Workflow><f:li xmlns:f="urn:foreign">64, 0</f:li><rdf:li>0, 0</rdf:li><rdf:li>255, 230</rdf:li></rdf:Seq></papp:SceneLinearToneCurve></rdf:Description></rdf:RDF></x:xmpmeta>"""
+        assertKnots(listOf(CurveKnot(0f, 0f), CurveKnot(1f, 230f / 255f)), XmpDocument(source).curve(PointCurve.SceneLuma))
+    }
+
+    @Test
+    fun onlyThePrimarySubjectsCurvesAreReadAndEdited() {
+        // raw-core's `foreign_subject_descriptions_are_ignored_in_both_readers` sibling case.
+        val other =
+            """<rdf:Description rdf:about="other-subject"
+      xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/"
+      crs:Exposure2012="+2.25"
+      crs:Contrast2012="+40">
+      <crs:ToneCurvePV2012>
+        <rdf:Seq><rdf:li>0, 0</rdf:li><rdf:li>128, 160</rdf:li><rdf:li>255, 255</rdf:li></rdf:Seq>
+      </crs:ToneCurvePV2012>
+    </rdf:Description>"""
+        val source =
+            """<x:xmpmeta xmlns:x="adobe:ns:meta/">
+  <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+    <rdf:Description rdf:about=""
+      xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/"
+      crs:Exposure2012="+0.50"/>
+    $other
+  </rdf:RDF>
+</x:xmpmeta>"""
+        val loaded = XmpDocument(source)
+        assertTrue(loaded.curve(PointCurve.DisplayLuma).isEmpty())
+        assertEquals("+0.50", loaded.attribute("crs:Exposure2012"))
+        assertNull(loaded.attribute("crs:Contrast2012"))
+        val edited = roundTrip(loaded.withCurve(PointCurve.DisplayLuma, sCurve).withAttribute("crs:Contrast2012", "10"))
+        assertTrue("The other subject is untouched", edited.original.contains(other))
+        assertKnots(sCurve, edited.curve(PointCurve.DisplayLuma))
+        assertEquals("10", edited.attribute("crs:Contrast2012"))
+        val primary = edited.original.substringBefore("<rdf:Description rdf:about=\"other-subject\"")
+        assertTrue(primary, primary.contains("<crs:ToneCurvePV2012>") && primary.contains("crs:Contrast2012=\"10\""))
+    }
+
+    @Test
+    fun theBestScoredAnonymousDescriptionIsThePrimarySubject() {
+        val source =
+            """<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description rdf:nodeID="n1" xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/" crs:Exposure2012="2" crs:Contrast2012="5" crs:Shadows2012="9"/><rdf:Description xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/" crs:Exposure2012="0.6"/><rdf:Description xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/" crs:Highlights2012="-10"><crs:ToneCurvePV2012><rdf:Seq><rdf:li>0, 0</rdf:li><rdf:li>255, 200</rdf:li></rdf:Seq></crs:ToneCurvePV2012></rdf:Description></rdf:RDF>"""
+        val loaded = XmpDocument(source)
+        // Anonymous outranks a nodeID subject; the third scores 2 (a flat key and a curve container).
+        assertEquals("-10", loaded.attribute("crs:Highlights2012"))
+        assertNull(loaded.attribute("crs:Exposure2012"))
+        assertKnots(listOf(CurveKnot(0f, 0f), CurveKnot(1f, 200f / 255f)), loaded.curve(PointCurve.DisplayLuma))
+    }
 }

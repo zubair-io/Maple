@@ -654,19 +654,25 @@ internal constructor(
                         .map { it.name }
                 else -> emptyList()
             }
-        resetControls(group.fields.map { it.name } + extraNames, group.resetAttributes)
+        // The Light group owns the point curves too: one reset, one undo entry.
+        val curves = if (group == EditorGroup.Light) PointCurve.entries else emptyList()
+        resetControls(group.fields.map { it.name } + extraNames, group.resetAttributes, curves)
     }
 
-    private fun resetControls(names: List<String>, attributes: List<String>) {
+    private fun resetControls(
+        names: List<String>,
+        attributes: List<String>,
+        curves: List<PointCurve> = emptyList(),
+    ) {
         val current = state.value
         if (!current.canEdit) return
         val fields =
             names.mapNotNull(AdjustmentFields.byName::get).filter {
                 current.values["_raw"] == 1f || it.rasterSupported
             }
-        if (fields.isEmpty() && attributes.isEmpty()) return
+        if (fields.isEmpty() && attributes.isEmpty() && curves.isEmpty()) return
         beginGesture()
-        restore(snapshot().reset(fields, attributes))
+        restore(snapshot().reset(fields, attributes, curves))
         commitGesture()
     }
 
