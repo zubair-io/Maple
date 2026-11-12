@@ -6,8 +6,9 @@
 //! ## #1085 contract — the fit input is the PINNED default-model develop
 //!
 //! `pixels` must be the buffer developed under the pinned fit model
-//! (`auto_fit::fit_develop_model`: `AdjustmentModel::default()` with
-//! `auto_exposure: Off` and the caller's `profile` carried), NOT the caller's
+//! (`pipeline::fit_develop_model_for`: `AdjustmentModel::default()` with
+//! `auto_exposure: Off`, the embedded preview's lens vignetting and the
+//! caller's `profile` carried), NOT the caller's
 //! live edit model. That makes every fit a pure function of the RAW (at a
 //! given develop quality/size), so the RAW-identity [`cache`] key is correct
 //! by construction — no adjustment digest needed, no cache-order dependence,

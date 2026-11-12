@@ -6,9 +6,9 @@
 //! ## The #1085 invariant — the fit develop is pinned to the default model
 //!
 //! Every fit (curve + residual, CPU render path + GPU host entries) samples a
-//! buffer developed under [`fit_develop_model`] — `AdjustmentModel::default()`
-//! with only `auto_exposure: Off` pinned (#550/#871) and the caller's
-//! `profile` carried — NEVER the caller's live edit model. The fit is
+//! buffer developed under [`fit_develop_model_for`] — the default model with
+//! `auto_exposure: Off` (#550/#871), the embedded preview's lens vignetting
+//! (#5791) and the caller's `profile` — NEVER the live edit model. The fit is
 //! therefore a pure function of the RAW (at a given develop quality/size):
 //! the RAW-identity `auto_profile::cache` key is correct by construction,
 //! renders can't depend on cache state or fit order, and a cold fit under an
@@ -30,17 +30,14 @@ use crate::view::auto_profile::AutoFitOutcome;
 use crate::view::{agx, auto_profile, encode};
 use crate::xmp::AdjustmentModel;
 
+use super::auto_fit_model::{fit_develop_model_for, uses_pinned_fit_pixels};
 use super::RawInput;
-
-#[path = "auto_fit_model.rs"]
-mod fit_model;
-pub(super) use fit_model::{fit_develop_model, uses_pinned_fit_pixels};
 
 /// Develop a RAW through the EXACT (pinned) Auto Profile fit prefix and return
 /// the `DisplayEncodedSrgb` buffer the curve / residual LUT fits sample
 /// against:
-///   * the pinned fit model from [`fit_develop_model`] — default model,
-///     `auto_exposure: Off`, caller's `profile` carried (#1085; see that fn);
+///   * the pinned fit model `auto_model` from [`fit_develop_model_for`] —
+///     default model, AE Off, the preview's lens vignetting (#1085, #5791);
 ///   * the shared scene-linear develop chain (early-downsampled when
 ///     `max_long_edge` is `Some`, mirroring the sized render entry — the GPU
 ///     fit entries pass `None` for the full-size develop);
@@ -58,24 +55,23 @@ pub(super) use fit_model::{fit_develop_model, uses_pinned_fit_pixels};
 /// `render_display_from_raw` runs for a default-model caller, stage for stage
 /// — which is what lets `run_auto_profile_stage` treat that caller's render
 /// buffer AS the fit buffer without a second develop.
-fn develop_display_for_auto_fit(
+pub(super) fn develop_display_for_auto_fit(
     raw: &RawImage,
-    model: &AdjustmentModel,
+    auto_model: &AdjustmentModel,
     quality: RenderQuality,
     max_long_edge: Option<u32>,
 ) -> Result<Image> {
-    let auto_model = fit_develop_model(model);
     let mut scene = match max_long_edge {
         Some(mle) => {
-            develop_scene_linear_sized_from_raw_with_quality(raw, &auto_model, quality, mle)?
+            develop_scene_linear_sized_from_raw_with_quality(raw, auto_model, quality, mle)?
         }
-        None => develop_scene_linear_from_raw_with_quality(raw, &auto_model, quality)?,
+        None => develop_scene_linear_from_raw_with_quality(raw, auto_model, quality)?,
     };
     stage("agx", || {
         agx::apply(&mut scene, auto_model.contrast, auto_model.whites)
     });
     stage("color_grade", || {
-        color_grade::apply_model(&mut scene, &auto_model)
+        color_grade::apply_model(&mut scene, auto_model)
     });
     stage("grain", || {
         grain::apply(
@@ -234,7 +230,8 @@ pub fn fit_profile_curve_from_raw(
     // ~1.5 MP, not the full embedded preview.
     let mle = Some(auto_fit_max_long_edge(&preview));
     let preview = downsample_preview_for_fit(preview, mle);
-    let scene = develop_display_for_auto_fit(raw, model, quality, mle).ok()?;
+    let pinned = fit_develop_model_for(model, raw, Some(&preview));
+    let scene = develop_display_for_auto_fit(raw, &pinned, quality, mle).ok()?;
     let (w, h) = (scene.width as usize, scene.height as usize);
     let pixels: &[f32] = bytemuck::cast_slice(&scene.pixels);
     let fitted = auto_profile::fit_display::fit_curve_from_preview_display(
@@ -365,7 +362,8 @@ pub fn fit_auto_profile_from_raw_at_cap(
             } else {
                 preview
             };
-            let mut scene = develop_display_for_auto_fit(raw, model, quality, mle)
+            let pinned = fit_develop_model_for(model, raw, Some(&preview));
+            let mut scene = develop_display_for_auto_fit(raw, &pinned, quality, mle)
                 .map_err(|_| AutoFitOutcome::Unfitted)?;
             let (w, h) = (scene.width as usize, scene.height as usize);
             let pixels: &mut [f32] = bytemuck::cast_slice_mut(&mut scene.pixels);
@@ -448,12 +446,12 @@ pub fn cached_auto_profile_fit(
 ///
 /// Two routes to the artifacts:
 /// * **Render buffer IS the pinned fit buffer** — when the AE-pinned render
-///   model equals [`fit_develop_model`] (i.e. the caller's model differs from
-///   the default in nothing but possibly `auto_exposure`) and no external
-///   film LUT is engaged, ignoring inactive film metadata, the buffer this
-///   render just developed is bit-identical to the pinned fit develop, so the
-///   fit samples it directly — no second develop. This is the cold-open
-///   default-model case, and byte-for-byte the pre-#1085 behaviour for it.
+///   model equals [`fit_develop_model_for`] (the caller's model is the
+///   default but for `auto_exposure`, and the preview carries the lens
+///   vignetting it renders with, #5791) and no external film LUT is engaged,
+///   ignoring inactive film metadata, the buffer this render just developed
+///   is bit-identical to the pinned fit develop, so the fit samples it
+///   directly — the cold-open default-model case, as before #1085.
 /// * **Edited model, engaged external film LUT, or non-sRGB target** — fit
 ///   from a SEPARATE pinned develop
 ///   ([`fit_artifacts_from_pinned_develop`]); only the APPLY touches the
@@ -477,7 +475,8 @@ pub(super) fn run_auto_profile_stage(
 ) -> (Option<ProfileCurve>, Option<ColorLut>) {
     scene.assert_space(ColorSpace::DisplayEncodedSrgb);
     let (w, h) = (scene.width as usize, scene.height as usize);
-    let pinned_pixels = uses_pinned_fit_pixels(active_model, fit_develop_model(model), film_lut);
+    let pinned = fit_develop_model_for(model, raw, preview.as_ref());
+    let pinned_pixels = uses_pinned_fit_pixels(active_model, pinned.clone(), film_lut);
     // A P3-encoded buffer carries the same space tag, so only the target says
     // whether these pixels are the sRGB fit domain (#4741).
     if pinned_pixels && target == encode::TargetPrimaries::Srgb {
@@ -499,7 +498,7 @@ pub(super) fn run_auto_profile_stage(
     }
     let (curve, residual) = fit_artifacts_from_pinned_develop(
         raw,
-        model,
+        &pinned,
         quality,
         max_long_edge,
         preview,
@@ -518,15 +517,15 @@ pub(super) fn run_auto_profile_stage(
     (curve, residual)
 }
 
-/// Obtain the Auto Profile artifacts for an EDITED caller model: reuse the
-/// cache where possible, otherwise develop the pinned fit buffer (sized like
-/// the render that asked, so the fit cost tracks the render cost) and fit
-/// there. Returns `(curve, residual)` with the residual already honouring
-/// `MAPLE_DISABLE_AUTO_LUT` (strength stays with the caller's apply).
+/// Obtain the Auto Profile artifacts when the render buffer is not the fit
+/// buffer: reuse the cache where possible, otherwise develop `pinned` (the
+/// [`fit_develop_model_for`] model, sized like the render that asked, so the
+/// fit cost tracks the render cost) and fit there. Returns `(curve,
+/// residual)` with the residual already honouring `MAPLE_DISABLE_AUTO_LUT`.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn fit_artifacts_from_pinned_develop(
     raw: &RawImage,
-    model: &AdjustmentModel,
+    pinned: &AdjustmentModel,
     quality: RenderQuality,
     max_long_edge: Option<u32>,
     preview: Option<ExtractedPreview>,
@@ -544,7 +543,7 @@ pub(super) fn fit_artifacts_from_pinned_develop(
     let Some(preview) = preview else {
         return (render_curve(cached_curve), cached_lut);
     };
-    let Ok(mut side) = develop_display_for_auto_fit(raw, model, quality, max_long_edge) else {
+    let Ok(mut side) = develop_display_for_auto_fit(raw, pinned, quality, max_long_edge) else {
         return (render_curve(cached_curve), cached_lut);
     };
     let (w, h) = (side.width as usize, side.height as usize);

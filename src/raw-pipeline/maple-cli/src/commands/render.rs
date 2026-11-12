@@ -81,14 +81,15 @@ pub(super) fn render_path(
     raw_path: &Path,
     model: &xmp::AdjustmentModel,
     film_lut: Option<&film::FilmLut>,
+    lens: &render_lens::LensProfileArgs,
 ) -> Result<(u32, u32, Vec<u8>), Box<dyn std::error::Error>> {
     let bytes = std::fs::read(raw_path)?;
     let ext = raw_path.extension().and_then(|e| e.to_str()).unwrap_or("");
     let raw = decode_bytes(&bytes, ext)?;
-    render_lens::report_lens_resolution(&raw, model)?;
+    let model = render_lens::develop_model(raw_path, &raw, model, lens)?;
     Ok(render_from_raw_with_quality_source_and_film(
         &raw,
-        model,
+        &model,
         RenderQuality::Full,
         Some(RawInput::Path(raw_path)),
         film_lut,
@@ -105,14 +106,15 @@ fn render_path_with_quality(
     model: &xmp::AdjustmentModel,
     quality: RenderQuality,
     film_lut: Option<&film::FilmLut>,
+    lens: &render_lens::LensProfileArgs,
 ) -> Result<(u32, u32, Vec<u8>), Box<dyn std::error::Error>> {
     let bytes = std::fs::read(raw_path)?;
     let ext = raw_path.extension().and_then(|e| e.to_str()).unwrap_or("");
     let raw = decode_bytes(&bytes, ext)?;
-    render_lens::report_lens_resolution(&raw, model)?;
+    let model = render_lens::develop_model(raw_path, &raw, model, lens)?;
     Ok(render_from_raw_with_quality_source_and_film(
         &raw,
-        model,
+        &model,
         quality,
         Some(RawInput::Path(raw_path)),
         film_lut,
@@ -135,14 +137,15 @@ fn render_path_with_primaries(
     quality: RenderQuality,
     target_primaries: TargetPrimaries,
     film_lut: Option<&film::FilmLut>,
+    lens: &render_lens::LensProfileArgs,
 ) -> Result<(u32, u32, Vec<u8>), Box<dyn std::error::Error>> {
     let bytes = std::fs::read(raw_path)?;
     let ext = raw_path.extension().and_then(|e| e.to_str()).unwrap_or("");
     let raw = decode_bytes(&bytes, ext)?;
-    render_lens::report_lens_resolution(&raw, model)?;
+    let model = render_lens::develop_model(raw_path, &raw, model, lens)?;
     let (w, h, pixels) = render_export_from_raw_with_film(
         &raw,
-        model,
+        &model,
         quality,
         Some(RawInput::Path(raw_path)),
         None,
@@ -230,10 +233,10 @@ pub fn run(
     // helpers and risking their byte-identity guarantee.
     let (w, h, bytes) = match (target_primaries, demosaic) {
         (PrimariesChoice::Srgb, DemosaicChoice::Full) => {
-            render_path(raw, &model, film_lut.as_ref())?
+            render_path(raw, &model, film_lut.as_ref(), lens)?
         }
         (PrimariesChoice::Srgb, other) => {
-            render_path_with_quality(raw, &model, other.into(), film_lut.as_ref())?
+            render_path_with_quality(raw, &model, other.into(), film_lut.as_ref(), lens)?
         }
         (PrimariesChoice::P3, demosaic) => render_path_with_primaries(
             raw,
@@ -241,6 +244,7 @@ pub fn run(
             demosaic.into(),
             target_primaries.into(),
             film_lut.as_ref(),
+            lens,
         )?,
     };
     let fmt = format.unwrap_or_else(|| infer_format(out));

@@ -184,6 +184,7 @@ def qualify(cli, selected, out, budget, skipped=()):
         "binary": str(cli),
         "binary_sha256": sha(cli),
         "geometry": "default lens-corrected render; bounded affine/radial reference coordinates; full overlap plus inner 80% bias",
+        "lens_vignetting": "the scale the embedded preview carries, as the renderer measures it (--preview-lens-vignetting); embedded vendor gains on",
         "alignment_policy": alignment.POLICY,
         "alignment_implementation_sha256": sha(alignment.__file__),
         "registration_implementation_sha256": sha(alignment.registration.__file__),
@@ -216,7 +217,17 @@ def qualify(cli, selected, out, budget, skipped=()):
                 ("preview", ["extract-preview", str(raw), "--out", str(preview)]),
                 (
                     "render",
-                    ["render", str(raw), "--out", str(auto), "--profile", "auto"],
+                    [
+                        "render",
+                        str(raw),
+                        "--out",
+                        str(auto),
+                        "--profile",
+                        "auto",
+                        # How much bundled vignetting gain a preview carries
+                        # differs per camera; the renderer measures it (#5791).
+                        "--preview-lens-vignetting",
+                    ],
                 ),
             ]:
                 with (folder / f"{action}.log").open("w") as log:

@@ -56,7 +56,6 @@ mod imp {
     use raw_core::image::{ColorSpace, Image};
     use raw_core::pipeline::{develop_scene_linear_from_raw_with_quality, RenderQuality};
     use raw_core::stages::{color_grade, grain};
-    use raw_core::types::adjustment::AutoExposureMode;
     use raw_core::view::auto_profile::apply_curve;
     use raw_core::view::auto_profile::apply_pipeline::{
         auto1_enabled_by_env, fit_auto_profile_artifacts,
@@ -180,10 +179,11 @@ mod imp {
         // replication of `auto_fit::develop_display_for_auto_fit` as
         // `maple-cli fit-auto2` (that fn is private to raw-core), so the fit
         // input is the exact buffer the shipping fit runs against.
-        let fit_model = AdjustmentModel {
-            auto_exposure: AutoExposureMode::Off,
-            ..AdjustmentModel::default()
-        };
+        let fit_model = raw_core::pipeline::fit_develop_model_for(
+            &AdjustmentModel::default(),
+            &raw,
+            Some(&extracted),
+        );
         // Match the default `render` quality: different demosaics fit different tails.
         let mut scene =
             develop_scene_linear_from_raw_with_quality(&raw, &fit_model, RenderQuality::Amaze)

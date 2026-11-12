@@ -27,10 +27,12 @@ use crate::{
 /// keep this file under the size budget; re-exported so `pipeline::{…}` and the
 /// FFI keep resolving `fit_profile_curve_from_raw` / `fit_auto_profile_from_raw`.
 mod auto_fit;
+mod auto_fit_model;
 pub use auto_fit::{
     cached_auto_profile_fit, fit_auto_profile_from_raw, fit_auto_profile_from_raw_at_cap,
     fit_profile_curve_from_raw, FitArtifacts, FitCap,
 };
+pub use auto_fit_model::fit_develop_model_for;
 
 // Sized display render + `native_render_dims` (#1101) — size-budget split.
 mod sized;
@@ -446,7 +448,7 @@ fn render_display_scene_with_context_cancellable(
             if wide_gamut_auto {
                 auto_fit::fit_artifacts_from_pinned_develop(
                     raw,
-                    model,
+                    &auto_fit_model::fit_develop_model_for(model, raw, preview.as_ref()),
                     quality,
                     max_long_edge,
                     preview,

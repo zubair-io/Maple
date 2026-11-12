@@ -27,7 +27,10 @@ class AutoJpegGateTests(unittest.TestCase):
         self.out.mkdir()
 
     def run_gate(self, preview_rc=0, render_rc=0, bias=0, gradient_status="passed"):
+        self.commands = []
+
         def command(args, **kwargs):
+            self.commands.append([str(arg) for arg in args[1:]])
             action = args[1]
             rc = preview_rc if action == "extract-preview" else render_rc
             if rc == 0:
@@ -53,6 +56,20 @@ class AutoJpegGateTests(unittest.TestCase):
         self.assertEqual(result["target"], "camera-embedded-jpeg")
         self.assertEqual(result["counts"]["passed"], 1)
         self.assertIn("reference_sha256", result["cases"][0])
+
+    def test_candidate_renders_at_the_embedded_previews_vignetting_state(self):
+        _, result = self.run_gate()
+        renders = [args for args in self.commands if args[0] == "render"]
+        self.assertEqual(len(renders), 1)
+        self.assertIn("--preview-lens-vignetting", renders[0])
+        self.assertIn("--preview-lens-vignetting", result["lens_vignetting"])
+
+    def test_previewless_fallback_renders_the_default_model(self):
+        self.run_gate(preview_rc=3)
+        renders = [args for args in self.commands if args[0] == "render"]
+        self.assertEqual(len(renders), 2)
+        for args in renders:
+            self.assertNotIn("--preview-lens-vignetting", args)
 
     def test_green_cast_fails(self):
         rc, result = self.run_gate(bias=20)

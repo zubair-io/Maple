@@ -68,8 +68,8 @@ pub use pano::{
 };
 pub use render::{
     cached_auto_profile_fit, decode_raster_base, finish_capture_refine, fit_auto_profile_from_raw,
-    fit_auto_profile_from_raw_at_cap, fit_profile_curve_from_raw, native_render_dims,
-    render_capture_from_raw_f32, render_capture_sized_from_raw_f32,
+    fit_auto_profile_from_raw_at_cap, fit_develop_model_for, fit_profile_curve_from_raw,
+    native_render_dims, render_capture_from_raw_f32, render_capture_sized_from_raw_f32,
     render_capture_sized_sensor_framed_f32, render_capture_with_base_from_raw_f32,
     render_detail_base, render_detail_base_cancellable, render_detail_base_retained,
     render_detail_base_retained_cancellable, render_detail_tile, render_detail_tile_cancellable,

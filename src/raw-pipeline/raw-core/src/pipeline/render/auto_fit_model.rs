@@ -1,4 +1,8 @@
-use crate::{film::FilmLut, types::adjustment::AutoExposureMode, xmp::AdjustmentModel};
+use crate::{
+    film::FilmLut, image::RawImage, types::adjustment::AutoExposureMode,
+    view::auto_profile::preview::ExtractedPreview, view::auto_profile::preview_vignetting,
+    xmp::AdjustmentModel,
+};
 
 /// Build the [`AdjustmentModel`] the fit develop runs with: the DEFAULT model
 /// with `auto_exposure: Off` pinned and the caller's `profile` carried —
@@ -32,6 +36,32 @@ pub(in crate::pipeline::render) fn fit_develop_model(model: &AdjustmentModel) ->
         auto_exposure: AutoExposureMode::Off,
         profile: model.profile,
         ..AdjustmentModel::default()
+    }
+}
+
+/// The fit model for one RAW: [`fit_develop_model`] with the lens vignetting
+/// scale set to what the embedded preview carries (#5791).
+///
+/// The fit pairs this develop against the preview pixel for pixel, so the
+/// develop must carry the preview's illumination field. A bundled Lensfun
+/// gain the preview lacks otherwise reads as scene tone, and the fitted tail
+/// darkens the whole frame to cancel the bright corners. The scale is
+/// measured from the RAW and its own preview
+/// ([`preview_vignetting::scale`]), so the fit stays a function of the RAW
+/// alone. Without a preview there is nothing to fit and the scale stays the
+/// default.
+pub fn fit_develop_model_for(
+    model: &AdjustmentModel,
+    raw: &RawImage,
+    preview: Option<&ExtractedPreview>,
+) -> AdjustmentModel {
+    let pinned = fit_develop_model(model);
+    match preview {
+        Some(preview) => AdjustmentModel {
+            lens_correction_vignetting: preview_vignetting::scale(raw, preview),
+            ..pinned
+        },
+        None => pinned,
     }
 }
 
@@ -87,5 +117,46 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// #5791: the fit develops at the lens vignetting scale the embedded
+    /// preview carries. When that is not the scale the render uses, the
+    /// render buffer is not the fit buffer; the render at the preview's own
+    /// scale is.
+    #[test]
+    fn the_fit_model_carries_the_previews_lens_vignetting() {
+        use crate::image::CfaPattern;
+        use crate::view::auto_profile::preview_vignetting::tests::{frame, preview};
+
+        let raw = frame(CfaPattern::Rggb);
+        let model = AdjustmentModel {
+            auto_exposure: AutoExposureMode::Off,
+            exposure: 1.0,
+            ..Default::default()
+        };
+        assert_eq!(
+            fit_develop_model_for(&model, &raw, None),
+            fit_develop_model(&model),
+            "no preview: nothing to fit, nothing to measure"
+        );
+        let carried = fit_develop_model_for(&model, &raw, Some(&preview(&raw, 1.0)));
+        assert_eq!(carried, fit_develop_model(&model));
+
+        let lacking = fit_develop_model_for(&model, &raw, Some(&preview(&raw, 0.0)));
+        assert_eq!(
+            lacking,
+            AdjustmentModel {
+                lens_correction_vignetting: 0.0,
+                ..fit_develop_model(&model)
+            },
+            "only the lens vignetting scale follows the preview"
+        );
+        let default_render = fit_develop_model(&model);
+        assert!(!uses_pinned_fit_pixels(
+            &default_render,
+            lacking.clone(),
+            None
+        ));
+        assert!(uses_pinned_fit_pixels(&lacking.clone(), lacking, None));
     }
 }

@@ -2,6 +2,7 @@
 //! sibling file so `auto_fit.rs` stays under the 600-LOC hard budget. Test
 //! contents were moved verbatim.
 
+use super::super::auto_fit_model::fit_develop_model;
 use super::*;
 use crate::types::adjustment::AutoExposureMode;
 
@@ -206,9 +207,9 @@ fn fit_is_identical_under_different_caller_models() {
     // pinned-model contract is quality/size-agnostic.
     let q = RenderQuality::Preview;
     let mle = Some(1024);
-    let scene_a = develop_display_for_auto_fit(&raw, &default_model, q, mle)
+    let scene_a = develop_display_for_auto_fit(&raw, &fit_develop_model(&default_model), q, mle)
         .expect("fit develop (default caller)");
-    let scene_b = develop_display_for_auto_fit(&raw, &edited_model, q, mle)
+    let scene_b = develop_display_for_auto_fit(&raw, &fit_develop_model(&edited_model), q, mle)
         .expect("fit develop (edited caller)");
     assert_eq!(
         (scene_a.width, scene_a.height),
