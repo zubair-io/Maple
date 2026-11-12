@@ -38,6 +38,5 @@ export const discoverLane = (options: DiscoverSliceOptions = {}): TemporalLane =
   taskQueue: DISCOVER_TASK_QUEUE,
   activities: createDiscoverActivities(options),
   concurrency: DISCOVER_CONCURRENCY,
-  relay: async () => {},
   reconcile: ensureEveryRootSweeps,
 });

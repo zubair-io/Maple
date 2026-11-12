@@ -12,8 +12,9 @@
  * operations the current code performs, because `folders` had no repository
  * module: the reads and writes were spelled inline across `routes/folders.ts`,
  * `routes/mirror.ts`, `fs/mirror-config.ts`, `indexer/libraries.cache.ts`,
- * `workers/discover/index.ts` and `db/changes.repo.ts`. The cutover (#3752)
- * replaces each of those with a call here.
+ * the discover sweep and `db/changes.repo.ts`. The cutover (#3752) replaced each
+ * of those with a call here; the sweep now reads roots in
+ * `workers/discover/sweep-slice.ts`, `discover-activity.ts` and `discover-lane.ts`.
  *
  * ## What is not here, and why
  *

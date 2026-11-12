@@ -7,7 +7,7 @@ export interface TemporalLane {
   /** How many of its activities run at once. */
   concurrency: number;
   /** Hands waiting work to Temporal. Runs every relay tick while the server answers. */
-  relay: (client: Client) => Promise<void>;
+  relay?: (client: Client) => Promise<void>;
   /** Repairs what Temporal and the database disagree on. Runs with every connection check. */
   reconcile?: (client: Client) => Promise<void>;
 }

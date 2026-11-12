@@ -8,8 +8,9 @@
  * directory is retaken rather than stranded.
  *
  * Same function names, same parameters, same return types as the Mongo module,
- * so the cutover (#3752) swaps the import in `workers/discover/sweeper.ts` and
- * `workers/discover/index.ts` and nothing else.
+ * so the cutover (#3752) swapped one import and nothing else. The callers are
+ * `workers/discover/sweeper.ts` and `workers/discover/sweep-slice.ts`, through
+ * `workers/discover/frontier.repo.ts`.
  *
  * ## `_id` is the rowid, and that is deliberate
  *

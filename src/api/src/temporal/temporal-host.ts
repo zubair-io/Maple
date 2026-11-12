@@ -294,7 +294,7 @@ export class TemporalHost {
   }
 
   private relay(client: Client): Promise<void> {
-    return this.eachLane((lane) => lane.relay(client));
+    return this.eachLane(async (lane) => lane.relay?.(client));
   }
 
   private reconcile(client: Client): Promise<void> {

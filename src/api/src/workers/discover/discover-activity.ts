@@ -7,24 +7,24 @@ import { Context } from '@temporalio/activity';
 import { listLibraryRoots } from '../../db/repos/folders.repo.ts';
 import { loadDiscoverConfig } from './discover-config.repo.ts';
 import { handleEvent } from './handle-event.ts';
-import {
-  runSweepSlice,
-  type SliceProgress,
-  type SweepSliceOpts,
-  type SweepSliceSummary,
-} from './sweep-slice.ts';
+import { runSweepSlice, type SliceProgress, type SweepSliceSummary } from './sweep-slice.ts';
 import type { ReconcileDeps } from './sweeper.ts';
 
 export interface DiscoverActivities {
   sweepRoot: (rootKey: string) => Promise<SweepSliceSummary>;
 }
 
-/** What tests shorten or replace; production takes every default. */
-export interface DiscoverSliceOptions extends Partial<
-  Pick<SweepSliceOpts, 'maxSliceMs' | 'heartbeatEveryMs' | 'sleep'>
-> {
+/** What tests replace; production takes the real producer. */
+export interface DiscoverSliceOptions {
   handleEvent?: ReconcileDeps['handleEvent'];
 }
+
+/**
+ * Well inside the workflow's one-minute heartbeat timeout. Sent on a timer,
+ * not only with progress: one directory visit can spend minutes hashing a
+ * multi-GB file or reconciling a folder's hidden state.
+ */
+const HEARTBEAT_EVERY_MS = 15_000;
 
 type Heartbeat = (progress: SliceProgress) => void;
 
@@ -42,12 +42,11 @@ const GONE: SweepSliceSummary = {
 };
 
 /** A root's key is its library id, which is also what names its workflow. */
-function sliceRunner({ handleEvent: onEvent, ...pacing }: DiscoverSliceOptions): SliceRunner {
+function sliceRunner({ handleEvent: onEvent }: DiscoverSliceOptions): SliceRunner {
   return async (rootKey, heartbeat, signal) => {
     const library = (await listLibraryRoots()).find((root) => root.id.toHexString() === rootKey);
     if (library === undefined) return GONE;
     return runSweepSlice({
-      ...pacing,
       folderId: library.id,
       root: library.path,
       deps: { folderId: library.id, handleEvent: onEvent ?? handleEvent },
@@ -82,15 +81,28 @@ export function singleFlightPerRoot(run: SliceRunner): SliceRunner {
 
 /**
  * The activity's cancellation signal fires when the workflow is cancelled or
- * terminated and when this worker shuts down; either way the slice ends at the
- * next directory boundary.
+ * terminated and when this worker shuts down; either way the slice stops before
+ * its next file event.
  */
 export function createDiscoverActivities(options: DiscoverSliceOptions = {}): DiscoverActivities {
   const sweep = singleFlightPerRoot(sliceRunner(options));
   return {
-    sweepRoot: (rootKey) => {
+    sweepRoot: async (rootKey) => {
       const context = Context.current();
-      return sweep(rootKey, (progress) => context.heartbeat(progress), context.cancellationSignal);
+      const latest: { progress?: SliceProgress } = {};
+      const timer = setInterval(() => context.heartbeat(latest.progress), HEARTBEAT_EVERY_MS);
+      try {
+        return await sweep(
+          rootKey,
+          (progress) => {
+            latest.progress = progress;
+            context.heartbeat(progress);
+          },
+          context.cancellationSignal,
+        );
+      } finally {
+        clearInterval(timer);
+      }
     },
   };
 }

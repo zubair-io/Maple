@@ -4,8 +4,9 @@
  * long-lived loop it replaced did, including advancing to the next generation
  * when one drains, and ends only once its time is up, once its root is no
  * longer registered, or once it is told to stop. So a root costs Temporal about
- * one activity per ten minutes however small it is. Stopping always waits for
- * the directory in hand, so a slice never leaves a visit half done.
+ * one activity per ten minutes however small it is. A stop takes effect before
+ * the next file event, even mid-directory: the half-visited directory keeps its
+ * frontier lease, and once that expires it is visited again from the start.
  */
 import { setTimeout as sleepFor } from 'node:timers/promises';
 import type { ObjectId } from '../../db/object-id.ts';
@@ -56,6 +57,15 @@ export interface SweepSliceOpts {
   onVisit?: (dirPath: string) => void;
 }
 
+/** Raised between file events to abandon a visit; the slice ends normally. */
+class SliceStopped extends Error {
+  override name = 'SliceStopped';
+}
+
+const rethrowUnlessStopped = (error: unknown): void => {
+  if (!(error instanceof SliceStopped)) throw error;
+};
+
 const abortableSleep = (ms: number, signal: AbortSignal): Promise<void> =>
   sleepFor(ms, undefined, { signal }).catch(() => {});
 
@@ -93,7 +103,7 @@ class SweepSlice {
     this.heartbeatEveryMs = o.heartbeatEveryMs ?? HEARTBEAT_EVERY_MS_DEFAULT;
     this.sleep = o.sleep ?? abortableSleep;
     this.isRegistered = o.isRegistered ?? stillRegistered(o.folderId, o.root);
-    this.deps = { ...o.deps, handleEvent: this.beatingAfter(o.deps.handleEvent) };
+    this.deps = { ...o.deps, handleEvent: this.stoppable(o.deps.handleEvent) };
   }
 
   async run(): Promise<SweepSliceSummary> {
@@ -102,7 +112,7 @@ class SweepSlice {
     for (;;) {
       if (this.signal.aborted || Date.now() >= this.deadline) return this.summary(true);
       if (!(await this.isRegistered())) return this.summary(false);
-      await this.step(await this.o.loadConfig());
+      await this.step(await this.o.loadConfig()).catch(rethrowUnlessStopped);
     }
   }
 
@@ -124,9 +134,10 @@ class SweepSlice {
     });
   }
 
-  /** A directory of thousands of new files can outlast the heartbeat timeout on its own. */
-  private beatingAfter(handle: ReconcileDeps['handleEvent']): ReconcileDeps['handleEvent'] {
+  /** Shutdown waits for one file event at most, not for a whole directory of them. */
+  private stoppable(handle: ReconcileDeps['handleEvent']): ReconcileDeps['handleEvent'] {
     return async (event, folderId, libraryRoot) => {
+      if (this.signal.aborted) throw new SliceStopped();
       await handle(event, folderId, libraryRoot);
       this.beat();
     };
