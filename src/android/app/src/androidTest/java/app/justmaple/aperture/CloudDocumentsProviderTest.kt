@@ -109,6 +109,10 @@ class CloudDocumentsProviderTest {
         val cache = File(api.context.cacheDir, "documents-provider/originals/${api.server.id}")
         val signal = CancellationSignal()
         val canceller = Executors.newSingleThreadExecutor()
+        // ContentResolver.openFileDescriptor(uri, "r", signal) never hands the signal to a
+        // DocumentsProvider: AOSP routes "r" through openTypedAssetFile("*/*"), which calls
+        // openAssetFile(uri, "r") without it. A client's openFile(uri, mode, signal) does.
+        val client = resolver.acquireUnstableContentProviderClient(MapleApiFixture.AUTHORITY)!!
         try {
             // Cancel only once bytes are demonstrably arriving, so a fast link cannot finish first.
             canceller.execute {
@@ -120,16 +124,17 @@ class CloudDocumentsProviderTest {
             }
             val started = System.nanoTime()
             assertThrows(OperationCanceledException::class.java) {
-                resolver.openFileDescriptor(documentUri(file["id"] as String), "r", signal)
+                client.openFile(documentUri(file["id"] as String), "r", signal)
             }
             assertTrue(System.nanoTime() - started < TimeUnit.SECONDS.toNanos(40))
+            assertTrue("No partial download is kept", cache.listFiles().orEmpty().none { it.length() > 0 })
+            val cancelled = CancellationSignal().apply { cancel() }
+            assertThrows(OperationCanceledException::class.java) {
+                client.openFile(documentUri(file["id"] as String), "r", cancelled)
+            }
         } finally {
             canceller.shutdownNow()
-        }
-        assertTrue("No partial download is kept", cache.listFiles().orEmpty().none { it.length() > 0 })
-        val cancelled = CancellationSignal().apply { cancel() }
-        assertThrows(OperationCanceledException::class.java) {
-            resolver.openFileDescriptor(documentUri(file["id"] as String), "r", cancelled)
+            client.close()
         }
     }
 

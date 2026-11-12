@@ -48,25 +48,35 @@ internal data class CloudResponse(
     }
 }
 
-internal class CloudHttp(private val credentials: CloudCredentials) {
+/** The authenticated server calls the documents provider makes; tests serve them in-process. */
+internal interface CloudTransport {
     fun request(
         id: String,
         path: String,
         method: String = "GET",
         body: String? = null,
         headers: Map<String, String> = emptyMap(),
+    ): CloudResponse
+
+    fun download(id: String, path: String, output: OutputStream, signal: CancellationSignal? = null)
+
+    fun upload(id: String, path: String, file: File, headers: Map<String, String>): CloudResponse
+}
+
+internal class CloudHttp(private val credentials: CloudCredentials) : CloudTransport {
+    override fun request(
+        id: String,
+        path: String,
+        method: String,
+        body: String?,
+        headers: Map<String, String>,
     ): CloudResponse =
         authenticated(id, path, method, body, headers) { connection ->
             read(connection, if (path.substringBefore('?') == "/api/xmp") 128 else 16)
         }
 
     /** Streams the body; cancelling the signal aborts the socket mid-transfer. */
-    fun download(
-        id: String,
-        path: String,
-        output: OutputStream,
-        signal: CancellationSignal? = null,
-    ) {
+    override fun download(id: String, path: String, output: OutputStream, signal: CancellationSignal?) {
         try {
             authenticated(id, path, "GET", null, emptyMap(), watch = signal) { connection ->
                 if (connection.responseCode != 200)
@@ -93,7 +103,7 @@ internal class CloudHttp(private val credentials: CloudCredentials) {
     }
 
     /** Sends the file with a fixed length; the body is re-read if a token refresh retries. */
-    fun upload(id: String, path: String, file: File, headers: Map<String, String>): CloudResponse =
+    override fun upload(id: String, path: String, file: File, headers: Map<String, String>): CloudResponse =
         authenticated(id, path, "POST", null, headers, upload = file) { read(it) }
 
     // Logout and refresh share a lane: a refresh cannot publish tokens after removal.
