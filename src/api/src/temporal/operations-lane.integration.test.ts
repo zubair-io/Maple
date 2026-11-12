@@ -36,7 +36,7 @@ import {
 } from '../workers/maintenance/run-now.repo.ts';
 import { MAINTENANCE_TASKS } from '../workers/maintenance/tasks.ts';
 import { reconcileProgressOf } from '../workers/mirror/reconcile-progress.ts';
-import { startLocalTemporalServer } from './local-temporal.test-helpers.ts';
+import { gate, startLocalTemporalServer, until } from './local-temporal.test-helpers.ts';
 import { saveTemporalSettings } from './temporal-config.ts';
 import type { TemporalLane } from './temporal-lane.ts';
 import { TemporalHost } from './temporal-host.ts';
@@ -70,16 +70,6 @@ afterEach(() => {
   rmSync(mirror, { recursive: true, force: true });
 });
 
-async function until<T>(read: () => Promise<T>, done: (value: T) => boolean, ms = 20_000) {
-  const deadline = Date.now() + ms;
-  for (;;) {
-    const value = await read();
-    if (done(value)) return value;
-    if (Date.now() > deadline) throw new Error(`timed out; last value ${JSON.stringify(value)}`);
-    await new Promise((resolve) => setTimeout(resolve, 25));
-  }
-}
-
 const jobStatus = (id: ObjectId, status: JobStatus) =>
   until(
     () => getJob(id),
@@ -98,16 +88,13 @@ describe('operations lane', () => {
     using live = await createLiveTestDatabase();
     writeFileSync(join(primary, 'IMG.dng'), 'raw bytes');
     const folderId = insertFolder(live.db, { path: primary, slug: 'scan' });
-    let releaseExport = () => {};
-    const exportBlocked = new Promise<void>((resolve) => {
-      releaseExport = resolve;
-    });
+    const exportGate = gate();
     const host = await hostFor([
       jobLane({
         handlers: {
           batch_jpeg_export: {
             run: async () => {
-              await exportBlocked;
+              await exportGate.blocked;
               return { kind: 'done', result: {} };
             },
           },
@@ -124,10 +111,10 @@ describe('operations lane', () => {
 
       expect((await getJob(exportJob._id))?.status).toBe('running');
       expect(scanned?.result).toEqual({ last_scan: expect.any(String) });
-      releaseExport();
+      exportGate.release();
       await jobStatus(exportJob._id, 'done');
     } finally {
-      releaseExport();
+      exportGate.release();
       await host.stop();
     }
   }, 60_000);
