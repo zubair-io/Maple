@@ -44,6 +44,9 @@ mod capture_preview_tests;
 #[path = "capture_seam_tests.rs"]
 mod capture_seam_tests;
 #[cfg(test)]
+#[path = "preview_geometry_tests.rs"]
+mod geometry_tests;
+#[cfg(test)]
 #[path = "preview_interactive_tests.rs"]
 mod interactive_tests;
 #[cfg(test)]
@@ -342,17 +345,7 @@ impl Session {
     }
 
     pub fn geometry(&self) -> PresentGeometry {
-        use raw_core::stages::perspective::{aspect_ratio, Homography, Perspective};
-        let (w, h) = self.oriented_dims();
-        let crop = raw_core::stages::crop::CropPresentation::new(&self.model.crop, w, h);
-        let transform = Homography(self.orientation().display_to_sensor_matrix())
-            .mul(&Perspective::from_model(&self.model).inverse_matrix(aspect_ratio(w, h)))
-            .mul(&crop.inverse);
-        if transform == Homography::IDENTITY {
-            PresentGeometry::IDENTITY
-        } else {
-            PresentGeometry::from_inverse(transform.0)
-        }
+        present_geometry(self.orientation(), self.live.dims(), &self.model)
     }
 
     #[cfg(target_os = "android")]
@@ -370,5 +363,31 @@ impl Session {
             self.geometry(),
         )?;
         Ok(!cancel.is_cancelled())
+    }
+}
+
+fn present_geometry(
+    orientation: ExifOrientation,
+    sensor_dims: (u32, u32),
+    model: &AdjustmentModel,
+) -> PresentGeometry {
+    use raw_core::stages::perspective::{aspect_ratio, Homography, Perspective};
+    let (w, h) = if orientation.swaps_wh() {
+        (sensor_dims.1, sensor_dims.0)
+    } else {
+        sensor_dims
+    };
+    let crop = raw_core::stages::crop::CropPresentation::new(&model.crop, w, h);
+    let perspective = Perspective::from_model(model);
+    let display_to_sensor = Homography(orientation.display_to_sensor_matrix())
+        .mul(&perspective.inverse_matrix(aspect_ratio(w, h)));
+    if crop.resamples && !perspective.is_identity() {
+        return PresentGeometry::from_stages(display_to_sensor.0, crop.inverse.0, (w, h));
+    }
+    let composed = display_to_sensor.mul(&crop.inverse);
+    if composed == Homography::IDENTITY {
+        PresentGeometry::IDENTITY
+    } else {
+        PresentGeometry::from_inverse(composed.0)
     }
 }
