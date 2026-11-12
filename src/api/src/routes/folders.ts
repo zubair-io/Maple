@@ -22,11 +22,7 @@ import {
   listFolders,
   registerFolder,
 } from '../db/repos/folders.repo.ts';
-import {
-  listFolderAssets,
-  listFolderTrash,
-  resetFolderStages,
-} from '../db/repos/folder-assets.repo.ts';
+import { listFolderAssets, listFolderTrash } from '../db/repos/folder-assets.repo.ts';
 import { UploadConflictError, streamUploadedBody, finalizeUploadedFile } from './folders.upload.ts';
 import { parseFolderTrashPage, folderTrashItem } from './folders.trash-page.ts';
 import { validateRoot } from '../fs/root.ts';
@@ -34,7 +30,8 @@ import { rootsConnected } from '../fs/root-connectivity.ts';
 import { child as childLogger } from '../log.ts';
 import { computeBodyETag, ifNoneMatchEqual } from '../runtime/http-etag.ts';
 import { requireFileAccessBeforeHandle, requireOwnerBeforeHandle } from '../auth/middleware.ts';
-import { awaitOperation, operationDeadline, startOperation } from '../job-runner/operations.ts';
+import { startOperation } from '../job-runner/operations.ts';
+import { folderScanRoutes } from './folders-scan.ts';
 import { invalidateLibraryRoots, loadLibraryRoots } from '../indexer/libraries.cache.ts';
 import { isCataloguedFilename } from '../indexer/media-types.ts';
 import { slugify, dedupeSlug } from '../library/slug.ts';
@@ -61,15 +58,6 @@ import { captureUploadedSidecarAdmission } from './folders.upload-sidecar-admiss
 import { SidecarWriteBindingChangedError } from '../fs/sidecar-write-order';
 
 const log = childLogger('folders');
-
-// Auto-scan-on-open de-bounce window. `POST /:id/scan` (the content-aware
-// re-discover the web fires when a folder is opened) short-circuits when the
-// folder was scanned within this window, so rapid navigation across a
-// library's sub-folders doesn't re-walk the tree on every click. The manual
-// `POST /:id/rescan` button is NOT gated — an explicit user action always
-// re-walks. A few minutes is long enough to absorb a burst of navigation and
-// short enough that re-opening a folder after stepping away picks up moves.
-const SCAN_RECENT_WINDOW_MS = 3 * 60 * 1000;
 
 // In-process serialization for the upload route's post-write critical
 // section (stat → trash → rename → upsert), keyed by destination abs
@@ -243,57 +231,7 @@ async function folderFileOrError(
   return { real: resolved.real, stat: st };
 }
 
-/**
- * As {@link folderOrError}, for the two scan routes, whose refusals carry
- * `ok: false` and spell the field `folderId`.
- *
- * A second function rather than a flag on the first: both envelopes are on the
- * wire, and a boolean argument that silently decides which one a client parses
- * is the kind of thing that gets passed wrong once and is never noticed.
- */
-async function scanTargetOrError(rawId: string): Promise<FolderWithId | Response> {
-  const id = safeObjectId(rawId);
-  if (id === null) {
-    return Response.json({ ok: false, error: 'Invalid folderId' }, { status: 400 });
-  }
-  const folder = await findFolderById(id);
-  return folder ?? Response.json({ ok: false, error: 'Folder not found' }, { status: 404 });
-}
-
-/**
- * Re-walks a library on the worker tier and waits for it, which is what both
- * scan routes mean by scanning: a `folder_scan` row whose handler pushes every
- * supported file through the discover producer and stamps `last_scan`, which
- * the de-bounce on `/:id/scan` reads. A scan of the folder already queued or
- * running is joined rather than doubled — a walk of a large library outlasts
- * the de-bounce by hours, and overlapping walks once saturated the database.
- * Answers the stamp, or the response to send instead.
- */
-async function rewalkFolder(folder: FolderWithId): Promise<string | Response> {
-  const deadline = operationDeadline();
-  const { job } = await startOperation('folder_scan', { folderId: folder._id.toHexString() });
-  const finished = await awaitOperation(job._id, deadline);
-  if (finished === null) {
-    return Response.json(
-      {
-        ok: false,
-        error: 'The scan is still running and will finish in the background',
-        job_id: job._id.toHexString(),
-      },
-      { status: 504 },
-    );
-  }
-  const scannedAt = finished.result?.['last_scan'];
-  if (finished.status !== 'done' || typeof scannedAt !== 'string') {
-    return Response.json(
-      { ok: false, error: finished.error ?? `The scan was ${finished.status}` },
-      { status: 500 },
-    );
-  }
-  return scannedAt;
-}
-
-export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
+const folderRoutesCore = new Elysia({ prefix: '/api/folders' })
   // List all folders. Body-hash ETag + If-None-Match short-circuit so the
   // File Provider extension can revalidate cheaply on cold Finder open.
   .get('/', async ({ headers, query }) => {
@@ -416,9 +354,6 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
       // re-read after this insert so the new library is visible.
       invalidateLibraryRoots();
 
-      // Index the new library right away rather than on the next watcher
-      // tick: a `folder_scan` row the worker tier walks, so a restart mid-walk
-      // walks it again and a failure is recorded on the row.
       await startOperation('folder_scan', { folderId: id });
 
       set.status = 201;
@@ -493,101 +428,6 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
         limit: t.Optional(t.String()),
       }),
     },
-  )
-
-  // Rescan a folder — resets stages.*.version to 0 (and clears dead/attempts/
-  // last_error) for every asset doc whose primary fileinfo entry is in the
-  // library. The stage controllers pick them up on their next poll cycle.
-  .post(
-    '/:id/rescan',
-    async ({ params }) => {
-      const folderIdStr = params.id;
-      const folder = await scanTargetOrError(folderIdStr);
-      if (folder instanceof Response) return folder;
-      const id = folder._id;
-      const scanRoot = folder.path;
-
-      // Zero every stage's version and clear dead/attempts/last_error so the
-      // claim query picks the assets back up. Reported as assets rather than
-      // stage rows — one library-wide `updateMany` over documents became one
-      // over the `stage_state` rows those documents' `stages.*` became.
-      const resetCount = await resetFolderStages(id);
-
-      // Re-walk the filesystem so a moved/new file is re-discovered and relinked
-      // (handleEvent dedups by maple_id/sha1_head, appends a live fileinfo, and
-      // clears deleted_at). Without this the button only zeroed stage versions —
-      // it could not recover a file whose only fileinfo was a soft-deleted old
-      // path. The worker tier walks it while the request waits for the result.
-      const scannedAt = await rewalkFolder(folder);
-      if (scannedAt instanceof Response) return scannedAt;
-
-      log.info(
-        {
-          folderId: folderIdStr,
-          path: scanRoot,
-          modified: resetCount,
-        },
-        'rescan: stage versions zeroed + folder re-walked',
-      );
-
-      return {
-        ok: true,
-        folderId: folderIdStr,
-        path: scanRoot,
-        reset: resetCount,
-        last_scan: scannedAt,
-      };
-    },
-    { beforeHandle: requireFileAccessBeforeHandle },
-  )
-
-  // Content-aware re-discover for auto-scan-on-open (#804). Walks the folder
-  // tree and pushes every supported file through the discover producer, which
-  // dedups by maple_id/sha1_head and RELINKS moved/new files (appends a live
-  // fileinfo, clears deleted_at) onto their existing asset row. Unlike
-  // `/:id/rescan` this does NOT zero stage versions — zeroing on every folder
-  // open would reprocess the whole library. Gated by `last_scan`: a folder
-  // scanned within SCAN_RECENT_WINDOW_MS short-circuits so rapid navigation
-  // doesn't re-walk. The request waits for the worker tier's walk, so callers
-  // get an authoritative "scan done" before refreshing their listing.
-  .post(
-    '/:id/scan',
-    async ({ params }) => {
-      const folderIdStr = params.id;
-      const folder = await scanTargetOrError(folderIdStr);
-      if (folder instanceof Response) return folder;
-
-      // last_scan de-bounce: skip the re-walk when the folder was scanned
-      // within the recent window. Repeated/concurrent calls are safe either
-      // way (the discover path is idempotent), but skipping avoids redundant
-      // filesystem walks on rapid navigation.
-      const lastScan = folder.last_scan ? Date.parse(folder.last_scan) : NaN;
-      if (Number.isFinite(lastScan) && Date.now() - lastScan < SCAN_RECENT_WINDOW_MS) {
-        return {
-          ok: true,
-          folderId: folderIdStr,
-          path: folder.path,
-          skipped: 'recent' as const,
-          last_scan: folder.last_scan,
-        };
-      }
-
-      const scannedAt = await rewalkFolder(folder);
-      if (scannedAt instanceof Response) return scannedAt;
-
-      log.info(
-        { folderId: folderIdStr, path: folder.path },
-        'scan: folder re-walked (discover-only)',
-      );
-
-      return {
-        ok: true,
-        folderId: folderIdStr,
-        path: folder.path,
-        last_scan: scannedAt,
-      };
-    },
-    { beforeHandle: requireFileAccessBeforeHandle },
   )
 
   // Streaming upload: body is raw file bytes, target path in X-Maple-Target-Path.
@@ -861,3 +701,5 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
       }),
     },
   );
+
+export const foldersRoutes = new Elysia().use(folderScanRoutes()).use(folderRoutesCore);

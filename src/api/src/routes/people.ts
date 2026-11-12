@@ -8,7 +8,7 @@
  *   PUT    /api/people/:id            — body { name } → rename; merge on collision
  *   POST   /api/people/:id/hide       — soft-hide a person (keeps faces + row)
  *   POST   /api/people/:id/unhide     — restore a hidden person
- *   POST   /api/people/cluster        — runs online clustering on the worker tier, answers its counts
+ *   POST   /api/people/cluster        — runs online clustering on the worker tier, answers its counts (`people-cluster.ts`)
  *   POST   /api/people/assign         — manual face → person override
  *   POST   /api/people/hide           — hide a face (excluded from clustering)
  *   POST   /api/people/merge          — merge source people into a target (target survives)
@@ -20,11 +20,7 @@
 import { Elysia, t } from 'elysia';
 import type { ObjectId } from '../db/object-id.ts';
 import { backfillCoverAssets } from '../people/clustering-job.ts';
-import {
-  awaitOperation,
-  operationDeadline,
-  startFreshOperation,
-} from '../job-runner/operations.ts';
+import { peopleClusterRoutes } from './people-cluster.ts';
 import {
   assignFaceToPerson,
   createPerson,
@@ -53,12 +49,6 @@ const log = childLogger('people:routes');
 const NameBody = t.Object({
   name: t.String({ minLength: 1, maxLength: 200 }),
 });
-
-const ClusterBody = t.Optional(
-  t.Object({
-    similarity_threshold: t.Optional(t.Number()),
-  }),
-);
 
 const AssignBody = t.Object({
   asset_id: t.String({ minLength: 1 }),
@@ -111,7 +101,7 @@ function toPersonListRow(r: PersonWithCount) {
   };
 }
 
-export const peopleRoutes = new Elysia({ prefix: '/api/people' })
+const peopleRoutesCore = new Elysia({ prefix: '/api/people' })
   // ── List ────────────────────────────────────────────────────────────
   .get('/', async () => {
     // Opportunistic cover heal: installs clustered before cover_asset_id
@@ -412,41 +402,6 @@ export const peopleRoutes = new Elysia({ prefix: '/api/people' })
     { body: CoverBody },
   )
 
-  // ── Online clustering ───────────────────────────────────────────────
-  .post(
-    '/cluster',
-    async ({ body, set }) => {
-      // A `people_cluster` row: the worker tier runs it through the same
-      // coordinator as the face-embed stage's automatic passes, so the two
-      // never overlap. The answer comes from a pass that started after this
-      // request did, as it did when the API process clustered by itself.
-      const payload =
-        typeof body?.similarity_threshold === 'number'
-          ? { similarity_threshold: body.similarity_threshold }
-          : {};
-      const deadline = operationDeadline();
-      const job = await startFreshOperation('people_cluster', payload, deadline);
-      const finished = await awaitOperation(job._id, deadline);
-      if (finished === null) {
-        set.status = 504;
-        return {
-          error: 'Clustering is still running and will finish in the background',
-          job_id: job._id.toHexString(),
-        };
-      }
-      if (finished.status !== 'done' || finished.result === null) {
-        set.status = 500;
-        return { error: finished.error ?? `Clustering ${finished.status}` };
-      }
-      return {
-        assigned: Number(finished.result['assigned'] ?? 0),
-        new_people: Number(finished.result['new_people'] ?? 0),
-        scanned: Number(finished.result['scanned'] ?? 0),
-      };
-    },
-    { body: ClusterBody },
-  )
-
   // ── Manual assign / unassign ────────────────────────────────────────
   .post(
     '/assign',
@@ -493,3 +448,5 @@ export const peopleRoutes = new Elysia({ prefix: '/api/people' })
     },
     { body: HideBody },
   );
+
+export const peopleRoutes = new Elysia().use(peopleClusterRoutes()).use(peopleRoutesCore);

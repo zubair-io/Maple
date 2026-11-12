@@ -3,7 +3,6 @@ import { nextOperationId } from '../db/repos/operations.repo.ts';
 import { recordedAttempt } from '../temporal/recorded-attempt.test-helpers.ts';
 import { executeJob, type ExecuteJobOptions } from './execute-job.ts';
 import { markJobDispatched } from './jobs.repo.ts';
-import { setOperationWaitForTests } from './operations.ts';
 
 /**
  * Runs `work` — typically a route request that starts an operation and waits
@@ -14,7 +13,6 @@ export async function withOperationsRunning<T>(
   work: () => Promise<T>,
   options: ExecuteJobOptions = {},
 ): Promise<T> {
-  setOperationWaitForTests({ timeoutMs: 30_000, intervalMs: 5 });
   const state = { settled: false };
   const drain = async (): Promise<void> => {
     if (state.settled) return;
@@ -34,6 +32,5 @@ export async function withOperationsRunning<T>(
     return result;
   } finally {
     state.settled = true;
-    setOperationWaitForTests(null);
   }
 }

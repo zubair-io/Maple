@@ -42,31 +42,40 @@ export interface OperationWait {
 }
 
 /**
- * Long enough for clustering or a re-walk of a large library to answer in the
- * same request, as they did when the API process ran them; past it the route
- * answers that the work is still going.
+ * Under the roughly 100-second cut-off of a Cloudflare tunnel, so a client
+ * behind one gets the server's answer rather than the proxy's error.
  */
-const DEFAULT_WAIT: OperationWait = { timeoutMs: 5 * 60_000, intervalMs: 250 };
+export const DEFAULT_OPERATION_WAIT: OperationWait = { timeoutMs: 90_000, intervalMs: 250 };
 
-let configuredWait = DEFAULT_WAIT;
-
-/** Route tests shorten the wait to exercise the timeout answer; null restores it. */
-export function setOperationWaitForTests(wait: OperationWait | null): void {
-  configuredWait = wait ?? DEFAULT_WAIT;
+/** One request's wait: until `deadline`, or until the client goes away. */
+export interface OperationDeadline {
+  deadline: number;
+  intervalMs: number;
+  signal?: AbortSignal;
 }
 
-export const operationDeadline = (): number => Date.now() + configuredWait.timeoutMs;
+export const operationDeadline = (
+  wait: OperationWait,
+  signal?: AbortSignal,
+): OperationDeadline => ({
+  deadline: Date.now() + wait.timeoutMs,
+  intervalMs: wait.intervalMs,
+  signal,
+});
 
 const FINISHED: ReadonlySet<string> = new Set(['done', 'failed', 'cancelled']);
 
-/** The row once it has finished, or null when it is still going at `deadline`. */
-export async function awaitOperation(id: ObjectId, deadline: number): Promise<JobWithId | null> {
+/** The row once it has finished, or null when it is still going at the deadline or the client left. */
+export async function awaitOperation(
+  id: ObjectId,
+  until: OperationDeadline,
+): Promise<JobWithId | null> {
   const job = await getJob(id);
   if (job === null) throw new Error(`Job ${id.toHexString()} is not in the database`);
   if (FINISHED.has(job.status)) return job;
-  if (Date.now() >= deadline) return null;
-  await sleep(configuredWait.intervalMs);
-  return awaitOperation(id, deadline);
+  if (Date.now() >= until.deadline || until.signal?.aborted) return null;
+  await sleep(until.intervalMs, undefined, { signal: until.signal }).catch(() => undefined);
+  return awaitOperation(id, until);
 }
 
 /**
@@ -78,10 +87,10 @@ export async function awaitOperation(id: ObjectId, deadline: number): Promise<Jo
 export async function startFreshOperation(
   kind: OperationKind,
   payload: Record<string, unknown>,
-  deadline: number,
+  until: OperationDeadline,
 ): Promise<JobWithId> {
   const started = await startOperation(kind, payload);
   if (!started.joined) return started.job;
-  const earlier = await awaitOperation(started.job._id, deadline);
+  const earlier = await awaitOperation(started.job._id, until);
   return earlier === null ? started.job : (await startOperation(kind, payload)).job;
 }
