@@ -8,7 +8,7 @@
 import {
   patchAppSettings,
   readAppSettings,
-  unsetAppSettings,
+  unsetAppSettingWhile,
 } from '../../db/repos/app-settings.repo.ts';
 import type { MaintenanceRunOptions } from './workflow.ts';
 
@@ -45,9 +45,11 @@ export async function pendingMaintenanceRuns(): Promise<MaintenanceRunRequest[]>
 
 /** Leaves a request made after `request` in place, so it gets a run of its own. */
 export async function clearMaintenanceRun(request: MaintenanceRunRequest): Promise<void> {
-  const pending = (await pendingMaintenanceRuns()).find((r) => r.taskId === request.taskId);
-  if (pending?.requestedAt === request.requestedAt)
-    await unsetAppSettings(DOC_ID, [`requests.${request.taskId}`]);
+  const path = `requests.${request.taskId}`;
+  await unsetAppSettingWhile(DOC_ID, path, {
+    path: `${path}.requestedAt`,
+    value: request.requestedAt,
+  });
 }
 
 export async function maintenanceRunRequest(taskId: string): Promise<MaintenanceRunRequest | null> {

@@ -156,6 +156,23 @@ export async function unsetAppSettings(
 }
 
 /**
+ * Removes `path` only while `holds.path` still has `holds.value`, checked in
+ * the same statement, so a write another process makes between a caller's read
+ * and this removal is kept.
+ */
+export async function unsetAppSettingWhile(
+  id: string,
+  path: string,
+  holds: { path: string; value: string },
+  dbOverride?: SqliteDb,
+): Promise<void> {
+  await sqliteDb(dbOverride).write(
+    `UPDATE app_settings SET doc = json_remove(doc, ?) WHERE id = ? AND json_extract(doc, ?) = ?`,
+    [jsonPath(path), id, jsonPath(holds.path), holds.value],
+  );
+}
+
+/**
  * Delete a settings document outright. Not used by a route — it is what a test
  * needs to get back to "no operator has touched this yet", which on Mongo was
  * `deleteMany({})` on the collection.
