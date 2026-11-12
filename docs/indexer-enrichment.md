@@ -50,7 +50,7 @@ automatically.
 
 ## Where it runs
 
-`src/api/src/index.ts` spawns `src/api/src/workers/worker-main.ts` as a child process (`ChildProcessWorker`, niced) and auto-respawns it on death with exponential backoff (1 s → 30 s, reset once a worker has lived 60 s). Setting `MAPLE_INDEXER_AUTOSTART=0` suppresses the spawn entirely — useful for running an API-only replica. Such a replica runs no maintenance: trash purge, the missing-reaper, migrations, mirror upkeep, session clean-up and the nightly database backup all run in the worker tier through Temporal, so some server in the deployment must run the worker tier with Temporal reachable.
+`src/api/src/index.ts` spawns `src/api/src/workers/worker-main.ts` as a child process (`ChildProcessWorker`, niced) and auto-respawns it on death with exponential backoff (1 s → 30 s, reset once a worker has lived 60 s). Setting `MAPLE_INDEXER_AUTOSTART=0` suppresses the spawn entirely — useful for running an API-only replica. Such a replica runs no background work: the pipeline stages, the discover sweep, user jobs, folder imports and maintenance — trash purge, the missing-reaper, migrations, mirror upkeep, session clean-up and the nightly database backup — all run in the worker tier through Temporal, so some server in the deployment must run the worker tier with Temporal reachable.
 
 `worker-main.ts` opens its own connection pool onto the same database file, initialises OpenTelemetry, loads the mirror registry, and calls `startWorkers()` in `src/api/src/workers/start-workers.ts`, which brings up:
 
