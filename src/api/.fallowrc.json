@@ -5,6 +5,9 @@
     "src/cloudflare/backup-snapshot.worker.ts",
     "scripts/restore-sqlite-r2.ts",
     "src/workers/worker-main.ts",
+    // Temporal bundles this file into its workflow sandbox by path
+    // (temporal-host.ts WORKFLOWS_PATH), so its re-exports have no importer.
+    "src/temporal/workflows.ts",
     // Run by CI to fetch the Temporal test server ahead of the fixture servers.
     "scripts/prewarm-temporal.ts",
     "src/ffi/raw_ffi.child.ts",
