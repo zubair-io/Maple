@@ -152,7 +152,7 @@ jobs:
           apt-get install -y --no-install-recommends \
             ca-certificates python3 shared-mime-info desktop-file-utils libglib2.0-bin
       - uses: actions/checkout@v7.0.1
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@v8.0.2
         with:
           name: maple-linux-packages
           path: packages
