@@ -8,7 +8,7 @@ import { afterEach, describe, expect, it } from 'bun:test';
 import { closeSync, mkdtempSync, openSync, rmSync, truncateSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { _createFfiPoolForTests, type PoolWorker } from './ffi-pool.ts';
+import { _createFfiPoolForTests, type FfiWorkerPool, type PoolWorker } from './ffi-pool.ts';
 import { DecodeMemoryBudget, DecodeMemoryBudgetError } from './decode-memory-budget.ts';
 
 const MIB = 1024 ** 2;
@@ -75,20 +75,39 @@ function harness(limitBytes: number) {
   return { pool, budget, workers };
 }
 
+/** Poll `check` until it holds. The deadline is a hang guard far above any
+ * real wait, so a loaded runner cannot fail it; it still ends the loop, so a
+ * test that times out leaves no timer chain keeping the process alive. */
 async function until(check: () => boolean): Promise<void> {
-  for (let i = 0; i < 200 && !check(); i++) await Bun.sleep(1);
+  const deadline = Date.now() + 10_000;
+  while (!check() && Date.now() < deadline) await Bun.sleep(1);
   expect(check()).toBe(true);
 }
 
 const posted = (workers: FakeWorker[]) => workers.reduce((n, w) => n + w.posted.length, 0);
 
+/** Submit two develops in a known order. Each request is admitted only once its
+ * cost estimate (an async `stat`) lands, so two requests submitted back to back
+ * reach the budget in whichever order their stats finish (#5701). The second is
+ * submitted only after the first holds the budget and runs on a child. */
+async function developInOrder(
+  pool: FfiWorkerPool,
+  budget: DecodeMemoryBudget,
+  workers: FakeWorker[],
+  raw: string,
+): Promise<[Promise<boolean>, Promise<boolean>]> {
+  const first = pool.renderDevelopJpegToFile(raw, null, '/a.jpg', 1280);
+  await until(() => posted(workers) === 1);
+  const second = pool.renderDevelopJpegToFile(raw, null, '/b.jpg', 1280);
+  await until(() => budget.snapshot().waiting === 1);
+  return [first, second];
+}
+
 describe('FfiWorkerPool — decode memory admission', () => {
   it('holds a develop that does not fit until the running one answers', async () => {
     const raw = rawOfSize(64 * MIB);
     const { pool, budget, workers } = harness(10 * GIB);
-    const first = pool.renderDevelopJpegToFile(raw, null, '/a.jpg', 1280);
-    const second = pool.renderDevelopJpegToFile(raw, null, '/b.jpg', 1280);
-    await until(() => posted(workers) === 1);
+    const [first, second] = await developInOrder(pool, budget, workers, raw);
     await Bun.sleep(5);
     expect(posted(workers)).toBe(1);
     expect(budget.snapshot()).toMatchObject({
@@ -133,11 +152,16 @@ describe('FfiWorkerPool — decode memory admission', () => {
   it('gives the reservation back when the child is killed mid-decode', async () => {
     const raw = rawOfSize(64 * MIB);
     const { pool, budget, workers } = harness(10 * GIB);
-    const killed = pool.renderDevelopJpegToFile(raw, null, '/a.jpg', 1280);
-    const next = pool.renderDevelopJpegToFile(raw, null, '/b.jpg', 1280);
-    await until(() => posted(workers) === 1);
+    const [killed, next] = await developInOrder(pool, budget, workers, raw);
     workers[0]!.crash();
-    await expect(killed).rejects.toThrow('SIGKILL');
+    // A plain `await`, not `await expect(killed).rejects`: Bun never times out
+    // the latter on a promise that does not settle, and that hang held a CI job
+    // for six hours (#5701).
+    const error = await killed.then(
+      () => null,
+      (e: Error) => e.message,
+    );
+    expect(error).toContain('SIGKILL');
     await until(() => posted(workers) === 2);
     workers.at(-1)!.reply();
     await next;
