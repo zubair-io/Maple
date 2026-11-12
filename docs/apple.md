@@ -48,6 +48,8 @@ The app's entitlements (`Maple/Maple.entitlements`) request the sandbox, the App
 
 `ColorGradingPanel.swift` draws the wheels, `Blending` and the tonal-zone strip; edge drags are measured in the strip's own named coordinate space and mapped by `ColorGradeZoneEdge` (MapleCore, tested) so the pivot follows the pointer, not the 22pt handle. `ToneCurveSection` adds the parametric split diamonds and mode toggle (`ToneCurveSplits`), and `ColorCurvesRibbonView` is the `8-Band Mixer | Color Curves` switch with six pills, knots, Lock Skin and the eyedropper, whose model is `ColorCurvePicker` (MapleCore). The eyedropper calls `maple_sample_color_curve_oriented` through `ColorCurveSample`.
 
+`WhiteBalancePad.swift` is the temperature × tint pad, composed from MapleUI's `MuiPad2D` and mapped by `WhiteBalancePadMath` (MapleCore, tested against the web pad's positions). It writes through `ToolValueMapping.apply`, the sliders' path, inside one `commit()` … `endGesture()` pair per drag or held arrow key. The tone-curve plot's drag is `precisionDrag` (`PrecisionDragGesture.swift`): on iOS a UIKit recognizer that reports each touch's type, on the Mac a `DragGesture`. `PrecisionInputKind.curveHitRadius` turns that type into the grab radius and `ToneCurveEditing.press` decides between grabbing a point and adding one; the hover preview (`ToneCurveHoverPreview`, and `MuiPad2D`'s own ghost puck) runs the same rule from `onContinuousHover`, which a hovering Apple Pencil drives on iPad.
+
 ## Local packages
 
 ### MapleCore

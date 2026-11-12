@@ -53,8 +53,6 @@ struct ToneCurvePlot: View {
   var highlightSplit: Double = ToneCurveSplits.defaultHighlight
   var onSelectedKnotChanged: ((Int?) -> Void)? = nil
 
-  /// Knot hit radius, in authoring-domain units (≈ 8pt on a 220pt plot).
-  private static let hitRadius = 0.05
   /// Vertical nudge per arrow-key press, in authoring-domain units.
   private static let keyStep = 1.0 / 64.0
 
@@ -66,7 +64,8 @@ struct ToneCurvePlot: View {
   @State private var insertedKnotFocus: Int?
   @State private var dragIndex: Int?
   @State private var dragPoints: [ToneCurvePoint]?
-  @GestureState private var dragGestureActive = false
+  /// Where a Pencil or pointer hovers over the plot, in the plot's space.
+  @State private var hover: CGPoint?
 
   /// What the plot shows: the in-flight drag list when one is live, else
   /// the committed model value.
@@ -93,6 +92,9 @@ struct ToneCurvePlot: View {
         .background(ProTokens.canvasAlt)
         .clipShape(RoundedRectangle(cornerRadius: MapleTokens.Radius.sm, style: .continuous))
         knotOverlay(size: size)
+        if let press = hoverPress(size: size) {
+          ToneCurveHoverPreview(press: press, knots: knots, stroke: stroke, side: size)
+        }
       }
       .frame(width: size, height: size)
       .overlay(
@@ -101,7 +103,12 @@ struct ToneCurvePlot: View {
           .allowsHitTesting(false)
       )
       .contentShape(Rectangle())
-      .gesture(dragGesture(size: size))
+      .precisionDrag(
+        onChanged: { dragChanged($0, size: size) }, onEnded: { dragEnded($0, size: size) }
+      )
+      .onContinuousHover(coordinateSpace: .local) { phase in
+        if case .active(let location) = phase { hover = location } else { hover = nil }
+      }
       .padding(ringMargin)
       .frame(maxWidth: .infinity, alignment: .center)
     }
@@ -112,9 +119,6 @@ struct ToneCurvePlot: View {
     )
     .accessibilityElement(children: .contain)
     .accessibilityIdentifier("editor-tone-curve-plot")
-    .onChange(of: dragGestureActive) { old, new in
-      if old && !new { endDrag() }
-    }
     .onChange(of: knots.count) { _, _ in
       if let index = insertedKnotFocus {
         insertedKnotFocus = nil
@@ -327,44 +331,53 @@ struct ToneCurvePlot: View {
 
   // MARK: - Drag
 
-  private func dragGesture(size: CGFloat) -> some Gesture {
-    DragGesture(minimumDistance: 0)
-      .updating($dragGestureActive) { _, active, _ in active = true }
-      .onChanged { value in
-        let pos = authoring(value.location, size: size)
-        if dragIndex == nil {
-          beginDrag(at: pos)
-        } else {
-          continueDrag(to: pos)
-        }
-      }
-      .onEnded { value in
-        if dragIndex != nil { continueDrag(to: authoring(value.location, size: size)) }
-        endDrag()
-      }
+  private func dragChanged(_ sample: PrecisionDragSample, size: CGFloat) {
+    let pos = authoring(sample.location, size: size)
+    if dragIndex == nil {
+      beginDrag(at: pos, radius: sample.kind.curveHitRadius(plotSide: size))
+    } else {
+      continueDrag(to: pos)
+    }
   }
 
-  /// Grab the knot under the finger, or insert one there and grab that.
-  private func beginDrag(at pos: (x: Double, y: Double)) {
+  private func dragEnded(_ sample: PrecisionDragSample?, size: CGFloat) {
+    if let sample, dragIndex != nil { continueDrag(to: authoring(sample.location, size: size)) }
+    endDrag()
+  }
 
-    let existing = ToneCurveEditing.hitTest(
-      points, x: pos.x, y: pos.y, radius: Self.hitRadius
-    )
-    let next =
-      existing != nil
-      ? ToneCurveEditing.materialize(points)
-      : ToneCurveEditing.insert(points, x: pos.x, y: pos.y)
-    guard
-      let index = existing
-        ?? ToneCurveEditing.hitTest(next, x: pos.x, y: pos.y, radius: Self.hitRadius)
+  /// What a press under the hovering Pencil or pointer would do. Only those
+  /// two hover, and both grab with the precise radius.
+  private func hoverPress(size: CGFloat) -> ToneCurvePress? {
+    guard dragIndex == nil, let hover, size > 0 else { return nil }
+    let pos = authoring(hover, size: size)
+    return ToneCurveEditing.press(
+      points, x: pos.x, y: pos.y,
+      radius: PrecisionInputKind.pencil.curveHitRadius(plotSide: size))
+  }
+
+  /// Grab the point within `radius` of the press, or add one there and
+  /// grab that. A fingertip's radius is wider than a Pencil's or pointer's.
+  private func beginDrag(at pos: (x: Double, y: Double), radius: Double) {
+    guard let press = ToneCurveEditing.press(points, x: pos.x, y: pos.y, radius: radius)
     else { return }
+    let next: [ToneCurvePoint]
+    let index: Int
+    switch press {
+    case .grab(let grabbed):
+      next = ToneCurveEditing.materialize(points)
+      index = grabbed
+    case .insert(let x, let y):
+      next = ToneCurveEditing.insert(points, x: x, y: y)
+      guard let inserted = next.firstIndex(where: { $0.x == x }) else { return }
+      index = inserted
+    }
 
     // Snapshot for undo at the START of the gesture, so one drag is one
     // undo entry no matter how many writes it forwards.
     onEditingChanged(true)
     // A new point cannot take focus until its materialized overlay is published.
     // Existing points retain the ordinary pointer/Tab focus route.
-    if existing == nil {
+    if case .insert = press {
       insertedKnotFocus = index
     } else {
       insertedKnotFocus = nil

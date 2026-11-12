@@ -4,6 +4,9 @@ import SwiftUI
 
 struct WhiteBalanceControls: View {
   let state: EditorState
+  /// The inspector shows the temperature × tint pad under these controls.
+  /// The compact bars show it with the armed Temp or Tint ruler instead.
+  var showsPad = false
   private var picker: WhiteBalancePicker { state.whiteBalancePicker }
   @State private var presetTask: Task<Void, Never>?
 
@@ -71,6 +74,9 @@ struct WhiteBalanceControls: View {
         Text("The eyedropper requires a RAW photo.")
           .font(.caption2)
           .foregroundStyle(MapleTokens.textMuted)
+      }
+      if showsPad {
+        WhiteBalancePad(state: state)
       }
     }
     .onDisappear { presetTask?.cancel() }
