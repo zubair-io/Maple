@@ -809,9 +809,12 @@ ring from the retained history ("Edit history, lineage and conflicts";
 `cursor_xmp`, up to the 32-entry cap). On Apple each step is a pair of the
 retained complete checkpoints and replays through the same confirmed publication
 as a restore, so Undo after a restart reaches the previous retained state and an
-outside edit made while the editor was closed is one more undo step. Opening an
-editor records nothing. Copied single-file imports need
-their writable source to use these controls. A first snapshot uses a null-XMP
+outside edit made while the editor was closed is one more undo step. An Apple
+editor that appears before its sidecar has loaded (a slow Cloud or File Provider
+read) rebuilds the ring when the sidecar lands, unless an edit is recorded before
+the history has been read (#5905). Opening an editor records nothing. Copied
+single-file imports need their writable source to use these controls. A first
+snapshot uses a null-XMP
 precondition plus its captured initial checkpoint; the initial primary and snapshot
 publish together, without a separate baseline write or invented history entry.
 Concurrent first writers have one winner and stale commands cannot replace it.

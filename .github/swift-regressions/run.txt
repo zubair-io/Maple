@@ -324,6 +324,7 @@ XMPSidecarExternalConflictTests
 XMPSidecarReconcileTests
 CloudSidecarReconcileTests
 EditSessionHistoryReconcileTests
+EditSessionLateSidecarUndoTests
 XMPSidecarFilePublicationTests
 XMPSidecarDurableRecoveryTests
 DisplayPreviewPersistTests
