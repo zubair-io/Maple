@@ -81,16 +81,25 @@ internal class CloudDocumentWrites(
         val account = store.account(id.server)
         val target = id.renamed(name.trim())
         if (target == id) return id
-        if (id.directory) api.moveFolder(id, target)
-        else {
-            val pending = uploads.find(account, id)
-            if (pending != null && store.lookup(id) == null) {
-                check(target.name !in store.names(id.parent())) { "An item named \"${target.name}\" already exists" }
-                uploads.moved(pending, target.path)
-            } else catalogued(id, { asset -> api.renameAsset(id, asset, target.name) }) {
-                api.renameFile(id, target.name)
+        if (id.directory) {
+            // Saved documents under the folder follow it; the drain would otherwise recreate the old folder.
+            val prefix = "${id.path}/"
+            uploads.holding(account, { it.library == id.library && it.path.startsWith(prefix) }) { held ->
+                api.moveFolder(id, target)
+                held.forEach { uploads.moved(it, "${target.path}/${it.path.removePrefix(prefix)}") }
             }
-        }
+        } else
+            uploads.holding(account, { it.library == id.library && it.path == id.path }) { held ->
+                val pending = held.singleOrNull()
+                if (pending != null && !onServer(id)) {
+                    check(target.name !in store.names(id.parent())) { "An item named \"${target.name}\" already exists" }
+                } else
+                    catalogued(id, { asset -> api.renameAsset(id, asset, target.name) }) {
+                        api.renameFile(id, target.name)
+                    }
+                // A staged replacement goes to the new name, never back to the old one.
+                pending?.let { uploads.moved(it, target.path) }
+            }
         store.forget(id)
         store.notify(
             listOf(
@@ -106,12 +115,19 @@ internal class CloudDocumentWrites(
         val account = store.account(id.server)
         if (id.directory)
             throw UnsupportedOperationException("The Maple server cannot remove folders")
-        val pending = uploads.find(account, id)
-        if (pending != null && store.lookup(id) == null) uploads.remove(pending)
-        else catalogued(id, { asset -> api.trashAsset(id, asset) }) { api.trashFile(id) }
+        uploads.holding(account, { it.library == id.library && it.path == id.path }) { held ->
+            val pending = held.singleOrNull()
+            if (pending == null || onServer(id))
+                catalogued(id, { asset -> api.trashAsset(id, asset) }) { api.trashFile(id) }
+            // A staged replacement of a trashed file must not bring it back.
+            pending?.let(uploads::remove)
+        }
         store.forget(id)
         store.notify(listOf(CloudDocumentStore.childrenUri(id.parent()), CloudDocumentStore.documentUri(id)))
     }
+
+    /** Cached metadata proves the server has the file; its absence proves nothing, so ask. */
+    private fun onServer(id: CloudDocumentId) = store.lookup(id) != null || api.stat(id) != null
 
     /**
      * Photos use their asset route, which carries paired sidecars. An unindexed photo has
@@ -140,8 +156,16 @@ internal class CloudDocumentWrites(
     }
 
     private fun drain(server: String) {
-        for (upload in uploads.due(store.account(server)))
-            if (send(server, upload) == Outcome.Paused) return
+        for (due in uploads.due(store.account(server))) {
+            val upload = uploads.claim(due) ?: continue
+            val outcome =
+                try {
+                    send(server, upload)
+                } finally {
+                    uploads.release(upload)
+                }
+            if (outcome == Outcome.Paused) return
+        }
     }
 
     /**

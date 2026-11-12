@@ -196,6 +196,97 @@ class CloudDocumentWritesTest {
         pool.shutdown()
     }
 
+    @Test
+    fun aStagedReplacementFollowsItsFileThroughRenameAndDelete() {
+        api.page("2026", files = listOf("notes.txt", "old.txt"))
+        val store = store()
+        store.children(folder)
+        val notes = staged("notes.txt")
+        writes(store).rename(file("notes.txt"), "renamed.txt")
+        assertTrue(api.requests.any { it.startsWith("POST") && it.endsWith("/file/relocate") })
+        assertEquals("2026/renamed.txt", uploads.all(account("ann")).single { it.token == notes.token }.path)
+
+        staged("old.txt")
+        writes(store).delete(file("old.txt"))
+        assertTrue(api.requests.any { it.startsWith("DELETE") && it.contains("old.txt") })
+        writes(store).schedule(server)
+        assertEquals("Only the renamed file is sent; the trashed one stays gone", listOf("2026/renamed.txt"), api.uploads)
+    }
+
+    @Test
+    fun anUnlistedStagedReplacementIsStillRenamedOnTheServer() {
+        api.page("2026", files = listOf("notes.txt"))
+        staged("notes.txt")
+        // A fresh provider has no cached metadata: that does not mean the server lacks the file.
+        writes(store()).rename(file("notes.txt"), "renamed.txt")
+        assertTrue(api.requests.any { it.endsWith("/file/relocate") })
+        assertEquals("2026/renamed.txt", uploads.all(account("ann")).single().path)
+    }
+
+    @Test
+    fun renamingAFolderMovesTheDocumentsWaitingInIt() {
+        api.page("2026")
+        ready("ann", "2026/a.txt")
+        writes(store()).rename(folder, "2027")
+        assertTrue(api.requests.any { it.endsWith("/move") })
+        assertEquals(listOf("2027/a.txt"), uploads.all(account("ann")).map { it.path })
+    }
+
+    @Test
+    fun aFileIsNotRenamedOrTrashedWhileItsUploadIsInFlight() {
+        api.page("2026", files = listOf("notes.txt"))
+        val store = store()
+        store.children(folder)
+        val sending = uploads.claim(staged("notes.txt"))!!
+        assertThrows(IllegalStateException::class.java) { writes(store).delete(file("notes.txt")) }
+        assertThrows(IllegalStateException::class.java) { writes(store).rename(folder, "2027") }
+        assertTrue(api.requests.none { it.startsWith("DELETE") || it.endsWith("/move") })
+        uploads.release(sending)
+        writes(store).delete(file("notes.txt"))
+        assertTrue(uploads.all(account("ann")).isEmpty())
+    }
+
+    @Test
+    fun aWriteCutShortByProcessDeathNeverUploads() {
+        val torn = uploads.create(account("ann"), file("torn.txt"), writing = true)
+        uploads.data(torn).writeText("half")
+        uploads.data(torn).setLastModified(System.currentTimeMillis() - 2 * CloudPendingUploads.IDLE_MILLIS)
+        val saved = ready("ann", "2026/saved.txt")
+        uploads.opened(saved)
+        // The provider process dies with both writers open.
+        val restarted = CloudPendingUploads(File(root, "uploads"))
+        assertTrue(restarted.due(account("ann")).isEmpty())
+        assertEquals(
+            listOf(CloudPendingUploads.INTERRUPTED, CloudPendingUploads.INTERRUPTED),
+            restarted.all(account("ann")).map { it.failure },
+        )
+        restarted.closed(restarted.opened(restarted.find(account("ann"), file("saved.txt"))!!), clean = true)
+        assertEquals(listOf(saved.token), restarted.due(account("ann")).map { it.token })
+    }
+
+    @Test
+    fun readsPreferACompleteSaveOverTheServerCopy() {
+        val replacing = uploads.create(account("ann"), file("notes.txt"), writing = true)
+        assertFalse("A first writer is still copying the server's version", uploads.all(account("ann")).single().readable)
+        uploads.closed(replacing, clean = true)
+        assertTrue(uploads.find(account("ann"), file("notes.txt"))!!.readable)
+        uploads.closed(uploads.opened(replacing), clean = false)
+        assertFalse(uploads.find(account("ann"), file("notes.txt"))!!.readable)
+    }
+
+    @Test
+    fun anUncachedFileResolvesInAFolderLargerThanTheMetadataCache() {
+        api.page("2026", files = (0 until 4_200).map { "f$it.txt" })
+        assertEquals(CloudEntryKind.File, store().entry(file("f0.txt")).kind)
+    }
+
+    private fun staged(name: String): CloudPendingUploads.Upload {
+        val upload = uploads.create(account("ann"), file(name), writing = true)
+        uploads.data(upload).writeText("edited $name")
+        uploads.closed(upload, clean = true)
+        return uploads.find(account("ann"), file(name))!!
+    }
+
     private fun ready(user: String, path: String, age: Int = 0): CloudPendingUploads.Upload {
         val upload = uploads.create(account(user), folder.child(path.substringAfterLast('/'), false))
         uploads.data(upload).writeText(path)
@@ -217,6 +308,7 @@ class CloudDocumentWritesTest {
         val uploads = mutableListOf<String>()
         var status: (String) -> Int = { 201 }
         var download: (OutputStream) -> Unit = {}
+        private val existing = mutableSetOf<String>()
         private val pages = mutableMapOf<String, JSONObject>()
 
         fun page(
@@ -226,6 +318,7 @@ class CloudDocumentWritesTest {
             files: List<String> = emptyList(),
             next: String? = null,
         ) {
+            existing += (images + files).map { "$path/$it" }
             fun entries(names: List<String>, indexed: Boolean) =
                 JSONArray(
                     names.map { name ->
@@ -259,7 +352,11 @@ class CloudDocumentWritesTest {
             return when {
                 page != null -> response(200, page)
                 uri.path!!.endsWith("/file-meta") ->
-                    response(200, JSONObject().put("size", 10).put("mtime", "2026-02-01T00:00:00Z"))
+                    if (uri.getQueryParameter("path") !in existing) response(404, JSONObject())
+                    else response(200, JSONObject().put("size", 10).put("mtime", "2026-02-01T00:00:00Z"))
+                method == "POST" && (uri.path!!.endsWith("/file/relocate") || uri.path!!.endsWith("/move")) ->
+                    response(200, JSONObject())
+                method == "DELETE" && uri.path!!.endsWith("/file") -> response(200, JSONObject())
                 else -> response(404, JSONObject().put("error", "not found"))
             }
         }

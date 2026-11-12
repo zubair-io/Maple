@@ -144,9 +144,11 @@ internal class CloudDocumentStore(
     fun entry(id: CloudDocumentId): CloudEntry {
         lookup(id)?.let { return it }
         if (!id.directory) {
+            // The listing answers directly: a large folder can evict this entry from the bounded cache.
             val parent = id.parent()
-            api.list(parent).forEach { remembered(parent, it) }
-            return lookup(id) ?: throw FileNotFoundException("${id.name} no longer exists")
+            val listed = api.list(parent).onEach { remembered(parent, it) }
+            return listed.find { it.path == id.path && it.kind != CloudEntryKind.Folder }
+                ?: throw FileNotFoundException("${id.name} no longer exists")
         }
         library(id)
         if (!api.folderExists(id)) throw FileNotFoundException("${id.name} no longer exists")
