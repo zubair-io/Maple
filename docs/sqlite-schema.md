@@ -352,12 +352,12 @@ that differs is written out.
 
 | Call site                                            | SQLite                                                                                                     | Index                                              |
 | ---------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- | -------------------------------------------------- |
-| facet total, generated-search preview, buckets total | `COUNT(*)` (folded: `AND stack_primary_id IS NULL`, #5849)                                                 | `assets_live`                                      |
+| facet total, generated-search preview, buckets total | `COUNT(*)` (folded: `AND +stack_primary_id IS NULL`, #5849)                                                | `assets_live`                                      |
 | camera facet                                         | `GROUP BY camera_make, camera_model`                                                                       | `assets_facet_camera`                              |
 | lens facet                                           | `GROUP BY lens`                                                                                            | `assets_facet_lens`                                |
 | places facet                                         | `GROUP BY place_locality, place_region`                                                                    | `assets_facet_place_label`                         |
 | country drill-down                                   | `GROUP BY place_country_code`                                                                              | `assets_facet_place`                               |
-| timeline buckets                                     | `GROUP BY captured_year, captured_month` (folded: `AND stack_primary_id IS NULL`)                          | `assets_live_captured_ym`                          |
+| timeline buckets                                     | `GROUP BY captured_year, captured_month` (folded: `AND +stack_primary_id IS NULL`)                         | `assets_live_captured_ym`                          |
 | screenshot tri-state                                 | `GROUP BY is_screenshot`                                                                                   | `assets_facet_screenshot`                          |
 | scene / activity facets                              | mirrored live/hidden state + `WHERE` nonempty group key + `GROUP BY` it; join for additional asset filters | `asset_detail_scene_type`, `asset_detail_activity` |
 | capture range, ISO range                             | `MIN` / `MAX`                                                                                              | `assets_live_captured`, `assets_facet_iso`         |
@@ -367,9 +367,14 @@ that differs is written out.
 `assets_live` and `assets_live_captured_ym` carry `stack_primary_id` as a
 trailing column (migration 0044, #5849), so a search that folds RAW+JPEG
 stacks answers its count and its histogram from the index alone; the grid page
-reads its row anyway and tests the pointer there. `assets_stack_primary`, partial
-over the non-null pointers, finds a page's companions. The facet groups do not
-fold, which is what keeps them index-only.
+reads its row anyway and tests the pointer there. The fold carries a unary `+`
+so it is a residual and never a seek: it matches nearly every row, but
+`sqlite_stat1` sees one row per non-null pointer and rates `IS NULL` as nearly
+unique, and once `ANALYZE` has run the planner otherwise skip-scans
+`assets_live` for the histogram, reading every live row and sorting them
+(`search.query-plan.stacks.test.ts`). `assets_stack_primary`, partial over the
+non-null pointers, finds a page's companions. The facet groups do not fold,
+which is what keeps them index-only.
 
 The vision facets are the one row where the exclusion is load-bearing rather
 than decorative. A bare `GROUP BY vision_scene_type` implies nothing about
