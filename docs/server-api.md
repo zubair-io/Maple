@@ -464,7 +464,7 @@ All `/api/admin/backup/db` routes require an authenticated **owner**.
 
 | Method | Path                          | Result                                                                                                                                                       |
 | ------ | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| GET    | `/api/admin/backup/db`        | `{ policy, status, last_success_at, running }`; credentials are never returned                                                                               |
+| GET    | `/api/admin/backup/db`        | `{ policy, status, last_success_at, running, request_error? }`; credentials are never returned                                                               |
 | PUT    | `/api/admin/backup/db/config` | Save a complete policy: `enabled`, `bucket`, `hour` (0–23 server-local), `daily`, `weekly`, `monthly`, `yearly` (integer 0–1000); returns settings           |
 | POST   | `/api/admin/backup/db`        | Ask the worker tier for a snapshot using saved settings; `202 { accepted: true }`, `409` if one is running or already requested, `400` if R2 is unconfigured |
 
@@ -473,8 +473,11 @@ Defaults: automatic backups disabled, no backup bucket, hour 3, retention
 completion. `status` contains `state`, `started_at`, and on completion
 `finished_at`, `key`, `bytes`, `compressed_bytes`, or `error`. A successful backup
 can include `retention_error` when cleanup failed. `running` is true from the
-moment a backup is requested until it finishes; while Temporal is unreachable a
-request stays pending, and `running` stays true. A stored `state: running` counts
+moment a backup is requested until it finishes. Backups run only in the worker
+tier through Temporal: a request the worker tier has not picked up within two
+minutes (no worker process, `MAPLE_INDEXER_AUTOSTART=0`, or Temporal
+unreachable) stops counting as running, and `request_error` says it was not
+picked up; a new POST is then accepted. A stored `state: running` counts
 only while its `heartbeat_at` is under five minutes old, so `running: false` with
 a stored `state: running` means the previous process was interrupted. Policy
 updates return 409 while a backup runs, not while one is only requested. Backups use the saved Cloudflare credentials and
