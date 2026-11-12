@@ -60,6 +60,17 @@ function sidecarBase(rawAbsPath: string): string {
   return path.basename(rawAbsPath, isVideoFilename(rawAbsPath) ? '' : path.extname(rawAbsPath));
 }
 
+const pairedOwnerBase = new RegExp(`^(.+?)${PAIRED_SIDECAR_SUFFIX_PATTERN}$`, 'i');
+
+/** The canonical sidecar of the photo that the paired sidecar `sidecar` belongs
+ * to: a conflict copy or UUID variant resolves to its owner's `<base>.xmp`, the
+ * same base `listPairedSidecars` matches, with dots in the stem kept. */
+export function owningCanonicalSidecar(sidecar: string): string {
+  const name = path.basename(sidecar);
+  const base = workflowSidecarBase(name) ?? pairedOwnerBase.exec(name)?.[1];
+  return base === undefined ? sidecar : path.join(path.dirname(sidecar), `${base}.xmp`);
+}
+
 /** Compose the conflict-copy path for a given RAW + device name (video-aware, #2481). */
 export function conflictCopyPath(rawAbsPath: string, deviceName: string): string {
   const base = path.join(path.dirname(rawAbsPath), sidecarBase(rawAbsPath));

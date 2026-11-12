@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, setSystemTime, test } from 'bu
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { sweepCrashLeftTemps } from './crash-left-temps.ts';
+import { listPairedSidecars } from './xmp-conflict.ts';
 import * as fs from './mirrored.ts';
 import {
   DISPLACED_MARKER,
@@ -221,15 +222,25 @@ await replaceIfHolds(dest, Buffer.from('old edits'), tmp, async () => {});
 `;
 
 describe('a sidecar replacement killed while the old sidecar is moved aside', () => {
-  // `IMG.001.xmp` belongs to `IMG.001.CR3`; `clip.mov.xmp` to the video `clip.mov`.
-  for (const stem of ['IMG', 'IMG.001', 'clip.mov']) {
-    test(`the old edits of ${stem}.xmp come back as a conflict copy: the sidecar name is gone and the edits are the only copy`, async () => {
-      await write(`dst/${stem}.xmp`, 'old edits');
+  // Each displaced sidecar name, the photo whose edits it holds, and the name
+  // they come back under: a dotted stem, a video's `<name>.<ext>.xmp`, a
+  // conflict copy and a UUID variant all pair back to their photo.
+  const uuid = '0123abcd-4567-89ab-cdef-0123456789ab';
+  for (const [sidecar, photo, recovered] of [
+    ['IMG.xmp', 'IMG.CR3', 'IMG (conflict from move).xmp'],
+    ['IMG.001.xmp', 'IMG.001.CR3', 'IMG.001 (conflict from move).xmp'],
+    ['clip.mov.xmp', 'clip.mov', 'clip.mov (conflict from move).xmp'],
+    ['IMG (conflict from laptop).xmp', 'IMG.CR3', 'IMG (conflict from move).xmp'],
+    ['IMG.001 (conflict from laptop) (2).xmp', 'IMG.001.CR3', 'IMG.001 (conflict from move).xmp'],
+    [`IMG.001.v${uuid}.xmp`, 'IMG.001.CR3', 'IMG.001 (conflict from move).xmp'],
+  ]) {
+    test(`the old edits of ${sidecar} come back as ${recovered}, paired with ${photo}`, async () => {
+      await write(`dst/${sidecar}`, 'old edits');
       await write('dst/staged', 'new edits');
       const script = abs('crash-replace.ts');
       await fs.writeFile(script, REPLACE_SCRIPT);
       const child = Bun.spawn(
-        [process.execPath, script, abs(`dst/${stem}.xmp`), abs('dst/staged')],
+        [process.execPath, script, abs(`dst/${sidecar}`), abs('dst/staged')],
         {
           stdout: 'ignore',
           stderr: 'pipe',
@@ -244,8 +255,9 @@ describe('a sidecar replacement killed while the old sidecar is moved aside', ()
 
       expect(await sweep('dst')).toEqual({ removed: 0, surfaced: 1 });
 
-      expect(await names('dst')).toEqual([`${stem} (conflict from move).xmp`, 'staged']);
-      expect(await read(`dst/${stem} (conflict from move).xmp`)).toBe('old edits');
+      expect(await names('dst')).toEqual([recovered, 'staged']);
+      expect(await read(`dst/${recovered}`)).toBe('old edits');
+      expect(await listPairedSidecars(abs(`dst/${photo}`))).toEqual([abs(`dst/${recovered}`)]);
     });
   }
 });

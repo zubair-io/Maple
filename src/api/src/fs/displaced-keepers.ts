@@ -2,6 +2,7 @@ import * as path from 'node:path';
 import * as fs from './mirrored.ts';
 import { PublishCollisionError, publishExclusive } from './relocate-publish.ts';
 import { publishConflictBytes } from './sidecar-ownership.ts';
+import { owningCanonicalSidecar } from './xmp-conflict.ts';
 
 const NAME_ATTEMPTS = 100;
 
@@ -23,10 +24,12 @@ export async function surfaceDisplaced(file: string, original: string): Promise<
 async function publishUnderVisibleName(file: string, original: string): Promise<boolean> {
   const dir = path.dirname(file);
   if (path.extname(original).toLowerCase() === '.xmp') {
-    // The sidecar's own name, not a guessed photo name: the conflict name keeps
-    // everything before `.xmp`, so `IMG.001.xmp` (of `IMG.001.CR3`) and
-    // `clip.mov.xmp` (of a video) both pair back to their photo.
-    return publishConflictBytes(path.join(dir, original), await fs.readFile(file));
+    // Named after the owning photo's canonical sidecar, so the copy pairs back:
+    // `IMG.001.xmp`, `IMG.001 (conflict from laptop).xmp` and a UUID variant
+    // `IMG.001.v<uuid>.xmp` all return as `IMG.001 (conflict from move).xmp`,
+    // and a video's `clip.mov.xmp` as `clip.mov (conflict from move).xmp`.
+    const owner = owningCanonicalSidecar(path.join(dir, original));
+    return publishConflictBytes(owner, await fs.readFile(file));
   }
   const { name, ext } = path.parse(original);
   for (let attempt = 1; attempt <= NAME_ATTEMPTS; attempt++) {
