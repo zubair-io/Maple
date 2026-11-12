@@ -9,8 +9,9 @@
  * assets into same-folder `.CR3`/`.JPG` pairs, and times the count, the
  * timeline histogram and a grid page. Then applies 0044, timing the index
  * rebuild and the backfill, and times the same statements unfolded and folded,
- * printing every plan. Medians of wall time and the migration's process CPU
- * time; the folded count must equal the unfolded count minus the pairs.
+ * printing every plan. Medians of wall and thread CPU time. It fails when the
+ * folded count is not the unfolded count minus the folded JPEGs, or when a
+ * folded statement leaves the index its unfolded form used before 0044.
  */
 
 import { runMigrations, fromBunSqlite } from '../../src/db/sqlite/migrate.ts';
@@ -23,12 +24,18 @@ import {
   queryPlanLines,
   removeDatabase,
   sizeArgument,
+  threadCpuMs,
   timeStatement,
 } from './bench-db.ts';
 import type { Database } from 'bun:sqlite';
 
 const RUNS = 7;
 const STACKS_MIGRATION = '0044-raw-jpeg-stacks';
+
+interface Report {
+  count: number;
+  plans: Record<string, string>;
+}
 
 function where(stackRawJpeg: boolean): SearchWhere {
   const built = buildSearchWhere({}, [], null, { stackRawJpeg });
@@ -51,23 +58,25 @@ function makePairs(db: Database): number {
   return (db.query('SELECT COUNT(*) AS n FROM pair WHERE jpeg = 1').get() as { n: number }).n;
 }
 
-function report(db: Database, label: string, w: SearchWhere): Record<string, number> {
+function report(db: Database, label: string, w: SearchWhere): Report {
   const statements = {
     count: countSql(w),
     histogram: timedBucketsSql(w),
     page: pageSql(w, 'captured_desc', 200, 0),
   };
-  const out: Record<string, number> = {};
+  const plans: Record<string, string> = {};
   for (const [name, statement] of Object.entries(statements)) {
     const timed = timeStatement(db, statement.sql, statement.params, RUNS);
-    console.log(`${label} ${name}: ${timed.ms.toFixed(2)} ms`);
-    console.log(`  ${queryPlanLines(db, statement.sql, statement.params).join('\n  ')}`);
-    out[name] =
-      name === 'count'
-        ? (db.query(statement.sql).get(...(statement.params as never[])) as { n: number }).n
-        : timed.ms;
+    plans[name] = queryPlanLines(db, statement.sql, statement.params).join('\n  ');
+    console.log(
+      `${label} ${name}: ${timed.ms.toFixed(2)} ms wall, ${timed.cpuMs.toFixed(2)} ms CPU`,
+    );
+    console.log(`  ${plans[name]}`);
   }
-  return out;
+  const count = (
+    db.query(statements.count.sql).get(...(statements.count.params as never[])) as { n: number }
+  ).n;
+  return { count, plans };
 }
 
 const args = process.argv.slice(2);
@@ -84,11 +93,10 @@ console.log(`${count} assets, ${pairs} RAW+JPEG pairs`);
 
 const before = report(db, 'before 0044', where(false));
 
-const cpuBefore = process.cpuUsage();
+const cpuBefore = threadCpuMs();
 const migrated = await runMigrations(fromBunSqlite(db), ALL_MIGRATIONS);
-const cpu = process.cpuUsage(cpuBefore);
 console.log(
-  `0044 migration: ${migrated.durations[STACKS_MIGRATION]} ms wall, ${((cpu.user + cpu.system) / 1000).toFixed(0)} ms CPU`,
+  `0044 migration: ${migrated.durations[STACKS_MIGRATION]} ms wall, ${(threadCpuMs() - cpuBefore).toFixed(0)} ms CPU`,
 );
 db.exec('ANALYZE');
 
@@ -111,4 +119,10 @@ if (unfolded.count !== before.count || folded.count !== before.count - stacked) 
     `MISMATCH: before ${before.count}, unfolded ${unfolded.count}, folded ${folded.count}, stacked ${stacked}`,
   );
   process.exitCode = 1;
+}
+for (const [name, plan] of Object.entries(before.plans)) {
+  if (unfolded.plans[name] !== plan || folded.plans[name] !== plan) {
+    console.error(`PLAN CHANGED: ${name} left the index it used before 0044`);
+    process.exitCode = 1;
+  }
 }

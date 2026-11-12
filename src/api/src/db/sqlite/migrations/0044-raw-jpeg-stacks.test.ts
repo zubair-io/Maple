@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test';
-import type { Database } from 'bun:sqlite';
+import { Database } from 'bun:sqlite';
 import { runMigrations } from '../migrate.ts';
 import { ALL_MIGRATIONS } from './index.ts';
 import {
@@ -68,4 +68,45 @@ test('the count and histogram indexes carry the pointer, so the fold stays index
     expect(columns).toContain('hidden');
     expect(columns.at(-1)).toBe('stack_primary_id');
   }
+});
+
+// 0044 drops and rebuilds two indexes, and SQLite refuses a DROP with SQLITE_LOCKED while a statement
+// on the same connection is still active (the 1M-asset benchmark hit it through a cached EXPLAIN,
+// which SQLite halts only on reset). Boot migrates on a connection of its own (`boot-schema.ts`),
+// so what a running server can have open is on other connections, and a reader mid-scan there
+// does not block it.
+test('applies while another connection is part-way through reading assets', async () => {
+  using handle = createBlankTestDatabase('file');
+  await runMigrations(handle.migrationDb, BEFORE);
+  const lib = insertFolder(handle.db, { slug: 'photos' });
+  const raw = locate(handle.db, lib, 'trip', 'IMG_1.CR3');
+  const jpeg = locate(handle.db, lib, 'trip', 'IMG_1.JPG');
+  const reader = new Database(handle.path, { readonly: true });
+  try {
+    const scan = reader.query<{ id: string }, []>('SELECT id FROM assets ORDER BY id').iterate();
+    const first = scan.next();
+
+    const result = await runMigrations(handle.migrationDb, ALL_MIGRATIONS);
+
+    expect(result.applied).toEqual([ID]);
+    expect(primaryOf(handle.db, jpeg)).toBe(raw);
+    // The reader finishes on the snapshot it started from.
+    const ids = [first.value?.id, ...Array.from(scan, (row) => row.id)];
+    expect(ids.sort()).toEqual([raw, jpeg].sort());
+  } finally {
+    reader.close();
+  }
+});
+
+test('a statement left prepared on the migrating connection does not block it once it has run', async () => {
+  using handle = createBlankTestDatabase('file');
+  await runMigrations(handle.migrationDb, BEFORE);
+  const lib = insertFolder(handle.db, { slug: 'photos' });
+  locate(handle.db, lib, '', 'a.CR3');
+  // `db.query` caches the statement and never finalises it, but stepping it to the end halts it.
+  handle.db.query('SELECT COUNT(*) AS n FROM assets WHERE live_location_count > 0').all();
+
+  const result = await runMigrations(handle.migrationDb, ALL_MIGRATIONS);
+
+  expect(result.applied).toEqual([ID]);
 });

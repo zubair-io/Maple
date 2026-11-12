@@ -131,16 +131,25 @@ export function median(samples: readonly number[]): number {
  * Every script here asserts something about a plan and each had grown its own
  * copy of this; they differ only in how they lay the lines out, so the join is
  * the caller's and the query is not.
+ *
+ * The statement is finalized, not left in `db.query`'s cache: SQLite halts an
+ * EXPLAIN statement only when it is reset, so a cached one stays active after
+ * `.all()`, and an active statement makes a later `DROP INDEX` on the same
+ * connection fail with SQLITE_LOCKED. That is what failed the 0044 benchmark
+ * (#5849) before its migration ran.
  */
 export function queryPlanLines(
   db: Database,
   sql: string,
   params: readonly unknown[] = [],
 ): string[] {
-  const rows = db.query(`EXPLAIN QUERY PLAN ${sql}`).all(...(params as never[])) as Array<{
-    detail: string;
-  }>;
-  return rows.map((row) => row.detail);
+  const statement = db.prepare(`EXPLAIN QUERY PLAN ${sql}`);
+  try {
+    const rows = statement.all(...(params as never[])) as Array<{ detail: string }>;
+    return rows.map((row) => row.detail);
+  } finally {
+    statement.finalize();
+  }
 }
 
 /** The first positional argument as a row count, or `fallback`. */
@@ -152,23 +161,36 @@ export function sizeArgument(args: readonly string[], fallback: number): number 
   return sizes[0] ?? fallback;
 }
 
-/** Median wall time of `runs` executions of one statement, plus its row count. */
+/** Milliseconds of CPU this thread has used, user plus system. */
+export function threadCpuMs(): number {
+  const usage = process.threadCpuUsage();
+  return (usage.user + usage.system) / 1000;
+}
+
+/**
+ * Median wall time and median thread CPU time of `runs` executions of one
+ * statement, plus its row count. The CPU time is the figure to compare on a
+ * loaded machine, where the wall time also counts waiting for a core.
+ */
 export function timeStatement(
   db: Database,
   sql: string,
   params: readonly unknown[],
   runs: number,
-): { ms: number; rows: number } {
+): { ms: number; cpuMs: number; rows: number } {
   const statement = db.query(sql);
   statement.all(...(params as never[]));
   const samples: number[] = [];
+  const cpuSamples: number[] = [];
   let rows = 0;
   for (let i = 0; i < runs; i += 1) {
     const startedAt = performance.now();
+    const cpuStartedAt = threadCpuMs();
     rows = statement.all(...(params as never[])).length;
+    cpuSamples.push(threadCpuMs() - cpuStartedAt);
     samples.push(performance.now() - startedAt);
   }
-  return { ms: median(samples), rows };
+  return { ms: median(samples), cpuMs: median(cpuSamples), rows };
 }
 
 /** Median wall time of `runs` awaited calls, after one untimed warm-up. */

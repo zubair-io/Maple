@@ -142,6 +142,13 @@ export interface SearchWhere {
    * predicate reads `assets.stack_primary_id`, which `assets_live` and
    * `assets_live_captured_ym` carry, so the count and the histogram stay
    * index-only. Absent means unfolded.
+   *
+   * The predicate carries a unary `+` so it is only ever a residual, never a
+   * seek. It matches nearly every row, but `sqlite_stat1` sees the column's
+   * non-null values, one per pair, and rates `IS NULL` as nearly unique: with
+   * statistics the histogram otherwise skip-scans `assets_live` on it, reads
+   * every live row for its capture month and sorts them
+   * (`search.query-plan.stacks.test.ts`).
    */
   foldStacks?: boolean;
 }
@@ -417,7 +424,7 @@ export function searchWhereSql(where: SearchWhere, extra?: BoundPredicate): Boun
     ...(narrowing ? [narrowing.sql] : []),
     QUALIFIED_LIVE_PREDICATE,
     ...(where.hidden === null ? [] : [`assets.hidden = ${where.hidden}`]),
-    ...(where.foldStacks === true ? ['assets.stack_primary_id IS NULL'] : []),
+    ...(where.foldStacks === true ? ['+assets.stack_primary_id IS NULL'] : []),
     ...where.clauses,
     ...(extra ? [extra.sql] : []),
   ];
