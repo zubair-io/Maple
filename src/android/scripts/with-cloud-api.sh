@@ -11,7 +11,9 @@ repo="$(cd ../.. && pwd)"
 api="$repo/src/api"
 port="${MAPLE_API_FIXTURE_PORT:-3988}"
 origin="http://127.0.0.1:$port"
-work="$(mktemp -d "${TMPDIR:-/tmp}/maple-android-api.XXXXXX")"
+# Canonical path: macOS's TMPDIR ends in "/" (and sits behind /var -> /private/var), and
+# the server compares replaced files against the library root it was registered with.
+work="$(cd "$(mktemp -d "${TMPDIR:-/tmp}/maple-android-api.XXXXXX")" && pwd -P)"
 library="$work/library"
 log="${MAPLE_API_FIXTURE_LOG:-$android/ci-artifacts/api-fixture.log}"
 mkdir -p "$library/2026" "$work/runtime" "$(dirname "$log")"
