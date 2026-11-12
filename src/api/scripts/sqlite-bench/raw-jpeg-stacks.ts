@@ -37,8 +37,8 @@ interface Report {
   plans: Record<string, string>;
 }
 
-function where(stackRawJpeg: boolean): SearchWhere {
-  const built = buildSearchWhere({}, [], null, { stackRawJpeg });
+function where(stack: boolean): SearchWhere {
+  const built = buildSearchWhere(stack ? { stack: '1' } : {});
   if ('error' in built) throw new Error(built.error);
   return built;
 }

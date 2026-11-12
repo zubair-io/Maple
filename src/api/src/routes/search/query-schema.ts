@@ -102,6 +102,9 @@ export interface SearchQuery {
   /** Opaque `rankPin` from the previous page of a free-text search (#4542): ranks this page with
    * the same engine and window steps, or answers 409 `rank_engine_changed` when it cannot. */
   rankPin?: string;
+  /** `1` folds RAW+JPEG stacks into their RAW (#5849); `0` or absent lists every file. Only
+   * stack-aware clients send it, after reading the user's `stack_raw_jpeg` display setting. */
+  stack?: '0' | '1';
 }
 
 export const SearchQueryT = t.Object({
@@ -142,4 +145,5 @@ export const SearchQueryT = t.Object({
   sort: t.Optional(t.String()),
   cursor: t.Optional(t.String()),
   rankPin: t.Optional(t.String()),
+  stack: t.Optional(t.Union([t.Literal('0'), t.Literal('1')])),
 });

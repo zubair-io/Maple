@@ -18,7 +18,6 @@ import { windowDepthFor } from '../../db/repos/search.ranked.ts';
 import { SearchQueryT, type SearchQuery } from './query.ts';
 import { resolveRankedScope, resolveSearchScope } from './scope.ts';
 import { canonicalOwner } from './total-cache.ts';
-import { loadDisplayConfig } from '../../display/display-config.repo.ts';
 
 // ── Buckets response cache ────────────────────────────────────────────
 // Module-scoped because the cache lives for the process lifetime. Keys
@@ -80,6 +79,7 @@ const BUCKETS_CACHE_KEY_FIELDS = [
   'ownerId',
   'owner_id',
   'owner',
+  'stack',
 ] as const satisfies readonly (keyof SearchQuery)[];
 
 /** Stable JSON serialisation of a SearchQuery. Field order is fixed
@@ -166,9 +166,7 @@ export const bucketsRoute = new Elysia().get(
     // tight enough that newly-indexed photos surface within a minute.
     const need = windowNeed(query as SearchQuery);
     const engine = firstEngine();
-    // A toggled `stack_raw_jpeg` must not be answered from the other setting's histogram.
-    const { stack_raw_jpeg: stacked } = await loadDisplayConfig();
-    const cacheKey = `${makeBucketsCacheKey(query as SearchQuery)}#${windowDepthFor(need)}#${engine}#${stacked}`;
+    const cacheKey = `${makeBucketsCacheKey(query as SearchQuery)}#${windowDepthFor(need)}#${engine}`;
     const cached = bucketsCache.get(cacheKey);
     const nowMs = Date.now();
     if (cached && cached.expiresMs > nowMs) {

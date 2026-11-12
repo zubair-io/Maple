@@ -50,6 +50,8 @@ export interface RankedAsset {
  */
 export interface WindowRow extends RankedAsset, ShotFields {
   maple_id: string | null;
+  /** The RAW a paired JPEG folds into (#5849); a ranked window folds in memory. */
+  stack_primary_id?: string | null;
   owner_id: string | null;
 }
 
@@ -225,7 +227,9 @@ function windowOf(pass: WindowPass, depth: number): RankedWindow {
 export function ftsWindowSql(where: SearchWhere, depth: number, lookahead = 0): BoundStatement {
   if (where.match.kind !== 'match') throw new Error('ftsWindowSql: not a text query');
   const narrowing = monthNarrowing(where);
-  const rest = searchWhereSql({ ...where, match: { kind: 'none' } });
+  // The window folds RAW+JPEG stacks in memory (`foldRankedStacks`): only there is it known
+  // whether the RAW also ranked.
+  const rest = searchWhereSql({ ...where, match: { kind: 'none' }, foldStacks: false });
   const probed =
     lookahead > 0
       ? {
@@ -245,6 +249,7 @@ export function ftsWindowSql(where: SearchWhere, depth: number, lookahead = 0): 
     alive AS MATERIALIZED (
       SELECT hit.rank AS rank, hit.sr AS sr, assets.rowid AS r, assets.id AS id,
              assets.maple_id AS maple_id, assets.owner_id AS owner_id,
+             assets.stack_primary_id AS stack_primary_id,
              assets.captured_at AS captured_at, assets.media_kind AS media_kind,
              ${LIVE_FILENAME_SQL} AS filename, ${probed.beyond} AS beyond
         FROM hit
@@ -253,6 +258,7 @@ export function ftsWindowSql(where: SearchWhere, depth: number, lookahead = 0): 
        ${rest.sql})
   SELECT (SELECT COUNT(*) FROM hit) AS considered, alive.r AS r, alive.id AS id,
          alive.maple_id AS maple_id, alive.owner_id AS owner_id,
+         alive.stack_primary_id AS stack_primary_id,
          alive.captured_at AS captured_at, alive.media_kind AS media_kind,
          alive.filename AS filename, alive.beyond AS beyond
     FROM (SELECT 1) LEFT JOIN alive ON 1
@@ -278,16 +284,60 @@ export function ftsRanker(where: SearchWhere, dbOverride?: SqliteDb): WindowRank
       }
     >(assetsDb(dbOverride), window.sql, window.params);
     const survivors = answer.flatMap(
-      ({ r, id, maple_id, owner_id, captured_at, media_kind, filename, beyond }) =>
+      ({
+        r,
+        id,
+        maple_id,
+        owner_id,
+        stack_primary_id,
+        captured_at,
+        media_kind,
+        filename,
+        beyond,
+      }) =>
         r === null || id === null || media_kind === null
           ? []
-          : [{ row: { r, id, maple_id, owner_id, captured_at, media_kind, filename }, beyond }],
+          : [
+              {
+                row: {
+                  r,
+                  id,
+                  maple_id,
+                  owner_id,
+                  stack_primary_id,
+                  captured_at,
+                  media_kind,
+                  filename,
+                },
+                beyond,
+              },
+            ],
     );
-    return {
+    return foldRankedStacks(where, {
       considered: answer[0]?.considered ?? 0,
       rows: survivors.flatMap(({ row, beyond }) => (beyond ? [] : [row])),
       beyond: survivors.flatMap(({ row, beyond }) => (beyond ? [row] : [])),
-    };
+    });
+  };
+}
+
+/**
+ * A ranked pass with each paired JPEG dropped whose RAW the same pass kept (#5849). The window is
+ * filtered unfolded and folded here because the RAW must have ranked too: a JPEG whose RAW the
+ * engine never returned, or a filter rejected, stays a result of its own. A lookahead JPEG folds
+ * against the served rows and the lookahead alike.
+ */
+export function foldRankedStacks(where: SearchWhere, pass: WindowPass): WindowPass {
+  if (where.foldStacks !== true) return pass;
+  const fold = (rows: readonly WindowRow[], kept: readonly WindowRow[]) => {
+    const ids = new Set(kept.map((row) => row.id));
+    return rows.filter((row) => !row.stack_primary_id || !ids.has(row.stack_primary_id));
+  };
+  const beyond = pass.beyond ?? [];
+  return {
+    ...pass,
+    rows: fold(pass.rows, pass.rows),
+    ...(pass.beyond ? { beyond: fold(beyond, [...pass.rows, ...beyond]) } : {}),
   };
 }
 
@@ -328,9 +378,10 @@ export function inGivenOrder<T>(
 export function mapleIdRowsSql(where: SearchWhere, mapleIds: readonly string[]): BoundStatement {
   return statement(
     `assets.rowid AS r, assets.id AS id, assets.maple_id AS maple_id, assets.owner_id AS owner_id,
+     assets.stack_primary_id AS stack_primary_id,
      assets.captured_at AS captured_at, assets.media_kind AS media_kind,
      ${LIVE_FILENAME_SQL} AS filename`,
-    { ...where, match: { kind: 'none' } },
+    { ...where, match: { kind: 'none' }, foldStacks: false },
     '',
     {
       sql: 'assets.maple_id IS NOT NULL AND assets.maple_id IN (SELECT value FROM json_each(?))',

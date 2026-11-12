@@ -10,11 +10,14 @@
  * sweep is only ever late to pair, never late to unpair.
  */
 
+import { child as childLogger } from '../../log.ts';
 import type { ObjectId } from '../object-id.ts';
 import { pairStackAssets, type StackFile } from '../../library/raw-jpeg-stack.ts';
 import { sqliteDb, type SqliteDb } from './db-handle.ts';
 import { placeholders } from './values.ts';
 import type { SqlStatement } from '../sqlite/protocol.ts';
+
+const log = childLogger('db/repos/assets.raw-jpeg-stacks');
 
 interface FolderFile extends StackFile {
   stack_primary_id: string | null;
@@ -69,6 +72,32 @@ export async function reconcileRawJpegStacks(
   });
   if (changes.length > 0) await db.transaction(changes);
   return changes.length;
+}
+
+/** A folder an in-app move, rename or restore just wrote to or out of. */
+export interface StackFolder {
+  libraryId: ObjectId;
+  relPath: string;
+}
+
+/**
+ * Re-pairs the folders an in-app move, rename or restore just changed. The triggers unpair a half
+ * the moment its location changes, and clients move a stack as two per-asset calls, so without
+ * this the pair shows as two tiles until the sweep next visits the folder. It never fails the
+ * file operation that has already committed: the sweep stays the backstop.
+ */
+export async function reconcileStacksAfterMove(folders: readonly StackFolder[]): Promise<void> {
+  const distinct = new Map(
+    folders.map((folder) => [`${folder.libraryId.toHexString()}:${folder.relPath}`, folder]),
+  );
+  for (const { libraryId, relPath } of distinct.values()) {
+    await reconcileRawJpegStacks(libraryId, relPath).catch((error: unknown) =>
+      log.warn(
+        { libraryId: libraryId.toHexString(), relPath, error: String(error) },
+        'RAW+JPEG stack reconcile after a move failed; the sweep will pair it',
+      ),
+    );
+  }
 }
 
 /** The JPEG folded into a RAW, as a search result lists it beside the RAW. */

@@ -1,8 +1,9 @@
 /**
- * RAW+JPEG stacks in the timeline and search (#5849): with `stack_raw_jpeg` on, a JPEG the
- * discover sweep paired with its RAW leaves the list, its total and the timeline histogram, and
- * the RAW result carries it as `stack.companion`, in the folder listing's shape. Facet groups
- * still count files. Real SQLite, paired by the sweep's own reconcile.
+ * RAW+JPEG stacks in the timeline and search (#5849). Folding is opt-in per request (`stack=1`):
+ * a JPEG the discover sweep paired with its RAW leaves the list, its total and the timeline
+ * histogram only when its RAW survives the same request, and the RAW result carries it as
+ * `stack.companion`, in the folder listing's shape. Facet groups still count files. Real SQLite,
+ * paired by the sweep's own reconcile.
  */
 
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
@@ -19,6 +20,7 @@ import {
 import { invalidateLibraryRoots } from '../../indexer/libraries.cache.ts';
 import { setInProcessSearchForTests } from '../../search/search-pool.ts';
 import { fakeInProcessSearch } from '../../search/search.test-helpers.ts';
+import { mapClustersRoute } from '../map/clusters.ts';
 import { bucketsRoute, _resetBucketsCacheForTests } from './buckets.ts';
 import { facetsRoute } from './facets.ts';
 import { listRoute } from './list.ts';
@@ -32,18 +34,25 @@ beforeEach(async () => {
   live = await createLiveTestDatabase();
   const libraryId = insertFolder(live.db, { slug: 'stacks', path: '/lib' });
   invalidateLibraryRoots();
-  const seed = (mapleId: string, path: string, filename: string, capturedAt: string) =>
+  const seed = (
+    mapleId: string,
+    filename: string,
+    capturedAt: string,
+    gps: { lat: number; lng: number } | null = null,
+  ) =>
     seedSearchAsset(live.db, libraryId, {
       mapleId,
-      path,
+      path: 'trip',
       filename,
       capturedAt,
+      gps,
       searchBlob: `harbour ${mapleId}`,
     });
-  // The JPEG is newer than the RAW, so a page that failed to fold would lead with it.
-  raw = seed('raw', 'trip', 'IMG_1.CR3', '2024-06-01T10:00:00.000Z');
-  jpeg = seed('jpeg', 'trip', 'IMG_1.JPG', '2024-06-01T10:00:01.000Z');
-  seed('lone', 'trip', 'IMG_2.JPG', '2024-05-01T10:00:00.000Z');
+  // The JPEG is newer than the RAW, so a page that failed to fold would lead with it. Only the
+  // JPEG carries GPS, as when the RAW's location did not parse.
+  raw = seed('raw', 'IMG_1.CR3', '2024-06-01T10:00:00.000Z');
+  jpeg = seed('jpeg', 'IMG_1.JPG', '2024-06-01T10:00:01.000Z', { lat: 42.65, lng: -73.75 });
+  seed('lone', 'IMG_2.JPG', '2024-05-01T10:00:00.000Z');
   await reconcileRawJpegStacks(new ObjectId(libraryId), 'trip');
   _resetCacheForTests();
   _resetBucketsCacheForTests();
@@ -57,12 +66,20 @@ afterEach(() => {
   live.close();
 });
 
-const app = new Elysia().use(listRoute).use(facetsRoute).use(bucketsRoute);
+const app = new Elysia().use(listRoute).use(facetsRoute).use(bucketsRoute).use(mapClustersRoute);
 
 interface Result {
   _id: string;
   filename: string;
   stack?: { companion: Record<string, unknown> };
+}
+interface Page {
+  total: number;
+  results: Result[];
+}
+interface Histogram {
+  total: number;
+  buckets: Array<{ year: number; month: number; count: number }>;
 }
 
 async function get<T>(path: string): Promise<T> {
@@ -70,30 +87,16 @@ async function get<T>(path: string): Promise<T> {
   expect(response.status).toBe(200);
   return (await response.json()) as T;
 }
-
-const list = () => get<{ total: number; results: Result[] }>('/');
-const histogram = () =>
-  get<{ total: number; buckets: Array<{ year: number; month: number; count: number }> }>(
-    '/buckets',
-  );
-
-function setStacking(value: boolean): void {
-  run(
-    live.db,
-    `INSERT INTO app_settings (id, doc) VALUES ('display', ?)
-     ON CONFLICT(id) DO UPDATE SET doc = excluded.doc`,
-    JSON.stringify({ stack_raw_jpeg: value }),
-  );
-}
+const filenames = (page: Page) => page.results.map((result) => result.filename);
 
 describe('RAW+JPEG stacks in search and the timeline #5849', () => {
-  it('lists the RAW once, carrying its JPEG, and counts the pair as one', async () => {
-    const { total, results } = await list();
+  it('stack=1 lists the RAW once, carrying its JPEG, and counts the pair as one', async () => {
+    const page = await get<Page>('/?stack=1');
 
-    expect(total).toBe(2);
-    expect(results.map((result) => result.filename)).toEqual(['IMG_1.CR3', 'IMG_2.JPG']);
-    expect(results[0]?._id).toBe(raw);
-    expect(results[0]?.stack?.companion).toEqual({
+    expect(page.total).toBe(2);
+    expect(filenames(page)).toEqual(['IMG_1.CR3', 'IMG_2.JPG']);
+    expect(page.results[0]?._id).toBe(raw);
+    expect(page.results[0]?.stack?.companion).toEqual({
       id: jpeg,
       name: 'IMG_1.JPG',
       address: 'stacks:trip/IMG_1.JPG',
@@ -102,11 +105,11 @@ describe('RAW+JPEG stacks in search and the timeline #5849', () => {
       mtime: expect.any(String),
       ext: 'jpg',
     });
-    expect(results[1]?.stack).toBeUndefined();
+    expect(page.results[1]?.stack).toBeUndefined();
   });
 
   it('the timeline histogram and the facet total count the pair once; facet groups count files', async () => {
-    const { total, buckets } = await histogram();
+    const { total, buckets } = await get<Histogram>('/buckets?stack=1');
     expect(total).toBe(2);
     expect(buckets).toEqual([
       { year: 2024, month: 6, count: 1 },
@@ -116,7 +119,7 @@ describe('RAW+JPEG stacks in search and the timeline #5849', () => {
     const facets = await get<{
       total: number;
       extensions: Array<{ value: string; count: number }>;
-    }>('/facets');
+    }>('/facets?stack=1');
     expect(facets.total).toBe(2);
     expect(facets.extensions).toEqual(
       expect.arrayContaining([
@@ -126,33 +129,79 @@ describe('RAW+JPEG stacks in search and the timeline #5849', () => {
     );
   });
 
-  it('with stacking off, both files are results again and nothing is cached across the switch', async () => {
-    await list();
-    await histogram();
-    setStacking(false);
+  it('without stack=1 both files are results, whatever the display setting says', async () => {
+    run(
+      live.db,
+      `INSERT INTO app_settings (id, doc) VALUES ('display', ?)`,
+      JSON.stringify({ stack_raw_jpeg: true }),
+    );
+    await get<Page>('/?stack=1');
+    await get<Histogram>('/buckets?stack=1');
 
-    const { total, results } = await list();
-    expect(total).toBe(3);
-    expect(results.map((result) => result.filename)).toEqual([
-      'IMG_1.JPG',
-      'IMG_1.CR3',
-      'IMG_2.JPG',
-    ]);
-    expect(results.some((result) => result.stack)).toBe(false);
-    expect((await histogram()).buckets[0]).toEqual({ year: 2024, month: 6, count: 2 });
+    for (const query of ['', '?stack=0']) {
+      const page = await get<Page>(`/${query}`);
+      expect(page.total).toBe(3);
+      expect(filenames(page)).toEqual(['IMG_1.JPG', 'IMG_1.CR3', 'IMG_2.JPG']);
+      expect(page.results.some((result) => result.stack)).toBe(false);
+      expect((await get<Histogram>(`/buckets${query}`)).buckets[0]).toEqual({
+        year: 2024,
+        month: 6,
+        count: 2,
+      });
+    }
+  });
+
+  it('a stack value other than 0 or 1 is refused', async () => {
+    const response = await app.handle(new Request('http://localhost/?stack=true'));
+    expect(response.status).toBeGreaterThanOrEqual(400);
+    expect(response.status).toBeLessThan(500);
   });
 
   it('a type filter asks for files, so ext=jpg finds the stacked JPEG', async () => {
-    const { results } = await get<{ results: Result[] }>('/?ext=jpg');
-    expect(results.map((result) => result.filename)).toEqual(['IMG_1.JPG', 'IMG_2.JPG']);
+    const page = await get<Page>('/?ext=jpg&stack=1');
+    expect(filenames(page)).toEqual(['IMG_1.JPG', 'IMG_2.JPG']);
+  });
+
+  it('a filter only the JPEG matches keeps the JPEG, in the list, its total and the timeline', async () => {
+    const page = await get<Page>('/?q=IMG_1.JPG&stack=1');
+    expect(page.total).toBe(1);
+    expect(filenames(page)).toEqual(['IMG_1.JPG']);
+    expect(page.results[0]?.stack).toBeUndefined();
+
+    const histogram = await get<Histogram>('/buckets?q=IMG_1.JPG&stack=1');
+    expect(histogram.buckets).toEqual([{ year: 2024, month: 6, count: 1 }]);
+  });
+
+  it('a filter both halves match still folds the pair', async () => {
+    const page = await get<Page>('/?q=IMG_1&stack=1');
+    expect(page.total).toBe(1);
+    expect(filenames(page)).toEqual(['IMG_1.CR3']);
+    expect(page.results[0]?.stack?.companion).toMatchObject({ id: jpeg });
+  });
+
+  it('the map keeps the pin of a JPEG whose RAW has no GPS', async () => {
+    const { cells } = await get<{ cells: Array<{ count: number }> }>(
+      '/clusters?bbox=-74,42,-73,43&zoom=10&stack=1',
+    );
+    expect(cells.map((cell) => cell.count)).toEqual([1]);
   });
 
   it('a ranked text search serves the RAW with its JPEG even when the JPEG ranks first', async () => {
     setInProcessSearchForTests(fakeInProcessSearch(['jpeg', 'lone', 'raw']));
 
-    const { results } = await get<{ results: Result[] }>('/?placeQuery=harbour');
+    const page = await get<Page>('/?placeQuery=harbour&stack=1');
 
-    expect(results.map((result) => result.filename)).toEqual(['IMG_2.JPG', 'IMG_1.CR3']);
-    expect(results[1]?.stack?.companion).toMatchObject({ id: jpeg, name: 'IMG_1.JPG' });
+    expect(filenames(page)).toEqual(['IMG_2.JPG', 'IMG_1.CR3']);
+    expect(page.results[1]?.stack?.companion).toMatchObject({ id: jpeg, name: 'IMG_1.JPG' });
+  });
+
+  it('a ranked text search keeps a JPEG whose RAW did not rank', async () => {
+    setInProcessSearchForTests(fakeInProcessSearch(['jpeg', 'lone']));
+
+    const page = await get<Page>('/?placeQuery=harbour&stack=1');
+
+    expect(page.total).toBe(2);
+    expect(filenames(page)).toEqual(['IMG_1.JPG', 'IMG_2.JPG']);
+    expect(page.results[0]?.stack).toBeUndefined();
   });
 });
