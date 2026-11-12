@@ -65,6 +65,44 @@ pub fn fit_develop_model_for(
     }
 }
 
+/// The pinned fit model and the preview the fit pairs against, shrunk to
+/// `shrink_to` (#3510). The lens vignetting share is measured on the
+/// embedded preview as extracted, before any shrink, so every entry (CPU
+/// render, GPU proxy fit, `maple-cli`) reads the same pixels and fits at the
+/// same scale (#5791).
+pub(in crate::pipeline::render) fn fit_model_and_preview(
+    model: &AdjustmentModel,
+    raw: &RawImage,
+    preview: ExtractedPreview,
+    shrink_to: Option<u32>,
+) -> (AdjustmentModel, ExtractedPreview) {
+    let pinned = fit_develop_model_for(model, raw, Some(&preview));
+    (pinned, downsample_preview_for_fit(preview, shrink_to))
+}
+
+/// Downsample the embedded JPEG to `max_long_edge` (the fit's develop target) so
+/// the fit pairs a SMALL (developed-RAW, JPEG) couple. No-op for `None` (small
+/// sensor) or already-small previews; parity-gated on `baseline_auto` ΔE (#1647).
+fn downsample_preview_for_fit(
+    mut preview: ExtractedPreview,
+    max_long_edge: Option<u32>,
+) -> ExtractedPreview {
+    let Some(mle) = max_long_edge else {
+        return preview;
+    };
+    let le = preview.image.width().max(preview.image.height());
+    if le <= mle {
+        return preview;
+    }
+    let scale = f64::from(mle) / f64::from(le);
+    let nw = ((f64::from(preview.image.width()) * scale).round() as u32).max(1);
+    let nh = ((f64::from(preview.image.height()) * scale).round() as u32).max(1);
+    preview.image = preview
+        .image
+        .resize_exact(nw, nh, image::imageops::FilterType::Triangle);
+    preview
+}
+
 pub(in crate::pipeline::render) fn uses_pinned_fit_pixels(
     active: &AdjustmentModel,
     pinned: AdjustmentModel,
@@ -158,5 +196,37 @@ mod tests {
             None
         ));
         assert!(uses_pinned_fit_pixels(&lacking.clone(), lacking, None));
+    }
+
+    /// #5791: the share is measured on the preview as extracted, before the
+    /// proxy shrink, so the GPU proxy fit and the CPU render (which pairs
+    /// the unshrunk preview) develop at one scale. On this frame the shrink
+    /// alone moves a 70% preview's reading from 75 to the full correction.
+    #[test]
+    fn the_share_is_measured_before_the_proxy_shrink() {
+        use crate::image::CfaPattern;
+        use crate::view::auto_profile::preview_vignetting::tests::{frame, preview};
+
+        let raw = frame(CfaPattern::Rggb);
+        let model = AdjustmentModel::default();
+        let extracted = preview(&raw, 0.7);
+        let shrink_to = 160;
+        let shrunk = downsample_preview_for_fit(extracted.clone(), Some(shrink_to));
+        assert_ne!(
+            preview_vignetting::scale(&raw, &extracted),
+            preview_vignetting::scale(&raw, &shrunk),
+            "the shrink must move this reading for the test to discriminate"
+        );
+        let (pinned, paired) =
+            fit_model_and_preview(&model, &raw, extracted.clone(), Some(shrink_to));
+        assert_eq!(
+            pinned.lens_correction_vignetting,
+            preview_vignetting::scale(&raw, &extracted)
+        );
+        assert_eq!(
+            pinned,
+            fit_develop_model_for(&model, &raw, Some(&extracted))
+        );
+        assert_eq!(paired.image.width().max(paired.image.height()), shrink_to);
     }
 }

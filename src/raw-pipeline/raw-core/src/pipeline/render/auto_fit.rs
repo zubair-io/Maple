@@ -30,7 +30,9 @@ use crate::view::auto_profile::AutoFitOutcome;
 use crate::view::{agx, auto_profile, encode};
 use crate::xmp::AdjustmentModel;
 
-use super::auto_fit_model::{fit_develop_model_for, uses_pinned_fit_pixels};
+#[cfg(doc)]
+use super::auto_fit_model::fit_develop_model_for;
+use super::auto_fit_model::{fit_model_and_preview, uses_pinned_fit_pixels};
 use super::RawInput;
 
 /// Develop a RAW through the EXACT (pinned) Auto Profile fit prefix and return
@@ -110,9 +112,6 @@ fn auto_fit_max_long_edge(preview: &ExtractedPreview) -> u32 {
     preview_le.min(AUTO_FIT_PROXY_LE)
 }
 
-/// Downsample the embedded JPEG to `max_long_edge` (the fit's develop target) so
-/// the fit pairs a SMALL (developed-RAW, JPEG) couple. No-op for `None` (small
-/// sensor) or already-small previews; parity-gated on `baseline_auto` ΔE (#1647).
 /// The [`FitOrigin`] a render at `max_long_edge` fits under (#3233 /
 /// #3235). [`run_auto_profile_stage`] fits from the scene it is rendering
 /// (or from a side develop at the same size), so its artifacts depend on
@@ -124,26 +123,6 @@ pub(super) fn render_fit_origin(sensor_long_edge: u32, max_long_edge: Option<u32
     // long edge IS the native develop — key it that way rather than as one
     // entry per requested cap (#3233 / #3235).
     FitOrigin::Render(max_long_edge.filter(|&cap| cap < sensor_long_edge))
-}
-
-fn downsample_preview_for_fit(
-    mut preview: ExtractedPreview,
-    max_long_edge: Option<u32>,
-) -> ExtractedPreview {
-    let Some(mle) = max_long_edge else {
-        return preview;
-    };
-    let le = preview.image.width().max(preview.image.height());
-    if le <= mle {
-        return preview;
-    }
-    let scale = f64::from(mle) / f64::from(le);
-    let nw = ((f64::from(preview.image.width()) * scale).round() as u32).max(1);
-    let nh = ((f64::from(preview.image.height()) * scale).round() as u32).max(1);
-    preview.image = preview
-        .image
-        .resize_exact(nw, nh, image::imageops::FilterType::Triangle);
-    preview
 }
 
 /// The embedded preview the Auto fits share — ONE extraction per cold fit
@@ -229,8 +208,7 @@ pub fn fit_profile_curve_from_raw(
     // side) and shrink the JPEG to match so the pair the curve fits over is
     // ~1.5 MP, not the full embedded preview.
     let mle = Some(auto_fit_max_long_edge(&preview));
-    let preview = downsample_preview_for_fit(preview, mle);
-    let pinned = fit_develop_model_for(model, raw, Some(&preview));
+    let (pinned, preview) = fit_model_and_preview(model, raw, preview, mle);
     let scene = develop_display_for_auto_fit(raw, &pinned, quality, mle).ok()?;
     let (w, h) = (scene.width as usize, scene.height as usize);
     let pixels: &[f32] = bytemuck::cast_slice(&scene.pixels);
@@ -357,12 +335,8 @@ pub fn fit_auto_profile_from_raw_at_cap(
             };
             // The native render fits against the original embedded preview.
             // Only the standalone proxy shrinks the JPEG (#3510).
-            let preview = if cap == FitCap::Proxy {
-                downsample_preview_for_fit(preview, mle)
-            } else {
-                preview
-            };
-            let pinned = fit_develop_model_for(model, raw, Some(&preview));
+            let shrink_to = mle.filter(|_| cap == FitCap::Proxy);
+            let (pinned, preview) = fit_model_and_preview(model, raw, preview, shrink_to);
             let mut scene = develop_display_for_auto_fit(raw, &pinned, quality, mle)
                 .map_err(|_| AutoFitOutcome::Unfitted)?;
             let (w, h) = (scene.width as usize, scene.height as usize);
@@ -441,8 +415,9 @@ pub fn cached_auto_profile_fit(
         .filter(|(curve, residual)| curve.is_some() || residual.is_some())
 }
 
-/// The CPU render path's Auto Profile stage (#1085): obtain the (pinned-fit)
-/// artifacts and apply them to the render buffer `scene`.
+/// The CPU render path's Auto Profile stage (#1085): obtain the artifacts
+/// fitted on `pinned` (the [`fit_develop_model_for`] model, measured once by
+/// the caller) and apply them to the render buffer `scene`.
 ///
 /// Two routes to the artifacts:
 /// * **Render buffer IS the pinned fit buffer** — when the AE-pinned render
@@ -462,7 +437,7 @@ pub fn cached_auto_profile_fit(
 pub(super) fn run_auto_profile_stage(
     scene: &mut Image,
     raw: &RawImage,
-    model: &AdjustmentModel,
+    pinned: &AdjustmentModel,
     active_model: &AdjustmentModel,
     quality: RenderQuality,
     max_long_edge: Option<u32>,
@@ -475,7 +450,6 @@ pub(super) fn run_auto_profile_stage(
 ) -> (Option<ProfileCurve>, Option<ColorLut>) {
     scene.assert_space(ColorSpace::DisplayEncodedSrgb);
     let (w, h) = (scene.width as usize, scene.height as usize);
-    let pinned = fit_develop_model_for(model, raw, preview.as_ref());
     let pinned_pixels = uses_pinned_fit_pixels(active_model, pinned.clone(), film_lut);
     // A P3-encoded buffer carries the same space tag, so only the target says
     // whether these pixels are the sRGB fit domain (#4741).
@@ -498,7 +472,7 @@ pub(super) fn run_auto_profile_stage(
     }
     let (curve, residual) = fit_artifacts_from_pinned_develop(
         raw,
-        &pinned,
+        pinned,
         quality,
         max_long_edge,
         preview,
