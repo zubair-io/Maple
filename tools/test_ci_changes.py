@@ -119,10 +119,10 @@ class ClassificationTests(unittest.TestCase):
         apple = "src/apple/"
         assets = apple + "Maple/Assets.xcassets/"
         cases = {
-            (
-                "src/android/app/src/main/java/app/justmaple/aperture/ui/"
-                "PresetsAndToneCurvePlot.kt"
-            ): {"api", "android"},
+            "src/android/app/src/main/java/app/justmaple/aperture/ui/Presets.kt": {
+                "api",
+                "android",
+            },
             apple
             + "Packages/MapleCore/Sources/MapleCore/Resources/builtin-presets.json": {
                 "api",
