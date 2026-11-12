@@ -14,6 +14,7 @@ import { seedSearchAsset } from '../../db/repos/search.test-helpers.ts';
 import {
   createLiveTestDatabase,
   insertFolder,
+  insertLocation,
   run,
   type LiveTestDatabase,
 } from '../../db/sqlite/test-sqlite.test-helpers.ts';
@@ -29,10 +30,11 @@ import { _resetCacheForTests } from './total-cache.ts';
 let live: LiveTestDatabase;
 let raw: string;
 let jpeg: string;
+let libraryId: string;
 
 beforeEach(async () => {
   live = await createLiveTestDatabase();
-  const libraryId = insertFolder(live.db, { slug: 'stacks', path: '/lib' });
+  libraryId = insertFolder(live.db, { slug: 'stacks', path: '/lib' });
   invalidateLibraryRoots();
   const seed = (
     mapleId: string,
@@ -186,13 +188,61 @@ describe('RAW+JPEG stacks in search and the timeline #5849', () => {
     expect(cells.map((cell) => cell.count)).toEqual([1]);
   });
 
-  it('a ranked text search serves the RAW with its JPEG even when the JPEG ranks first', async () => {
+  it('a ranked text search serves the stack at its best rank, as the RAW with its JPEG', async () => {
     setInProcessSearchForTests(fakeInProcessSearch(['jpeg', 'lone', 'raw']));
 
     const page = await get<Page>('/?placeQuery=harbour&stack=1');
 
-    expect(filenames(page)).toEqual(['IMG_2.JPG', 'IMG_1.CR3']);
-    expect(page.results[1]?.stack?.companion).toMatchObject({ id: jpeg, name: 'IMG_1.JPG' });
+    expect(page.total).toBe(2);
+    expect(filenames(page)).toEqual(['IMG_1.CR3', 'IMG_2.JPG']);
+    expect(page.results[0]?.stack?.companion).toMatchObject({ id: jpeg, name: 'IMG_1.JPG' });
+  });
+
+  it('a ranked map search keeps the pin of a ranked JPEG whose RAW has no GPS', async () => {
+    setInProcessSearchForTests(fakeInProcessSearch(['jpeg', 'lone', 'raw']));
+
+    const { cells } = await get<{ cells: Array<{ count: number }> }>(
+      '/clusters?bbox=-74,42,-73,43&zoom=10&placeQuery=harbour&stack=1',
+    );
+
+    expect(cells.map((cell) => cell.count)).toEqual([1]);
+  });
+
+  it('a ranked map search counts a stack whose halves both have GPS once', async () => {
+    run(
+      live.db,
+      `UPDATE assets SET exif = json_set(coalesce(exif, '{}'), '$.gps', json(?)) WHERE id = ?`,
+      JSON.stringify({ lat: 42.65, lng: -73.75 }),
+      raw,
+    );
+    setInProcessSearchForTests(fakeInProcessSearch(['jpeg', 'lone', 'raw']));
+
+    const { cells } = await get<{ cells: Array<{ count: number }> }>(
+      '/clusters?bbox=-74,42,-73,43&zoom=10&placeQuery=harbour&stack=1',
+    );
+
+    expect(cells.map((cell) => cell.count)).toEqual([1]);
+  });
+
+  it('a scope the RAW is not in keeps the JPEG reached through another location', async () => {
+    const elsewhere = insertFolder(live.db, { slug: 'elsewhere', path: '/other' });
+    insertLocation(live.db, {
+      assetId: jpeg,
+      libraryId: elsewhere,
+      ordinal: 1,
+      path: 'copies',
+      filename: 'IMG_1.JPG',
+    });
+    await reconcileRawJpegStacks(new ObjectId(libraryId), 'trip');
+    expect(
+      live.db.query('SELECT stack_primary_id AS p FROM assets WHERE id = ?').get(jpeg),
+    ).toEqual({ p: raw });
+
+    for (const scope of [`libraryId=${elsewhere}`, 'pathPrefix=copies']) {
+      const page = await get<Page>(`/?${scope}&stack=1`);
+      expect(filenames(page)).toEqual(['IMG_1.JPG']);
+      expect(page.total).toBe(1);
+    }
   });
 
   it('a ranked text search keeps a JPEG whose RAW did not rank', async () => {

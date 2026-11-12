@@ -17,13 +17,13 @@
  */
 
 import { Elysia, t } from 'elysia';
-import { mapClusters } from '../../db/repos/map-clusters.repo.ts';
+import { mapClusters, type MapWindowRow } from '../../db/repos/map-clusters.repo.ts';
 import { buildSearchWhere, type SearchWhere } from '../../db/repos/search.where.ts';
 import { assetAbsPath, assetPrimaryFileInfo } from '../../indexer/images.repo.ts';
 import { loadLibraryRoots } from '../../indexer/libraries.cache.ts';
 import { personIdsToDrop } from '../../db/repos/people.visibility.ts';
 import { clampInt, SearchQueryT, type SearchQuery } from '../search/query.ts';
-import { RANKED_WINDOW_MAX, type RankedAsset } from '../../db/repos/search.ranked.ts';
+import { RANKED_WINDOW_MAX } from '../../db/repos/search.ranked.ts';
 import { requestWindow } from '../search/ranked-window.ts';
 import { resolveRankedScope } from '../search/scope.ts';
 
@@ -221,7 +221,7 @@ interface MapCluster {
 async function clusterScope(
   q: MapClustersQuery,
   where: SearchWhere,
-): Promise<{ where: SearchWhere; window?: readonly RankedAsset[] } | { error: string }> {
+): Promise<{ where: SearchWhere; window?: readonly MapWindowRow[] } | { error: string }> {
   if (where.match.kind === 'none') return { where };
   const scope = await resolveRankedScope(q);
   if ('error' in scope) return scope;
