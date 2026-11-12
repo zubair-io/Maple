@@ -72,6 +72,13 @@ pub fn reduce_black_levels(
 /// own white scale. rawler still reports the sensor's ColorData black for it,
 /// while LibRaw and the DNG Converter both declare 0, and sensor-unit
 /// calibration (camconst) does not apply to its scale (#4644).
+///
+/// LibRaw's `is_sraw()` also groups Nikon's small NEF and Sony's YCbCr ARW,
+/// and neither belongs here (#5117). rawler already reports black 0 for
+/// Nikon's reconstruction, as LibRaw 0.22 and the DNG Converter do. Sony's
+/// reconstructed RGB keeps a real pedestal of twice the sensor black (1024
+/// on a 512-black body), which rawler reports and LibRaw and the DNG
+/// Converter both declare.
 pub fn is_reconstructed_canon_rgb(cfa: CfaPattern, canon_cr2: bool) -> bool {
     matches!((cfa, canon_cr2), (CfaPattern::LinearRgb, true))
 }
