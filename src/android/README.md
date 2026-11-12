@@ -14,10 +14,11 @@ Slider and phone drag-bar palettes are generated from the
 same Rust catalog as iOS; vertical swipes over tracks scroll the inspector.
 Phone navigation is Library / Search / Settings with a sources drawer. Tablets
 use a sources column, image area, and controls or Info inspector, with a vertical
-filmstrip. Search currently searches names in the open folder. Maple Cloud/self-hosted
+filmstrip. With a connected server, Search queries that server (see Cloud
+connections); without one it filters names in the open folder. Maple Cloud/self-hosted
 connections support the iPad server-domain sign-in flow, registered libraries,
 nested folders, remote previews, and editing with conditional XMP saves. Device-library
-backup, server search/map/admin, masks, clone/heal, Browse multi-select (and with it
+backup, server timeline/map/admin, masks, clone/heal, Browse multi-select (and with it
 paste onto a selection) and the other remaining specialized editor surfaces are not
 implemented; the per-surface status is
 the audit on #4623, which remains open. Android delegates
@@ -391,6 +392,19 @@ checks, cancellation during redemption, refresh/disconnect ordering, nested Unic
 paths, real XMP saves/conflicts, and original-byte
 preservation against a temporary fixture server. Live account/passkey-provider
 and physical-device qualification remains outstanding.
+
+**Search** queries the selected connected server (a server row appears when more
+than one is connected) through `GET /api/search` and `/api/search/facets`:
+free text, the Today / Last 7 days / Last 30 days / This year presets with the
+same from/to strings as iPad, and multi-select People and Places facets (count
+order; a selected value missing from the facets stays removable). Typing waits
+350 ms; filters search at once. The count is open-ended ("5,000+ photos") for a
+ranked text window. **Show more** follows `nextCursor` for capture-time sorts or
+the next `page` with the server's `rankPin`; a `409 rank_engine_changed` restarts
+from page 0 without the pin. Rows without a registered library address are not
+openable and are left out, as are non-photo files. A result opens into Preview
+and Edit with the result list as its filmstrip and saves through the conditional
+cloud XMP path above (`CloudSearch.kt`, `CloudSearchPanel.kt`).
 
 Connected servers also appear in the system Files app and every app's document
 picker as **Maple Cloud** (`MapleDocumentsProvider`): browse, on-demand

@@ -34,6 +34,10 @@ internal constructor(
     // The one seam the recovery tests (#4765) substitute — the JNI renderer;
     // the sidecar layer is always the real one (CLAUDE.md: no mocks there).
     val renderer: PreviewRenderer = rendererOverride ?: EditorRenderer(library, ::framePresented)
+    internal val search =
+        app.justmaple.aperture.cloud.CloudSearchModel(viewModelScope) { server, path ->
+            withContext(Dispatchers.IO) { library.cloud.http.request(server, path) }
+        }
     private val preferences = application.getSharedPreferences("maple-ui", 0)
     private val mutable =
         MutableStateFlow(
