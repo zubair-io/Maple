@@ -24,9 +24,12 @@ pub struct Session {
     pub model: AdjustmentModel,
     raw: Option<Arc<RawImage>>,
     /// Name-only imported Auto (#4669): renders As Shot until the background
-    /// estimate is adopted; `imported_auto` remembers the request.
+    /// estimate is adopted; `imported_auto` remembers the request and
+    /// `imported_auto_started` allows one estimate per session, so a surface
+    /// recreation never starts a second one.
     imported_wb: CachedEstimate,
     imported_auto: bool,
+    imported_auto_started: bool,
     bytes: Arc<Vec<u8>>,
     ext: String,
     detail: std::sync::OnceLock<crate::native_detail::SharedDetail>,
@@ -166,16 +169,22 @@ impl Session {
         self.imported_wb.apply(&mut model);
         self.model = model;
     }
-    /// Off-thread work for the pending imported Auto estimate, if any.
-    pub fn prepare_imported_auto_white_balance(&self) -> Option<ImportedAutoWhiteBalanceWork> {
-        let raw = self.raw.clone().filter(|_| self.imported_auto)?;
-        self.imported_wb
-            .pair()
-            .is_none()
-            .then(|| ImportedAutoWhiteBalanceWork {
-                raw,
-                estimate: self.imported_wb,
-            })
+    /// Off-thread work for the session's one imported Auto estimate, if any.
+    pub fn prepare_imported_auto_white_balance(&mut self) -> Option<ImportedAutoWhiteBalanceWork> {
+        if self.imported_auto_started || !self.imported_auto || self.imported_wb.pair().is_some() {
+            return None;
+        }
+        let raw = self.raw.clone()?;
+        self.imported_auto_started = true;
+        Some(ImportedAutoWhiteBalanceWork {
+            raw,
+            estimate: self.imported_wb,
+        })
+    }
+    /// The model renders an adopted imported pair rather than authored WB, so
+    /// the host's WB slider values are display-only and never pushed back.
+    pub fn renders_imported_auto_pair(&self) -> bool {
+        self.imported_auto && self.imported_wb.pair().is_some()
     }
     /// Adopt a finished estimate: the current model and native detail re-render
     /// with the pair once. A WB edit made meanwhile has cleared the request.
@@ -342,6 +351,7 @@ impl Session {
             raw,
             imported_wb: CachedEstimate::default(),
             imported_auto,
+            imported_auto_started: false,
             bytes,
             ext,
             prefix,

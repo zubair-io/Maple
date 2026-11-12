@@ -244,8 +244,10 @@ impl MapleApp {
                     self.status = "Preview ready · resident GPU renderer".into();
                 }
                 Event::ImportedWhiteBalance(id, pair) if id == self.session => {
-                    // One re-render once the background estimate lands (#4669).
+                    // One re-render once the background estimate lands (#4669); the
+                    // Before view re-renders with it too.
                     self.imported_auto = Some(pair);
+                    self.comparison_model = None;
                     self.render();
                 }
                 Event::Saved(id, result) => {

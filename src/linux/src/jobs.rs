@@ -71,7 +71,7 @@ struct Session {
     native_size: (u32, u32),
     gpu: Option<crate::gpu_preview::GpuPreview>,
     gpu_failed: bool,
-    imported_auto_requested: bool,
+    imported_auto: Option<crate::imported_auto::Estimate>,
 }
 
 impl Session {
@@ -114,7 +114,7 @@ impl Session {
                 native_size,
                 gpu: None,
                 gpu_failed: false,
-                imported_auto_requested: false,
+                imported_auto: None,
             },
             document,
         ))
@@ -202,20 +202,14 @@ impl Session {
 }
 
 impl Session {
-    /// Start the session's one background estimate for name-only imported
-    /// Auto; the first frame never waits for it (#4669).
-    fn resolve_imported_auto(
-        &mut self,
-        model: &AdjustmentModel,
-        results: &mpsc::Sender<Event>,
-        context: &egui::Context,
-    ) {
-        if let Some(raw) = self.raw.clone().filter(|_| {
-            !self.imported_auto_requested
-                && raw_core::stages::imported_auto_wb::needs_resolution(model)
-        }) {
-            self.imported_auto_requested = true;
-            crate::imported_auto::spawn_estimate(self.id, raw, results.clone(), context.clone());
+    /// Start the session's one background estimate for name-only imported Auto
+    /// once its first frame was sent, so that frame never competes with it (#4669).
+    fn resolve_imported_auto(&mut self, results: &mpsc::Sender<Event>, context: &egui::Context) {
+        if let (None, Some(raw)) = (&self.imported_auto, &self.raw) {
+            let (raw, results) = (raw.clone(), results.clone());
+            let estimate =
+                crate::imported_auto::spawn_estimate(self.id, raw, results, context.clone());
+            self.imported_auto = Some(estimate);
         }
     }
 }
@@ -255,6 +249,7 @@ impl Worker {
         let thread = thread::spawn(move || {
             let mut session: Option<Session> = None;
             for work in commands {
+                let mut imported_auto = false;
                 let (ticket, command) = match work {
                     Work::Command(command) => (0, *command),
                     Work::Render => {
@@ -348,9 +343,8 @@ impl Worker {
                         }
                     }
                     Command::Render(id, generation, model) => {
-                        if let Some(opened) = session.as_mut().filter(|s| s.id == id) {
-                            opened.resolve_imported_auto(&model, &results, &context);
-                        }
+                        imported_auto =
+                            raw_core::stages::imported_auto_wb::needs_resolution(&model);
                         let model = crate::imported_auto::as_shot_until_resolved(model);
                         let cancel = raw_gpu::CancelToken::new();
                         *render_cancel.lock().expect("active GPU render") = Some(cancel.clone());
@@ -376,6 +370,9 @@ impl Worker {
                                             let _ = results
                                                 .send(Event::GpuRendered(id, generation, frame));
                                             context.request_repaint();
+                                            if imported_auto {
+                                                opened.resolve_imported_auto(&results, &context);
+                                            }
                                         }
                                         continue;
                                     }
@@ -418,10 +415,15 @@ impl Worker {
                 {
                     continue;
                 }
+                let resolve_after_frame =
+                    imported_auto && matches!(event, Event::Rendered(_, _, Ok(_), _));
                 if results.send(event).is_err() {
                     break;
                 }
                 context.request_repaint();
+                if let Some(opened) = session.as_mut().filter(|_| resolve_after_frame) {
+                    opened.resolve_imported_auto(&results, &context);
+                }
             }
         });
         Self {

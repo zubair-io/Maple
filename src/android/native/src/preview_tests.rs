@@ -295,22 +295,45 @@ fn generated_scalar_access_validates_ranges_and_marks_manual_wb() {
     assert_eq!(model.wb_source, raw_core::types::WbSource::Manual);
 }
 
+const IMPORTED_AUTO_XMP: &str = r#"<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/" xmlns:papp="http://ns.justmaple.app/photo/1.0/" crs:WhiteBalance="Auto" papp:Profile="Neutral" /></rdf:RDF></x:xmpmeta>"#;
+
+fn imported_auto_fixture() -> std::path::PathBuf {
+    std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../../test-fixtures/batch-transfer/source.dng")
+}
+
+/// The `_imported_wb` value the Kotlin renderer reads through the values FFI.
+fn imported_wb_flag(session: &mut Session) -> f64 {
+    unsafe {
+        let json = crate::maple_android_values((session as *mut Session).cast());
+        let text = std::ffi::CStr::from_ptr(json).to_str().unwrap().to_owned();
+        crate::maple_android_free_string(json);
+        serde_json::from_str::<serde_json::Value>(&text).unwrap()["_imported_wb"]
+            .as_f64()
+            .unwrap()
+    }
+}
+
 #[test]
 fn imported_auto_white_balance_renders_as_shot_until_the_background_estimate_is_adopted() {
-    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../test-fixtures/batch-transfer/source.dng");
+    let path = imported_auto_fixture();
     let raw = raw_core::decode::decode(&path).unwrap();
     let expected =
         raw_core::stages::imported_auto_wb::estimate(&raw, raw_core::CancelToken::never()).unwrap();
-    let xml = r#"<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/" xmlns:papp="http://ns.justmaple.app/photo/1.0/" crs:WhiteBalance="Auto" papp:Profile="Neutral" /></rdf:RDF></x:xmpmeta>"#;
+    let xml = IMPORTED_AUTO_XMP;
     let mut session = Session::open(path.to_str().unwrap(), xml, 64).unwrap();
     // The first frame renders As Shot: nothing was estimated on open.
     assert!(!session.model.unresolved_auto_wb);
     assert!(!session.model.temperature_seen && !session.model.tint_seen);
+    assert_eq!(imported_wb_flag(&mut session), 0.0);
     let mut work = session.prepare_imported_auto_white_balance().unwrap();
-    work.run().unwrap();
+    // One estimate per session: a surface recreated before it lands starts none.
+    assert!(session.prepare_imported_auto_white_balance().is_none());
+    work.run(&CancelToken::new()).unwrap();
     session.adopt_imported_auto_white_balance(&work);
     assert_eq!((session.model.temperature, session.model.tint), expected);
+    // The host's WB values are display-only now, so it never pushes them back.
+    assert_eq!(imported_wb_flag(&mut session), 1.0);
     assert!(session.prepare_imported_auto_white_balance().is_none());
     // Later models reuse the adopted pair without analysis.
     let mut edited = crate::xmp::parse(xml).unwrap();
@@ -318,6 +341,7 @@ fn imported_auto_white_balance_renders_as_shot_until_the_background_estimate_is_
     session.set_model(edited);
     assert_eq!((session.model.temperature, session.model.tint), expected);
     assert_eq!(session.model.exposure, 1.0);
+    assert_eq!(imported_wb_flag(&mut session), 1.0);
     // A numeric WB edit is authored and never replaced.
     let authored = crate::xmp::parse(&xml.replace(
         r#"crs:WhiteBalance="Auto""#,
@@ -329,4 +353,23 @@ fn imported_auto_white_balance_renders_as_shot_until_the_background_estimate_is_
         (session.model.temperature, session.model.tint),
         (5300., 17.)
     );
+    assert_eq!(imported_wb_flag(&mut session), 0.0);
+}
+
+#[test]
+fn a_cancelled_imported_auto_estimate_unwinds_and_releases_its_raw() {
+    let path = imported_auto_fixture();
+    let mut session = Session::open(path.to_str().unwrap(), IMPORTED_AUTO_XMP, 64).unwrap();
+    let mut work = session.prepare_imported_auto_white_balance().unwrap();
+    let raw = session.raw.clone().unwrap();
+    let cancel = CancelToken::new();
+    // Navigation or close flips the renderer's flag while the estimate runs.
+    cancel.cancel();
+    assert!(work.run(&cancel).is_err());
+    assert!(work.estimate.pair().is_none());
+    // Freeing the cancelled work drops its RAW reference with it.
+    let held = Arc::strong_count(&raw);
+    drop(work);
+    assert_eq!(Arc::strong_count(&raw), held - 1);
+    drop(session);
 }

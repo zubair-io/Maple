@@ -35,6 +35,13 @@ class EditorRenderer(library: PhotoLibrary, private val onPresented: (Int) -> Un
                 Thread(null, task, "Maple refine", 16L * 1024 * 1024)
             }
             .asCoroutineDispatcher()
+    private val importedWhiteBalance =
+        ImportedAutoWhiteBalanceEstimate(NativeImportedAutoWhiteBalance, dispatcher.executor)
+    @Volatile
+    private var importedWhiteBalanceListener: ((Int, Result<Map<String, Float>>) -> Unit)? = null
+    // The native model renders an adopted name-only imported Auto pair (#4669):
+    // its WB is not authored, so the view model's WB values are display-only.
+    private var importedWhiteBalanceAdopted = false
     private var handle = 0L
     private var renderer = 0L
     private val drawLock = Any()
@@ -168,7 +175,7 @@ class EditorRenderer(library: PhotoLibrary, private val onPresented: (Int) -> Un
             ) {
                 hasPresented = true
                 onPresented(epoch)
-                resolveImportedAutoWhiteBalance(epoch)
+                startImportedAutoWhiteBalance()
             }
         } catch (failure: Exception) {
             if (expectedRevision == revision && binding === currentSurface) throw failure
@@ -189,7 +196,7 @@ class EditorRenderer(library: PhotoLibrary, private val onPresented: (Int) -> Un
                 reloadedInvalidation = seenInvalidation
                 values = readValues()
             }
-            EditorDrawPlan.forEachFieldToApply(values, next) { field, value ->
+            EditorDrawPlan.forEachFieldToApply(values, next, importedWhiteBalanceAdopted) { field, value ->
                 NativeBridge.setField(handle, field.index, value)
             }
             values = next
@@ -265,33 +272,36 @@ class EditorRenderer(library: PhotoLibrary, private val onPresented: (Int) -> Un
             }
         }
 
+    override fun observeImportedWhiteBalance(
+        listener: (generation: Int, values: Result<Map<String, Float>>) -> Unit
+    ) {
+        importedWhiteBalanceListener = listener
+    }
+
     /**
-     * After the As Shot first frame, estimate a name-only imported Auto WB once
-     * off the GPU thread from the session's RAW, then adopt it and re-render
-     * once (#4669). Failure keeps As Shot; the next open retries.
+     * After the As Shot first frame, estimate a name-only imported Auto WB once per session off
+     * the render thread, then adopt it here, re-render once and publish the slider values the
+     * native model now holds (#4669). Failure or cancellation keeps As Shot; the next open retries.
      */
-    private fun resolveImportedAutoWhiteBalance(openEpoch: Int) {
-        val work = NativeBridge.createImportedAutoWhiteBalance(handle)
-        if (work == 0L) return
-        Thread {
-            val resolved = NativeBridge.runImportedAutoWhiteBalance(work)
-            dispatcher.executor.execute {
-                try {
-                    if (resolved && openEpoch == epoch && handle != 0L) {
-                        NativeBridge.adoptImportedAutoWhiteBalance(handle, work)
-                        renderCurrent(revision)
-                    }
-                } finally {
-                    NativeBridge.closeImportedAutoWhiteBalance(work)
-                }
+    private fun startImportedAutoWhiteBalance() {
+        val openEpoch = epoch
+        importedWhiteBalance.start(handle, { openEpoch == epoch && handle != 0L }) { work ->
+            val adopted = runCatching {
+                NativeBridge.adoptImportedAutoWhiteBalance(handle, work)
+                values = readValues()
+                renderCurrent(revision)
+                values
             }
-        }.start()
+            importedWhiteBalanceListener?.invoke(openEpoch, adopted)
+        }
     }
 
     override suspend fun shutdown() = withContext(dispatcher) { release() }
 
+    /** Also records whether the native model now renders an adopted imported pair. */
     private fun readValues(): Map<String, Float> {
         val objectValues = JSONObject(NativeBridge.values(handle))
+        importedWhiteBalanceAdopted = objectValues.optDouble("_imported_wb", 0.0) == 1.0
         return AdjustmentFields.all.associate {
             it.name to objectValues.optDouble(it.name, it.initial.toDouble()).toFloat()
         } +
@@ -318,6 +328,8 @@ class EditorRenderer(library: PhotoLibrary, private val onPresented: (Int) -> Un
         }
 
     private fun release() {
+        importedWhiteBalance.cancel()
+        importedWhiteBalanceAdopted = false
         nativeDetail.clear()
         if (handle != 0L) NativeBridge.close(handle)
         handle = 0L
@@ -327,6 +339,7 @@ class EditorRenderer(library: PhotoLibrary, private val onPresented: (Int) -> Un
     }
 
     override fun close() {
+        importedWhiteBalance.cancel()
         nativeDetail.close()
         invalidateDraws()
         // Enqueue teardown behind any native call; never close a rendering handle.

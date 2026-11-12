@@ -37,7 +37,7 @@ void *maple_android_auto_wb_new(void *, const char *);
 char *maple_android_auto_wb_run(const void *);
 void maple_android_auto_wb_free(void *);
 void *maple_android_imported_wb_new(void *);
-int maple_android_imported_wb_run(void *);
+int maple_android_imported_wb_run(void *, const void *);
 int maple_android_imported_wb_adopt(void *, const void *);
 void maple_android_imported_wb_free(void *);
 void maple_android_free_string(char *);
@@ -415,13 +415,13 @@ extern "C" JNIEXPORT jstring JNICALL Java_app_justmaple_aperture_data_NativeBrid
 extern "C" JNIEXPORT void JNICALL Java_app_justmaple_aperture_data_NativeBridge_closeMaskRange(JNIEnv *, jobject, jlong work) {
     maple_android_mask_range_free(reinterpret_cast<void *>(work));
 }
-// Name-only imported Auto WB (#4669): 0 when nothing is pending. Failures stay
-// silent, so the As Shot first frame remains on screen.
+// Name-only imported Auto WB (#4669): 0 when nothing is pending. Failures and
+// cancellation stay silent, so the As Shot first frame remains on screen.
 extern "C" JNIEXPORT jlong JNICALL Java_app_justmaple_aperture_data_NativeBridge_createImportedAutoWhiteBalance(JNIEnv *, jobject, jlong handle) {
     return reinterpret_cast<jlong>(maple_android_imported_wb_new(editor(handle)->core));
 }
-extern "C" JNIEXPORT jboolean JNICALL Java_app_justmaple_aperture_data_NativeBridge_runImportedAutoWhiteBalance(JNIEnv *, jobject, jlong work) {
-    return maple_android_imported_wb_run(reinterpret_cast<void *>(work)) == 0;
+extern "C" JNIEXPORT jboolean JNICALL Java_app_justmaple_aperture_data_NativeBridge_runImportedAutoWhiteBalance(JNIEnv *, jobject, jlong work, jlong flag) {
+    return maple_android_imported_wb_run(reinterpret_cast<void *>(work), reinterpret_cast<void *>(flag)) == 0;
 }
 extern "C" JNIEXPORT void JNICALL Java_app_justmaple_aperture_data_NativeBridge_adoptImportedAutoWhiteBalance(JNIEnv *env, jobject, jlong handle, jlong work) {
     check(env, maple_android_imported_wb_adopt(editor(handle)->core, reinterpret_cast<void *>(work)));

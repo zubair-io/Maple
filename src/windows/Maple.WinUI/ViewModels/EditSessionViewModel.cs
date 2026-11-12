@@ -299,7 +299,7 @@ namespace Maple.WinUI.ViewModels
             RefreshLensProfileChoices(photo);   // #3568 — the profile dropdown's option list
             var generation = Interlocked.Increment(ref _decodeGeneration);
             UpdateAutoProfileStatus(_autoProfileStatus.Begin(generation, keepOutcome: preserveCurrentBase));
-            CancelActiveDecode();
+            CancelActiveDecode(photo.EditPath);
             // Repair-only updates retain the last completed base so exposure and
             // other chain controls can render while the replacement decodes.
             if (!preserveCurrentBase)
@@ -327,7 +327,7 @@ namespace Maple.WinUI.ViewModels
                     if (generation != _decodeGeneration)
                         return;
                     RegisterBrushRastersAndPublish(generation, photo, decoded, model);
-                    if (deferredAuto) ResolveImportedAutoAfterFirstFrame(generation, photo, model);
+                    if (deferredAuto) _ = ResolveImportedAutoAfterFirstFrameAsync(generation, photo, model);
                 }
                 catch (Exception ex)
                 {
@@ -351,12 +351,6 @@ namespace Maple.WinUI.ViewModels
                     _decodeCancel.Release(cancelFlag);
                 }
             });
-        }
-
-        private void CancelActiveDecode()
-        {
-            _decodeCancel.Cancel();
-            _amazeCancel.Cancel();
         }
 
         /// <summary>AUTO (WB preset row): the recommendation's exposure REPLACES

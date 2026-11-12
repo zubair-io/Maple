@@ -48,4 +48,17 @@ public static unsafe class ImportedWhiteBalanceResolver
         target.Tint = pair.Tint;
         target.WhiteBalanceScaleVersion = 5;
     }
+
+    /// <summary>A final derivative (sidecar thumbnail, persisted preview) has no first
+    /// frame to protect: imported WB resolves on its RAW, never As Shot (#4669), and
+    /// only an untouched model takes the decode's As Shot pair.</summary>
+    public static void PrepareDerivative(string rawPath, AdjustmentState model, DecodedImage image)
+    {
+        ResolveInPlace(rawPath, model);
+        if (model.Temperature == 6500 && model.Tint == 0 && image.DecodedTemperature > 0)
+        {
+            model.Temperature = image.DecodedTemperature;
+            model.Tint = image.DecodedTint;
+        }
+    }
 }

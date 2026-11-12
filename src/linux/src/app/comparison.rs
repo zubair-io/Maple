@@ -15,7 +15,9 @@ impl MapleApp {
         }
         let mut model = baseline.clone();
         model.crop = document.model.crop;
-        let model = self.render_model(&model);
+        // The worker renders an unresolved request As Shot and echoes that model, so
+        // store the same one; the landing pair clears it for one re-request (#4669).
+        let model = crate::imported_auto::as_shot_until_resolved(self.render_model(&model));
         self.comparison_model = Some(model.clone());
         self.comparison_texture = None;
         self.comparison_error = None;

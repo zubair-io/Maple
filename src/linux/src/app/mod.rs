@@ -421,6 +421,8 @@ impl eframe::App for MapleApp {
 
 #[cfg(test)]
 mod film_tests;
+#[cfg(test)]
+mod imported_auto_tests;
 
 #[cfg(test)]
 mod zoom_crop_tests;

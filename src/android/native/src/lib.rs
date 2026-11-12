@@ -148,6 +148,14 @@ pub unsafe extern "C" fn maple_android_values(handle: *mut c_void) -> *mut c_cha
             serde_json::json!(session.uncropped_aspect()),
         );
         values.insert("_aspect".into(), serde_json::json!(session.aspect()));
+        values.insert(
+            "_imported_wb".into(),
+            serde_json::json!(if session.renders_imported_auto_pair() {
+                1.0
+            } else {
+                0.0
+            }),
+        );
         Ok(CString::new(serde_json::Value::Object(values).to_string())
             .map_err(|e| e.to_string())?
             .into_raw())
@@ -219,12 +227,12 @@ pub unsafe extern "C" fn maple_android_auto_wb_free(work: *mut c_void) {
     }
 }
 
-/// Background work for a session's name-only imported Auto WB (#4669), or
-/// null when there is nothing to resolve.
+/// Background work for a session's one name-only imported Auto WB estimate
+/// (#4669), or null when there is nothing (left) to resolve.
 #[no_mangle]
 pub unsafe extern "C" fn maple_android_imported_wb_new(handle: *mut c_void) -> *mut c_void {
     guarded(ptr::null_mut(), || {
-        let session = handle.cast::<Session>().as_ref().ok_or("Closed editor")?;
+        let session = handle.cast::<Session>().as_mut().ok_or("Closed editor")?;
         Ok(session
             .prepare_imported_auto_white_balance()
             .map_or(ptr::null_mut(), |work| Box::into_raw(Box::new(work)).cast()))
@@ -232,13 +240,16 @@ pub unsafe extern "C" fn maple_android_imported_wb_new(handle: *mut c_void) -> *
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn maple_android_imported_wb_run(work: *mut c_void) -> i32 {
+pub unsafe extern "C" fn maple_android_imported_wb_run(
+    work: *mut c_void,
+    cancel: *const c_void,
+) -> i32 {
     guarded(-1, || {
         let work = work
             .cast::<auto_white_balance::ImportedAutoWhiteBalanceWork>()
             .as_mut()
             .ok_or("Closed imported white balance")?;
-        work.run().map(|_| 0)
+        work.run(cancellation::token(cancel)?).map(|_| 0)
     })
 }
 

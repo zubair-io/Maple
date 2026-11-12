@@ -1,5 +1,6 @@
 using System;
 using System.Linq;
+using System.Threading.Tasks;
 using Maple.WinUI.Models;
 using Maple.WinUI.Services;
 
@@ -50,23 +51,32 @@ namespace Maple.WinUI.ViewModels
             return false;
         }
 
-        /// <summary>Runs on the decode task after the first frame is published: one
-        /// estimate from the shared decode, then one re-render with the pair. Failure
-        /// leaves As Shot on screen; the next open retries (#4669).</summary>
-        private void ResolveImportedAutoAfterFirstFrame(int generation, PhotoItem photo, AdjustmentState model)
+        // One estimate at a time, joined by re-decodes of the same photo (#4669).
+        private readonly ImportedAutoEstimates _importedAuto = new(ImportedWhiteBalanceResolver.ResolveInPlace);
+
+        /// <summary>Every navigation, close and re-decode cancels the decodes in flight and
+        /// focuses the imported Auto estimate on the photo now decoding, or none: a queued
+        /// estimate for a photo left behind never starts, while a re-decode of the same photo
+        /// joins the one in flight.</summary>
+        private void CancelActiveDecode(string? decoding = null)
         {
-            try
-            {
-                ImportedWhiteBalanceResolver.ResolveInPlace(photo.EditPath, model);
-            }
-            catch (Exception)
-            {
-                return;
-            }
+            _decodeCancel.Cancel();
+            _amazeCancel.Cancel();
+            _importedAuto.Focus(decoding);
+        }
+
+        /// <summary>After the first frame is published: the focused photo's one estimate
+        /// from the shared decode, then one re-render with the pair. A Profile, AutoExposure
+        /// or lens re-decode joins the estimate in flight. Failure leaves As Shot on screen;
+        /// the next open retries (#4669).</summary>
+        private async Task ResolveImportedAutoAfterFirstFrameAsync(int generation, PhotoItem photo, AdjustmentState model)
+        {
+            var resolved = await _importedAuto.ResolveAsync(photo.EditPath, model).ConfigureAwait(false);
+            if (resolved == null) return;
             OnUi(() =>
             {
                 if (_disposed || generation != _decodeGeneration) return;
-                PublishImportedWhiteBalance(model);
+                PublishImportedWhiteBalance(resolved);
                 Renderer.RequestRender(Adjustments.Clone());
             });
         }

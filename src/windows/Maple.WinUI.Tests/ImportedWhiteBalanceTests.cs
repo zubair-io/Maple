@@ -151,6 +151,74 @@ public sealed class ImportedWhiteBalanceTests
         Assert.Equal("Custom", stripped.WhiteBalancePreset);
         Assert.Equal((6500, 0), (stripped.Temperature, stripped.Tint));
     }
+
+    private static DecodedImage AsShotDecode(float temperature, float tint) => new()
+    {
+        Pixels = Array.Empty<float>(), Width = 0, Height = 0, NoiseProfile = Array.Empty<float>(),
+        Iso = 100, AeGain = 1, WhitesAnchorEv = float.NaN,
+        DecodedTemperature = temperature, DecodedTint = tint,
+    };
+
+    [Fact]
+    public void SidecarDerivativesRenderTheImportedPairNeverTheDecodedAsShot()
+    {
+        // Thumbnails and persisted previews are final outputs (#4669): their model
+        // takes the photo's resolved pair, not the decode's As Shot fallback.
+        var nameOnly = XmpParser.Parse(Xml(""))!.Adjustments;
+        nameOnly.ImportedWhiteBalance = nameOnly.ImportedWhiteBalance! with { Resolved = new(5300, 17) };
+        ImportedWhiteBalanceResolver.PrepareDerivative("/no-analysis-required.dng", nameOnly, AsShotDecode(4800, 6));
+        Assert.Equal((5300, 17), (nameOnly.Temperature, nameOnly.Tint));
+        // Untouched sidecars keep the decoded As Shot pair; authored ones keep theirs.
+        var untouched = new AdjustmentState();
+        ImportedWhiteBalanceResolver.PrepareDerivative("/no-analysis-required.dng", untouched, AsShotDecode(4800, 6));
+        Assert.Equal((4800, 6), (untouched.Temperature, untouched.Tint));
+        var authored = XmpParser.Parse(Xml("crs:Temperature=\"7100\" crs:Tint=\"-4\""))!.Adjustments;
+        ImportedWhiteBalanceResolver.PrepareDerivative("/no-analysis-required.dng", authored, AsShotDecode(4800, 6));
+        Assert.Equal((7100, -4), (authored.Temperature, authored.Tint));
+    }
+
+    [ImportedWhiteBalanceNativeFact]
+    public void ANameOnlySidecarDerivativeResolvesOnItsRawThroughTheSharedEstimator()
+    {
+        System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(typeof(RawFfiLayoutTests).TypeHandle);
+        var raw = Path.Combine(AppContext.BaseDirectory, "Fixtures", "source.dng");
+        var expected = XmpParser.Parse(Xml(""))!.Adjustments;
+        ImportedWhiteBalanceResolver.ResolveInPlace(raw, expected);
+        var model = XmpParser.Parse(Xml(""))!.Adjustments;
+        var image = RenderEngine.Decode(raw, model, 256, RefineDecodeQuality.Preview, IntPtr.Zero);
+        ImportedWhiteBalanceResolver.PrepareDerivative(raw, model, image);
+        Assert.Equal((expected.Temperature, expected.Tint), (model.Temperature, model.Tint));
+        Assert.NotEqual(image.DecodedTemperature, (float)model.Temperature);
+    }
+
+    [Fact]
+    public void PastingANameOnlyAutoSourceCopiesTheRequestNeverAFabricatedOrStalePair()
+    {
+        // #4669: a name-only source has no numbers. Every target resolves its own Auto,
+        // so neither the parse default (6500/0) nor a target's own import is authored.
+        var source = XmpParser.Parse(Xml(""))!;
+        var clipboard = new AdjustmentTransferSource(source.Adjustments, source.WbScaleVersion, null);
+        var patch = AdjustmentTransfer.Build(clipboard, new[] { "white_balance" });
+        foreach (var target in new[] { "crs:Temperature=\"4200\" crs:Tint=\"8\"", "crs:Temperature=\"5700\"" })
+        {
+            var document = XmpParser.Parse(Xml(target).Replace("crs:WhiteBalance=\"Auto\"", "crs:WhiteBalance=\"Custom\""))!;
+            AdjustmentTransfer.Apply(document, patch);
+            var saved = XmpWriter.Serialize(document);
+            Assert.Contains("crs:WhiteBalance=\"Auto\"", saved);
+            Assert.DoesNotContain("crs:Temperature=", saved);
+            Assert.DoesNotContain("crs:Tint=", saved);
+            Assert.True(ImportedWhiteBalanceResolver.IsUnresolvedAuto(XmpParser.Parse(saved)!.Adjustments));
+        }
+        // A numeric source replaces a target's partial import instead of being dropped.
+        var numeric = XmpParser.Parse(Xml("crs:Temperature=\"5000\" crs:Tint=\"10\""))!;
+        var numericPatch = AdjustmentTransfer.Build(
+            new AdjustmentTransferSource(numeric.Adjustments, numeric.WbScaleVersion, null), new[] { "white_balance" });
+        var partial = XmpParser.Parse(Xml("crs:Temperature=\"5700\""))!;
+        AdjustmentTransfer.Apply(partial, numericPatch);
+        var pasted = XmpWriter.Serialize(partial);
+        Assert.Contains("crs:Temperature=\"5000\"", pasted);
+        Assert.Contains("crs:Tint=\"10\"", pasted);
+    }
 }
 
 public sealed class ImportedWhiteBalanceNativeFactAttribute : FactAttribute
