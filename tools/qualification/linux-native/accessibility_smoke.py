@@ -68,6 +68,21 @@ STATE_NAMES = (
 )
 
 
+def decode_state_set(words):
+    """AT-SPI `Accessible.GetState` returns the state set as a bitfield of
+    uint32 words (`au`): state N is bit N % 32 of word N // 32."""
+    return [
+        index * 32 + bit
+        for index, word in enumerate(words)
+        for bit in range(32)
+        if int(word) >> bit & 1
+    ]
+
+
+def node_states(accessible):
+    return decode_state_set(accessible.GetState())
+
+
 def format_tree(records):
     lines = ["Owned Maple AT-SPI tree (path, name, role, states, actions, interfaces):"]
     for record in records:
@@ -252,7 +267,7 @@ def inspect(binary):
                                 [],
                             ),
                             "states": query(
-                                lambda: [int(v) for v in accessible.GetStateSet()],
+                                lambda: node_states(accessible),
                                 [],
                             ),
                             "actions": [],

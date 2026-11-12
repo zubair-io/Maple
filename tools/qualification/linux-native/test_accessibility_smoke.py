@@ -63,5 +63,29 @@ class FormatTreeTest(unittest.TestCase):
         self.assertIn("states=[] actions=[]", dump)
 
 
+class DecodeStateSetTest(unittest.TestCase):
+    def test_low_word_bits_are_state_numbers(self) -> None:
+        words = [(1 << 8) | (1 << 25) | (1 << 30), 0]
+        self.assertEqual(accessibility_smoke.decode_state_set(words), [8, 25, 30])
+
+    def test_high_word_bits_continue_after_31(self) -> None:
+        self.assertEqual(
+            accessibility_smoke.decode_state_set([1 << 6, (1 << 0) | (1 << 9)]),
+            [6, 32, 41],
+        )
+
+    def test_empty_bitfield_has_no_states(self) -> None:
+        self.assertEqual(accessibility_smoke.decode_state_set([0, 0]), [])
+
+    def test_node_states_reads_the_get_state_method(self) -> None:
+        # AT-SPI's Accessible interface exposes GetState (`au`); there is no
+        # GetStateSet, whose D-Bus error used to be swallowed as `states=[]`.
+        class Accessible:
+            def GetState(self):
+                return [(1 << 6) | (1 << 27), 0]
+
+        self.assertEqual(accessibility_smoke.node_states(Accessible()), [6, 27])
+
+
 if __name__ == "__main__":
     unittest.main()
