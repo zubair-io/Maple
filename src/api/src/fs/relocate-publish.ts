@@ -184,7 +184,10 @@ export async function publishExclusive(
 /** Fallback for volumes that cannot hard-link (SMB, exFAT). The name exists
  * before its bytes do, so another writer can rename over it mid-write; the
  * handle then fills an inode no name points at, which is a lost race. */
-async function copyExclusive(source: string, destination: string): Promise<RelocatePublication> {
+export async function copyExclusive(
+  source: string,
+  destination: string,
+): Promise<RelocatePublication> {
   const target = await fs.open(destination, 'wx').catch((err: unknown) => {
     throw errnoCode(err) === 'EEXIST' ? new PublishCollisionError(destination) : err;
   });

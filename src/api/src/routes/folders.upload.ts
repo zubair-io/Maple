@@ -4,7 +4,7 @@
  * sidecar is never replaced here — sidecars are written through the XMP routes
  * with their preconditions, so the raw upload answers 409 instead. */
 import * as path from 'node:path';
-import { link, lstat, open, rename, stat, unlink, utimes } from '../fs/mirrored.ts';
+import { open, rename, stat, unlink, utimes } from '../fs/mirrored.ts';
 import { findAssetToReplaceAtAddress, upsertUploadedAsset } from '../db/repos/assets.address.ts';
 import { recordAndPublishAssetChange } from '../db/changes.repo.ts';
 import { ALL_STAGE_NAMES } from '../workers/stages/manifest.ts';
@@ -17,7 +17,8 @@ import type { FolderWithId } from '../db/schema.ts';
 import type { ObjectId } from '../db/object-id.ts';
 import { child } from '../log.ts';
 import { ignoreVerdict } from '../fs/mapleignore.ts';
-import { errnoCode, LINK_UNSUPPORTED, PublishCollisionError } from '../fs/relocate-publish.ts';
+import { publishWholeExclusive } from '../fs/publish-whole.ts';
+import { PublishCollisionError } from '../fs/relocate-publish.ts';
 import { withUploadedPrimaryFence } from '../fs/relocate-replace-fence';
 import { serializeSidecarWrite } from '../fs/sidecar-write-order.ts';
 import {
@@ -150,7 +151,7 @@ async function publishUploadedSidecar(input: UploadTarget): Promise<void> {
     input.absPath,
     async () => {
       try {
-        await publishWhole(input.tmp, input.absPath);
+        await publishWholeExclusive(input.tmp, input.absPath);
       } catch (error) {
         if (!(error instanceof PublishCollisionError)) throw uploadError('publish', error);
         refuseSidecarReplacement(input.target, input.filename);
@@ -162,24 +163,6 @@ async function publishUploadedSidecar(input: UploadTarget): Promise<void> {
     },
     { primarySidecar: admission?.primarySidecar, admissionScope: admission?.scope },
   );
-}
-/** Readers never see a partial sidecar: a hard link, or where links aren't
- * supported (SMB) a rename after an absence check, which the barrier already
- * guards against every in-process writer. */
-async function publishWhole(tmp: string, destination: string): Promise<void> {
-  try {
-    await link(tmp, destination);
-    return;
-  } catch (error) {
-    if (errnoCode(error) === 'EEXIST') throw new PublishCollisionError(destination);
-    if (!LINK_UNSUPPORTED.has(errnoCode(error) ?? '')) throw error;
-  }
-  const occupied = await lstat(destination).then(
-    () => true,
-    (error: unknown) => (errnoCode(error) === 'ENOENT' ? false : Promise.reject(error)),
-  );
-  if (occupied) throw new PublishCollisionError(destination);
-  await rename(tmp, destination);
 }
 async function preserveUploadMtime(filename: string, value: string | undefined): Promise<void> {
   if (typeof value !== 'string' || !/^\d+$/.test(value)) return;
