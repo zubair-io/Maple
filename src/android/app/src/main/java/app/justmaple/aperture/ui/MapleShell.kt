@@ -18,6 +18,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.justmaple.aperture.*
 import app.justmaple.aperture.data.PhotoExifMetadata
+import app.justmaple.aperture.cloud.CloudLibrary
 import app.justmaple.aperture.data.readPhotoExif
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -158,23 +159,45 @@ fun MapleShell(model: MapleViewModel) {
                         )
                         when (tab) {
                             "Search" -> {
-                                OutlinedTextField(
-                                    query,
-                                    { query = it },
-                                    Modifier.fillMaxWidth().padding(16.dp),
-                                    placeholder = { Text("Search photos") },
-                                    singleLine = true,
-                                    leadingIcon = { Icon(Icons.Outlined.Search, null) },
-                                )
-                                BrowseGrid(
-                                    model,
-                                    state,
-                                    state.photos.filter {
-                                        it.name.contains(query, ignoreCase = true)
-                                    },
-                                    emptyList(),
-                                    folderPicker = { folderPicker.launch(null) },
-                                )
+                                val servers = state.sources.filter { CloudLibrary.isCloud(it.uri) }
+                                if (servers.isNotEmpty()) {
+                                    val search by model.search.state.collectAsStateWithLifecycle()
+                                    CloudSearchHeader(
+                                        search,
+                                        servers,
+                                        onServer = model.search::selectServer,
+                                        onText = model.search::setText,
+                                        onDate = model.search::setDate,
+                                        onPerson = model.search::togglePerson,
+                                        onPlace = model.search::togglePlace,
+                                        onMore = model.search::loadMore,
+                                    )
+                                    BrowseGrid(
+                                        model,
+                                        state,
+                                        search.results,
+                                        emptyList(),
+                                        folderPicker = { folderPicker.launch(null) },
+                                    )
+                                } else {
+                                    OutlinedTextField(
+                                        query,
+                                        { query = it },
+                                        Modifier.fillMaxWidth().padding(16.dp),
+                                        placeholder = { Text("Search photos in this folder") },
+                                        singleLine = true,
+                                        leadingIcon = { Icon(Icons.Outlined.Search, null) },
+                                    )
+                                    BrowseGrid(
+                                        model,
+                                        state,
+                                        state.photos.filter {
+                                            it.name.contains(query, ignoreCase = true)
+                                        },
+                                        emptyList(),
+                                        folderPicker = { folderPicker.launch(null) },
+                                    )
+                                }
                             }
                             else ->
                                 BrowseGrid(
