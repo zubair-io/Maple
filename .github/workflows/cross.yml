@@ -752,6 +752,9 @@ jobs:
       # analysis without them. See #1829.
       - name: Run API tests with measured Istanbul coverage
         working-directory: src/api
+        # The suite takes minutes; a hung test process must not hold the runner
+        # for the 6 h job default (#5701).
+        timeout-minutes: 30
         env:
           MAPLE_JWT_SECRET: ci-test-secret-not-for-production-only
         run: bun run test:coverage

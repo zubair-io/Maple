@@ -59,6 +59,9 @@ jobs:
         run: bash src/api/scripts/build-raw-ffi.sh
       - name: Run API tests
         working-directory: src/api
+        # The suite takes minutes; a hung test process must not hold the runner
+        # for the 6 h job default (#5701).
+        timeout-minutes: 30
         env:
           MAPLE_JWT_SECRET: ci-test-secret-not-for-production-only
         run: bun test --timeout 30000
