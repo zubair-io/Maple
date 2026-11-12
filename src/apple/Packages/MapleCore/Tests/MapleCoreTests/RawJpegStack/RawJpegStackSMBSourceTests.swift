@@ -152,4 +152,32 @@ final class RawJpegStackSMBSourceTests: XCTestCase {
     XCTAssertEqual(
       names(pair.fixture.share), ["Album", "Trip.dng", "Trip.jpg", "Trip.xmp", "taken.jpg"])
   }
+
+  /// The RAW and the JPEG were trashed one call each, each suffixing on its own: with an older
+  /// `photo.dng` in the trash, the JPEG and the sidecar landed as `photo.jpg` and `photo.xmp`
+  /// beside that RAW while this RAW became `photo.1.dng`.
+  func testTrashKeepsThePairUnderOneStemBesideAnOlderTrashedRaw() async throws {
+    let pair = try await openPair(albumHolding: [:])
+    let sidecar = try XCTUnwrap(text(pair.fixture.share, "photo.xmp"))
+    let trash = pair.fixture.share.appendingPathComponent(".maple/trash", isDirectory: true)
+    try FileManager.default.createDirectory(at: trash, withIntermediateDirectories: true)
+    try Data("old-raw".utf8).write(to: trash.appendingPathComponent("photo.dng"))
+
+    let outcome = try await pair.fixture.source.trashAsset(pair.raw, companion: pair.jpeg)
+
+    XCTAssertEqual(outcome.primaryPath, "/.maple/trash/photo.1.dng")
+    XCTAssertEqual(outcome.companionPath, "/.maple/trash/photo.1.jpg")
+    XCTAssertEqual(
+      names(trash).filter { !$0.contains(".trashed-") },
+      ["photo.1.dng", "photo.1.jpg", "photo.1.xmp", "photo.dng"])
+    XCTAssertEqual(text(trash, "photo.dng"), "old-raw")
+    XCTAssertEqual(text(trash, "photo.1.jpg"), "jpeg-bytes")
+    XCTAssertEqual(text(trash, "photo.1.xmp"), sidecar)
+    XCTAssertEqual(names(pair.fixture.share), ["Album"])
+    let trashed = try await pair.fixture.source.listTrash().filter { $0.trashedDate != nil }
+    XCTAssertEqual(
+      Set(trashed.map(\.primaryPath)), ["/.maple/trash/photo.1.dng", "/.maple/trash/photo.1.jpg"])
+    let listed = try await pair.fixture.source.images().compactMap(\.smbPath)
+    XCTAssertTrue(listed.allSatisfy { !$0.hasPrefix("/.maple/") }, "\(listed)")
+  }
 }
