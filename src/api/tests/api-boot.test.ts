@@ -130,12 +130,12 @@ async function runBoot(
       expect(status).toBe('ready');
       expect(attempt).toBeGreaterThan(0);
       using observer = new Database(databasePath, { readonly: true });
-      expect(observer.query('SELECT challenge FROM challenges').all()).toEqual([
-        { challenge: 'live' },
-      ]);
+      expect(
+        observer.query('SELECT challenge FROM challenges ORDER BY challenge').all(),
+      ).toContainEqual({ challenge: name });
       child.kill('SIGTERM');
       expect(await child.exited).toBe(0);
-      expect(await stdout.done).toContain('Expired auth rows removed');
+      expect(await stdout.done).not.toContain('Expired auth rows removed');
       expect(await stderr.done).not.toContain('error');
       if (measured)
         mergeBootCoverage(JSON.parse(await readFile(coveragePath, 'utf8')) as CoverageMapData);
@@ -153,14 +153,15 @@ async function runBoot(
   }
 }
 
-test('the real API sweeps at boot and restart, serves SQLite health, and drains on SIGTERM', async () => {
+/** Expired sign-in rows are the worker tier's to sweep (the `auth-expiry` maintenance task), never the API's at boot. */
+test('the real API boots and restarts on SQLite, leaves expiry to the worker tier, and drains on SIGTERM', async () => {
   using database = createBlankTestDatabase('file');
   await runMigrations(database.migrationDb, ALL_MIGRATIONS);
   database.db.run(
     "INSERT INTO challenges (id,challenge,purpose,expires_at) VALUES (?, 'live', 'authenticate', '2099-01-01T00:00:00.000Z')",
     ['1'.repeat(24)],
   );
-  const directory = await mkdtemp(join(tmpdir(), 'maple-auth-expiry-boot-'));
+  const directory = await mkdtemp(join(tmpdir(), 'maple-api-boot-'));
   try {
     for (const name of ['first-boot', 'restart'])
       await runBoot(database.db, database.path, directory, name);
