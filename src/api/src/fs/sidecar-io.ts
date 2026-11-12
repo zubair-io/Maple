@@ -39,12 +39,8 @@ import * as path from 'node:path';
 import { randomBytes } from 'node:crypto';
 // Mirror-aware drop-in — see `mirrored.ts`.
 import * as fs from './mirrored.ts';
-import {
-  errnoCode,
-  LINK_UNSUPPORTED,
-  PublishCollisionError,
-  publishExclusive,
-} from './relocate-publish.ts';
+import { publishWholeExclusive } from './publish-whole.ts';
+import { PublishCollisionError } from './relocate-publish.ts';
 import {
   checkAllowed,
   getRegisteredRoots,
@@ -255,33 +251,12 @@ type CreateIfAbsentResult =
   | { ok: false; error: string };
 
 /**
- * Atomically publish `content` at `destPath` only if nothing is there yet.
- * Unlike `writeSidecarAtomic`, this can't be raced: the destination is
- * created with `link`, which the kernel resolves as a single all-or-nothing
- * operation (either the link is created, or it fails with `EEXIST` because
- * something else won the race) — there is no separate check step for another
- * writer to land in between. `failureLabel` prefixes any non-`EEXIST` error.
- */
-export function writeSidecarCreateOnly(
-  destPath: string,
-  content: string,
-  failureLabel: string,
-  signal?: AbortSignal,
-): Promise<CreateIfAbsentResult> {
-  return writeSidecarIfAbsent(
-    destPath,
-    content,
-    failureLabel,
-    signal,
-    linkOrRenameIfAbsent,
-    isEexist,
-  );
-}
-
-/**
- * The same, on any volume: `publishExclusive` links the staged file, or where
- * links aren't supported (SMB) creates the name exclusively and copies the
- * bytes in (#5071).
+ * Atomically publish `content` at `destPath` only if nothing is there yet. It
+ * can't be raced: `publishWholeExclusive` creates the name with a hard link, or
+ * where links aren't supported (SMB, exFAT) with a no-replace rename, or failing
+ * that an exclusive create — each settled by the volume as one step, so no
+ * writer outside Maple can land between a check and the publish (#5143).
+ * `failureLabel` prefixes any error other than the name being taken.
  */
 export function writeSidecarExclusive(
   destPath: string,
@@ -295,29 +270,14 @@ export function writeSidecarExclusive(
     failureLabel,
     signal,
     async (staged, dest) => {
-      await publishExclusive(staged, dest);
+      await publishWholeExclusive(staged, dest);
     },
     (err) => err instanceof PublishCollisionError,
   );
 }
 
-/** `link`, or where links aren't supported (SMB, exFAT answer EXDEV/EPERM/ENOTSUP
- * rather than EEXIST) a rename after an absence check, which each caller's
- * save barrier guards against in-process writers (#5151). */
-async function linkOrRenameIfAbsent(tmpPath: string, destPath: string): Promise<void> {
-  try {
-    await fs.link(tmpPath, destPath);
-    return;
-  } catch (err) {
-    if (!LINK_UNSUPPORTED.has(errnoCode(err) ?? '')) throw err;
-  }
-  const occupied = await fs.lstat(destPath).then(
-    () => true,
-    (err: unknown) => (errnoCode(err) === 'ENOENT' ? false : Promise.reject(err)),
-  );
-  if (occupied) throw Object.assign(new Error(`EEXIST: ${destPath}`), { code: 'EEXIST' });
-  await fs.rename(tmpPath, destPath);
-}
+/** The create-only write the XMP routes name; one implementation with `writeSidecarExclusive`. */
+export const writeSidecarCreateOnly = writeSidecarExclusive;
 
 async function writeSidecarIfAbsent(
   destPath: string,
@@ -347,12 +307,6 @@ async function writeSidecarIfAbsent(
     if (signal?.aborted) void removeTemporarySidecar(tmp);
     else await removeTemporarySidecar(tmp);
   }
-}
-
-function isEexist(err: unknown): boolean {
-  return (
-    !!err && typeof err === 'object' && 'code' in err && (err as { code: string }).code === 'EEXIST'
-  );
 }
 
 /** Delete a sidecar. Idempotent — a file that was already gone is success. */

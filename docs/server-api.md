@@ -106,7 +106,7 @@ A library is a registered root folder with a slug. `:id` is the folder's 24-char
 
 A `.xmp` uploaded through `/api/folders/:id/upload` never replaces a sidecar: when the name is already taken, including by a save through `PUT /api/assets/:id/xmp` or `POST /api/libraries/:libraryId/backup/sidecar` that lands while the upload is in flight, the route answers 409 and the existing sidecar is kept. Edit sidecars through the XMP routes.
 
-Known limitation (#5143): on volumes that refuse hard links (SMB/CIFS), the upload checks that the name is free and then renames the complete file into place, both inside the sidecar save barrier. Every writer inside Maple takes that barrier, but a writer outside it — the native app or another tool writing to the share directly — can create the sidecar in the moment between the check and the rename, and its edit is then replaced. Closing this needs a rename that refuses to replace an existing file (`renamex_np` with `RENAME_EXCL`, `renameat2` with `RENAME_NOREPLACE`), which smbfs and CIFS, the only volumes this path serves, generally don't support.
+A sidecar is published by the strongest step the volume supports (`fs/publish-whole.ts`, #5143): a hard link; where links are refused, a no-replace rename (`renamex_np` with `RENAME_EXCL` on macOS, `renameat2` with `RENAME_NOREPLACE` on Linux), which publishes the complete file or fails with the name taken; and where the volume does not honor that flag either (macOS smbfs answers `ENOTSUP`), an exclusive create of the name followed by writing the bytes into it. Each step is settled by the volume as one operation, so no writer outside Maple can land between a check and the publish and have its edit replaced. What remains on the last step, which is the only one that can expose it: for the length of one write a reader, including `GET /api/assets/:id/xmp`, which takes no save barrier, can see the sidecar as an empty file.
 
 Media uploaded through `/api/folders/:id/upload` is attributed to the authenticated uploader, including when the filesystem watcher creates the asset first. Client-supplied owner headers are ignored. Internal writers without a principal preserve existing attribution; a principal whose user row is absent leaves new assets unassigned and keeps an existing asset's owner.
 
@@ -200,7 +200,7 @@ Path-keyed XMP reads (including absent-sidecar 404s) advertise
 `X-Maple-Xmp-Preconditions: content-etag-v1`. Successful reads and conditional
 saves return the exact published body's strong `ETag`. Conditional checks share
 the server's sidecar write barrier; concurrent clients with one baseline cannot
-both replace it. Create-only publication also uses an atomic filesystem link; on volumes without hard links (SMB, exFAT) it renames the staged file into place after an absence check under the same barrier, so only a writer outside Maple can race it (#5151).
+both replace it. Create-only publication goes through the same `publishWholeExclusive` chain (hard link, then no-replace rename, then exclusive create), so a writer outside Maple cannot be replaced on any volume (#5143, #5151).
 Malformed, weak or combined precondition headers return 400. A 412 leaves the
 canonical sidecar unchanged; the client retains its pending edits and offers
 reload/conflict handling. Older callers without preconditions retain their
