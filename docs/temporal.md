@@ -54,12 +54,12 @@ The worker tier retries a failed connection every five seconds, re-checks an est
 
 A worker tier that dies is respawned by the API (1 s, doubling to 30 s if it keeps dying quickly). On a planned stop the worker tier stops every stage first (each waiting at most 30 seconds for its batch), then lets running activities finish; systemd's `TimeoutStopSec=30s` in `maple.service` bounds how long that can take. Whatever was still running when the process went away is delivered again once Temporal notices its heartbeat has stopped:
 
-| Work               | Back after                                                                                           | Resumes from                                                                              |
-| ------------------ | ---------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
-| A stage slice      | About 1 minute (heartbeat timeout)                                                                   | The next claim; assets from the batch it had in hand wait out their 15-minute claim first |
-| A discover slice   | About 1 minute; a directory left half visited waits for its five-minute frontier lease               | The saved frontier and checkpoint                                                         |
-| A job or import    | About 5 minutes (heartbeat timeout)                                                                  | The checkpoint the handler saved; a reconcile starts over                                 |
-| A maintenance pass | Its next scheduled run (the killed run fails after 5 minutes without a heartbeat; there is no retry) | Where the pass stopped                                                                    |
+| Work               | Back after                                                                                           | Resumes from                                                                                                   |
+| ------------------ | ---------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| A stage slice      | About 1 minute (heartbeat timeout)                                                                   | The next claim; assets from the batch it had in hand wait out their 15-minute claim first                      |
+| A discover slice   | About 1 minute; a directory left half visited waits for its five-minute frontier lease               | The saved frontier and checkpoint                                                                              |
+| A job or import    | About 5 minutes (heartbeat timeout)                                                                  | The checkpoint the handler saved, or for an import the file outcomes already recorded; a reconcile starts over |
+| A maintenance pass | Its next scheduled run (the killed run fails after 5 minutes without a heartbeat; there is no retry) | Where the pass stopped                                                                                         |
 
 Queued work and schedules lose nothing: they live in the database and in Temporal, not in the process.
 
