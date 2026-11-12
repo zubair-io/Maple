@@ -79,7 +79,8 @@ final class RawJpegStackServerTests: XCTestCase {
 
     _ = try await catalog.relocateAsset(
       assetID: rawID, mode: .move, collision: .replace, destinationPath: "Album",
-      sourceAddress: "lib:Trip/IMG_1.CR3", stack: stack, restore: ("Trip", "IMG_1.CR3"))
+      sourceAddress: "lib:Trip/IMG_1.CR3", stack: stack, libraryFolderID: "f1",
+      restore: ("Trip", "IMG_1.CR3"))
 
     let relocations = recorder.requests.filter { $0.path.hasSuffix("/relocate") }
     XCTAssertEqual(
@@ -103,7 +104,7 @@ final class RawJpegStackServerTests: XCTestCase {
 
     _ = try await catalog.relocateAsset(
       assetID: rawID, mode: .move, collision: .replace, destinationPath: "Album",
-      sourceAddress: nil, stack: stack, restore: ("Trip", "IMG_1.CR3"),
+      sourceAddress: nil, stack: stack, libraryFolderID: "f1", restore: ("Trip", "IMG_1.CR3"),
       companionCollision: .replace)
 
     XCTAssertEqual(recorder.requests.last?.body["collision"] as? String, "replace")
@@ -133,7 +134,8 @@ final class RawJpegStackServerTests: XCTestCase {
     do {
       _ = try await catalog.relocateAsset(
         assetID: rawID, mode: .move, collision: .fail, destinationPath: "Album",
-        sourceAddress: "lib:Trip/IMG_1.CR3", stack: stack, restore: ("Trip", "IMG_1.CR3"))
+        sourceAddress: "lib:Trip/IMG_1.CR3", stack: stack, libraryFolderID: "f1",
+        restore: ("Trip", "IMG_1.CR3"))
       XCTFail("the JPEG's name is taken")
     } catch FileOperationError.destinationExists(let name) {
       XCTAssertEqual(name, "IMG_1.JPG")
@@ -144,6 +146,49 @@ final class RawJpegStackServerTests: XCTestCase {
     XCTAssertEqual(rollback.body["source_address"] as? String, "lib:Album/IMG_1.CR3")
     XCTAssertEqual(rollback.body["destination_path"] as? String, "Trip")
     XCTAssertEqual(rawAddress, "lib:Trip/IMG_1.CR3", "the RAW is back where it started")
+  }
+
+  /// Keep Both with only `IMG_1.JPG` in the destination used to fail: the server's keep-both kept
+  /// the free `IMG_1.CR3` for the RAW, the JPEG then collided under its own name and the move was
+  /// rolled back, and the ask-flow never prompts again once Keep Both was chosen.
+  func testKeepBothWithOnlyTheJpegNameTakenMovesBothToOneFreeStem() async throws {
+    let recorder = Recorder()
+    let occupied: Set<String> = ["Album/IMG_1.JPG"]
+    let catalog = catalog(recorder) { record, request in
+      if record.path == "/api/folders/f1/file-meta" {
+        let path =
+          URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?
+          .queryItems?.first { $0.name == "path" }?.value ?? ""
+        return occupied.contains(path)
+          ? self.respond(
+            request,
+            json: #"{"name":"x","path":"/x","size":1,"mtime":"2026-01-01T00:00:00Z","ext":"jpg"}"#)
+          : self.respond(request, status: 404, json: #"{"error":"file not found"}"#)
+      }
+      let isJpeg = record.path.contains(self.jpegID)
+      let filename =
+        record.body["destination_filename"] as? String ?? (isJpeg ? "IMG_1.JPG" : "IMG_1.CR3")
+      if occupied.contains("Album/\(filename)") {
+        return self.respond(request, json: #"{"skipped":true,"reason":"collision"}"#)
+      }
+      return self.moved(request, path: "Album", filename: filename)
+    }
+
+    let result = try await catalog.relocateAsset(
+      assetID: rawID, mode: .move, collision: .autoSuffix, destinationPath: "Album",
+      sourceAddress: "lib:Trip/IMG_1.CR3", stack: stack, libraryFolderID: "f1",
+      restore: ("Trip", "IMG_1.CR3"))
+
+    guard case .ok(let moved) = result else { return XCTFail("expected a move, got \(result)") }
+    XCTAssertEqual(moved.newFilename, "IMG_1.1.CR3")
+    let relocations = recorder.requests.filter { $0.path.hasSuffix("/relocate") }
+    XCTAssertEqual(
+      relocations.map(\.path),
+      ["/api/assets/\(rawID)/relocate", "/api/assets/\(jpegID)/relocate"],
+      "no rollback")
+    XCTAssertEqual(relocations[0].body["collision"] as? String, "keep-both")
+    XCTAssertEqual(relocations[0].body["destination_filename"] as? String, "IMG_1.1.CR3")
+    XCTAssertEqual(relocations[1].body["destination_filename"] as? String, "IMG_1.1.JPG")
   }
 
   func testTheMovedAddressKeepsTheLibraryAndFollowsTheNewLocation() {

@@ -56,16 +56,23 @@ extension RemoteCatalog {
 
   /// Move or copy the RAW, then the JPEG under the RAW's final stem. `collision` is the RAW's
   /// policy; the JPEG uses `companionCollision` and throws `destinationExists` naming the JPEG when
-  /// its name is taken. `restore` is where a move puts the RAW back when the JPEG cannot follow;
-  /// the RAW is addressed there by the location the move gave it, not its old `sourceAddress`.
+  /// its name is taken. Keep Both asks for a RAW name whose stem is free in `libraryFolderID`'s
+  /// `destinationPath` for the RAW, the JPEG and their sidecar: the server's own keep-both looks at
+  /// the RAW alone. `restore` is where a move puts the RAW back when the JPEG cannot follow; the
+  /// RAW is addressed there by the location the move gave it, not its old `sourceAddress`.
   public func relocateAsset(
     assetID: String, mode: RelocateMode, collision: CollisionPolicy, destinationPath: String,
-    sourceAddress: String?, stack: RawJpegStack, restore: (path: String, filename: String),
-    companionCollision: CollisionPolicy = .fail
+    sourceAddress: String?, stack: RawJpegStack, libraryFolderID: String,
+    restore: (path: String, filename: String), companionCollision: CollisionPolicy = .fail
   ) async throws -> RelocateAssetResult {
     let companion = try companionID(of: stack)
+    let keepBothName =
+      collision == .autoSuffix
+      ? try await stackFilenameFreeForBoth(
+        stack, libraryFolderID: libraryFolderID, destinationPath: destinationPath) : nil
     let primary = try await relocateAsset(
       assetID: assetID, mode: mode, collision: collision, destinationPath: destinationPath,
+      destinationFilename: keepBothName == stack.primary.name ? nil : keepBothName,
       sourceAddress: sourceAddress)
     guard case .ok(let moved) = primary else { return primary }
     let companionName =
@@ -95,6 +102,22 @@ extension RemoteCatalog {
           sourceAddress: sourceAddress.flatMap { Self.address($0, movedTo: moved) })
       }
       throw error
+    }
+  }
+
+  /// The first RAW filename (`IMG_1.CR3`, `IMG_1.1.CR3`, …) whose stem names no file in
+  /// `destinationPath`: not the RAW, not the JPEG, not their sidecar.
+  private func stackFilenameFreeForBoth(
+    _ stack: RawJpegStack, libraryFolderID: String, destinationPath: String
+  ) async throws -> String {
+    func taken(_ name: String) async throws -> Bool {
+      let path = destinationPath.isEmpty ? name : "\(destinationPath)/\(name)"
+      return try await statFile(folderID: libraryFolderID, relativePath: path) != nil
+    }
+    return try await CollisionResolver.pickFreePath(stack.primary.name) { candidate in
+      if try await taken(candidate) { return true }
+      if try await taken(stack.companionFilename(forPrimaryFilename: candidate)) { return true }
+      return try await taken((candidate as NSString).deletingPathExtension + ".xmp")
     }
   }
 

@@ -32,11 +32,12 @@ public enum SMBFileOperations {
     newBasename: String? = nil,
     mode: RelocateMode,
     collision: CollisionPolicy = .autoSuffix,
+    displacing: [String] = [],
     transport: SMBFileTransport
   ) async throws -> RelocateOutcome {
     let plan = try await planRelocate(
       sourcePrimaryPath, to: destinationDir, newBasename: newBasename,
-      mode: mode, collision: collision, transport: transport)
+      mode: mode, collision: collision, displacing: displacing, transport: transport)
     return await finalizeRelocate(plan, transport: transport)
   }
 
@@ -45,12 +46,16 @@ public enum SMBFileOperations {
   /// deleted; the source is untouched no matter how this call ends. The
   /// one exception is a case-only rename (see `classifySameFile`),
   /// performed directly here as an atomic move.
+  ///
+  /// `displacing` names destination siblings the same operation replaces (a stacked JPEG the
+  /// user chose to replace too), which then no longer claim the destination's sidecar.
   public static func planRelocate(
     _ sourcePrimaryPath: String,
     to destinationDir: String,
     newBasename: String? = nil,
     mode: RelocateMode,
     collision: CollisionPolicy = .autoSuffix,
+    displacing: [String] = [],
     transport: SMBFileTransport
   ) async throws -> RelocatePlan {
     guard await exists(sourcePrimaryPath, transport: transport) else {
@@ -102,7 +107,7 @@ public enum SMBFileOperations {
         sourceSidecarPath, at: sidecarTargetPath, transport: transport)
       : false
     let destinationClaimed = await SidecarOwnership.smbStemClaimedBySibling(
-      resolvedTargetPath, excluding: [sourcePrimaryPath], transport: transport)
+      resolvedTargetPath, excluding: [sourcePrimaryPath] + displacing, transport: transport)
     if hasSourceSidecar, destinationSidecarOccupied, !joinsCarriedSidecar,
       collision != .replace || destinationClaimed
     {

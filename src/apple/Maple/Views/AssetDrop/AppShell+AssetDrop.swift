@@ -298,7 +298,7 @@ extension AppShell {
     return await askingOnCollision(asset) { ask in
       let result = try await relocateCloud(
         remote: remote, assetID: assetID, mode: mode, ask: ask, destRel: destRel,
-        sourceAddress: catalog.address, stack: stack)
+        libraryFolderID: libraryFolderID, sourceAddress: catalog.address, stack: stack)
       if case .skipped = result, ask.primary == .fail {
         // The RAW's own name is taken: ask about it by the tile's name.
         throw FileOperationError.destinationExists(asset.fullFilename)
@@ -316,7 +316,7 @@ extension AppShell {
 
   private func relocateCloud(
     remote: RemoteCatalog, assetID: String, mode: RelocateMode, ask: StackCollisionAsk,
-    destRel: String, sourceAddress: String?, stack: CloudStackMove?
+    destRel: String, libraryFolderID: String, sourceAddress: String?, stack: CloudStackMove?
   ) async throws -> RelocateAssetResult {
     guard let stack else {
       return try await remote.relocateAsset(
@@ -325,7 +325,7 @@ extension AppShell {
     }
     return try await remote.relocateAsset(
       assetID: assetID, mode: mode, collision: ask.primary, destinationPath: destRel,
-      sourceAddress: sourceAddress, stack: stack.stack,
+      sourceAddress: sourceAddress, stack: stack.stack, libraryFolderID: libraryFolderID,
       restore: (stack.restorePath, stack.restoreFilename), companionCollision: ask.companion)
   }
 
