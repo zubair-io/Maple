@@ -52,6 +52,12 @@ export interface WindowRow extends RankedAsset, ShotFields {
   maple_id: string | null;
   /** The RAW a paired JPEG folds into (#5849); a ranked window folds in memory. */
   stack_primary_id?: string | null;
+  /**
+   * On a stack's RAW, the `assets.rowid` of its JPEG when that ranked and passed the filters too
+   * and was folded into it ({@link foldRankedStacks}): the map places the stack by it when the RAW
+   * has no GPS in the viewport.
+   */
+  stack_companion_r?: number;
   owner_id: string | null;
 }
 
@@ -322,22 +328,39 @@ export function ftsRanker(where: SearchWhere, dbOverride?: SqliteDb): WindowRank
 }
 
 /**
- * A ranked pass with each paired JPEG dropped whose RAW the same pass kept (#5849). The window is
- * filtered unfolded and folded here because the RAW must have ranked too: a JPEG whose RAW the
- * engine never returned, or a filter rejected, stays a result of its own. A lookahead JPEG folds
- * against the served rows and the lookahead alike.
+ * A ranked pass with each RAW+JPEG stack served once, at the rank of whichever half ranked first
+ * (#5849). The window is filtered unfolded and folded here because the RAW must have ranked too:
+ * a JPEG whose RAW the engine never returned, or a filter rejected, stays a result of its own.
+ * When both ranked, the RAW leads the stack from the better of the two ranks and its later rank
+ * drops out, like a later copy of a shot (`collapseShots`). That keeps the fold prefix-stable: a
+ * wider ladder step that admits a RAW ranked past a narrower one only turns the JPEG already
+ * served into its stack, and never shifts the rows behind it. A lookahead row folds against the
+ * served rows and the lookahead alike.
  */
 export function foldRankedStacks(where: SearchWhere, pass: WindowPass): WindowPass {
   if (where.foldStacks !== true) return pass;
-  const fold = (rows: readonly WindowRow[], kept: readonly WindowRow[]) => {
-    const ids = new Set(kept.map((row) => row.id));
-    return rows.filter((row) => !row.stack_primary_id || !ids.has(row.stack_primary_id));
+  // Each stack's leading row, keyed by its RAW's id.
+  const leaders = new Map<string, WindowRow>();
+  const fold = (rows: readonly WindowRow[], pool: readonly WindowRow[]) => {
+    const byId = new Map(pool.map((row) => [row.id, row] as const));
+    return rows.flatMap((row) => {
+      const key = row.stack_primary_id ?? row.id;
+      const held = leaders.get(key);
+      if (held !== undefined) {
+        if (held.id === key && row.id !== key) held.stack_companion_r = row.r;
+        return [];
+      }
+      const raw = row.stack_primary_id ? byId.get(row.stack_primary_id) : undefined;
+      const leader = raw ? { ...raw, stack_companion_r: row.r } : { ...row };
+      leaders.set(key, leader);
+      return [leader];
+    });
   };
-  const beyond = pass.beyond ?? [];
+  const rows = fold(pass.rows, pass.rows);
   return {
     ...pass,
-    rows: fold(pass.rows, pass.rows),
-    ...(pass.beyond ? { beyond: fold(beyond, [...pass.rows, ...beyond]) } : {}),
+    rows,
+    ...(pass.beyond ? { beyond: fold(pass.beyond, [...pass.rows, ...pass.beyond]) } : {}),
   };
 }
 

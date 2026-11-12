@@ -23,14 +23,18 @@ interface FolderFile extends StackFile {
   stack_primary_id: string | null;
 }
 
-/** A file that is still where the read found it: live, canonical and not trashed. */
+/**
+ * A file that is still where and what the read found it: live, canonical, not trashed and under
+ * the name the read saw. A rename between the read and the write clears a pairing (migration
+ * 0044's triggers); without the name, the stale write would pair two different stems again.
+ */
 const STILL_IN_FOLDER = `EXISTS (SELECT 1 FROM asset_locations l JOIN assets a ON a.id = l.asset_id
-   WHERE l.asset_id = ? AND l.library_id = ? AND l.path = ? AND l.ordinal = 0
+   WHERE l.asset_id = ? AND l.library_id = ? AND l.path = ? AND l.filename = ? AND l.ordinal = 0
      AND l.deleted_at IS NULL AND l.missing_since IS NULL AND a.deleted_at IS NULL)`;
 
 function pairStatement(
   file: FolderFile,
-  primary: string | null,
+  primary: FolderFile | null,
   library: string,
   relPath: string,
 ): SqlStatement {
@@ -43,7 +47,11 @@ function pairStatement(
   return {
     sql: `UPDATE assets SET stack_primary_id = ?
            WHERE id = ? AND ${STILL_IN_FOLDER} AND ${STILL_IN_FOLDER}`,
-    params: [primary, file.asset_id, file.asset_id, library, relPath, primary, library, relPath],
+    params: [
+      primary.asset_id,
+      file.asset_id,
+      ...[file, primary].flatMap((half) => [half.asset_id, library, relPath, half.filename]),
+    ],
   };
 }
 
@@ -64,11 +72,19 @@ export async function reconcileRawJpegStacks(
     [library, relPath],
   );
   const pairs = pairStackAssets(files);
+  const byId = new Map(files.map((file) => [file.asset_id, file] as const));
   const changes = files.flatMap((file) => {
     const primary = pairs.get(file.asset_id) ?? null;
     return primary === file.stack_primary_id
       ? []
-      : [pairStatement(file, primary, library, relPath)];
+      : [
+          pairStatement(
+            file,
+            primary === null ? null : (byId.get(primary) ?? null),
+            library,
+            relPath,
+          ),
+        ];
   });
   if (changes.length > 0) await db.transaction(changes);
   return changes.length;
