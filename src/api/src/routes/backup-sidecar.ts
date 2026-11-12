@@ -17,15 +17,21 @@
  *                             photos whose `phasset_link` for this device was
  *                             never attached (dedup / re-import), which the
  *                             device+phasset lookup misses (see #698).
- *   X-Maple-Sidecar-Base    — optional — compare-and-swap re-send (#4719): the
- *                             SHA-256 (hex) of the sidecar this device last
- *                             delivered, or `none` for its first. Present →
- *                             the write never skips: a matching base
- *                             overwrites; a stale one still lands the edit and
- *                             keeps the displaced XMP in `sidecar_divergences`.
- *                             Absent → the legacy rule: written
- *                             only when no sidecar exists (create-only, on the
- *                             same write barrier).
+ *   X-Maple-Sidecar-Head    — optional — the history entry id (`head` of an earlier reply)
+ *                             of the sidecar this device last saw, or `none` for
+ *                             no sidecar. Wins over X-Maple-Sidecar-Base.
+ *   X-Maple-Sidecar-Base    — optional — the SHA-256 (hex) of the sidecar this
+ *                             device last delivered, or `none` for its first
+ *                             (#4719); resolved to the history entry that send
+ *                             produced.
+ *                             Either header present → compare-and-swap, and the
+ *                             write never skips: the send replaces the adjustments
+ *                             of the base version, or is reconciled onto a newer
+ *                             sidecar through its edit history (#5796) — the send
+ *                             lands on top and the displaced state stays an
+ *                             `external` history entry. Neither present → the
+ *                             legacy rule: written only when no sidecar exists
+ *                             (create-only, on the same write barrier).
  *
  * Either way the target must be a live location of the resolved asset, since
  * the canonical sidecar it names is the one that photo's edits are read from.
@@ -33,14 +39,17 @@
  * Body: raw XMP string (utf-8). Max size: 256 KB.
  *
  * Responses:
- *   200 — { target_rel_path: "...xmp" }            — written
+ *   200 — { target_rel_path: "...xmp", head }      — written; `head` is the history entry
+ *         this send became, to name as X-Maple-Sidecar-Head next time
  *   200 — { target_rel_path: "...xmp", skipped: true } — already on disk, not overwritten (no base header)
- *   200 — { target_rel_path: "...xmp", unchanged: true } — the server already holds this XMP
- *   200 — { target_rel_path: "...xmp", diverged: true } — written over a version the base didn't name
+ *   200 — { target_rel_path: "...xmp", unchanged: true, head? } — the server already holds this edit
+ *   200 — { target_rel_path: "...xmp", reconciled: true, head } — the base wasn't the current
+ *         version: the send was merged onto it and recorded in the history
  *   200 — { target_rel_path: "...xmp", shared: true } — a same-stem sibling shares the sidecar and
  *         the base didn't name it, so it is kept and the incoming XMP recorded in
  *         `sidecar_divergences` (displaced and incoming digests equal) (#4692)
- *   400 — missing/invalid headers (including a malformed base), empty body, unsafe path,
+ *   400 — missing/invalid headers (including a malformed base), empty body, a base-named
+ *         body that is not a complete XMP document, unsafe path,
  *         or a destination outside the library (e.g. through a symlinked folder)
  *   404 — library not found, no prior upload (neither maple_id nor device+phasset matched),
  *         or the target path is not a live location of that asset
@@ -64,8 +73,8 @@ import {
   publishSidecarCas,
   publishSidecarIfAbsent,
 } from '../backup/sidecar-cas.ts';
+import { checkpointOf, type SidecarBase } from '../backup/sidecar-history.ts';
 import {
-  forgetSidecarDivergence,
   hasSidecarDivergence,
   recordSidecarDivergence,
 } from '../db/repos/sidecar-divergences.repo.ts';
@@ -126,7 +135,7 @@ interface BackupSidecarSend {
 }
 
 interface BackupSidecarCasRequest extends BackupSidecarSend {
-  baseHeader: string;
+  base: SidecarBase;
 }
 
 /** Checked again inside the barrier: the location may have moved on while the send waited. */
@@ -139,49 +148,46 @@ const GONE_WHILE_WAITING = {
   body: { error: 'no prior upload of this asset at this path' },
 };
 
-/** The compare-and-swap branch (#4719): publish, keep a displaced version in
- * `sidecar_divergences`, and say which of the outcomes happened. */
+/** A shared sidecar refused this edit (#4692); keep it aside, once per retried send. */
+function keepAsideShared(
+  req: BackupSidecarCasRequest,
+): (incoming: { xmp: string; sha256: string }) => Promise<void> {
+  return async (incoming) => {
+    const kept = {
+      assetId: req.assetId,
+      libraryId: req.libraryId,
+      sidecarRelPath: req.sidecarRelPath,
+      displacedSha256: incoming.sha256,
+      incomingSha256: incoming.sha256,
+    };
+    if (await hasSidecarDivergence(kept)) return;
+    await recordSidecarDivergence({
+      ...kept,
+      deviceId: req.deviceId,
+      baseSha256: req.base.kind === 'digest' ? req.base.sha256 : null,
+      displacedXmp: incoming.xmp,
+    });
+  };
+}
+
+/** The compare-and-swap branch (#4719): place the send on the sidecar's edit
+ * history (#5796) and say which of the outcomes happened. */
 async function publishBackupSidecarCas(
   req: BackupSidecarCasRequest,
 ): Promise<{ status: number; body: Record<string, unknown> }> {
-  const base = parseSidecarBase(req.baseHeader);
-  if (base === 'invalid' || base === undefined) {
-    return {
-      status: 400,
-      body: { error: 'X-Maple-Sidecar-Base must be a SHA-256 hex digest or "none"' },
-    };
-  }
   const primary = path.join(req.libraryRoot, req.targetRelPath);
   const outcome = await publishSidecarCas(
     req.finalPath,
     req.xmp,
-    base,
-    async (displaced) => {
-      // A retried shared send keeps the same edit aside; record it once.
-      const setAside = displaced.sha256 === displaced.incomingSha256;
-      const kept = {
-        assetId: req.assetId,
-        libraryId: req.libraryId,
-        sidecarRelPath: req.sidecarRelPath,
-        displacedSha256: displaced.sha256,
-        incomingSha256: displaced.incomingSha256,
-      };
-      if (setAside && (await hasSidecarDivergence(kept))) return async () => undefined;
-      const id = await recordSidecarDivergence({
-        ...kept,
-        deviceId: req.deviceId,
-        baseSha256: base,
-        displacedXmp: displaced.xmp,
-      });
-      return () => forgetSidecarDivergence(id);
-    },
+    req.base,
+    keepAsideShared(req),
     req.libraryRoot,
     {
       shared: () => sidecarStemClaimedBySibling(primary),
       precondition: () => stillOwned(req),
       beforeWrite: () => recordSidecarEditAhead(primary),
       afterLanded: async (landed) => {
-        if (landed.kind === 'written' || landed.kind === 'diverged') {
+        if (landed.kind === 'written' || landed.kind === 'reconciled') {
           await announceSidecarLanded(primary);
         }
         await retireLegacyBackupSidecar({
@@ -214,11 +220,9 @@ async function publishBackupSidecarCas(
     );
     return { status: 500, body: { error: 'sidecar write failed' } };
   }
-  const body =
-    outcome.kind === 'written'
-      ? { target_rel_path: req.sidecarRelPath }
-      : { target_rel_path: req.sidecarRelPath, [outcome.kind]: true };
-  return { status: 200, body };
+  const head = 'head' in outcome && outcome.head !== null ? { head: outcome.head } : {};
+  const flag = outcome.kind === 'written' ? {} : { [outcome.kind]: true };
+  return { status: 200, body: { target_rel_path: req.sidecarRelPath, ...flag, ...head } };
 }
 
 /** SKIP-IF-EXISTS without a base: a dedup re-upload from a second device must
@@ -324,7 +328,14 @@ export const backupSidecarRoutes = new Elysia().post(
       set.status = refusal.status;
       return { error: refusal.error };
     }
-    const baseHeader = headers['x-maple-sidecar-base'];
+    const base = parseSidecarBase(headers['x-maple-sidecar-head'], headers['x-maple-sidecar-base']);
+    if (base === 'invalid') {
+      set.status = 400;
+      return {
+        error:
+          'X-Maple-Sidecar-Head must be a history entry id or "none"; X-Maple-Sidecar-Base a SHA-256 hex digest or "none"',
+      };
+    }
     const primary = path.join(folder.path, targetRelPath);
     const send: BackupSidecarSend = {
       finalPath,
@@ -337,10 +348,20 @@ export const backupSidecarRoutes = new Elysia().post(
       libraryRoot: folder.path,
       phid,
     };
+    if (base !== undefined) {
+      const readable = await checkpointOf(send.xmp).then(
+        () => true,
+        () => false,
+      );
+      if (!readable) {
+        set.status = 400;
+        return { error: 'body must be a complete XMP document' };
+      }
+    }
     const result =
-      baseHeader === undefined
+      base === undefined
         ? await publishWithoutBase(primary, send)
-        : await publishBackupSidecarCas({ ...send, baseHeader });
+        : await publishBackupSidecarCas({ ...send, base });
     set.status = result.status;
     return result.body;
   },

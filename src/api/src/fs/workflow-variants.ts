@@ -40,7 +40,7 @@ type VariantSidecar = {
   exists: boolean;
 };
 
-async function nativeValue(
+export async function nativeValue(
   method:
     | 'workflowReadXmp'
     | 'workflowEmbedXmp'
@@ -82,7 +82,7 @@ function admissionDestination(rawPath: string, id: string): string {
   const primary = xmpSidecarPath(rawPath);
   return id === PRIMARY_VARIANT_ID ? primary : `${primary}.variant-${id}`;
 }
-async function record(xml: string, signal?: AbortSignal): Promise<SidecarWorkflow | null> {
+export async function record(xml: string, signal?: AbortSignal): Promise<SidecarWorkflow | null> {
   const value: unknown = JSON.parse(await nativeValue('workflowReadXmp', [xml], signal));
   return value === null ? null : parseSidecarWorkflow(value);
 }
