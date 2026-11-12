@@ -49,13 +49,18 @@
 # subsets / stitch options); FILTER applies to either source.
 #
 # Budgets (test-fixtures/pano-budgets.json, TRACKED): per-set × per-case
-# ceilings over the pano_metrics.py outputs. Case label is "stitch" (one
-# case per set today). Gateable keys — any subset of:
+# ceilings over the pano_metrics.py outputs. The case label is the matcher
+# (#5896): "stitch" for the ML matcher, "stitch_classical" for the classical
+# one, which is the default on Apple, Windows and Self Hosted. Gateable
+# keys — any subset of:
 #   rmse              size-normalized RMSE vs reference        (see metrics doc)
 #   coverage          FLOOR — fraction of reference content the candidate
 #                     covers; prices holes left by dropped frames / partial
 #                     validity. Breaches when BELOW the budget value.
 #   seam_energy       seam-line gradient-energy metric
+#   seam_step_hard    log-luma step across owner-map seams minus the step
+#   seam_step_lowpass inside frames (raw, and after a σ=32 blur); candidate +
+#                     owner map only, so reference-less sets gate it too
 #   wrap_closure_px   360° wrap-edge closure error, native px  (360 sets only)
 #   mean_reproj_px    StitchReport passthrough
 #   max_reproj_px     StitchReport passthrough
@@ -79,6 +84,8 @@
 #
 # Env overrides:
 #   MAPLE_CLI            override path to a pre-built maple-cli binary
+#   PANO_ENGINE          ml | classical (default: ml when MAPLE_PANO_MODELS is
+#                        set, classical otherwise)
 #   MANIFEST             default test-fixtures/references/pano-manifest.json
 #   BUDGETS              default test-fixtures/pano-budgets.json
 #   FILTER               substring filter on set name (FILTER=pano_01)
@@ -103,6 +110,15 @@ MANIFEST="${MANIFEST:-$REFS_DIR/pano-manifest.json}"
 BUDGETS="${BUDGETS:-$REPO_ROOT/test-fixtures/pano-budgets.json}"
 MAPLE_CLI_RELEASE="$REPO_ROOT/src/raw-pipeline/target/release/maple-cli"
 FILTER="${FILTER:-}"
+PANO_ENGINE="${PANO_ENGINE:-$([[ -n "${MAPLE_PANO_MODELS:-}" ]] && echo ml || echo classical)}"
+case "$PANO_ENGINE" in
+ml) CASE_LABEL=stitch ;;
+classical) CASE_LABEL=stitch_classical ;;
+*)
+	printf "test_pano_pipeline: PANO_ENGINE must be ml or classical (got '%s')\n" "$PANO_ENGINE" >&2
+	exit 2
+	;;
+esac
 ALLOW_MISSING_BUDGET="${ALLOW_MISSING_BUDGET:-}"
 NORM_LONG_EDGE="${NORM_LONG_EDGE:-2048}"
 
@@ -311,14 +327,15 @@ if [[ ! -x "$MAPLE_CLI" ]]; then
 	fi
 	echo ""
 	echo "test_pano_pipeline: building maple-cli (release) ..."
-	(cd "$REPO_ROOT/src/raw-pipeline" && cargo build --release --bin maple-cli --features pano >/dev/null)
+	(cd "$REPO_ROOT/src/raw-pipeline" && cargo build --release --bin maple-cli --features pano,pano-classical >/dev/null)
 	MAPLE_CLI="$MAPLE_CLI_RELEASE"
 fi
 
-# The ML environment gates candidate generation the way fixtures gate
+# The ML environment gates ML candidate generation the way fixtures gate
 # discovery: absent on CI runners (skip-pass), present on dev machines
-# (gates bite). The CLI itself hard-errors without it by design.
-if [[ -z "${MAPLE_PANO_MODELS:-}" ]]; then
+# (gates bite). The CLI itself hard-errors without it by design. The
+# classical matcher needs no models.
+if [[ "$PANO_ENGINE" == ml && -z "${MAPLE_PANO_MODELS:-}" ]]; then
 	echo ""
 	echo "test_pano_pipeline: MAPLE_PANO_MODELS not set — skipping candidate gates"
 	echo "test_pano_pipeline: (the ML detector/matcher needs the SHA-pinned models;"
@@ -335,29 +352,37 @@ if ! "$MAPLE_CLI" pano --help >/dev/null 2>&1; then
 	echo "test_pano_pipeline:  contract in this script's header)"
 	exit 0
 fi
+if ! grep -q "possible values:.*$PANO_ENGINE" <<<"$("$MAPLE_CLI" pano stitch --help)"; then
+	echo ""
+	echo "test_pano_pipeline: $MAPLE_CLI was built without the $PANO_ENGINE matcher — skipping"
+	echo "test_pano_pipeline: candidate gates (build with --features pano,pano-classical)"
+	exit 0
+fi
 
 # ----- 6. Generate candidates ------------------------------------------------
 echo ""
-echo "test_pano_pipeline: rendering candidates via maple-cli pano stitch ..."
+echo "test_pano_pipeline: rendering candidates via maple-cli pano stitch ($PANO_ENGINE matcher) ..."
 # Per-set failures surface as missing candidates below (gated as errors) —
 # don't abort the whole run on one bad set.
-"$MAPLE_CLI" pano stitch --manifest "$EFFECTIVE_MANIFEST" --out-dir "$CANDIDATES_DIR" 2>&1 | sed 's/^/  /' || true
+"$MAPLE_CLI" pano stitch --manifest "$EFFECTIVE_MANIFEST" --out-dir "$CANDIDATES_DIR" \
+	--features-engine "$PANO_ENGINE" 2>&1 | sed 's/^/  /' || true
 
 # ----- 7. Per-set metrics + budget gate --------------------------------------
 echo ""
-echo "test_pano_pipeline: gating candidates against $BUDGETS ..."
+echo "test_pano_pipeline: gating candidates against $BUDGETS ($CASE_LABEL) ..."
 gate_exit=0
-python3 - "$EFFECTIVE_MANIFEST" "$CANDIDATES_DIR" "$METRICS_PY" "$BUDGETS" "$ALLOW_MISSING_BUDGET" "$NORM_LONG_EDGE" <<'PY' || gate_exit=$?
+python3 - "$EFFECTIVE_MANIFEST" "$CANDIDATES_DIR" "$METRICS_PY" "$BUDGETS" "$ALLOW_MISSING_BUDGET" "$NORM_LONG_EDGE" "$CASE_LABEL" <<'PY' || gate_exit=$?
 import json
 import os
 import sys
 
-manifest_path, cand_dir, metrics_py, budgets_path, allow_missing_s, long_edge_s = sys.argv[1:7]
+manifest_path, cand_dir, metrics_py, budgets_path, allow_missing_s, long_edge_s, CASE_LABEL = sys.argv[1:8]
 allow_missing = allow_missing_s not in ("", "0", "false", "False")
 long_edge = int(long_edge_s)
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(metrics_py)))
 import pano_metrics  # the one pano diff implementation
+import pano_seam_metrics
 from PIL import Image
 
 with open(manifest_path) as f:
@@ -365,15 +390,16 @@ with open(manifest_path) as f:
 with open(budgets_path) as f:
     budgets = json.load(f).get("fixtures", {})
 
-CASE_LABEL = "stitch"
 # Keys a budget entry may gate on. Both horizon tilt keys gate on |value|.
 # FLOOR_KEYS breach when the observed value is BELOW the budget (coverage
 # is a completeness fraction — more is better); everything else is a
 # ceiling.
-GATE_KEYS = ("rmse", "coverage", "seam_energy", "seam_step_hard",
-             "seam_step_lowpass", "wrap_closure_px",
-             "mean_reproj_px", "max_reproj_px", "horizon_tilt_deg",
-             "horizon_tilt_rms_deg", "dropped_frames")
+PIXEL_KEYS = ("rmse", "coverage", "seam_energy", "seam_step_hard",
+              "seam_step_lowpass", "wrap_closure_px")
+REPORT_KEYS = ("mean_reproj_px", "max_reproj_px", "mean_planar_px",
+               "max_planar_px", "horizon_tilt_deg", "horizon_tilt_rms_deg",
+               "dropped_frames")
+GATE_KEYS = PIXEL_KEYS + REPORT_KEYS
 ABS_KEYS = {"horizon_tilt_deg", "horizon_tilt_rms_deg"}
 FLOOR_KEYS = {"coverage"}
 
@@ -410,12 +436,17 @@ for case in sorted(manifest["cases"], key=lambda c: c["name"]):
                                   owner_path=owner)
         else:
             # No reference for this set (by design — e.g. pano_00): pixel
-            # metrics are unavailable; wrap closure (candidate-only) and the
-            # StitchReport passthrough still gate.
+            # metrics against a reference are unavailable; wrap closure and
+            # the seam step (candidate-only) and the StitchReport
+            # passthrough still gate.
             with Image.open(cand) as im:
-                wc = pano_metrics.wrap_closure(im.convert("RGB"))
+                rgb = im.convert("RGB")
+            wc = pano_metrics.wrap_closure(rgb)
+            step = (pano_seam_metrics.candidate_seam_step(rgb, owner, long_edge)
+                    if owner else {})
             m = {"rmse": None, "coverage": None, "seam_energy": None,
-                 "seam_step_hard": None, "seam_step_lowpass": None,
+                 "seam_step_hard": step.get("seam_step_hard"),
+                 "seam_step_lowpass": step.get("seam_step_lowpass"),
                  "wrap_closure_px": wc["px"], "wrap_closure_ncc": wc["ncc"],
                  "report": pano_metrics.report_block(report)}
     except Exception as e:
@@ -423,20 +454,9 @@ for case in sorted(manifest["cases"], key=lambda c: c["name"]):
         errors += 1
         continue
 
-    rep = m["report"]
-    observed = {
-        "rmse": m.get("rmse"),
-        "coverage": m.get("coverage"),
-        "seam_energy": m.get("seam_energy"),
-        "seam_step_hard": m.get("seam_step_hard"),
-        "seam_step_lowpass": m.get("seam_step_lowpass"),
-        "wrap_closure_px": m.get("wrap_closure_px"),
-        "mean_reproj_px": rep.get("mean_reproj_px") if rep.get("available") else None,
-        "max_reproj_px": rep.get("max_reproj_px") if rep.get("available") else None,
-        "horizon_tilt_deg": rep.get("horizon_tilt_deg") if rep.get("available") else None,
-        "horizon_tilt_rms_deg": rep.get("horizon_tilt_rms_deg") if rep.get("available") else None,
-        "dropped_frames": rep.get("dropped_frames") if rep.get("available") else None,
-    }
+    rep = m["report"] if m["report"].get("available") else {}
+    observed = {k: m.get(k) for k in PIXEL_KEYS}
+    observed.update({k: rep.get(k) for k in REPORT_KEYS})
 
     bud = budgets.get(name, {}).get(CASE_LABEL)
     breach = []
@@ -475,6 +495,7 @@ for case in sorted(manifest["cases"], key=lambda c: c["name"]):
           f"{fmt(observed['mean_reproj_px'], '8.2f'):>8} "
           f"{fmt(observed['max_reproj_px'], '8.2f'):>8} "
           f"{fmt(observed['horizon_tilt_rms_deg'], '8.2f'):>8}{extra}")
+    print(f"     {name} observed {json.dumps(observed)}")
 
 print("-" * 103)
 breach_count = sum(1 for r in rows if r["breach"])

@@ -82,7 +82,8 @@ StitchReport passthrough
     With --report, mean/max reprojection error (px) and horizon tilt (deg)
     are read from the StitchReport JSON written by `maple-cli pano stitch`
     (tech-spec section 6 keys: mean_reproj_error_px, max_reproj_error_px,
-    horizon_tilt_deg, horizon_tilt_rms_deg). Keys absent from the report come back as null and are
+    horizon_tilt_deg, horizon_tilt_rms_deg; on the tile strategy
+    mean/max_planar_residual_px, #5896). Keys absent from the report come back as null and are
     listed in "missing_keys". Without --report the block is
     {"available": false, "reason": "unavailable: no report"} — never
     fabricated.
@@ -111,8 +112,8 @@ import os
 import sys
 
 import numpy as np
-
 from pano_seam_metrics import load_owner, seam_step, seam_step_checks
+from pano_seam_metrics import normalize as _normalize
 from PIL import Image
 
 # Pano canvases (e.g. the 18189x6464 pano_01 reference) trip Pillow's
@@ -138,17 +139,6 @@ def _luma(rgb: np.ndarray) -> np.ndarray:
 def _grad_mag(luma: np.ndarray) -> np.ndarray:
     gy, gx = np.gradient(luma)
     return np.hypot(gx, gy)
-
-
-def _normalize(im: Image.Image, long_edge: int) -> Image.Image:
-    """Downscale so the long edge equals `long_edge`; never upscale."""
-    w, h = im.size
-    scale = long_edge / max(w, h)
-    if scale >= 1.0:
-        return im
-    return im.resize(
-        (max(1, round(w * scale)), max(1, round(h * scale))), Image.LANCZOS
-    )
 
 
 def seam_energy(
@@ -209,6 +199,8 @@ def report_block(report_path) -> dict:
         ("max_reproj_error_px", "max_reproj_px"),
         ("horizon_tilt_deg", "horizon_tilt_deg"),
         ("horizon_tilt_rms_deg", "horizon_tilt_rms_deg"),
+        ("mean_planar_residual_px", "mean_planar_px"),
+        ("max_planar_residual_px", "max_planar_px"),
     ):
         if src_key in data and data[src_key] is not None:
             out[out_key] = float(data[src_key])
