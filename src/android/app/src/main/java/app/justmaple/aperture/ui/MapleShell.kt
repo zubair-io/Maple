@@ -172,13 +172,16 @@ fun MapleShell(model: MapleViewModel) {
                                         onPlace = model.search::togglePlace,
                                         onMore = model.search::loadMore,
                                     )
-                                    BrowseGrid(
-                                        model,
-                                        state,
-                                        search.results,
-                                        emptyList(),
-                                        folderPicker = { folderPicker.launch(null) },
-                                    )
+                                    CloudSearchBody(search) {
+                                        BrowseGrid(
+                                            model,
+                                            state,
+                                            search.results,
+                                            emptyList(),
+                                            folderPicker = { folderPicker.launch(null) },
+                                            sorts = SEARCH_SORTS,
+                                        )
+                                    }
                                 } else {
                                     OutlinedTextField(
                                         query,

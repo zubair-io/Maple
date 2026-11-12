@@ -53,7 +53,15 @@ enum class BrowseFilter(val label: String, val testTag: String) {
 enum class BrowseSort(val label: String) {
     Name("Name"),
     Rating("Rating"),
+
+    /** The order the server returned (search relevance or capture time). */
+    Server("Search order"),
 }
+
+val FOLDER_SORTS = listOf(BrowseSort.Name, BrowseSort.Rating)
+
+/** Search results start in the server's order; name and rating stay available. */
+val SEARCH_SORTS = listOf(BrowseSort.Server, BrowseSort.Name, BrowseSort.Rating)
 
 data class PhotoCulling(val pick: Int = 0, val rating: Int = 0) {
     fun matches(filter: BrowseFilter): Boolean =
@@ -79,6 +87,7 @@ fun applyBrowseCulling(
         if (filter == BrowseFilter.All) photos
         else photos.filter { (culling[it.uri.toString()] ?: PhotoCulling()).matches(filter) }
     return when (sort) {
+        BrowseSort.Server -> kept
         BrowseSort.Name -> kept.sortedBy { it.name.lowercase() }
         BrowseSort.Rating ->
             kept.sortedWith(
@@ -95,6 +104,7 @@ fun BrowseFilterBar(
     sort: BrowseSort,
     onSort: (BrowseSort) -> Unit,
     modifier: Modifier = Modifier,
+    sorts: List<BrowseSort> = FOLDER_SORTS,
 ) {
     Row(
         modifier
@@ -113,7 +123,7 @@ fun BrowseFilterBar(
             )
         }
         Spacer(Modifier.weight(1f))
-        val next = if (sort == BrowseSort.Name) BrowseSort.Rating else BrowseSort.Name
+        val next = sorts[(sorts.indexOf(sort) + 1) % sorts.size]
         AssistChip(
             onClick = { onSort(next) },
             label = { Text("Sort: ${sort.label}", fontSize = 12.sp) },

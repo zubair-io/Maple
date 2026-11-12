@@ -102,6 +102,27 @@ internal fun CloudSearchHeader(
     }
 }
 
+/**
+ * Results, or what stands in for them: a search that is loading or failed never
+ * looks like an empty library (the browse grid's "Open folder" state).
+ */
+@Composable
+internal fun CloudSearchBody(search: CloudSearchState, results: @Composable () -> Unit) {
+    if (search.results.isNotEmpty()) {
+        results()
+        return
+    }
+    Box(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
+        when {
+            search.loading || search.server == null ->
+                CircularProgressIndicator(Modifier.testTag("cloud-search-loading"), color = MapleColors.primary)
+            search.error != null ->
+                Text(search.error, Modifier.testTag("cloud-search-error"), color = MapleColors.error)
+            else -> Text("No matching photos", Modifier.testTag("cloud-search-empty"), color = MapleColors.muted)
+        }
+    }
+}
+
 @Composable
 private fun ChipRow(label: String, chips: @Composable RowScope.() -> Unit) {
     Row(

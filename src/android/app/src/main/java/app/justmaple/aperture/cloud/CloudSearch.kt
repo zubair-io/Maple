@@ -47,16 +47,23 @@ internal data class SearchContinuation(val cursor: String?, val page: Int, val r
 internal data class CloudSearchPage(
     val photos: List<Photo>,
     val total: Int,
+    val dropped: Int,
     val openEnded: Boolean,
     val next: SearchContinuation?,
 )
 
+/**
+ * Never sends `stack=1`: the server answers unfolded, so a RAW+JPEG pair is two
+ * results here and a row's `stack.companion` (present only on folded answers) is ignored.
+ */
 internal object CloudSearchWire {
     const val LIMIT = 200
 
     private fun filters(query: CloudSearchQuery, today: LocalDate): List<Pair<String, String>> =
         buildList {
-            query.text.trim().takeIf { it.isNotEmpty() }?.let { add("q" to it) }
+            // `placeQuery` is the search box's natural-language field (ranked, dates, places),
+            // as on Apple; `q` is only a filename substring.
+            query.text.trim().takeIf { it.isNotEmpty() }?.let { add("placeQuery" to it) }
             query.date?.range(today)?.let { (from, to) ->
                 add("from" to from)
                 add("to" to to)
@@ -86,8 +93,9 @@ internal object CloudSearchWire {
     /** Rows without a registered library address cannot be opened and are dropped. */
     fun parsePage(serverId: String, json: JSONObject, page: Int): CloudSearchPage {
         val rows = json.optJSONArray("results")
+        val count = rows?.length() ?: 0
         val photos =
-            (0 until (rows?.length() ?: 0)).mapNotNull { index ->
+            (0 until count).mapNotNull { index ->
                 val row = rows!!.getJSONObject(index)
                 val address = row.optString("address").takeIf { it.isNotEmpty() && it != "null" && ':' in it }
                 val name = row.optString("filename")
@@ -116,7 +124,7 @@ internal object CloudSearchWire {
                 (page + 1) * LIMIT < total || more -> SearchContinuation(null, page + 1, ranked)
                 else -> null
             }
-        return CloudSearchPage(photos, total, ranked != null && more, next?.takeIf { (rows?.length() ?: 0) > 0 })
+        return CloudSearchPage(photos, total, count - photos.size, ranked != null && more, next?.takeIf { count > 0 })
     }
 
     fun parseFacets(json: JSONObject, key: String): List<SearchFacet> {
@@ -155,6 +163,7 @@ internal class CloudSearchModel(
     val state: StateFlow<CloudSearchState> = mutable.asStateFlow()
     private var job: Job? = null
     private var next: SearchContinuation? = null
+    private var dropped = 0
 
     fun selectServer(server: Folder?) {
         if (server?.uri == mutable.value.server?.uri) return
@@ -213,25 +222,42 @@ internal class CloudSearchModel(
                     return@launch
                 }
                 val page = CloudSearchWire.parsePage(serverId, JSONObject(response.requireSuccess().text()), from?.page ?: 0)
-                val facets =
-                    if (from == null) JSONObject(fetch(serverId, CloudSearchWire.facetsPath(query, today())).requireSuccess().text())
-                    else null
+                val facets = if (from == null) facets(serverId, query) else null
                 next = page.next
+                dropped = (if (from == null) 0 else dropped) + page.dropped
                 mutable.update {
+                    val results =
+                        if (from == null) page.photos else (it.results + page.photos).distinctBy { photo -> photo.uri }
                     it.copy(
-                        results = if (from == null) page.photos else (it.results + page.photos).distinctBy { photo -> photo.uri },
-                        total = page.total,
+                        results = results,
+                        // The server counts rows this client cannot open; once every page is in, the list is the count.
+                        total = if (page.next == null) results.size else (page.total - dropped).coerceAtLeast(results.size),
                         openEnded = page.openEnded,
                         canLoadMore = page.next != null,
                         loading = false,
-                        people = facets?.let { json -> CloudSearchWire.parseFacets(json, "people") } ?: it.people,
-                        places = facets?.let { json -> CloudSearchWire.parseFacets(json, "places") } ?: it.places,
+                        people = if (from == null) facets?.let { json -> CloudSearchWire.parseFacets(json, "people") }.orEmpty() else it.people,
+                        places = if (from == null) facets?.let { json -> CloudSearchWire.parseFacets(json, "places") }.orEmpty() else it.places,
                     )
                 }
             } catch (failure: Exception) {
                 if (failure is CancellationException) throw failure
-                mutable.update { it.copy(loading = false, error = failure.message ?: "Search failed") }
+                if (from == null) next = null
+                mutable.update {
+                    val failed = it.copy(loading = false, error = failure.message ?: "Search failed")
+                    // A failed new search must not leave the previous query's results under it.
+                    if (from == null) failed.copy(results = emptyList(), total = 0, openEnded = false, canLoadMore = false)
+                    else failed
+                }
             }
         }
     }
+
+    /** Facets only decorate the filters: their failure never discards a page that arrived. */
+    private suspend fun facets(serverId: String, query: CloudSearchQuery): JSONObject? =
+        try {
+            JSONObject(fetch(serverId, CloudSearchWire.facetsPath(query, today())).requireSuccess().text())
+        } catch (failure: Exception) {
+            if (failure is CancellationException) throw failure
+            null
+        }
 }

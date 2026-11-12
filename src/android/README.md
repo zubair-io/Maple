@@ -395,16 +395,24 @@ and physical-device qualification remains outstanding.
 
 **Search** queries the selected connected server (a server row appears when more
 than one is connected) through `GET /api/search` and `/api/search/facets`:
-free text, the Today / Last 7 days / Last 30 days / This year presets with the
-same from/to strings as iPad, and multi-select People and Places facets (count
-order; a selected value missing from the facets stays removable). Typing waits
-350 ms; filters search at once. The count is open-ended ("5,000+ photos") for a
-ranked text window. **Show more** follows `nextCursor` for capture-time sorts or
-the next `page` with the server's `rankPin`; a `409 rank_engine_changed` restarts
-from page 0 without the pin. Rows without a registered library address are not
-openable and are left out, as are non-photo files. A result opens into Preview
-and Edit with the result list as its filmstrip and saves through the conditional
-cloud XMP path above (`CloudSearch.kt`, `CloudSearchPanel.kt`).
+free text as `placeQuery` (the natural-language, ranked field Apple's search box
+uses; `q` would only match filenames), the Today / Last 7 days / Last 30 days /
+This year presets with the same from/to strings as iPad, and multi-select People
+and Places facets (count order; a selected value missing from the facets stays
+removable). Typing waits 350 ms; filters search at once. Results keep the
+server's order (relevance or capture time; the sort chip offers Search order,
+Name, Rating). The count is open-ended ("5,000+ photos") for a ranked text
+window and leaves out rows this client cannot open. **Show more** follows
+`nextCursor` for capture-time sorts or the next `page` with the server's
+`rankPin`; a `409 rank_engine_changed` restarts from page 0 without the pin.
+While the first page loads, or when the search fails, the results area says so
+instead of showing the empty-library state; a failed new search clears the
+previous query's results, and a failed facets fetch keeps the page that arrived.
+Rows without a registered library address are not openable and are left out, as
+are non-photo files. Search never sends `stack=1`: a RAW+JPEG pair is two results
+and `stack.companion` is ignored. A result opens into Preview and Edit with the
+result list as its filmstrip and saves through the conditional cloud XMP path
+above (`CloudSearch.kt`, `CloudSearchPanel.kt`).
 
 Connected servers also appear in the system Files app and every app's document
 picker as **Maple Cloud** (`MapleDocumentsProvider`): browse, on-demand

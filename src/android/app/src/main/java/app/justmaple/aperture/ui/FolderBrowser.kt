@@ -40,13 +40,14 @@ internal fun BrowseGrid(
     photos: List<Photo>,
     folders: List<Folder>,
     folderPicker: () -> Unit,
+    sorts: List<BrowseSort> = FOLDER_SORTS,
 ) {
     val context = LocalContext.current.applicationContext
     val gridPreferences = remember(context) { context.getSharedPreferences("browse-grid", Context.MODE_PRIVATE) }
     var columns by rememberSaveable { mutableIntStateOf(gridPreferences.getInt("columns", 3).coerceIn(1, 7)) }
     LaunchedEffect(columns) { gridPreferences.edit().putInt("columns", columns).apply() }
     var filter by rememberSaveable { mutableStateOf(BrowseFilter.All) }
-    var sort by rememberSaveable { mutableStateOf(BrowseSort.Name) }
+    var sort by rememberSaveable { mutableStateOf(sorts.first()) }
     var culling by remember { mutableStateOf(emptyMap<String, PhotoCulling>()) }
     val gridState = rememberFolderGridState(state.folder?.uri)
     val directories = folders.filter { it.name != ".." }
@@ -104,7 +105,7 @@ internal fun BrowseGrid(
                 columns++
             }
         }
-        BrowseFilterBar(filter, { filter = it }, sort, { sort = it })
+        BrowseFilterBar(filter, { filter = it }, sort, { sort = it }, sorts = sorts)
         if (photos.isEmpty() && directories.isEmpty()) {
             MuiEmptyState(
                 if (state.folder == null) "Your library, in Maple" else "No photos here",

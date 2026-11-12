@@ -1,9 +1,16 @@
 package app.justmaple.aperture.ui
 
 import android.net.Uri
+import androidx.compose.material3.Text
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
 import app.justmaple.aperture.cloud.CloudSearchQuery
@@ -11,6 +18,7 @@ import app.justmaple.aperture.cloud.CloudSearchState
 import app.justmaple.aperture.cloud.SearchDatePreset
 import app.justmaple.aperture.cloud.SearchFacet
 import app.justmaple.aperture.data.Folder
+import app.justmaple.aperture.data.Photo
 import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
@@ -68,4 +76,38 @@ class CloudSearchHeaderTest {
         assertEquals("1 photo", searchCountLabel(CloudSearchState(total = 1)))
         assertEquals("1,234 photos", searchCountLabel(CloudSearchState(total = 1234)))
     }
+
+    @Test
+    fun loadingAndFailedSearchesNeverLookLikeAnEmptyLibrary() {
+        val server = Folder(Uri.parse("maple-cloud://home"), "home.example.com")
+        var search by mutableStateOf(CloudSearchState(server = server, loading = true))
+        compose.setContent {
+            CloudSearchBody(search) { Text("grid", Modifier.testTag("results")) }
+        }
+        compose.onNodeWithTag("cloud-search-loading").assertExists()
+        compose.onNodeWithText("No photos here").assertDoesNotExist()
+        search = CloudSearchState(server = server, error = "Cloud session expired. Reconnect this server in Settings.")
+        compose.onNodeWithTag("cloud-search-error").assertTextEquals("Cloud session expired. Reconnect this server in Settings.")
+        compose.onNodeWithTag("results").assertDoesNotExist()
+        search = CloudSearchState(server = server)
+        compose.onNodeWithTag("cloud-search-empty").assertExists()
+        search = CloudSearchState(server = server, results = listOf(photo("b.dng"), photo("a.dng")))
+        compose.onNodeWithTag("results").assertExists()
+    }
+
+    @Test
+    fun searchResultsKeepTheServersOrderUntilTheUserSorts() {
+        val ranked = listOf(photo("zebra.dng"), photo("apple.dng"), photo("mango.dng"))
+        assertEquals(ranked, applyBrowseCulling(ranked, emptyMap(), BrowseFilter.All, SEARCH_SORTS.first()))
+        var sort by mutableStateOf(SEARCH_SORTS.first())
+        compose.setContent { BrowseFilterBar(BrowseFilter.All, {}, sort, { sort = it }, sorts = SEARCH_SORTS) }
+        compose.onNodeWithTag("grid-sort-toggle").performClick()
+        compose.runOnIdle { assertEquals(BrowseSort.Name, sort) }
+        compose.onNodeWithTag("grid-sort-toggle").performClick()
+        compose.onNodeWithTag("grid-sort-toggle").performClick()
+        compose.runOnIdle { assertEquals(BrowseSort.Server, sort) }
+    }
+
+    private fun photo(name: String) =
+        Photo(Uri.parse("maple-cloud://home/$name"), name, 1, 1, null)
 }
