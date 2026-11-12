@@ -100,6 +100,37 @@ final class RawJpegStackSMBSourceTests: XCTestCase {
     XCTAssertEqual(names(pair.fixture.share), ["Album"])
   }
 
+  /// Replacing an edited destination pair used to fail: the destination JPEG still claimed the
+  /// destination sidecar while the RAW was placed, so its replacement was refused even though the
+  /// user had chosen to replace that JPEG too.
+  func testReplacingAnEditedDestinationPairReplacesItsSidecar() async throws {
+    let pair = try await openPair(
+      albumHolding: ["photo.dng": "old-raw", "photo.jpg": "old-jpeg", "photo.xmp": "<old/>"])
+    let sourceSidecar = try XCTUnwrap(text(pair.fixture.share, "photo.xmp"))
+
+    _ = try await pair.fixture.source.relocateAsset(
+      pair.raw, companion: pair.jpeg, to: "/Album", mode: .move, collision: .replace,
+      companionCollision: .replace)
+
+    XCTAssertEqual(names(pair.album), ["photo.dng", "photo.jpg", "photo.xmp"])
+    XCTAssertEqual(text(pair.album, "photo.jpg"), "jpeg-bytes")
+    XCTAssertEqual(text(pair.album, "photo.xmp"), sourceSidecar)
+    XCTAssertEqual(names(pair.fixture.share), ["Album"])
+  }
+
+  /// A Keep Both copy used to copy the JPEG under its own name beside a suffixed RAW: only a move
+  /// re-aligned the stems.
+  func testKeepBothCopyGivesTheJpegTheRawsSuffixedStem() async throws {
+    let pair = try await openPair(albumHolding: ["photo.dng": "old-raw"])
+
+    let outcome = try await pair.fixture.source.relocateAsset(
+      pair.raw, companion: pair.jpeg, to: "/Album", mode: .copy, collision: .autoSuffix)
+
+    XCTAssertEqual(names(pair.album), ["photo.1.dng", "photo.1.jpg", "photo.1.xmp", "photo.dng"])
+    XCTAssertEqual(outcome.companion.primaryPath, "/Album/photo.1.jpg")
+    XCTAssertEqual(names(pair.fixture.share), ["Album", "photo.dng", "photo.jpg", "photo.xmp"])
+  }
+
   func testRenameGivesBothFilesTheNewStemAndRefusesATakenJpegName() async throws {
     let pair = try await openPair(albumHolding: [:])
     try Data("other".utf8).write(to: pair.fixture.share.appendingPathComponent("taken.jpg"))

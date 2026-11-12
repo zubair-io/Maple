@@ -64,9 +64,11 @@ extension SMBSource {
     let primaryTarget = Self.lastComponent(pair.primaryTarget(stem: stem.value))
     let companionTarget = Self.lastComponent(pair.companionTarget(stem: stem.value))
 
+    // A JPEG this operation replaces too no longer claims the destination's sidecar.
     var primary = try await relocateAsset(
       ref, to: destinationDir, newBasename: primaryTarget, mode: mode,
-      collision: collision == .replace ? .replace : .fail)
+      collision: collision == .replace ? .replace : .fail,
+      displacing: companionReplaces ? [pair.companionTarget(stem: stem.value)] : [])
     if stem.suffixed {
       primary = RelocateOutcome(
         primaryPath: primary.primaryPath, sidecarPath: primary.sidecarPath,
