@@ -2,8 +2,22 @@
 for the file-size budget). Pure numpy; see pano_metrics for the harness."""
 from __future__ import annotations
 
+import os
+import tempfile
+
 import numpy as np
 from PIL import Image
+
+
+def normalize(im: Image.Image, long_edge: int) -> Image.Image:
+    """Downscale so the long edge equals `long_edge`; never upscale."""
+    w, h = im.size
+    scale = long_edge / max(w, h)
+    if scale >= 1.0:
+        return im
+    return im.resize(
+        (max(1, round(w * scale)), max(1, round(h * scale))), Image.LANCZOS
+    )
 
 
 def _luma(rgb: np.ndarray) -> np.ndarray:
@@ -89,6 +103,13 @@ def load_owner(owner_path, size) -> np.ndarray:
     return owner
 
 
+def candidate_seam_step(cand_im: Image.Image, owner_path, long_edge: int) -> dict:
+    """Seam step of a candidate alone (#5896): the owner map says where the
+    seams are, so a set without a reference still gets it."""
+    cand_n = normalize(cand_im.convert("RGB"), long_edge)
+    cand = np.asarray(cand_n, dtype=np.float32) / 255.0
+    return seam_step(cand, load_owner(owner_path, cand_n.size))
+
 
 def seam_step_checks(check) -> None:
     syn = np.full((120, 200, 3), 0.4, dtype=np.float32)
@@ -105,3 +126,13 @@ def seam_step_checks(check) -> None:
           s_flat["seam_step_hard"] is None
           or abs(s_flat["seam_step_hard"]) < 0.02,
           f"seam_step_hard={s_flat['seam_step_hard']} (single owner)")
+    planted = Image.fromarray((np.clip(syn, 0, 1) * 255).astype(np.uint8))
+    with tempfile.TemporaryDirectory() as tmp:
+        owner_png = os.path.join(tmp, "owner.png")
+        Image.fromarray((syn_owner + 1).astype(np.uint16), mode="I;16").save(owner_png)
+        c_step = candidate_seam_step(planted.resize((400, 240)), owner_png, 200)
+    check("seam-step-candidate-only",
+          c_step["seam_step_hard"] is not None
+          and c_step["seam_step_hard"] > 0.15,
+          f"seam_step_hard={c_step['seam_step_hard']} (> 0.15 planted, "
+          "normalized candidate, owner map resampled)")
