@@ -12,24 +12,28 @@ export const STAGE_TASK_QUEUE = 'maple-stages';
 
 export const stageWorkflowId = (stage: string): string => `stage-${stage}`;
 
-/** What one slice did: how many rows its claims touched, and whether the last claim came back empty. */
+/**
+ * What one slice did: how many rows its claims touched, and whether the stage
+ * is done for now — paused, or nothing to claim for the whole slice.
+ */
 export interface StageSlice {
   claimed: number;
   drained: boolean;
 }
 
-/** Keeps a stage with a backlog of millions from growing one history without bound. */
+/** About 83 minutes of continuous work per run, so no history grows without bound. */
 const SLICES_PER_RUN = 500;
 
 /**
  * A slice runs for about ten seconds, and a single batch may run far longer, so
- * the heartbeat, not the start-to-close timeout, is what notices a lost worker.
+ * the heartbeat, not the start-to-close timeout, is what notices a lost worker:
+ * after a killed worker child, within a minute rather than holding the stage.
  * Retries back off from one second to thirty and never give up: a claim that
  * fails is a database or stage problem the operator sees on Settings → Workers.
  */
 const { runStageSlice } = proxyActivities<StageActivities>({
   startToCloseTimeout: '7 days',
-  heartbeatTimeout: '5 minutes',
+  heartbeatTimeout: '1 minute',
   retry: { initialInterval: '1 second', backoffCoefficient: 2, maximumInterval: '30 seconds' },
 });
 

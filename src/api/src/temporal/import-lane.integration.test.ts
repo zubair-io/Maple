@@ -25,7 +25,7 @@ import type { ImportRunnerDeps } from '../imports/worker.ts';
 import type { JobHandler } from '../job-runner/handlers/index.ts';
 import { jobLane } from '../job-runner/job-queue.ts';
 import { createJob, getJob } from '../job-runner/jobs.repo.ts';
-import { startLocalTemporalServer } from './local-temporal.test-helpers.ts';
+import { gate, startLocalTemporalServer, until } from './local-temporal.test-helpers.ts';
 import { saveTemporalSettings } from './temporal-config.ts';
 import { TemporalHost } from './temporal-host.ts';
 
@@ -44,16 +44,6 @@ afterAll(async () => {
   await fs.rm(tmp, { recursive: true, force: true }).catch(() => {});
 });
 
-async function until<T>(read: () => Promise<T>, done: (value: T) => boolean, ms = 20_000) {
-  const deadline = Date.now() + ms;
-  for (;;) {
-    const value = await read();
-    if (done(value)) return value;
-    if (Date.now() > deadline) throw new Error(`timed out; last value ${JSON.stringify(value)}`);
-    await new Promise((resolve) => setTimeout(resolve, 25));
-  }
-}
-
 const importStatus = (id: ObjectId, status: ImportStatus) =>
   until(
     () => getImport(id),
@@ -65,14 +55,6 @@ const jobStatus = (id: ObjectId, status: JobStatus) =>
     () => getJob(id),
     (job) => job?.status === status,
   );
-
-function gate() {
-  let release = () => {};
-  const blocked = new Promise<void>((resolve) => {
-    release = resolve;
-  });
-  return { blocked, release };
-}
 
 /** A pending import of one image staged under `<tmp>/<sub>/src`; `staged: false` leaves the source missing. */
 async function pendingImport(db: Database, sub: string, staged = true) {

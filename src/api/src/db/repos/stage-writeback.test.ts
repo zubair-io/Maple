@@ -1,6 +1,6 @@
 /**
  * What each handler result records, ported from the Mongo runner's writeback
- * suites (`run-stage.poll-loop.test.ts`, `run-stage.invalidates.test.ts`,
+ * suites (`run-stage.outcomes.test.ts`, `run-stage.invalidates.test.ts`,
  * `run-stage.rearm.test.ts`).
  *
  * The Mongo versions drive a whole `runOnce` against an in-memory collection

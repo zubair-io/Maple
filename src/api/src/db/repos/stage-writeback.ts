@@ -92,7 +92,7 @@ function assertStageNames(names: readonly string[]): void {
 }
 
 /**
- * Mark downstream stages stale so their poll loops rebuild from what this
+ * Mark downstream stages stale so their next slices rebuild from what this
  * stage just wrote (#2172). The writing stage's own name is excluded: its row
  * is the runner's, written in the same transaction.
  */

@@ -259,7 +259,7 @@ function crashReason(attempts: number): string {
  * rather than a shortcut. `attempts` is not in `stage_claim` — the index
  * carries `stage, version, dead, next_attempt_at, asset_id` — so a separate
  * `WHERE attempts >= ?` sweep cannot be answered from the index and walks the
- * stage's whole backlog, reading a row body per candidate, on every poll tick
+ * stage's whole backlog, reading a row body per candidate, on every batch
  * of every stage. Measured on 20,000 assets it made a claim 10.4 ms against
  * Mongo's 2.8 ms, which is the opposite of this port's entire argument. The
  * Mongo runner filters the batch it already fetched, and doing the same here
@@ -359,10 +359,10 @@ export async function renewStageLease(
  * The candidate scan being a separate, un-locked read is deliberate. It is the
  * expensive half (a range scan) and it does not need to be exclusive: a stale
  * candidate simply loses at step 2. Taking the write lock for the scan as well
- * would serialise every stage's poll tick against every other stage's, on a
+ * would serialise every stage's claim against every other stage's, on a
  * single-writer database, for no correctness gain.
  *
- * A batch that is all crash-exhausted rows therefore claims nothing this tick
+ * A batch that is all crash-exhausted rows therefore claims nothing this time
  * and drains a batch at a time, which is exactly what the Mongo runner does —
  * and the point of not re-dispatching them, since one poison asset re-claiming
  * on every respawn is how a whole tier stops draining (#897).

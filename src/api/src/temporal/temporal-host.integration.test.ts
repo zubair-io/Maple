@@ -14,7 +14,7 @@ import type { JobHandler } from '../job-runner/handlers/index.ts';
 import { JOB_TASK_QUEUE, jobWorkflow, jobWorkflowId } from '../job-runner/job-workflow.ts';
 import { jobLane } from '../job-runner/job-queue.ts';
 import { createJob, getJob, markJobDispatched, resumeBatchJob } from '../job-runner/jobs.repo.ts';
-import { startLocalTemporalServer } from './local-temporal.test-helpers.ts';
+import { startLocalTemporalServer, until } from './local-temporal.test-helpers.ts';
 import { readTemporalStatus, saveTemporalSettings } from './temporal-config.ts';
 import { dispatchSignal } from './row-workflow.ts';
 import { defaultTemporalLanes, TemporalHost } from './temporal-host.ts';
@@ -31,16 +31,6 @@ beforeAll(async () => {
 afterAll(async () => {
   await env.teardown();
 });
-
-async function until<T>(read: () => Promise<T>, done: (value: T) => boolean, ms = 20_000) {
-  const deadline = Date.now() + ms;
-  for (;;) {
-    const value = await read();
-    if (done(value)) return value;
-    if (Date.now() > deadline) throw new Error(`timed out; last value ${JSON.stringify(value)}`);
-    await new Promise((resolve) => setTimeout(resolve, 25));
-  }
-}
 
 /** Awaited here, not inside `expect().rejects`, which under Bun sits out the full long-poll. */
 const failureOf = (workflow: { result: () => Promise<unknown> }): Promise<unknown> =>

@@ -45,3 +45,24 @@ export async function startLocalTemporal(): Promise<LocalTemporal> {
     },
   };
 }
+
+/** Re-reads until `done` holds, failing with the last value read after `ms`. */
+export async function until<T>(
+  read: () => T | Promise<T>,
+  done: (value: T) => boolean,
+  ms = 20_000,
+): Promise<T> {
+  const deadline = Date.now() + ms;
+  for (;;) {
+    const value = await read();
+    if (done(value)) return value;
+    if (Date.now() > deadline) throw new Error(`timed out; last value ${JSON.stringify(value)}`);
+    await sleep(25);
+  }
+}
+
+/** A promise a test holds a handler on until it calls `release`. */
+export function gate(): { blocked: Promise<void>; release: () => void } {
+  const { promise, resolve } = Promise.withResolvers<void>();
+  return { blocked: promise, release: () => resolve() };
+}

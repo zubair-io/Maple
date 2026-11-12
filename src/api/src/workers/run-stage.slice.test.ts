@@ -1,7 +1,8 @@
 /**
- * What a booted stage hands the stage lane: a slice that drains batch after
- * batch, a read-only peek, and the idle call that stands in for a claim that
- * found nothing. Scheduling them is Temporal's job and is covered by
+ * What a booted stage hands the stage lane: a slice that polls the way the
+ * old loop did for about ten seconds, a read-only peek, and the idle call that
+ * stands in for a claim that found nothing. Slices here are cut to 50 ms
+ * unless a test is about their length. Scheduling them is Temporal's job and is covered by
  * `temporal/stage-lane.integration.test.ts`; this file needs no server.
  */
 
@@ -10,6 +11,7 @@ import { afterEach, describe, expect, it } from 'bun:test';
 import { WorkerConfigRepo } from '../db/repos/worker-config.repo.ts';
 import { seedClaimableAsset, stageRow } from '../db/repos/stage-runtime.test-helpers.ts';
 import { createLiveTestDatabase } from '../db/sqlite/test-sqlite.test-helpers.ts';
+import { gate, until } from '../temporal/local-temporal.test-helpers.ts';
 import { stageRegistry } from './registry.ts';
 import {
   defineStage,
@@ -50,7 +52,7 @@ function testStage(
 }
 
 async function boot(stage: StageConfig, options: RunStageOptions = {}): Promise<RunStageHandle> {
-  const handle = await runStage(stage, options);
+  const handle = await runStage(stage, { sliceMs: 50, ...options });
   booted.push(handle);
   return handle;
 }
@@ -60,13 +62,8 @@ const seed = (db: Database, count: number): string[] =>
 
 const skip = async (): Promise<StageResult> => ({ skip: 'noop' });
 
-function gate() {
-  const { promise, resolve } = Promise.withResolvers<void>();
-  return { blocked: promise, release: () => resolve() };
-}
-
 describe('runSlice', () => {
-  it('drains full batches back to back and stops on the first empty one', async () => {
+  it('claims again at once after a full batch and waits after a short one', async () => {
     using live = await createLiveTestDatabase();
     const assets = seed(live.db, 12);
     const batches: Array<[number, boolean]> = [];
@@ -78,17 +75,75 @@ describe('runSlice', () => {
       }),
     );
 
-    expect(await stage.runSlice()).toEqual({ claimed: 12, drained: true });
+    expect(await stage.runSlice()).toEqual({ claimed: 12, drained: false });
 
     expect(batches).toEqual([
       [5, false],
       [5, false],
       [2, false],
-      [0, true],
     ]);
     expect(assets.map((id) => stageRow(live.db, id, STAGE)?.version)).toEqual(assets.map(() => 1));
     expect(stageRegistry.statuses()[STAGE]?.throughput).toBe(12);
   });
+
+  it('reports drained only for a slice that found nothing, idling as it waits', async () => {
+    using _live = await createLiveTestDatabase();
+    const batches: Array<[number, boolean]> = [];
+    const stage = await boot(
+      testStage(skip, {
+        onProgress: (processed, idle) => {
+          batches.push([processed, idle]);
+        },
+      }),
+    );
+
+    expect(await stage.runSlice()).toEqual({ claimed: 0, drained: true });
+    expect(batches).toEqual([[0, true]]);
+  });
+
+  it('picks up work that arrives mid-slice within about a second', async () => {
+    using live = await createLiveTestDatabase();
+    const stage = await boot(testStage(skip), { sliceMs: 3_000 });
+
+    const slice = stage.runSlice();
+    await Bun.sleep(100);
+    const [asset] = seed(live.db, 1);
+    const arrived = Date.now();
+    await until(
+      () => stageRow(live.db, asset!, STAGE)?.version,
+      (version) => version === 1,
+    );
+
+    expect(Date.now() - arrived).toBeLessThan(1_500);
+    expect(stage.busy).toBe(true);
+    expect(await slice).toEqual({ claimed: 1, drained: false });
+  });
+
+  it('ends within about two seconds of a pause written by the API process', async () => {
+    using live = await createLiveTestDatabase();
+    const assets = seed(live.db, 200);
+    const stage = await boot(
+      testStage(async () => {
+        await Bun.sleep(10);
+        return { skip: 'slow' };
+      }),
+      { sliceMs: 10_000 },
+    );
+
+    const slice = stage.runSlice();
+    await until(
+      () => assets.filter((id) => stageRow(live.db, id, STAGE)?.version === 1).length,
+      (done) => done > 0,
+    );
+    const pausedAt = Date.now();
+    await new WorkerConfigRepo().patch(STAGE, { paused: true });
+
+    expect((await slice).drained).toBe(true);
+    expect(Date.now() - pausedAt).toBeLessThan(2_500);
+    expect(stage.paused).toBe(true);
+    const handled = assets.filter((id) => stageRow(live.db, id, STAGE)?.version === 1).length;
+    expect(handled).toBeLessThan(assets.length);
+  }, 15_000);
 
   it('gives way after its time is up, but only between batches', async () => {
     using live = await createLiveTestDatabase();
@@ -125,8 +180,8 @@ describe('runSlice', () => {
     expect(stage.busy).toBe(true);
     handler.release();
 
-    expect(await first).toEqual({ claimed: 2, drained: true });
-    expect(await second).toEqual({ claimed: 2, drained: true });
+    expect(await first).toEqual({ claimed: 2, drained: false });
+    expect(await second).toEqual({ claimed: 2, drained: false });
     expect(calls).toBe(2);
     expect(stage.busy).toBe(false);
   });
@@ -146,7 +201,7 @@ describe('runSlice', () => {
     expect(stage.busy).toBe(false);
 
     live.db.run(`DROP TRIGGER refuse_claim`);
-    expect(await stage.runSlice()).toEqual({ claimed: 1, drained: true });
+    expect(await stage.runSlice()).toEqual({ claimed: 1, drained: false });
     expect(stageRegistry.statuses()[STAGE]?.lastError).toBeNull();
     expect(stageRow(live.db, asset!, STAGE)?.version).toBe(1);
   });
@@ -175,6 +230,35 @@ describe('hasWork', () => {
 
     await stage.runSlice();
     expect(await stage.hasWork()).toBe(false);
+  });
+
+  it('records a failed peek on the stage and clears it on the next good one', async () => {
+    using live = await createLiveTestDatabase();
+    seed(live.db, 1);
+    const broken = { now: true };
+    const config = Object.defineProperty(testStage(skip), 'claimResidual', {
+      get: () => (broken.now ? { sql: 'no_such_column = 1', params: [] } : undefined),
+    });
+    const stage = await boot(config);
+
+    expect(await stage.hasWork()).toBe(false);
+    expect(stageRegistry.statuses()[STAGE]?.lastError).toContain('no_such_column');
+
+    broken.now = false;
+    expect(await stage.hasWork()).toBe(true);
+    expect(stageRegistry.statuses()[STAGE]?.lastError).toBeNull();
+  });
+
+  it('leaves a failing slice’s error standing when a peek succeeds', async () => {
+    using live = await createLiveTestDatabase();
+    seed(live.db, 1);
+    const stage = await boot(testStage(skip));
+    live.db.run(`CREATE TRIGGER refuse_claim BEFORE UPDATE ON stage_state
+                 BEGIN SELECT RAISE(ABORT, 'claim refused'); END`);
+    await stage.runSlice().catch(() => {});
+
+    expect(await stage.hasWork()).toBe(true);
+    expect(stageRegistry.statuses()[STAGE]?.lastError).toContain('claim refused');
   });
 });
 
@@ -210,10 +294,15 @@ describe('idle', () => {
     expect(stage.paused).toBe(true);
 
     await new WorkerConfigRepo().patch(STAGE, { paused: false });
-    await Bun.sleep(2_100);
-    await stage.idle();
 
-    expect(stage.paused).toBe(false);
+    await until(
+      async () => {
+        await stage.idle();
+        return stage.paused;
+      },
+      (paused) => !paused,
+      5_000,
+    );
   });
 
   it('does nothing while a slice is running', async () => {
@@ -238,7 +327,7 @@ describe('idle', () => {
 
     handler.release();
     await slice;
-    expect(calls).toEqual([1, 0]);
+    expect(calls).toEqual([1]);
   });
 });
 

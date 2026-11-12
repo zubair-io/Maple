@@ -58,8 +58,8 @@ export { THUMB_MISSING_REASON, THUMB_UNDECODABLE_REASON };
  * space. Existing embeddings were produced by the old MobileFaceNet model
  * and are mathematically unrelated — they must be recomputed (there is no
  * cross-model vector migration). Assets carrying the lower version (legacy
- * faces, or anything below v2) go stale and reprocess through the normal
- * loop. */
+ * faces, or anything below v2) go stale and reprocess through the stage's
+ * normal claim. */
 const FACE_EMBED_TARGET_VERSION = 2;
 
 export async function faceEmbedHandler(image: ImageDoc, _ctx: StageContext): Promise<StageResult> {
@@ -131,7 +131,7 @@ const faceEmbedStage = defineStage({
   },
   handler: faceEmbedHandler,
   // Auto-clustering idle edge: after each batch or idle check, tell the coordinator
-  // whether the queue drained. This loop-level hook is asset-agnostic (it only
+  // whether the queue drained. This stage-level hook is asset-agnostic (it only
   // knows the asset count, not the face count), so it carries ONLY the idle
   // signal — the "every N faces" cadence is driven by `recordFacesEmbedded`,
   // which the handler calls with the real per-asset face count. Together they
