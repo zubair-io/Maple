@@ -19,6 +19,14 @@ extension LocalFileOperations {
   /// both to the first stem free for the RAW, the JPEG and their sidecar. Any occupant a replace
   /// displaces is backed up first and only discarded once both files are in place, so a pair that
   /// cannot finish puts the displaced files back and leaves the sources where they were.
+  ///
+  /// Not optimized: at `-O` (Swift 6.3.3 and 6.4, arm64) the JPEG's `companionReplaces ?
+  /// .replace : .fail` was lowered to a `cinc` placed after the stack-protector canary compare in
+  /// the tail call to `planRelocate`, so it read that compare's flags and passed `.fail` every
+  /// time: a JPEG the user chose to replace was refused. The release-built swift-regressions gate
+  /// caught it (`testTheJpegIsReplacedOnlyWhenItsOwnPromptSaidSo`); debug builds were unaffected.
+  /// The function's own work is a handful of branches around file I/O, so `-Onone` is cheap here.
+  @_optimize(none)
   static func relocateStack(
     _ primaryURL: URL, companion companionURL: URL, to destinationDir: URL,
     newBasename: String?, mode: RelocateMode, collision: CollisionPolicy,
