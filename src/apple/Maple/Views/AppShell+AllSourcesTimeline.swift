@@ -49,7 +49,10 @@ extension AppShell {
           AllSourcesTimelineViewModel.ServerSource(
             server: serverURL,
             libraryIDs: folders.map(\.id),
-            searchClient: CloudSearchClient(server: effectiveServer, httpClient: httpClient),
+            searchClient: CloudSearchClient(
+              server: effectiveServer, httpClient: httpClient,
+              stacksRawJpeg: ServerRawJpegStackPreference.reader(
+                identity: serverURL, server: effectiveServer, httpClient: httpClient)),
             thumbClient: CloudThumbClient(server: effectiveServer, httpClient: httpClient)
           ))
       }

@@ -30,6 +30,16 @@ public actor ServerRawJpegStackPreference {
     return config.stackRawJpeg
   }
 
+  /// A reader for one server's preference, for a stack-aware view's `CloudSearchClient` or
+  /// listing: `identity` keys the preference (the registry URL Settings uses), `server` is where
+  /// requests go (the LAN-resolved URL when one is active).
+  public nonisolated static func reader(
+    identity: URL, server: URL, httpClient: AuthenticatedHTTPClient
+  ) -> @Sendable () async -> Bool {
+    let client = DisplayConfigClient(server: server, httpClient: httpClient)
+    return { await shared.isEnabled(server: identity) { try await client.fetch() } }
+  }
+
   /// Remember a value read or saved by Settings, so the next load uses it without asking again.
   public func record(_ value: Bool, server: URL) {
     known[server.absoluteString] = value

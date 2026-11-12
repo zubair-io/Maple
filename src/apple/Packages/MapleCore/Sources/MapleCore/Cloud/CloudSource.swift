@@ -123,10 +123,8 @@ extension CloudSource: ImageSource {
   /// (`stack_raw_jpeg` on `/api/display/config`, #5050), read once and then
   /// kept by `ServerRawJpegStackPreference`.
   public func stacksRawJpegPairs() async -> Bool {
-    let client = DisplayConfigClient(server: server, httpClient: httpClient)
-    return await ServerRawJpegStackPreference.shared.isEnabled(server: identity) {
-      try await client.fetch()
-    }
+    await ServerRawJpegStackPreference.reader(
+      identity: identity, server: server, httpClient: httpClient)()
   }
 
   /// Grid thumbnail via `GET /api/thumb/:slug/*` — one fixed tier per

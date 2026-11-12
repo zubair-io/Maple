@@ -38,7 +38,10 @@ extension AppShell {
     let vm = SearchViewModel(
       server: serverID,
       libraryID: libraryID,
-      searchClient: CloudSearchClient(server: effectiveServer, httpClient: httpClient),
+      searchClient: CloudSearchClient(
+        server: effectiveServer, httpClient: httpClient,
+        stacksRawJpeg: ServerRawJpegStackPreference.reader(
+          identity: serverID, server: effectiveServer, httpClient: httpClient)),
       currentUserID: sessionFor(serverID).user?.id)
     // `SearchParams.libraryID` — not the argument above — is what hits
     // the wire (`listQueryItems()`), so force it to match: a caller-
@@ -162,7 +165,10 @@ extension AppShell {
       let vm = SearchViewModel(
         server: serverID,
         libraryID: nil,  // account-wide
-        searchClient: CloudSearchClient(server: effectiveServer, httpClient: httpClient),
+        searchClient: CloudSearchClient(
+          server: effectiveServer, httpClient: httpClient,
+          stacksRawJpeg: ServerRawJpegStackPreference.reader(
+            identity: serverID, server: effectiveServer, httpClient: httpClient)),
         currentUserID: session.user?.id)
       let libraryID = await resolveGeneratedSearchLibraryID(
         server: serverID,

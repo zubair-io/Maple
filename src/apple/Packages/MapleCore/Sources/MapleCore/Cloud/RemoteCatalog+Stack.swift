@@ -18,7 +18,7 @@ extension RemoteCatalog {
 
   private func companionAddress(of stack: RawJpegStack) -> String? {
     guard case .cloud(let address, _, _) = stack.location else { return nil }
-    return address
+    return address  // nil: the server resolves the asset by its id alone
   }
 
   /// Rename the RAW to `newFilename` and the JPEG to the same stem.
@@ -362,8 +362,9 @@ extension RawJpegStack {
     return relocated(
       primaryName: response.newFilename, companionName: companionName,
       location: .cloud(
-        address: Self.replacingLastComponent(
-          of: address, with: companionName, separators: ["/", ":"]),
+        address: address.map {
+          Self.replacingLastComponent(of: $0, with: companionName, separators: ["/", ":"])
+        },
         path: Self.replacingLastComponent(of: path, with: companionName, separators: ["/"]),
         id: id))
   }
