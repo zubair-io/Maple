@@ -42,10 +42,11 @@ public enum WhiteBalanceSampleError: Error, LocalizedError, Sendable, Equatable 
 /// PhotoKit and cloud RAWs by staging their bytes only for the duration of
 /// the call. The current model is serialized to a private temporary XMP; a
 /// pending autosave cannot make the analysis use stale lens/decode settings.
-/// Originals are never written.
+/// Originals are never written. `stagedRaw` is a copy the caller already
+/// holds for this asset (an edit session's), used in place of a second one.
 enum RawProbeStaging {
   static func withStagedProbe<T: Sendable>(
-    asset: AssetRef, model: AdjustmentModel,
+    asset: AssetRef, model: AdjustmentModel, stagedRaw: URL? = nil,
     _ body: @escaping @Sendable (_ rawURL: URL, _ xmpURL: URL) throws -> T
   ) async throws -> T {
     try await Task.detached(priority: .userInitiated) {
@@ -57,7 +58,7 @@ enum RawProbeStaging {
       let accessing = scope?.startAccessingSecurityScopedResource() ?? false
       defer { if accessing { scope?.stopAccessingSecurityScopedResource() } }
       let rawURL: URL
-      if let url = asset.primaryURL {
+      if let url = stagedRaw ?? asset.primaryURL {
         rawURL = url
       } else if let provider = asset.bytesProvider {
         let bytes = try await provider()

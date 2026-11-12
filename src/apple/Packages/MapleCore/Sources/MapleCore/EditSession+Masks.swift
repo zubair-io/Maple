@@ -384,12 +384,13 @@ extension EditSession {
     !disabledMaskIds.contains(id)
   }
 
-  /// `model` as the render paths consume it: identical unless a mask is
-  /// disabled, in which case that layer's adjustments are cleared so the
-  /// stage treats it as a no-op. The sidecar always sees `model` itself.
+  /// `model` as the render paths consume it: a disabled mask's adjustments are
+  /// cleared so the stage treats it as a no-op, and name-only imported Auto
+  /// takes the session's resolved pair (#4669). The sidecar always sees `model`.
   var renderModel: AdjustmentModel {
-    guard !disabledMaskIds.isEmpty else { return model }
-    var m = model
+    let resolved = model.overlayingImportedAuto(importedAuto.target)
+    guard !disabledMaskIds.isEmpty else { return resolved }
+    var m = resolved
     for i in m.localAdjustments.indices where disabledMaskIds.contains(m.localAdjustments[i].id) {
       m.localAdjustments[i].adjustments = PartialAdjustments()
     }

@@ -4,17 +4,24 @@ import RawPipeline
 /// Cold import resolution only: no additional FFI call on a slider tick. The
 /// original partial XMP remains authoritative for persistence; the numerical
 /// live pair comes from the same Rust resolver as full develop, including V1.
+/// Name-only Auto (#4669) takes the shared estimator's pair: final outputs
+/// await it, an edit session requests it after its As Shot first frame.
 enum ImportedWhiteBalanceResolver {
+  /// `sessionRaw` names the RAW file an edit session decodes. The resolver
+  /// then reads that file, so the core decodes it once for both.
   static func resolve(
-    asset: AssetRef, model: AdjustmentModel, isRawOverride: Bool? = nil
+    asset: AssetRef, model: AdjustmentModel, isRawOverride: Bool? = nil,
+    sessionRaw: (@Sendable () async throws -> URL)? = nil
   ) async throws -> AdjustmentModel {
-    guard let imported = model.partialWhiteBalance, imported.resolvedTarget == nil else {
+    guard model.partialWhiteBalance.map({ $0.resolvedTarget == nil }) == true else {
       return model
     }
     let target: ResolvedWhiteBalance
     if isRawOverride ?? asset.isRaw {
-      target = try await RawProbeStaging.withStagedProbe(asset: asset, model: model) {
-        raw, sidecar in
+      let stagedRaw = try await sessionRaw?()
+      target = try await RawProbeStaging.withStagedProbe(
+        asset: asset, model: model, stagedRaw: stagedRaw
+      ) { raw, sidecar in
         let xml = try String(contentsOf: sidecar, encoding: .utf8)
         return try raw.path.withCString { path in try resolve(path: path, xml: xml) }
       }
@@ -25,14 +32,7 @@ enum ImportedWhiteBalanceResolver {
       }.value
     }
     try Task.checkCancellation()
-    var resolved = model
-    resolved.temperature = target.temperature
-    resolved.tint = target.tint
-    resolved.wbScaleVersion = 5
-    var intent = imported
-    intent.resolvedTarget = target
-    resolved.partialWhiteBalance = intent
-    return resolved
+    return model.resolvingImportedWhiteBalance(target)
   }
 
   private static func resolve(path: UnsafePointer<CChar>?, xml: String) throws

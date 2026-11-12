@@ -344,6 +344,7 @@ DevelopedImageRevisionTests
 ThumbnailLoaderRawSidecarTests
 
 PartialWhiteBalanceTests
+ImportedAutoWhiteBalanceTests
 
 # Unified cloud originals and actual download progress (#4002 / #4004):
 CloudSourceTests
