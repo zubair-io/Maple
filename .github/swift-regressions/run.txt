@@ -558,3 +558,9 @@ TemporalSettingsDecodingTests
 TemporalSettingsFormTests
 TemporalSettingsClientTests
 TemporalSettingsModelTests
+
+# Canvas-first editor A3 (#5121): white-balance pad mapping, sidecar parity
+# with the sliders and one-step undo on a preview session; tone-curve press
+# rule per input kind. Pure math and an in-memory session.
+WhiteBalancePadMathTests
+PrecisionInputTests
