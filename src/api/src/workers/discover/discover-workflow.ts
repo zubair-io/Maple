@@ -17,9 +17,13 @@ export const discoverWorkflowId = (rootKey: string): string => `discover-${rootK
  */
 const SLICES_PER_RUN = 100;
 
+/**
+ * A worker killed mid-slice, as a deploy does, holds its root until the
+ * heartbeat timeout, so it is kept short; the activity heartbeats on a timer.
+ */
 const { sweepRoot } = proxyActivities<DiscoverActivities>({
   startToCloseTimeout: '1 hour',
-  heartbeatTimeout: '5 minutes',
+  heartbeatTimeout: '1 minute',
   retry: { initialInterval: '1 second', backoffCoefficient: 2, maximumInterval: '30 seconds' },
 });
 

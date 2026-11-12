@@ -393,7 +393,6 @@ describe('connection state', () => {
       taskQueue: 'broken-lane',
       activities: {},
       concurrency: 1,
-      relay: async () => {},
       reconcile: async () => {
         throw new Error('ledger unreadable');
       },

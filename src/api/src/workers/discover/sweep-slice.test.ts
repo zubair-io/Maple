@@ -150,6 +150,36 @@ describe('runSweepSlice', () => {
     expect(await frontier.remainingForGen(library.folderId, 1)).toBe(2);
   });
 
+  it('a stop between file events abandons the visit and leaves its directory to be redone', async () => {
+    using library = await createDiscoverLibrary('maple-slice-mid-visit-');
+    for (const name of ['a.jpg', 'b.jpg', 'c.jpg', 'd.jpg']) {
+      writeFileSync(join(library.root, name), name);
+    }
+    const stop = new AbortController();
+    let handled = 0;
+
+    const summary = await sliceOf(library, {
+      signal: stop.signal,
+      deps: {
+        folderId: library.folderId,
+        handleEvent: async () => {
+          handled += 1;
+          stop.abort();
+        },
+      },
+    });
+
+    expect(handled).toBe(1);
+    expect(summary).toEqual({
+      generation: 1,
+      generationsCompleted: 0,
+      directoriesVisited: 0,
+      registered: true,
+    });
+    expect(await frontier.remainingForGen(library.folderId, 1)).toBe(1);
+    expect(await frontier.claimNextDir(library.folderId, 1, 60_000)).toBeNull();
+  });
+
   it('heartbeats after every directory', async () => {
     using library = await createDiscoverLibrary('maple-slice-beat-');
     withDirs(library, ['a', 'b']);

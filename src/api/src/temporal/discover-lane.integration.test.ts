@@ -13,6 +13,8 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import type { TestWorkflowEnvironment } from '@temporalio/testing';
+import { NativeConnection, Worker } from '@temporalio/worker';
+import { fileURLToPath } from 'node:url';
 import { readCheckpoint } from '../db/repos/indexer-checkpoints.repo.ts';
 import { patchDiscoverConfig } from '../db/repos/worker-config.repo.ts';
 import {
@@ -21,11 +23,12 @@ import {
   run,
 } from '../db/sqlite/test-sqlite.test-helpers.ts';
 import { discoverLane } from '../workers/discover/discover-lane.ts';
-import { discoverWorkflowId } from '../workers/discover/discover-workflow.ts';
+import { DISCOVER_TASK_QUEUE, discoverWorkflowId } from '../workers/discover/discover-workflow.ts';
 import type { WatchEvent } from '../workers/discover/types.ts';
 import { startLocalTemporalServer } from './local-temporal.test-helpers.ts';
-import { saveTemporalSettings } from './temporal-config.ts';
+import { readTemporalStatus, saveTemporalSettings } from './temporal-config.ts';
 import { TemporalHost } from './temporal-host.ts';
+import { discoverWorkflow } from './workflows.ts';
 
 const FAST = { relayMs: 20, refreshMs: 100, retryMs: 100 };
 
@@ -84,6 +87,21 @@ async function hostFor(handleEvent: (event: WatchEvent) => Promise<void>): Promi
   const host = new TemporalHost({ ...FAST, lanes: [discoverLane({ handleEvent })] });
   host.start();
   return host;
+}
+
+/** Waits until the host has run `count` connection checks (each one reconciles) after now. */
+async function laterChecks(count: number): Promise<void> {
+  const since = Date.now();
+  const checks: number[] = [];
+  await until(
+    async () => {
+      const { checkedAt } = (await readTemporalStatus()).connection;
+      if (checkedAt !== null && checkedAt > since && !checks.includes(checkedAt))
+        checks.push(checkedAt);
+      return checks.length;
+    },
+    (seen) => seen >= count,
+  );
 }
 
 const workflowOf = (folderId: string) =>
@@ -147,7 +165,7 @@ describe('the discover sweep on Temporal', () => {
     const events = recorder();
     const host = await hostFor(events.handleEvent);
     try {
-      await settle(300);
+      await until(readTemporalStatus, (status) => status.connection.state === 'connected');
       const root = await libraryWith('added-later', ['late.jpg']);
       const folderId = insertFolder(live.db, { path: root });
 
@@ -209,6 +227,8 @@ describe('the discover sweep on Temporal', () => {
       );
 
       await workflowOf(folderId).terminate('operator stopped it');
+      const after = path.join(root, 'after-terminate.jpg');
+      await fs.writeFile(after, 'after');
 
       const restarted = await until(
         () => describeOf(folderId),
@@ -216,6 +236,10 @@ describe('the discover sweep on Temporal', () => {
         5_000,
       );
       expect(restarted.runId).not.toBe(first.runId);
+      await until(
+        async () => events.created.has(after),
+        (found) => found,
+      );
     } finally {
       await host.stop();
     }
@@ -235,7 +259,7 @@ describe('the discover sweep on Temporal', () => {
 
       run(live.db, `DELETE FROM folders WHERE id = ?`, folderId);
       const outcome = await workflowOf(folderId).result();
-      await settle(500);
+      await laterChecks(2);
 
       expect(outcome).toBe('gone');
       expect((await describeOf(folderId)).status).toBe('COMPLETED');
@@ -243,4 +267,87 @@ describe('the discover sweep on Temporal', () => {
       await host.stop();
     }
   }, 60_000);
+
+  test('stopping the host waits for the file event in hand, not the rest of the directory', async () => {
+    using live = await createLiveTestDatabase();
+    const root = await libraryWith('bounded-stop', ['1.jpg', '2.jpg', '3.jpg', '4.jpg', '5.jpg']);
+    insertFolder(live.db, { path: root });
+    const EVENT_MS = 1_000;
+    let started = 0;
+    const host = await hostFor(async () => {
+      started += 1;
+      await settle(EVENT_MS);
+    });
+    try {
+      await until(
+        async () => started,
+        (count) => count >= 1,
+      );
+    } finally {
+      const stopping = Date.now();
+      await host.stop();
+      const tookMs = Date.now() - stopping;
+
+      expect(tookMs).toBeLessThan(EVENT_MS + 1_500);
+      expect(started).toBeLessThan(5);
+    }
+  }, 60_000);
+
+  test('a slice whose worker dies resumes on a healthy worker after the heartbeat timeout', async () => {
+    using live = await createLiveTestDatabase();
+    const root = await libraryWith('crashed', ['survivor.jpg']);
+    const folderId = insertFolder(live.db, { path: root });
+    await patchDiscoverConfig({ paused: false, sweepDirIntervalMs: 0 });
+    const connection = await NativeConnection.connect({ address: env.address });
+    let taken = false;
+    let release = () => {};
+    const silent = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const dying = await Worker.create({
+      connection,
+      taskQueue: DISCOVER_TASK_QUEUE,
+      workflowsPath: fileURLToPath(new URL('./workflows.ts', import.meta.url)),
+      maxConcurrentActivityTaskExecutions: 1,
+      activities: {
+        sweepRoot: async () => {
+          taken = true;
+          await silent;
+          return {
+            generation: 1,
+            generationsCompleted: 0,
+            directoriesVisited: 0,
+            registered: true,
+          };
+        },
+      },
+    });
+    const dyingRun = dying.run();
+    const events = recorder();
+    let host: TemporalHost | null = null;
+    try {
+      await env.client.workflow.start(discoverWorkflow, {
+        workflowId: discoverWorkflowId(folderId),
+        taskQueue: DISCOVER_TASK_QUEUE,
+        args: [folderId],
+      });
+      await until(
+        async () => taken,
+        (yes) => yes,
+      );
+      host = await hostFor(events.handleEvent);
+
+      await until(
+        async () => events.created.has(path.join(root, 'survivor.jpg')),
+        (found) => found,
+        90_000,
+      );
+    } finally {
+      await host?.stop();
+      release();
+      dying.shutdown();
+      await dyingRun;
+      await connection.close();
+    }
+  }, 150_000);
 });
