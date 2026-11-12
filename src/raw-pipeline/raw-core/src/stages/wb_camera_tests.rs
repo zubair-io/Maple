@@ -52,6 +52,7 @@ fn test_profile(scene_cct: f32, cm: [[f32; 3]; 3], as_shot_neutral: [f32; 3]) ->
         tone_curve: None,
         cm_endpoints: None,
         hsm_endpoints: None,
+        forward_reference: None,
     }
 }
 

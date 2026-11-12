@@ -86,6 +86,7 @@ fn test_profile(scene_cct: f32, as_shot_neutral: [f32; 3]) -> DcpProfile {
         tone_curve: None,
         cm_endpoints: None,
         hsm_endpoints: None,
+        forward_reference: None,
     }
 }
 

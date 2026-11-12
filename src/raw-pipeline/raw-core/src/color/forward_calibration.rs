@@ -8,11 +8,13 @@
 //!
 //! A diagonal correction commutes with `diag(w)` and the whole product is
 //! `FM`, at every white: per-channel gains are absorbed by white balance.
-//! Only a non-diagonal correction depends on `w`. Decode resolves it at the
-//! as-shot white, which is exact for an as-shot render; a retargeted white
-//! keeps that resolution, and dual-illuminant endpoints are resolved
-//! before interpolation rather than after, until #5093 carries the
-//! correction through the GPU live chain's frame export.
+//! Only a non-diagonal correction depends on `w`. The DCP profile keeps the
+//! reference ForwardMatrix and the correction apart (`CmEndpoints` for a
+//! dual-illuminant profile, `ForwardReference` for a single one) and
+//! resolves them at whichever white renders: the as-shot white when the
+//! profile is built, the target's camera neutral on a white-balance
+//! retarget (#5093). A dual-illuminant profile interpolates the reference
+//! matrices and the corrections with one weight before forming the product.
 use crate::math::{Matrix3, Vec3};
 
 pub(crate) fn balanced_forward_matrix(

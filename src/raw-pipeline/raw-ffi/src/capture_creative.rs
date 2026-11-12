@@ -7,7 +7,10 @@
 //! owner. See docs/pipeline.md § "The capture decode".
 
 use raw_core::{
-    color::{dcp::CmEndpoints, illuminant::Illuminant},
+    color::{
+        dcp::{CmEndpoints, ForwardReference},
+        illuminant::Illuminant,
+    },
     math::Matrix3,
     pipeline::{AsShotTable, CreativeHeader, CreativeStage, ProfileCore, TableLayout, TableSpan},
     stages::wb_camera::SliderFrameParts,
@@ -52,6 +55,8 @@ pub struct MapleCaptureCreative {
     pub cct_cold: f32,
     pub cm_warm: [f32; 9],
     pub cct_warm: f32,
+    /// With `has_cm_endpoints == 0`, `fm_cold`/`individual_cold` carry a
+    /// single-illuminant profile's `ForwardReference` (#5093).
     pub has_fm_cold: u32,
     pub fm_cold: [f32; 9],
     pub has_fm_warm: u32,
@@ -171,6 +176,18 @@ impl MapleCaptureCreative {
             Illuminant::Other(cct) => (4, cct),
         };
         let e = p.cm_endpoints;
+        // A dual profile's reference FMs and calibrations, or a single
+        // profile's `ForwardReference` in the cold slots (#5093).
+        let (fm_cold, fm_warm, individual_cold, individual_warm) = match (e, p.forward_reference) {
+            (Some(e), _) => (
+                e.fm_cold,
+                e.fm_warm,
+                Some(e.individual_cold),
+                Some(e.individual_warm),
+            ),
+            (None, Some(r)) => (Some(r.matrix), None, Some(r.individual), None),
+            (None, None) => (None, None, None, None),
+        };
         let f = header.frame;
         let fe = f.and_then(|f| f.endpoints);
         let zero = [0.0; 9];
@@ -197,12 +214,12 @@ impl MapleCaptureCreative {
             cct_cold: e.map_or(0.0, |e| e.cct_cold),
             cm_warm: e.map_or(zero, |e| flat(e.m_warm)),
             cct_warm: e.map_or(0.0, |e| e.cct_warm),
-            has_fm_cold: e.is_some_and(|e| e.fm_cold.is_some()) as u32,
-            fm_cold: e.and_then(|e| e.fm_cold).map_or(zero, flat),
-            has_fm_warm: e.is_some_and(|e| e.fm_warm.is_some()) as u32,
-            fm_warm: e.and_then(|e| e.fm_warm).map_or(zero, flat),
-            individual_cold: e.map_or(zero, |e| flat(e.individual_cold)),
-            individual_warm: e.map_or(zero, |e| flat(e.individual_warm)),
+            has_fm_cold: fm_cold.is_some() as u32,
+            fm_cold: fm_cold.map_or(zero, flat),
+            has_fm_warm: fm_warm.is_some() as u32,
+            fm_warm: fm_warm.map_or(zero, flat),
+            individual_cold: individual_cold.map_or(zero, flat),
+            individual_warm: individual_warm.map_or(zero, flat),
             has_frame: f.is_some() as u32,
             frame_has_endpoints: fe.is_some() as u32,
             frame_m_cold: fe.map_or(zero, |e| flat(e.0)),
@@ -273,6 +290,13 @@ impl MapleCaptureCreative {
                     individual_cold: matrix(&self.individual_cold).identity_if_zero(),
                     individual_warm: matrix(&self.individual_warm).identity_if_zero(),
                 }),
+                forward_reference: (self.has_cm_endpoints == 0)
+                    .then(|| optional(self.has_fm_cold, &self.fm_cold))
+                    .flatten()
+                    .map(|reference| ForwardReference {
+                        matrix: reference,
+                        individual: matrix(&self.individual_cold).identity_if_zero(),
+                    }),
             },
             frame: (self.has_frame != 0).then(|| SliderFrameParts {
                 endpoints: (self.frame_has_endpoints != 0).then(|| {
