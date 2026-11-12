@@ -7,8 +7,18 @@ import { describe, expect, it } from 'bun:test';
 import { singleFlightPerRoot } from './discover-activity.ts';
 import type { SliceProgress, SweepSliceSummary } from './sweep-slice.ts';
 
-const SUMMARY: SweepSliceSummary = { generation: 2, directoriesVisited: 5, registered: true };
-const PROGRESS: SliceProgress = { root: '/lib', generation: 1, directoriesVisited: 1 };
+const SUMMARY: SweepSliceSummary = {
+  generation: 2,
+  generationsCompleted: 1,
+  directoriesVisited: 5,
+  registered: true,
+};
+const PROGRESS: SliceProgress = {
+  root: '/lib',
+  generation: 1,
+  generationsCompleted: 0,
+  directoriesVisited: 1,
+};
 
 function gatedRunner() {
   const calls: string[] = [];

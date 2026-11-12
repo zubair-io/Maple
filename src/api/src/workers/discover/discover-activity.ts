@@ -34,7 +34,12 @@ type SliceRunner = (
   signal: AbortSignal,
 ) => Promise<SweepSliceSummary>;
 
-const GONE: SweepSliceSummary = { generation: 0, directoriesVisited: 0, registered: false };
+const GONE: SweepSliceSummary = {
+  generation: 0,
+  generationsCompleted: 0,
+  directoriesVisited: 0,
+  registered: false,
+};
 
 /** A root's key is its library id, which is also what names its workflow. */
 function sliceRunner({ handleEvent: onEvent, ...pacing }: DiscoverSliceOptions): SliceRunner {

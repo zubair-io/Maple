@@ -1,10 +1,11 @@
 /**
  * One bounded stretch of a library root's discover sweep, the unit a Temporal
  * activity runs. A slice claims, visits and paces directories exactly as the
- * long-lived loop it replaced did, and ends once the current generation drains
- * and the next one is seeded, once its time is up, once its root is no longer
- * registered, or once it is told to stop. Stopping always waits for the
- * directory in hand, so a slice never leaves a visit half done.
+ * long-lived loop it replaced did, including advancing to the next generation
+ * when one drains, and ends only once its time is up, once its root is no
+ * longer registered, or once it is told to stop. So a root costs Temporal about
+ * one activity per ten minutes however small it is. Stopping always waits for
+ * the directory in hand, so a slice never leaves a visit half done.
  */
 import { setTimeout as sleepFor } from 'node:timers/promises';
 import type { ObjectId } from '../../db/object-id.ts';
@@ -27,12 +28,14 @@ export interface SweepConfig {
 export interface SliceProgress {
   root: string;
   generation: number;
+  generationsCompleted: number;
   directoriesVisited: number;
 }
 
 export interface SweepSliceSummary {
   /** The generation the root's next slice sweeps. */
   generation: number;
+  generationsCompleted: number;
   directoriesVisited: number;
   /** False once the root has left the library list: nothing should sweep it again. */
   registered: boolean;
@@ -52,8 +55,6 @@ export interface SweepSliceOpts {
   sleep?: (ms: number, signal: AbortSignal) => Promise<void>;
   onVisit?: (dirPath: string) => void;
 }
-
-type Step = 'visited' | 'idle' | 'paused' | 'advanced';
 
 const abortableSleep = (ms: number, signal: AbortSignal): Promise<void> =>
   sleepFor(ms, undefined, { signal }).catch(() => {});
@@ -78,6 +79,7 @@ async function resumeGeneration(folderId: ObjectId, root: string): Promise<numbe
 class SweepSlice {
   private generation = 1;
   private visited = 0;
+  private completed = 0;
   private readonly deadline: number;
   private readonly signal: AbortSignal;
   private readonly heartbeatEveryMs: number;
@@ -100,18 +102,24 @@ class SweepSlice {
     for (;;) {
       if (this.signal.aborted || Date.now() >= this.deadline) return this.summary(true);
       if (!(await this.isRegistered())) return this.summary(false);
-      if ((await this.step(await this.o.loadConfig())) === 'advanced') return this.summary(true);
+      await this.step(await this.o.loadConfig());
     }
   }
 
   private summary(registered: boolean): SweepSliceSummary {
-    return { generation: this.generation, directoriesVisited: this.visited, registered };
+    return {
+      generation: this.generation,
+      generationsCompleted: this.completed,
+      directoriesVisited: this.visited,
+      registered,
+    };
   }
 
   private beat(): void {
     this.o.heartbeat({
       root: this.o.root,
       generation: this.generation,
+      generationsCompleted: this.completed,
       directoriesVisited: this.visited,
     });
   }
@@ -125,26 +133,25 @@ class SweepSlice {
   }
 
   /** One claim→visit→pace cycle, or one paused or idle wait. */
-  private async step(config: SweepConfig): Promise<Step> {
+  private async step(config: SweepConfig): Promise<void> {
     const idleMs = Math.max(IDLE_MS_FLOOR, config.sweepDirIntervalMs);
     if (config.paused) {
       await this.pace(idleMs);
-      return 'paused';
+      return;
     }
     const dir = await frontier.claimNextDir(this.o.folderId, this.generation, LEASE_MS);
     if (!dir) {
       const next = await advanceSweep(this.o.folderId, this.o.root, this.generation);
-      const advanced = next !== this.generation;
+      if (next !== this.generation) this.completed += 1;
       this.generation = next;
       await this.pace(idleMs);
-      return advanced ? 'advanced' : 'idle';
+      return;
     }
     this.o.onVisit?.(dir.dir_path);
     await visitDirectory(dir, this.o.root, this.deps);
     this.visited += 1;
     this.beat();
     await this.pace(config.sweepDirIntervalMs);
-    return 'visited';
   }
 
   /** Waits `ms`, heartbeating at least every `heartbeatEveryMs`; a stop cuts it short. */
