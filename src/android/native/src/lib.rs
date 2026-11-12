@@ -9,6 +9,7 @@ mod mask_document;
 mod mask_jni;
 mod mask_model;
 mod mask_order;
+mod mask_stack;
 mod mask_write;
 mod mask_xml;
 mod native_detail;

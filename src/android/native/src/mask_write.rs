@@ -9,6 +9,7 @@
 use crate::mask_document::{Bindings, Container, Document, CONTAINERS};
 use crate::mask_model::{layer_from_json, AuthoredLayer};
 use crate::mask_order::{assign, container_rank, format_key};
+use crate::mask_stack;
 use crate::mask_xml::{self, canonical_context, Attr, Element};
 use raw_core::types::{AdjustmentModel, Mask};
 use serde_json::{json, Value};
@@ -319,6 +320,8 @@ struct Plan<'a> {
     in_place: Vec<Option<usize>>,
     /// The container each displaced or new layer is appended to.
     append_into: [Option<usize>; 4],
+    /// Keys stamped on corrections kept verbatim, by slot, when the stack is restacked.
+    kept_keys: BTreeMap<usize, f64>,
 }
 
 impl Plan<'_> {
@@ -385,35 +388,71 @@ impl Plan<'_> {
         } else {
             (inside.clone(), String::new())
         };
+        // A canonical binding the container or its sequence declares differently cannot be
+        // declared again on that tag: it goes on each rendered correction instead.
+        let own = |prefix: &Option<String>| {
+            container
+                .root
+                .declarations
+                .iter()
+                .chain(&seq.declarations)
+                .any(|(declared, _)| declared == prefix)
+        };
+        let scoped = context
+            .iter()
+            .any(|(prefix, uri)| inside.get(prefix) != Some(uri) && own(prefix));
+        let (tag_additions, item_additions, kept) = if scoped {
+            (String::new(), additions, &inside)
+        } else {
+            (additions, String::new(), &context)
+        };
+        let rendered = |layer: usize, indent: &str| -> Result<String, String> {
+            let item = render(
+                &self.layers[layer],
+                self.keys[layer],
+                indent,
+                self.origin(&self.layers[layer]),
+                &context,
+            )?;
+            let open = "<rdf:li".len();
+            Ok(format!(
+                "{}{item_additions}{}",
+                &item[..open],
+                &item[open..]
+            ))
+        };
         let indent = Self::item_indent(container);
         let text = &container.text;
         let name_end = mask_xml::name_end(text, &container.root);
         let mut out = format!(
-            "{}{additions}{}",
+            "{}{tag_additions}{}",
             &text[container.root.span.start..name_end],
             &text[name_end..seq.start.end]
         );
         let mut cursor = seq.start.end;
         let mut entries = 0;
-        for (item, fate) in seq.children.iter().zip(fates) {
+        for (item_index, (item, fate)) in seq.children.iter().zip(fates).enumerate() {
             match fate {
                 Fate::Keep => {
                     let declarations =
-                        mask_xml::detached_declarations(item, &container.scopes, &context);
+                        mask_xml::detached_declarations(item, &container.scopes, kept);
                     out.push_str(&text[cursor..item.span.start]);
-                    out.push_str(&mask_xml::detached(text, item, &declarations));
+                    let slot = slots[&item_index];
+                    match self.kept_keys.get(&slot) {
+                        Some(key) => out.push_str(&mask_stack::stamped(
+                            text,
+                            item,
+                            &declarations,
+                            *key,
+                            &container.scopes,
+                        )?),
+                        None => out.push_str(&mask_xml::detached(text, item, &declarations)),
+                    }
                     entries += 1;
                 }
                 Fate::Replace(layer) => {
                     out.push_str(&text[cursor..item.span.start]);
-                    let origin = self.origin(&self.layers[layer]);
-                    out.push_str(&render(
-                        &self.layers[layer],
-                        self.keys[layer],
-                        &indent,
-                        origin,
-                        &context,
-                    )?);
+                    out.push_str(&rendered(layer, &indent)?);
                     entries += 1;
                 }
                 Fate::Remove => {
@@ -424,15 +463,7 @@ impl Plan<'_> {
             cursor = item.span.end;
         }
         for layer in &appended {
-            let origin = self.origin(&self.layers[*layer]);
-            let rendered = render(
-                &self.layers[*layer],
-                self.keys[*layer],
-                &indent,
-                origin,
-                &context,
-            )?;
-            out.push_str(&format!("\n{indent}{rendered}"));
+            out.push_str(&format!("\n{indent}{}", rendered(*layer, &indent)?));
             entries += 1;
         }
         out.push_str(&text[cursor..container.root.span.end]);
@@ -525,18 +556,28 @@ pub fn write(input: &Value) -> Result<Value, String> {
             (None, None) => (document.containers.len() + ranks[i], 0, i),
         })
         .collect();
-    let stamp = positions.windows(2).any(|pair| pair[0] >= pair[1]);
-    let read: Vec<Option<f64>> = layers
-        .iter()
-        .map(|l| l.slot.and_then(|slot| document.corrections[slot].key))
-        .collect();
-    let keys = assign(stamp, &read, &document.verbatim_keys);
+    let restack = mask_stack::restack(&document, &layers, &positions)?;
+    let (keys, kept_keys) = match restack {
+        Some(restack) => (restack.layers.into_iter().map(Some).collect(), restack.kept),
+        None => {
+            let stamp = positions.windows(2).any(|pair| pair[0] >= pair[1]);
+            let read: Vec<Option<f64>> = layers
+                .iter()
+                .map(|l| l.slot.and_then(|slot| document.corrections[slot].key))
+                .collect();
+            (
+                assign(stamp, &read, &document.verbatim_keys),
+                BTreeMap::new(),
+            )
+        }
+    };
     let plan = Plan {
         document: &document,
         layers,
         keys,
         in_place,
         append_into,
+        kept_keys,
     };
     let containers = (0..document.containers.len())
         .map(|index| plan.container(index))

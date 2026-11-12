@@ -21,8 +21,11 @@ import app.justmaple.aperture.data.MaskLayer
 import app.justmaple.aperture.data.RadialMask
 import app.justmaple.aperture.data.XmpDocument
 import app.justmaple.aperture.maskLayers
+import app.justmaple.aperture.removeMaskLayer
+import app.justmaple.aperture.sampleMaskRangeAt
 import app.justmaple.aperture.selectMaskLayer
 import kotlin.math.PI
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
@@ -171,6 +174,27 @@ class MaskOverlayTest {
             up()
         }
         assertEquals(before, document())
+    }
+
+    @Test
+    fun aSampleTakenBeforeItsLayerWasDeletedNeverLandsOnTheNextLayer() {
+        val gate = CompletableDeferred<Unit>()
+        fixture.renderer.sampleGate = gate
+        compose.runOnIdle {
+            model.addMaskLayer(radial = true)
+            model.addMaskLayer(radial = false)
+            model.selectMaskLayer(0)
+            model.sampleMaskRangeAt(.5f, .5f)
+            assertTrue(model.state.value.maskSampling)
+            model.removeMaskLayer(0)
+            assertEquals("The selection now addresses the other layer", 0, model.state.value.maskSelection)
+            gate.complete(Unit)
+        }
+        compose.runOnIdle {
+            assertFalse(model.state.value.maskSampling)
+            assertNull(model.maskLayers().single().range)
+            assertEquals("The masks changed while sampling. Pick again.", model.state.value.maskMessage)
+        }
     }
 
     @Test
