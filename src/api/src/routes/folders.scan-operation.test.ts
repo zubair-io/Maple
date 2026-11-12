@@ -1,8 +1,9 @@
 /**
  * The folder scan as an operation: registering a folder leaves a `folder_scan`
- * row for the worker tier instead of walking in the API process, and the two
- * awaited scan routes answer from the row's outcome — a failure with its
- * error, and a walk still going when the wait runs out with the row's id.
+ * row for the worker tier, and the two awaited scan routes answer from the
+ * row's outcome — a failure with its error, and a walk still going when the
+ * wait runs out, or when the client goes away, with a 504 while the row
+ * finishes in the background.
  */
 
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
@@ -17,8 +18,8 @@ import {
 } from '../db/sqlite/test-sqlite.test-helpers.ts';
 import { invalidateLibraryRoots } from '../indexer/libraries.cache.ts';
 import { withOperationsRunning } from '../job-runner/operation-runner.test-helpers.ts';
-import { setOperationWaitForTests } from '../job-runner/operations.ts';
 import { fakeAuth } from '../../tests/helpers/test-auth.ts';
+import { folderScanRoutes } from './folders-scan.ts';
 import { foldersRoutes } from './folders.ts';
 
 interface JobRow {
@@ -41,7 +42,6 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  setOperationWaitForTests(null);
   live.close();
   invalidateLibraryRoots();
   if (savedRoots === undefined) delete process.env.MAPLE_ROOTS;
@@ -74,18 +74,41 @@ describe('folder scans run as operations', () => {
     expect(JSON.parse(rows[0]!.params)).toEqual({ folderId: id });
   });
 
-  it('answers 504 with the row id when the walk outlasts the wait, and leaves the row to finish', async () => {
-    const folderId = insertFolder(live.db, { path: directory, slug: 'slow' });
-    setOperationWaitForTests({ timeoutMs: 30, intervalMs: 5 });
+  /** The scan routes alone, with a wait of the test's own; no worker runs the row. */
+  const scanWith =
+    (timeoutMs: number, init: RequestInit = {}) =>
+    (folderId: string) =>
+      new Elysia()
+        .use(fakeAuth({ role: 'owner' }))
+        .use(folderScanRoutes({ timeoutMs, intervalMs: 5 }))
+        .handle(
+          new Request(`http://localhost/api/folders/${folderId}/scan`, { method: 'POST', ...init }),
+        );
 
-    const res = await post(`/api/folders/${folderId}/scan`);
+  it('answers 504 when the walk outlasts the wait, and leaves the row to finish', async () => {
+    const folderId = insertFolder(live.db, { path: directory, slug: 'slow' });
+
+    const res = await scanWith(30)(folderId);
 
     expect(res.status).toBe(504);
-    const body = (await res.json()) as { ok: boolean; job_id: string; error: string };
-    expect(body.ok).toBe(false);
-    expect(jobRows()).toEqual([
-      expect.objectContaining({ id: body.job_id, kind: 'folder_scan', status: 'queued' }),
-    ]);
+    expect(await res.json()).toEqual({
+      ok: false,
+      error: 'The scan is still running and will finish in the background',
+    });
+    expect(jobRows()).toEqual([expect.objectContaining({ kind: 'folder_scan', status: 'queued' })]);
+  });
+
+  it('stops waiting as soon as the client goes away', async () => {
+    const folderId = insertFolder(live.db, { path: directory, slug: 'abandoned' });
+    const client = new AbortController();
+    setTimeout(() => client.abort(), 30);
+    const started = Date.now();
+
+    const res = await scanWith(30_000, { signal: client.signal })(folderId);
+
+    expect(res.status).toBe(504);
+    expect(Date.now() - started).toBeLessThan(5_000);
+    expect(jobRows()).toEqual([expect.objectContaining({ kind: 'folder_scan', status: 'queued' })]);
   });
 
   it('answers 500 with the row error when the walk fails', async () => {
