@@ -1,11 +1,10 @@
 import {
   hydratePartialWhiteBalance,
   whiteBalanceAuthoredPatch,
+  withResolvedImportedAuto,
 } from '../models/partial-white-balance';
 // Library store — data and adjustment models. Persisted UI prefs live in
-// `BrowsePreferencesService`; ephemeral UI flags are moving out screen-by-
-// screen (ticket #191).
-//
+// `BrowsePreferencesService`; ephemeral UI flags move out screen-by-screen (#191).
 // Holds the signal-readable state for the browse + editor shells:
 //   - asset list, grid folders, sidebar tree
 //   - current folder handle, registered libraries (Self-Hosted)
@@ -234,11 +233,8 @@ export class LibraryStore {
     );
   }
 
-  /**
-   * Seed Temperature + Tint from the RAW's AsShot metadata so the editor's
-   * WB sliders reflect the camera's own white-balance reading on first open.
-   * No-op if the user has already edited those fields.
-   */
+  /** Seed Temperature + Tint from the RAW's AsShot metadata so the WB sliders show
+   * the camera's own reading on first open; no-op once the user edited them. */
   seedAsShotWhiteBalance(id: AssetId, temperature: number, tint: number, calibrated = false): void {
     const reading = cameraWhiteBalanceReading(temperature, tint, calibrated);
     this.asShotWb.set(id, reading);
@@ -246,6 +242,15 @@ export class LibraryStore {
       const current = map.get(id) ?? defaultAdjustmentModel();
       const hydrated = seedWhiteBalanceModel(current, reading);
       return hydrated === current ? map : new Map(map).set(id, hydrated);
+    });
+  }
+
+  /** Carry the session's resolved name-only Auto pair (#4669); never authors the sidecar. */
+  resolveImportedAutoWhiteBalance(id: AssetId, pair: { temperature: number; tint: number }): void {
+    this.adjustmentModels.update((map) => {
+      const current = map.get(id);
+      const resolved = current && withResolvedImportedAuto(current, pair);
+      return !resolved || resolved === current ? map : new Map(map).set(id, resolved);
     });
   }
 

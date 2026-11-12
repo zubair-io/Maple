@@ -9,12 +9,14 @@ import {
   type AdjustmentModel,
   type Crop,
 } from '../../models/adjustment-model';
+import { renderModelForImportedAuto } from '../../models/partial-white-balance';
 
-/** Model handed to the renderer while the crop tool is active: strip the crop so
- *  the live canvas shows the full frame under the interactive overlay. Inactive
- *  → the model is returned unchanged (crop applies as normal). */
+/** Model handed to the renderer. While the crop tool is active, strip the crop so
+ *  the live canvas shows the full frame under the interactive overlay; inactive →
+ *  crop applies as normal. A resolved name-only Auto WB renders as its pair (#4669). */
 export function renderModelForCrop(model: AdjustmentModel, cropActive: boolean): AdjustmentModel {
-  return cropActive ? { ...model, crop: CROP_IDENTITY } : model;
+  const rendered = renderModelForImportedAuto(model);
+  return cropActive ? { ...rendered, crop: CROP_IDENTITY } : rendered;
 }
 
 /**

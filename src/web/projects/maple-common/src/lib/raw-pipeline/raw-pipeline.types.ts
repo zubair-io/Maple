@@ -190,6 +190,20 @@ export interface SetFilmLutSuccess {
   type: 'set-film-lut-success';
 }
 
+/** Resolve the retained session's name-only imported Auto WB once, after its
+ *  As Shot first frame (#4669). Replies with the shared estimator's pair. */
+export interface ResolveImportedWbRequest {
+  id: number;
+  type: 'resolve-imported-wb';
+}
+
+export interface ResolveImportedWbSuccess {
+  id: number;
+  type: 'resolve-imported-wb-success';
+  temperature: number;
+  tint: number;
+}
+
 /**
  * A small, downsampled RGB snapshot of the GPU-presented frame, read back on the
  * worker side so the histogram/waveform/parade/vectorscope scopes have a pixel
@@ -342,6 +356,7 @@ export type WorkerResponse =
   | RenderSessionSuccess
   | SessionError
   | SetFilmLutSuccess
+  | ResolveImportedWbSuccess
   | WorkerStatus
   | WorkerLog
   | DeepDenoiseProgress
@@ -456,6 +471,7 @@ export type WorkerRequest =
   | RenderSessionRequest
   | CloseSessionRequest
   | SetFilmLutRequest
+  | ResolveImportedWbRequest
   | AutoAdjustRequest
   | SampleWbRequest
   | import('./raw-pipeline.sample-range.types').SampleRangeRequest
