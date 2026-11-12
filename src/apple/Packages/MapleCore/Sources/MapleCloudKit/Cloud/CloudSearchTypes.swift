@@ -157,6 +157,8 @@ public struct SearchAsset: Codable, Equatable, Sendable, Identifiable {
   /// server response predates this field. Drives the TV timeline
   /// day-section header (#2102).
   public let place: SearchAssetPlace?
+  /// The JPEG this RAW hit stands for, when the server folded a RAW+JPEG pair (#5849).
+  public let stack: SearchAssetStack?
 
   /// Whether this search result names a recognised video container.
   public var isVideo: Bool {
@@ -191,7 +193,8 @@ public struct SearchAsset: Codable, Equatable, Sendable, Identifiable {
     has_xmp: Bool? = nil,
     place: SearchAssetPlace? = nil,
     owner_id: String? = nil,
-    owner: CloudAssetOwner? = nil
+    owner: CloudAssetOwner? = nil,
+    stack: SearchAssetStack? = nil
   ) {
     self.id = id
     self._id = _id
@@ -217,6 +220,7 @@ public struct SearchAsset: Codable, Equatable, Sendable, Identifiable {
     self.place = place
     self.owner_id = owner_id
     self.owner = owner
+    self.stack = stack
   }
 }
 
