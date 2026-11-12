@@ -96,7 +96,8 @@ fn an_outside_edit_to_another_property_merges_with_the_linux_edit() {
         .store
         .save(&exposure)
         .unwrap()
-        .expect("an outside change is merged, not refused");
+        .expect("an outside change is merged, not refused")
+        .document;
 
     let written = photo.sidecar();
     assert_eq!(merged.serialize().unwrap(), written);
@@ -169,6 +170,43 @@ fn queued_and_undo_states_apply_their_own_changes_on_top_of_the_merge() {
     );
     assert_eq!(model.hue_adjustment_red, 12.0);
     assert!(photo.sidecar().contains(NESTED));
+    assert_eq!(fs::read(&photo.original).unwrap(), ORIGINAL);
+}
+
+#[test]
+fn a_redo_saved_after_an_adopted_merge_and_its_undo_keeps_the_redone_change() {
+    // #5887 review: exposure 0 -> 1 while another app changes vibrance; the
+    // editor adopts the merge (its undo state rebased onto it), undoes, the
+    // undo is saved, then Redo restores the adopted document.
+    let mut photo = open(&sidecar(""));
+    let opened = photo.document.clone();
+    let exposure = edit(&opened, Control::Exposure, 1.0);
+    photo.outside_edit(
+        r#"vendor:Data="exact""#,
+        r#"vendor:Data="exact" crs:Vibrance="30""#,
+    );
+    let merged = photo.store.save(&exposure).unwrap().expect("merged");
+    let adopted = merged.document.clone();
+    let undo = merged.rebase(&opened).unwrap();
+    assert_eq!((undo.model.exposure, undo.model.vibrance), (0.0, 30.0));
+
+    assert!(photo.store.save(&undo).unwrap().is_none());
+    let model = photo.reopened().model;
+    assert_eq!((model.exposure, model.vibrance), (0.0, 30.0));
+
+    assert!(photo.store.save(&adopted).unwrap().is_none());
+    let model = photo.reopened().model;
+    assert_eq!(
+        (model.exposure, model.vibrance),
+        (1.0, 30.0),
+        "the redo lands"
+    );
+
+    // An undo state the editor had not rebased (still in the opening
+    // lineage) never reverts the outside change either.
+    photo.store.save(&opened).unwrap();
+    let model = photo.reopened().model;
+    assert_eq!((model.exposure, model.vibrance), (0.0, 30.0));
     assert_eq!(fs::read(&photo.original).unwrap(), ORIGINAL);
 }
 

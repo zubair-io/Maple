@@ -111,10 +111,7 @@ impl SidecarStore {
 
     /// `Ok(Some)` carries the published document when an outside change was
     /// merged into it, for the editor to adopt.
-    pub fn save(
-        &mut self,
-        document: &SidecarDocument,
-    ) -> Result<Option<SidecarDocument>, SidecarError> {
+    pub fn save(&mut self, document: &SidecarDocument) -> Result<Option<Merged>, SidecarError> {
         let incoming = document.serialize()?;
         reject_symlink(&self.path)?;
         let base = self
@@ -127,11 +124,11 @@ impl SidecarStore {
             None
         } else {
             let current = current.as_deref().ok_or(SidecarError::Removed)?;
-            Some(reconcile(base.as_deref(), current, &incoming)?)
+            Some(Merged::reconcile(base.as_deref(), current, &incoming)?)
         };
         let bytes = merged
             .as_ref()
-            .and_then(|merged| merged.base.clone())
+            .and_then(|merged| merged.document.base.clone())
             .unwrap_or_else(|| incoming.clone());
         // This lineage's later documents (queued saves, undo states) hold values
         // relative to what Maple meant to publish, so that is their next base:
@@ -182,12 +179,49 @@ impl SidecarStore {
     }
 }
 
+/// A save that merged an outside change: `document` is what was published.
+#[derive(Clone, Debug)]
+pub struct Merged {
+    pub document: SidecarDocument,
+    /// The revision the merged edit was based on, and what the file held.
+    base: Option<String>,
+    outside: String,
+    now_ms: u64,
+}
+
+impl Merged {
+    fn reconcile(base: Option<&str>, current: &str, incoming: &str) -> Result<Self, SidecarError> {
+        let now_ms = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_or(0, |elapsed| elapsed.as_millis() as u64);
+        Ok(Self {
+            document: reconcile(base, current, incoming, now_ms)?,
+            base: base.map(str::to_owned),
+            outside: current.to_owned(),
+            now_ms,
+        })
+    }
+
+    /// Another state of the same edit (an undo or redo snapshot) with the
+    /// outside change applied, in the published document's lineage: restoring
+    /// it neither reverts that change nor, as an adopted snapshot would be,
+    /// is mistaken for an unchanged outside document that cancels Maple's own
+    /// later change (#5887).
+    pub fn rebase(&self, snapshot: &SidecarDocument) -> Result<SidecarDocument, SidecarError> {
+        let incoming = snapshot.serialize()?;
+        let mut rebased = reconcile(self.base.as_deref(), &self.outside, &incoming, self.now_ms)?;
+        rebased.base = self.document.base.clone();
+        Ok(rebased)
+    }
+}
+
 /// The shared #4983 three-way merge. The result is re-saved through this
 /// writer so the adopted document re-serializes to the published bytes.
 fn reconcile(
     base: Option<&str>,
     current: &str,
     incoming: &str,
+    now_ms: u64,
 ) -> Result<SidecarDocument, SidecarError> {
     let merge_error = |error: SidecarError| SidecarError::Merge(error.to_string());
     for document in [current, incoming] {
@@ -205,9 +239,6 @@ fn reconcile(
         .map(|base| SidecarDocument::parse(base).and_then(|document| document.serialize()))
         .transpose()
         .map_err(merge_error)?;
-    let now_ms = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |elapsed| elapsed.as_millis() as u64);
     let merged = SidecarWorkflow::reconcile_xmp(
         base.as_deref().unwrap_or_default(),
         current,

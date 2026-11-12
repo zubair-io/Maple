@@ -328,6 +328,48 @@ fn a_save_after_an_outside_edit_merges_and_the_editor_adopts_it() {
 }
 
 #[test]
+fn a_redo_after_an_adopted_merge_and_a_saved_undo_keeps_the_redone_edit() {
+    // #5887 review: Exposure 0 -> 1 while another app sets Vibrance, adopt the
+    // merge, Undo and let it save, then Redo.
+    let (directory, path) = fixture();
+    let mut app = MapleApp::from_context(egui::Context::default());
+    app.open_folder(directory.path().into());
+    pump(&mut app, |app| app.folder.is_some());
+    app.select(app.folder.as_ref().unwrap().photos[0].clone());
+    pump(&mut app, |app| app.texture.is_some());
+    let outside = r#"<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description rdf:about="" xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/" crs:Vibrance="30"/></rdf:RDF></x:xmpmeta>"#;
+    std::fs::write(path.with_extension("xmp"), outside).unwrap();
+    app.history.push(app.document.as_ref().unwrap().clone());
+    Control::Exposure
+        .set(&mut app.document.as_mut().unwrap().model, 1.0)
+        .unwrap();
+    app.changed();
+    app.flush();
+    pump(&mut app, |app| app.saving == 0);
+    let saved = |app: &MapleApp| {
+        assert!(!app.save_failed, "{:?}", app.error);
+        let model = crate::sidecar::SidecarStore::open(&path).unwrap().1.model;
+        let shown = &app.document.as_ref().unwrap().model;
+        assert_eq!(
+            (shown.exposure, shown.vibrance),
+            (model.exposure, model.vibrance)
+        );
+        (model.exposure, model.vibrance)
+    };
+    assert_eq!(saved(&app), (1.0, 30.0));
+
+    app.undo(false);
+    app.flush();
+    pump(&mut app, |app| app.saving == 0);
+    assert_eq!(saved(&app), (0.0, 30.0), "Undo keeps the outside change");
+
+    app.undo(true);
+    app.flush();
+    pump(&mut app, |app| app.saving == 0);
+    assert_eq!(saved(&app), (1.0, 30.0), "Redo lands");
+}
+
+#[test]
 fn pending_cloud_handoff_exposes_recovery_without_a_new_save_failure() {
     let (_directory, path) = fixture();
     let (mut store, mut document) = crate::sidecar::SidecarStore::open(&path).unwrap();
