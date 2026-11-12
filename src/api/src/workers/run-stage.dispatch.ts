@@ -1,5 +1,5 @@
 /**
- * One poll tick: claim a batch, run its handlers, record what they did.
+ * One batch: claim it, run its handlers, record what they did.
  *
  * Split out of `run-stage.ts` at the SQLite cutover (#3787), which is when the
  * tick stopped being "a `find`, then an `updateOne` per asset per event" and
@@ -265,13 +265,13 @@ async function runClaimedAsset(tick: TickContext, row: ClaimedStageRow): Promise
 }
 
 /**
- * One poll tick. Returns how many rows the claim touched — the dispatched ones
- * plus the crash-exhausted ones it parked — which is what the poll loop
- * compares against the batch size to decide whether to re-poll immediately.
+ * One batch. Returns how many rows the claim touched — the dispatched ones
+ * plus the crash-exhausted ones it parked — and a slice keeps claiming until
+ * this comes back zero.
  *
  * Counting the parked rows matters: a batch that is entirely poison drains a
- * batch at a time, and reporting zero would put the loop back to its idle
- * cadence and stretch that drain out over minutes.
+ * batch at a time, and reporting zero would end the slice and leave the rest
+ * of that drain to later slices.
  */
 export async function runOnce(
   stage: StageConfig,

@@ -8,7 +8,7 @@
  * helper, the boot-time `bootConfig` seed-or-load, the `versionBumpReset`
  * dead-doc requeue, and `resolveStageDeps` dependency normalisation.
  *
- * It has NO dependency on the poll loop, claim query, or `runStage` itself, so
+ * It has NO dependency on the slice runner, claim query, or `runStage` itself, so
  * there is no runtime import cycle back into `run-stage.ts`. Every symbol here
  * is re-exported from `run-stage.ts` so the existing import surface
  * (`import { defineStage, type ImageDoc } from './run-stage.ts'`, etc.) is
@@ -199,17 +199,18 @@ export interface StageConfig<TPatch = readonly SqlStatement[]> {
   claimResidual?: StageClaimResidual;
   handler: (image: ImageDoc, ctx: StageContext) => Promise<StageResult<TPatch>>;
   /**
-   * Optional per-tick progress hook, invoked by the poll loop after each
-   * successful `runOnce` tick (NOT on a tick that threw — those go through
-   * the retry/backoff path instead). Generic + opt-in: stages that don't
-   * set it pay nothing. `face-embed` uses it to drive auto-clustering.
+   * Optional progress hook, invoked after each successful batch of a slice
+   * (NOT on a batch that threw — those go through Temporal's retry instead),
+   * and with `(0, true)` about once a second while the stage has nothing to
+   * claim. Generic + opt-in: stages that don't set it pay nothing.
+   * `face-embed` uses it to drive auto-clustering, `embed` to sweep vectors.
    *
-   * @param processedThisTick docs claimed + dispatched this tick (0 = the
+   * @param processedThisTick docs claimed + dispatched this batch (0 = the
    *   claim query matched nothing — i.e. the stage is idle/drained).
    * @param idle convenience flag, `true` iff `processedThisTick === 0`.
    *
-   * Best-effort: the loop awaits it but swallows + logs any rejection so a
-   * misbehaving hook can never stall or crash the poll loop.
+   * Best-effort: the runner awaits it but swallows + logs any rejection so a
+   * misbehaving hook can never stall or crash the stage.
    */
   onProgress?: (processedThisTick: number, idle: boolean) => void | Promise<void>;
   /** Optional callback invoked when worker_config changes for this stage. */

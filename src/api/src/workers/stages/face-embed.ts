@@ -130,7 +130,7 @@ const faceEmbedStage = defineStage({
     pausedOnFirstBoot: true,
   },
   handler: faceEmbedHandler,
-  // Auto-clustering idle edge: after each poll tick, tell the coordinator
+  // Auto-clustering idle edge: after each batch or idle check, tell the coordinator
   // whether the queue drained. This loop-level hook is asset-agnostic (it only
   // knows the asset count, not the face count), so it carries ONLY the idle
   // signal — the "every N faces" cadence is driven by `recordFacesEmbedded`,

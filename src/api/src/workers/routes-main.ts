@@ -9,8 +9,9 @@ import { rejectLegacyAiWrite } from '../routes/ai-legacy-write.ts';
  *
  * Pause/resume cross-process contract:
  *   - POST /:name/pause|resume write the worker's `paused` flag via
- *     WorkerConfigRepo.patch().  The worker process re-reads `worker_config` on
- *     every poll tick, so the change takes effect without any IPC.
+ *     WorkerConfigRepo.patch().  Each stage in the worker process re-reads
+ *     `worker_config` at most every 2 s while Temporal schedules it, so the
+ *     change takes effect without any IPC.
  *
  * Config change flow for PATCH /:name/config:
  *    1. Validate the patch body.
@@ -369,8 +370,8 @@ export function workerRoutes() {
           try {
             const repo = new WorkerConfigRepo();
             await repo.patch(params.name, body as Partial<WorkerConfig>);
-            // The worker process re-reads worker_config on its next poll tick
-            // — no IPC needed.
+            // The worker process re-reads worker_config within ~2 s — no IPC
+            // needed.
             const savedConfig = await repo.load(params.name);
             return { ok: true, config: savedConfig };
           } catch (err) {
