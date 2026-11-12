@@ -79,8 +79,7 @@ extension EditSession {
     sizeOption: ExportSizeOption = .full, primaries: CanvasColorSpace? = nil
   ) async throws -> CIImage {
     let exportIsRaw = try await renderActor.isRawForExport(asset)
-    let exportModel = try await ImportedWhiteBalanceResolver.resolve(
-      asset: asset, model: model, isRawOverride: exportIsRaw)
+    let exportModel = try await resolvedForOutput(model, isRawOverride: exportIsRaw)
     let isFast = sizeOption == .fast
     let qualityOverride: PipelineRenderer.Quality? = isFast ? .preview : nil
     let targetSize: CGSize? = {

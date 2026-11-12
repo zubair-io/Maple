@@ -518,11 +518,11 @@ extension EditSession {
         )
       }
 
-      // `!isFullQualityDecoding` mirrors the persist gate (#1881): a
-      // refine that ran off the seeded decode would push camera-JPEG-
-      // derived pixels to the thumbnail; the decode's completion re-kicks
-      // a render, so the thumbnail still refreshes from real pixels.
-      if phase == .refine, !isFullQualityDecoding, await canPublishDerivedPixels() {
+      // `!isFullQualityDecoding` mirrors the persist gate (#1881): no seeded,
+      // camera-JPEG-derived pixels reach the thumbnail (the decode's completion
+      // re-kicks a render); nor does name-only Auto's As Shot frame (#4669).
+      if phase == .refine, !isFullQualityDecoding, !m.awaitsImportedAutoPair,
+        await canPublishDerivedPixels() {
         // Use the cropped `displayImage` so the browse thumbnail +
         // rendered-preview cache reflect what the user sees (#638).
         let thumbSource = displayImage

@@ -33,7 +33,10 @@ extension EditSession {
   }
 
   func refreshThumbnailFromCurrentGpuFrame(expectedModel capturedModel: AdjustmentModel) async {
-    guard !sidecarWritesDisabled, gpuFramePresented, let driver = gpuLiveDriver else { return }
+    // Name-only Auto without its pair would read back As Shot (#4669).
+    guard !sidecarWritesDisabled, !capturedModel.awaitsImportedAutoPair, gpuFramePresented,
+      let driver = gpuLiveDriver
+    else { return }
     // A crop/baked edit can still be waiting for admission when the editor
     // disappears. Join that work, then validate the actual uploaded pixels.
     _ = await latestRenderSchedule?.value

@@ -56,10 +56,14 @@ extension AdjustmentModel {
     return resolved
   }
 
-  /// An edit session's render model: name-only Auto takes the session's
-  /// resolved pair, As Shot until then (#4669). Every other model is unchanged.
+  /// Name-only Auto still waiting for its pair: renders As Shot, so no final
+  /// output (thumbnail, preview, Copy, export) may take its pixels (#4669).
+  var awaitsImportedAutoPair: Bool { partialWhiteBalance?.isUnresolvedAuto == true }
+
+  /// An edit session's model: name-only Auto takes the session's resolved
+  /// pair, As Shot until then (#4669). Every other model is unchanged.
   func overlayingImportedAuto(_ target: ResolvedWhiteBalance?) -> AdjustmentModel {
-    guard let target, partialWhiteBalance?.isUnresolvedAuto == true else { return self }
+    guard let target, awaitsImportedAutoPair else { return self }
     return resolvingImportedWhiteBalance(target)
   }
 
