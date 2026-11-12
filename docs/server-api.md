@@ -415,7 +415,7 @@ Every one of these reads and writes a document in `app_settings`, so a change ta
 | POST   | `/api/observability/otlp/v1/:signal` | bearer | Proxy client telemetry (`traces`, `logs`) upstream                                                                                               |
 | GET    | `/api/render/config`                 | bearer | Web GPU live-render ramp/kill switch. Read by every signed-in client at startup and on a poll                                                    |
 | PUT    | `/api/render/config`                 | bearer | Flip it                                                                                                                                          |
-| GET    | `/api/display/config`                | bearer | Display preferences, e.g. `show_hidden_images`                                                                                                   |
+| GET    | `/api/display/config`                | bearer | Display preferences: `show_hidden_images`, and `stack_raw_jpeg` (default on) which folds a same-stem RAW+JPEG pair into one listed image         |
 | PUT    | `/api/display/config`                | bearer | Save them                                                                                                                                        |
 | GET    | `/api/map/config`                    | bearer | Base-map tile URL plus source (`db` or `default`). This route never sees photo coordinates                                                       |
 | PUT    | `/api/map/config`                    | bearer | Save the operator override                                                                                                                       |

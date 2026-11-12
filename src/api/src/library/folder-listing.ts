@@ -28,6 +28,8 @@ import { readFileWithFailover } from '../fs/mirror-read.ts';
 import { errnoCode } from '../fs/relocate-publish.ts';
 import { parseFolderCulling } from './folder-culling.ts';
 import { pairLivePhotos, type LivePhotoLink } from './live-photo-pairs.ts';
+import { pairRawJpegStacks } from './raw-jpeg-stack.ts';
+import { loadDisplayConfig } from '../display/display-config.repo.ts';
 
 const log = childLogger('library/folder-listing');
 const IMAGE_EXTENSIONS = new Set([...RAW_EXTENSIONS, ...BITMAP_EXTENSIONS, ...PSD_HDR_EXTENSIONS]);
@@ -90,10 +92,15 @@ interface ImageEntry extends Entry {
   isStub?: true;
   isMotionPhoto?: true;
   livePhoto?: LivePhotoLink;
+  stack?: { companion: StackCompanion };
   edited?: boolean;
   rating?: number;
   flag?: 'pick' | 'reject';
   colorLabel?: string;
+}
+/** The JPEG folded into its RAW's tile: the second file the Info pane lists. */
+interface StackCompanion extends Entry {
+  id?: string;
 }
 interface SidecarEntry extends Entry {
   asset_id: string;
@@ -182,6 +189,10 @@ function imageEntry(scanned: Scanned, livePairs: ReadonlyMap<string, LivePhotoLi
   };
 }
 
+function stackCompanion({ entry, catalog }: Scanned): StackCompanion {
+  return { ...entry, ...(catalog ? { id: catalog.id } : {}) };
+}
+
 /** Sidecars pair across pages using the directory-indexed rows. An escaping
  * image link must not provide an identity to a sidecar in this directory. */
 async function pairedAsset(
@@ -216,11 +227,12 @@ function sidecarCandidates(rows: readonly DirectoryAsset[]): Map<string, Directo
 }
 
 async function directoryState(resolved: ResolvedAddress, relPath: string) {
-  const [rows, trashed, names, realRoot] = await Promise.all([
+  const [rows, trashed, names, realRoot, display] = await Promise.all([
     listDirectoryAssets(resolved.libraryId, relPath),
     listTrashedDirectoryFilenames(resolved.libraryId, relPath),
     diskNames(resolved.absPath),
     fs.realpath(resolved.libraryRoot).catch(() => resolved.libraryRoot),
+    loadDisplayConfig(),
   ]);
   const resolveChild = childResolver(resolved.absPath, realRoot);
   const hidden = new Set(trashed);
@@ -228,10 +240,15 @@ async function directoryState(resolved: ResolvedAddress, relPath: string) {
   const byBase = sidecarCandidates(rows);
   const livePairs = pairLivePhotos(rows.filter((row) => !hidden.has(row.filename)));
   const onDisk = new Set(names);
-  const allNames = [...new Set([...names, ...rows.map((row) => row.filename)])]
+  const visibleNames = [...new Set([...names, ...rows.map((row) => row.filename)])]
     .filter((name) => visibleName(name) && !hidden.has(name))
     .sort();
-  return { allNames, byName, byBase, livePairs, onDisk, resolveChild };
+  const stackCompanionOf = display.stack_raw_jpeg
+    ? pairRawJpegStacks(visibleNames)
+    : new Map<string, string>();
+  const companions = new Set(stackCompanionOf.values());
+  const allNames = visibleNames.filter((name) => !companions.has(name));
+  return { allNames, byName, byBase, livePairs, onDisk, resolveChild, stackCompanionOf };
 }
 type FolderState = Awaited<ReturnType<typeof directoryState>>;
 interface FolderEntries {
@@ -279,6 +296,7 @@ async function appendEntry(
   entries: FolderEntries,
   state: FolderState,
   culling: ImageCulling,
+  companion: Scanned | null,
 ) {
   if (!child) return;
   if (child.stat?.isDirectory()) {
@@ -287,7 +305,11 @@ async function appendEntry(
     return;
   }
   if (isMedia(child.entry.name) || child.catalog) {
-    entries.images.push({ ...imageEntry(child, state.livePairs), ...culling });
+    entries.images.push({
+      ...imageEntry(child, state.livePairs),
+      ...(companion ? { stack: { companion: stackCompanion(companion) } } : {}),
+      ...culling,
+    });
     return;
   }
   if (child.entry.ext !== 'xmp') {
@@ -323,8 +345,14 @@ async function scanPage(
           : Promise.resolve({}),
       ),
     );
+    const companions = await Promise.all(
+      scanned.map((child) => {
+        const jpeg = child && state.stackCompanionOf.get(child.entry.name);
+        return jpeg ? scanEntry(jpeg, slug, relPath, resolved, state) : null;
+      }),
+    );
     for (const [index, child] of scanned.entries()) {
-      await appendEntry(child, entries, state, culling[index] ?? {});
+      await appendEntry(child, entries, state, culling[index] ?? {}, companions[index] ?? null);
     }
   }
   return entries;
