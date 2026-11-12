@@ -50,8 +50,9 @@ extension EditSession {
       && transactions.pending == nil && model == document.model && culling == document.culling
   }
 
-  /// Rebuild the ring for a sidecar that already has history, once when the editor opens,
-  /// unless an edit was made before the history could be read.
+  /// Rebuild the ring for a sidecar that already has history, once the editor has opened
+  /// and the sidecar has loaded (whichever comes last calls this), unless an edit was made
+  /// before the history could be read.
   func restoreUndoHistory() {
     guard hasLoadedSidecar, workflow.undoRestoreTask == nil,
       let writer = sidecarStore as? any WorkflowSidecarStoreProtocol,

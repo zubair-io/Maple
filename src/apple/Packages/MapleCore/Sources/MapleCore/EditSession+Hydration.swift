@@ -173,8 +173,10 @@ extension EditSession {
     wbSeedTemperature = loadedModel == nil ? base.temperature : nil
     wbSeedTint = loadedModel == nil ? base.tint : nil
 
-    if renderRequested, model != previousModel {
-      _scheduleRender(phase: .fast)
+    if renderRequested {
+      // The editor appeared before the sidecar loaded (#5905): rebuild Undo now.
+      restoreUndoHistory()
+      if model != previousModel { _scheduleRender(phase: .fast) }
     }
   }
 
