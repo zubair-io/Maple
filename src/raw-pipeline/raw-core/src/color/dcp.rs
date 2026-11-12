@@ -342,7 +342,8 @@ pub(crate) fn camera_to_prophoto_with_forward(
             //      there would assume a WB-divided buffer (FM's contract
             //      per DNG SDK), which it is not — so we Bradford instead
             //      of touching FM. `profile_for_with_source` always sets
-            //      `true`; only hand-built profiles reach this arm.
+            //      `true`; only hand-built profiles reach this arm. Removing
+            //      the flag and its FFI plumbing is tracked in #5925.
             let cam_to_xyz = profile.color_matrix.inverse().ok_or_else(|| {
                 crate::Error::Dcp("ColorMatrix is singular, cannot invert to camera→XYZ".into())
             })?;

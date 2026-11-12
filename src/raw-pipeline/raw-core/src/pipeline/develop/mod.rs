@@ -410,4 +410,6 @@ mod tests_defringe;
 #[cfg(test)]
 mod tests_highlight_bounds;
 #[cfg(test)]
+mod tests_lossy_wb_tier;
+#[cfg(test)]
 mod tests_sized_lateral_ca;

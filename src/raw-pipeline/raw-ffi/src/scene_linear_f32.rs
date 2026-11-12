@@ -438,7 +438,8 @@ pub(crate) fn wb_frame_export(
     use raw_core::stages::wb_camera::SliderFrameExport;
     match raw_core::color::dcp::profile_for_with_source(raw) {
         Ok((profile, source))
-            if !matches!(source, raw_core::color::dcp::ProfileSource::RawlerFallback) =>
+            if !raw.keeps_post_dcp_white_balance()
+                && !matches!(source, raw_core::color::dcp::ProfileSource::RawlerFallback) =>
         {
             SliderFrameExport::resolve(raw, &profile)
         }

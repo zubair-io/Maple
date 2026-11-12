@@ -134,6 +134,14 @@ pub fn sensor_linearize_region(
 /// divides by AsShotNeutral so neutrals enter DCP as `(1, 1, 1)` and
 /// `dcp::apply` handles it identically to Bayer.
 ///
+/// An 8-bit plane that no declared transfer covers (no OpcodeList2, or its
+/// required `MapPolynomial` skipped as malformed/unsupported and surfaced on
+/// `RawImage::skipped_required_opcodes`) keeps the legacy gamma 2.4 decode
+/// rather than passing the encoded value through: 8 bits hold no usable
+/// linear range, so such a plane is the converter's perceptual encoding
+/// with its transfer missing. High-bit-depth planes without a transfer are
+/// linear, as the DNG spec says.
+///
 /// Verified by `examples/sraw_probe` (ticket #373): center-patch R/G ≈
 /// AsShotNeutral_R for Canon sRaw (5DM4) and iPhone 12 Pro; by the
 /// whole-frame mean of the lossy `test_0006.DNG` (R/G 0.83, B/G 0.33 on a
@@ -171,6 +179,9 @@ pub fn linearraw_to_camera_rgb(raw: &RawImage) -> crate::Result<Image> {
     let denom_b = (wl - bl_b).max(1.0);
 
     let corrections = raw.sensor_gain_maps.as_ref();
+    let gamma_fallback: [bool; 3] = std::array::from_fn(|plane| {
+        raw.white_level <= 255 && !corrections.is_some_and(|c| c.has_transfer_for(plane as u32))
+    });
 
     let mut img = Image::new(raw.width, raw.height, ColorSpace::CameraNativeLinearRgb);
     img.pixels.par_iter_mut().enumerate().for_each(|(idx, px)| {
@@ -182,7 +193,11 @@ pub fn linearraw_to_camera_rgb(raw: &RawImage) -> crate::Result<Image> {
             ((raw.raw_data[off + 2] as f32 - bl_b) / denom_b).clamp(0.0, 1.0),
         ];
         *px = std::array::from_fn(|plane| {
-            let value = encoded[plane];
+            let value = if gamma_fallback[plane] {
+                encoded[plane].powf(2.4)
+            } else {
+                encoded[plane]
+            };
             // The file's own OpcodeList2 steps decode it (DNG spec): the
             // MapPolynomial transfer of a lossy 8-bit LinearRaw, any gain map.
             corrections.map_or(value, |c| c.apply(x, y, plane as u32, value))
