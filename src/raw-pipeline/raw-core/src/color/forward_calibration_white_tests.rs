@@ -55,8 +55,8 @@ const COLD_CCT: f32 = 2856.0; // StdA
 const WARM_CCT: f32 = 6504.0; // D65
 const SAMPLES: [Vec3; 3] = [[0.31, 0.62, 0.12], [0.05, 0.2, 0.44], [0.9, 0.4, 0.33]];
 
-fn witness(cc1: [[f32; 3]; 3], cc2: [[f32; 3]; 3]) -> RawImage {
-    let bytes = SyntheticGreyDng {
+fn witness_dng(cc1: [[f32; 3]; 3], cc2: [[f32; 3]; 3]) -> SyntheticGreyDng {
+    SyntheticGreyDng {
         color_matrix_1_override: Some(CM1),
         color_matrix_2: Some(CM2),
         calibration_illuminant_1_override: Some(17),
@@ -69,8 +69,14 @@ fn witness(cc1: [[f32; 3]; 3], cc2: [[f32; 3]; 3]) -> RawImage {
         as_shot_neutral_override: Some([0.606276, 1.0, 0.461885]),
         ..Default::default()
     }
-    .write_to_bytes();
-    decode_bytes(&bytes, "dng").expect("decode the synthetic witness")
+}
+
+fn decoded(dng: SyntheticGreyDng) -> RawImage {
+    decode_bytes(&dng.write_to_bytes(), "dng").expect("decode the synthetic witness")
+}
+
+fn witness(cc1: [[f32; 3]; 3], cc2: [[f32; 3]; 3]) -> RawImage {
+    decoded(witness_dng(cc1, cc2))
 }
 
 fn m(a: [[f32; 3]; 3]) -> Matrix3 {
@@ -96,12 +102,23 @@ fn individual(cc: [[f32; 3]; 3]) -> Matrix3 {
 /// reference ForwardMatrix and the unit calibration both interpolated at `cct`.
 fn sdk_xyz(cct: f32, w: Vec3, p: Vec3, cc: ([[f32; 3]; 3], [[f32; 3]; 3])) -> Vec3 {
     let fm = lerp(m(FM1), m(FM2), cct);
-    let to_reference = lerp(individual(cc.0), individual(cc.1), cct)
-        .inverse()
-        .expect("calibration inverts");
+    sdk_xyz_with(fm, lerp(individual(cc.0), individual(cc.1), cct), w, p)
+}
+
+/// The SDK at camera white `w` for one reference ForwardMatrix and one
+/// interpolated calibration `individual`.
+fn sdk_xyz_with(fm: Matrix3, individual: Matrix3, w: Vec3, p: Vec3) -> Vec3 {
+    let to_reference = individual.inverse().expect("calibration inverts");
     let reference = to_reference.mul_vec(p);
     let reference_white = to_reference.mul_vec(w);
     fm.mul_vec(std::array::from_fn(|c| reference[c] / reference_white[c]))
+}
+
+fn worst_difference(a: Vec3, b: Vec3) -> f32 {
+    a.iter()
+        .zip(&b)
+        .map(|(x, y)| (x - y).abs())
+        .fold(0., f32::max)
 }
 
 fn close(a: Vec3, b: Vec3, tolerance: f32) -> bool {
@@ -247,5 +264,84 @@ fn a_diagonal_calibration_keeps_the_interpolated_forward_matrix_at_every_white()
                 "{temperature} K"
             );
         }
+    }
+}
+
+#[test]
+fn a_single_illuminant_profile_resolves_its_calibration_at_a_retargeted_white() {
+    let raw = decoded(SyntheticGreyDng {
+        color_matrix_2: None,
+        calibration_illuminant_2: None,
+        forward_matrix_2: None,
+        camera_calibration_2: None,
+        color_matrix_1_override: Some(CM2),
+        calibration_illuminant_1_override: Some(21),
+        forward_matrix_1: Some(FM2),
+        camera_calibration_1_override: Some(NON_DIAGONAL_2),
+        ..witness_dng(NON_DIAGONAL_2, NON_DIAGONAL_2)
+    });
+    let (profile, _) = dcp::profile_for_with_source(&raw).unwrap();
+    assert!(
+        profile.cm_endpoints.is_none(),
+        "a single-illuminant profile"
+    );
+    let frame = SliderFrame::resolve(&raw, &profile);
+    let unit = individual(NON_DIAGONAL_2);
+    let as_shot = profile.forward_matrix.expect("single ForwardMatrix");
+    let white = raw.as_shot_neutral;
+    for p in SAMPLES {
+        let want = sdk_xyz_with(m(FM2), unit, white, p);
+        let got = as_shot.mul_vec(divided(p, white));
+        assert!(close(got, want, 1e-3), "as-shot {p:?}: {got:?} vs {want:?}");
+    }
+    for (temperature, tint) in [(2800., 0.), (5000., 12.), (9000., -20.), (12000., 35.)] {
+        let retarget =
+            wb_camera::render_retarget(&frame, &profile, temperature, tint).expect("off as-shot");
+        let retargeted =
+            wb_camera::retargeted_render_profile(&frame, profile.clone(), temperature, tint);
+        let balanced = retargeted.forward_matrix.unwrap();
+        let w = retarget.camera_white;
+        let mut kept_as_shot = 0f32;
+        for p in SAMPLES {
+            let want = sdk_xyz_with(m(FM2), unit, w, p);
+            let got = balanced.mul_vec(divided(p, w));
+            assert!(
+                close(got, want, 1e-3),
+                "{temperature} K {p:?}: {got:?} vs {want:?}"
+            );
+            kept_as_shot = kept_as_shot.max(worst_difference(as_shot.mul_vec(divided(p, w)), want));
+        }
+        assert!(
+            kept_as_shot > 1e-3,
+            "{temperature} K: the as-shot resolution is not the SDK's: {kept_as_shot}"
+        );
+    }
+}
+
+/// A dual profile with only ForwardMatrix1 still interpolates the unit's
+/// calibration between both `CameraCalibrationN` (dng_sdk interpolates the
+/// calibration whatever ForwardMatrices the profile ships).
+#[test]
+fn one_forward_matrix_still_interpolates_both_calibrations() {
+    let cc = (NON_DIAGONAL_1, NON_DIAGONAL_2);
+    let raw = decoded(SyntheticGreyDng {
+        forward_matrix_2: None,
+        ..witness_dng(cc.0, cc.1)
+    });
+    let warm = raw
+        .individual_calibrations
+        .get(&crate::color::illuminant::Illuminant::D65)
+        .expect("the ForwardMatrix-less illuminant keeps its calibration");
+    for (row, want) in warm.0.iter().zip(individual(cc.1).0) {
+        assert!(close(*row, want, 1e-3), "{row:?} vs {want:?}");
+    }
+    let (profile, _) = dcp::profile_for_with_source(&raw).unwrap();
+    let fm = profile.forward_matrix.expect("one-sided ForwardMatrix");
+    let white = raw.as_shot_neutral;
+    let unit = lerp(individual(cc.0), individual(cc.1), profile.scene_cct);
+    for p in SAMPLES {
+        let want = sdk_xyz_with(m(FM1), unit, white, p);
+        let got = fm.mul_vec(divided(p, white));
+        assert!(close(got, want, 1e-3), "{p:?}: {got:?} vs {want:?}");
     }
 }

@@ -137,6 +137,8 @@ fn the_plan_reproduces_the_creative_stage_for_every_table_shape() {
         ("dual linear", Tables::DualHueSatMap { srgb: false }),
         ("dual sRGB", Tables::DualHueSatMap { srgb: true }),
         ("dual + look", Tables::DualHueSatMapAndLook),
+        ("dual + unit calibration", Tables::DualUnitCalibration),
+        ("single + unit calibration", Tables::SingleUnitCalibration),
     ] {
         assert_plan_reproduces_render(label, &creative_stage(tables, 1.7));
         assert_plan_reproduces_render(label, &creative_stage(tables, 1.0));
