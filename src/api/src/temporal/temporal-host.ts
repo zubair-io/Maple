@@ -13,7 +13,7 @@ import { bundleWorkflowCode, NativeConnection, Runtime, Worker } from '@temporal
 import { child as childLogger } from '../log.ts';
 import { importLane } from '../imports/import-queue.ts';
 import { jobLane } from '../job-runner/job-queue.ts';
-import { reconcileHeld, relayNext, type TemporalLane } from './row-queue.ts';
+import type { TemporalLane } from './temporal-lane.ts';
 import {
   loadTemporalSettings,
   reportTemporalConnection,
@@ -191,13 +191,10 @@ export class TemporalHost {
         const worker = await Worker.create({
           connection,
           namespace: settings.namespace,
-          taskQueue: lane.queue.taskQueue,
+          taskQueue: lane.taskQueue,
           workflowBundle: bundle,
           activities: lane.activities,
-          // One row at a time per lane: exports and stitches saturate the native
-          // pool on their own, pano admission counts on a preview never running
-          // beside a stitch, and an import's writes are not fenced to its attempt.
-          maxConcurrentActivityTaskExecutions: 1,
+          maxConcurrentActivityTaskExecutions: lane.concurrency,
           // A cancel made in Temporal reaches a handler on a heartbeat reply, and
           // handlers heartbeat whenever they report progress or ask about cancel.
           maxHeartbeatThrottleInterval: '5 seconds',
@@ -290,11 +287,11 @@ export class TemporalHost {
   }
 
   private relay(client: Client): Promise<void> {
-    return this.eachLane((lane) => relayNext(client, lane.queue));
+    return this.eachLane((lane) => lane.relay(client));
   }
 
   private reconcile(client: Client): Promise<void> {
-    return this.eachLane((lane) => reconcileHeld(client, lane.queue));
+    return this.eachLane(async (lane) => lane.reconcile?.(client));
   }
 
   private async probe(client: Client, settings: TemporalSettings): Promise<void> {
