@@ -28,9 +28,10 @@ export interface CrashLeftOutcome {
 
 /** Settles the private siblings a crashed relocation left in `dir` (#5136,
  * #5786). One whose bytes provably live under another name is removed: a
- * verifying copy, a displaced file with a second name or a byte-identical file
- * beside it, or any other sibling that is a hard link of the file beside it. A
- * displaced file with no other name may be the only copy of something, and the
+ * verifying copy, a displaced file with a visible second name in `dir` or a
+ * byte-identical file beside it, or any other sibling that is a hard link of
+ * the file beside it. A displaced file with no other visible name may be the
+ * only copy of something, and the
  * filesystem cannot say whether the crash fell before or after the move
  * committed, so it is published under a visible name instead (`surfaceDisplaced`)
  * and the user decides. Names from builds that did not mark them stay. */
@@ -39,7 +40,8 @@ export async function sweepCrashLeftTemps(
   entries: readonly DirectoryEntry[],
 ): Promise<CrashLeftOutcome> {
   const now = Date.now();
-  const settled = await Array.fromAsync(entries, (entry) => settle(dir, entry, now));
+  const named = entries.map((entry) => entry.name);
+  const settled = await Array.fromAsync(entries, (entry) => settle(dir, entry, named, now));
   const outcome = {
     removed: settled.filter((result) => result === 'removed').length,
     surfaced: settled.filter((result) => result === 'surfaced').length,
@@ -59,6 +61,7 @@ export async function sweepCrashLeftTemps(
 async function settle(
   dir: string,
   entry: DirectoryEntry,
+  named: readonly string[],
   now: number,
 ): Promise<'removed' | 'surfaced' | 'left'> {
   const sibling = entry.isFile() ? parsePrivateSibling(entry.name) : null;
@@ -67,7 +70,7 @@ async function settle(
   const stat = await fs.lstat(file, { bigint: true }).catch(() => null);
   if (!stat?.isFile() || now - lastTouched(stat) < IDLE_BEFORE_ABANDONED_MS) return 'left';
   const beside = sibling.base === '' ? null : path.join(dir, sibling.base);
-  if (await isRedundant(sibling.kind, file, stat, beside)) {
+  if (await isRedundant(sibling.kind, file, stat, beside, named)) {
     const gone = await fs.unlink(file).then(
       () => true,
       () => false,
@@ -90,12 +93,27 @@ async function isRedundant(
   file: string,
   stat: Stat,
   beside: string | null,
+  named: readonly string[],
 ): Promise<boolean> {
   if (kind === 'verifying-copy') return true;
   if (kind === 'displaced') {
-    return stat.nlink > 1n || (beside !== null && (await sameBytesAs(file, beside)));
+    return (
+      (stat.nlink > 1n && (await hasVisibleTwin(path.dirname(file), named, stat))) ||
+      (beside !== null && (await sameBytesAs(file, beside)))
+    );
   }
   return beside !== null && (await isHardLinkOf(stat, beside));
+}
+
+/** A second link proves nothing by itself: it may be another private name the
+ * sweep removes too, or one outside the folder that can't be checked. Only a
+ * visible name in the folder holding the same file does. */
+async function hasVisibleTwin(dir: string, named: readonly string[], stat: Stat): Promise<boolean> {
+  for (const name of named) {
+    if (parsePrivateSibling(name) !== null) continue;
+    if (await isHardLinkOf(stat, path.join(dir, name))) return true;
+  }
+  return false;
 }
 
 const surfaced = (file: string, original: string): Promise<boolean> =>

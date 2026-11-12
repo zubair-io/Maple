@@ -210,6 +210,26 @@ describe('a relocation killed mid-way', () => {
     expect(await read(`dst/${long}`)).toBe('new');
     expect(await tempNames('dst')).toEqual([]);
   });
+
+  test('a displaced photo whose only other name is a verifying copy is surfaced, not left for the copy cleanup to lose', async () => {
+    await write('dst/IMG.CR3', 'new');
+    const keep = deadPid(path.basename(privateSiblingOf(abs('dst/IMG.CR3'), DISPLACED_MARKER)));
+    const copy = deadPid(
+      path.basename(privateSiblingOf(abs('dst/OTHER.CR3'), VERIFYING_COPY_MARKER)),
+    );
+    await write(`dst/${keep}`, 'old');
+    await fs.link(abs(`dst/${keep}`), abs(`dst/${copy}`));
+    // The displaced name first, so the verifying copy still exists when it is judged.
+    const entries = (await fs.readdir(abs('dst'), { withFileTypes: true })).toSorted(
+      (a, b) => Number(b.name === keep) - Number(a.name === keep),
+    );
+    setSystemTime(new Date(Date.now() + 2 * DAY_MS));
+    const outcome = await sweepCrashLeftTemps(abs('dst'), entries).finally(() => setSystemTime());
+
+    expect(outcome).toEqual({ removed: 1, surfaced: 1 });
+    expect(await names('dst')).toEqual(['IMG (replaced).CR3', 'IMG.CR3']);
+    expect(await read('dst/IMG (replaced).CR3')).toBe('old');
+  });
 });
 
 const REPLACE_SCRIPT = `
