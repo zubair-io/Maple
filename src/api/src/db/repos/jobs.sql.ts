@@ -60,11 +60,13 @@ const NO_ACTIVE_PANO_STITCH = `
  * The operator one-shots, which run on their own lane. A user job and an
  * operation never wait on each other, and no row is ever relayed by both lanes.
  */
-export const OPERATION_KINDS: readonly OperationKind[] = [
-  'mirror_reconcile',
-  'people_cluster',
-  'folder_scan',
-];
+const OPERATION_KIND_SET = {
+  mirror_reconcile: true,
+  people_cluster: true,
+  folder_scan: true,
+} as const satisfies Record<OperationKind, true>;
+
+export const OPERATION_KINDS = Object.keys(OPERATION_KIND_SET) as readonly OperationKind[];
 
 const OPERATION_KIND_LIST = OPERATION_KINDS.map((kind) => `'${kind}'`).join(', ');
 const IS_OPERATION = `kind IN (${OPERATION_KIND_LIST})`;
