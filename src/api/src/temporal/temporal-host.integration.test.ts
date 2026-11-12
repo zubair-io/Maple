@@ -400,14 +400,12 @@ describe('connection state', () => {
       handlers: { batch_jpeg_export: { run: async () => ({ kind: 'done', result: {} }) } },
     });
     const broken = {
+      taskQueue: 'broken-lane',
       activities: {},
-      queue: {
-        ...working.queue,
-        taskQueue: 'broken-lane',
-        nextId: async () => null,
-        heldIds: async (): Promise<string[]> => {
-          throw new Error('ledger unreadable');
-        },
+      concurrency: 1,
+      relay: async () => {},
+      reconcile: async () => {
+        throw new Error('ledger unreadable');
       },
     };
     const host = new TemporalHost({ ...FAST, lanes: [broken, working] });

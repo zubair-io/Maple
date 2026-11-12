@@ -1,5 +1,6 @@
 import { ObjectId } from '../db/object-id.ts';
-import type { RowQueue, TemporalLane } from '../temporal/row-queue.ts';
+import { rowLane, type RowQueue } from '../temporal/row-queue.ts';
+import type { TemporalLane } from '../temporal/temporal-lane.ts';
 import { jobWorkflow } from '../temporal/workflows.ts';
 import type { ExecuteJobOptions } from './execute-job.ts';
 import { createJobActivities } from './job-activity.ts';
@@ -16,7 +17,5 @@ const JOB_QUEUE: RowQueue = {
   cancelUnfinished: (jobId) => cancelUnfinishedJob(new ObjectId(jobId)),
 };
 
-export const jobLane = (options: ExecuteJobOptions = {}): TemporalLane => ({
-  queue: JOB_QUEUE,
-  activities: createJobActivities(options),
-});
+export const jobLane = (options: ExecuteJobOptions = {}): TemporalLane =>
+  rowLane(JOB_QUEUE, createJobActivities(options));

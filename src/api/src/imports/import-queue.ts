@@ -1,5 +1,6 @@
 import { ObjectId } from '../db/object-id.ts';
-import type { RowQueue, TemporalLane } from '../temporal/row-queue.ts';
+import { rowLane, type RowQueue } from '../temporal/row-queue.ts';
+import type { TemporalLane } from '../temporal/temporal-lane.ts';
 import { importWorkflow } from '../temporal/workflows.ts';
 import { createImportActivities } from './import-activity.ts';
 import { IMPORT_TASK_QUEUE, importWorkflowId } from './import-workflow.ts';
@@ -21,7 +22,5 @@ const IMPORT_QUEUE: RowQueue = {
   cancelUnfinished: (importId) => cancelUnfinishedImport(new ObjectId(importId)),
 };
 
-export const importLane = (config: ImportRunnerConfig = {}): TemporalLane => ({
-  queue: IMPORT_QUEUE,
-  activities: createImportActivities(config),
-});
+export const importLane = (config: ImportRunnerConfig = {}): TemporalLane =>
+  rowLane(IMPORT_QUEUE, createImportActivities(config));

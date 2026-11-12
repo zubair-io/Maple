@@ -7,6 +7,7 @@
 
 import { WorkflowNotFoundError, type Client } from '@temporalio/client';
 import { dispatchSignal, type RowRun } from './row-workflow.ts';
+import type { TemporalLane } from './temporal-lane.ts';
 
 export interface RowQueue {
   taskQueue: string;
@@ -18,12 +19,6 @@ export interface RowQueue {
   heldIds: () => Promise<string[]>;
   markDispatched: (rowId: string) => Promise<void>;
   cancelUnfinished: (rowId: string) => Promise<void>;
-}
-
-/** One task queue served by the host: where its rows come from and what runs them. */
-export interface TemporalLane {
-  queue: RowQueue;
-  activities: object;
 }
 
 /** Safe to repeat: a second dispatch signals the workflow that already exists. */
@@ -38,7 +33,7 @@ async function dispatch(client: Client, queue: RowQueue, rowId: string): Promise
 }
 
 /** The next row in creation order, once the one before it has finished. */
-export async function relayNext(client: Client, queue: RowQueue): Promise<void> {
+async function relayNext(client: Client, queue: RowQueue): Promise<void> {
   const rowId = await queue.nextId();
   if (rowId !== null) await dispatch(client, queue, rowId);
 }
@@ -76,6 +71,18 @@ async function reconcile(client: Client, queue: RowQueue, rowId: string): Promis
   if (state === 'missing' || state === 'closed') await dispatch(client, queue, rowId);
 }
 
-export async function reconcileHeld(client: Client, queue: RowQueue): Promise<void> {
+async function reconcileHeld(client: Client, queue: RowQueue): Promise<void> {
   for (const rowId of await queue.heldIds()) await reconcile(client, queue, rowId);
 }
+
+/**
+ * One row at a time: exports and stitches saturate the native pool on their
+ * own, and pano admission counts on a preview never running beside a stitch.
+ */
+export const rowLane = (queue: RowQueue, activities: object): TemporalLane => ({
+  taskQueue: queue.taskQueue,
+  activities,
+  concurrency: 1,
+  relay: (client) => relayNext(client, queue),
+  reconcile: (client) => reconcileHeld(client, queue),
+});
