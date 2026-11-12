@@ -119,7 +119,7 @@ extension EditSession {
     // purpose: this can run Vision on a cache miss.
     let wbResolved: AdjustmentModel
     do {
-      wbResolved = try await ImportedWhiteBalanceResolver.resolve(asset: asset, model: seeded)
+      wbResolved = try await resolvingImportedWhiteBalanceForDisplay(seeded)
       partialWhiteBalanceImportError = nil
     } catch {
       guard !Task.isCancelled else { return }
@@ -243,6 +243,8 @@ extension EditSession {
     // of its own, so the model and its seed stay as hydrated.
     let previous = wbSliderFrame
     wbSliderFrame = frame
+    // A warm open has no first frame left to wait for (#4669).
+    if !isResolvingFirstFrame { resolveImportedAutoWhiteBalance() }
     guard frame.isPresent else { return }
     let newCCT = Double(frame.sceneCCT)
     let newTint = Double(frame.asShotTint)

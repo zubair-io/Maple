@@ -310,8 +310,7 @@ public final class EditorWorkflowState {
     AdjustmentModel, CullingState
   ) {
     let (model, culling) = try XMPParser.parse(xml)
-    let resolved = try await ImportedWhiteBalanceResolver.resolve(
-      asset: session.asset, model: model)
+    let resolved = try await session.resolvingImportedWhiteBalanceForDisplay(model)
     return (await session.rehydratedMaskRasters(in: resolved), culling)
   }
 
