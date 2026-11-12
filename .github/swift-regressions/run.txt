@@ -550,3 +550,9 @@ WorkingSetSeedBoundTests
 # ever parented at the top level; legacy working-set anchors expire once;
 # indexed photos serve their server thumbnail.
 FileProviderRootPlacementTests
+
+# Temporal job-server settings (#5826): pure decoding/form rules and a
+# stubbed HTTP client.
+TemporalSettingsDecodingTests
+TemporalSettingsFormTests
+TemporalSettingsClientTests

@@ -11,7 +11,8 @@
 // render) sections beneath the stage table are T5b (#2772) — they live here
 // rather than on the Enrichment page because they aren't enrichment-document
 // fields, matching where the web places them (workers.component.html's
-// Maintenance/Rendering groups).
+// Maintenance/Rendering groups). The Temporal "Job server" section (#5826)
+// sits between them, as on the web.
 
 import SwiftUI
 import MapleCore
@@ -20,6 +21,9 @@ import MapleUI
 struct WorkersSettingsView: View {
     let client: WorkersAdminClient
     let events: WorkerEventsClient
+    /// Only the owner may repoint the Temporal job server (#5826); the PUT is
+    /// `requireOwner` server-side, so members see the values read-only.
+    let isOwner: Bool
     /// The generated-search worker's own section (config + Run now +
     /// today's collections). Optional-with-default so previews and callers
     /// that only care about the stage table need not construct three extra
@@ -36,6 +40,7 @@ struct WorkersSettingsView: View {
     init(
         client: WorkersAdminClient,
         events: WorkerEventsClient,
+        isOwner: Bool,
         generatedSearch: GeneratedSearchAdminClient? = nil,
         generatedSearchCollections: GeneratedSearchClient? = nil,
         foldersClient: CloudFoldersClient? = nil,
@@ -45,6 +50,7 @@ struct WorkersSettingsView: View {
     ) {
         self.client = client
         self.events = events
+        self.isOwner = isOwner
         self.generatedSearch = generatedSearch
         self.generatedSearchCollections = generatedSearchCollections
         self.foldersClient = foldersClient
@@ -127,6 +133,7 @@ struct WorkersSettingsView: View {
                         collectionsClient: generatedSearchCollections,
                         foldersClient: foldersClient)
                 }
+                TemporalSettingsSection(client: client, isOwner: isOwner)
                 if let renderConfigClient {
                     RenderConfigSettingsView(client: renderConfigClient)
                 }
@@ -322,6 +329,7 @@ struct WorkersSettingsView: View {
         client: .preview(),
         events: WorkerEventsClient(
             server: URL(string: "https://preview.maple.invalid")!,
-            tokenProvider: { "preview" }))
+            tokenProvider: { "preview" }),
+        isOwner: true)
         .frame(width: 720, height: 620)
 }
