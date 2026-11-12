@@ -2,8 +2,9 @@
 // `<mui-media-cell layout="overlay">` (image, selection ring, corner-badge
 // slots, readonly rating/flags row) plus this component's own overlay
 // content: the HIDDEN badge, no-preview badge, Live Photo badge and clip Play
-// button, select-mode checkbox, edited-XMP checkmark, and the hover-reveal
-// inline-rename field.
+// button, RAW+JPEG stack badge, select-mode checkbox and edited-XMP checkmark.
+// The tile carries no filename caption (#5846): the name lives in the Info
+// pane, which is also where rename starts, next to F2.
 //
 // Split out of `<maple-asset-thumb>` (MW6, ticket #3047) once the grid
 // variant moved onto Maple UI composition — `asset-thumb` now renders only
@@ -35,8 +36,6 @@ import { Asset } from '../../models/asset';
 import { LibraryStateService } from '../../state/library-state.service';
 import { createAssetThumbnailUrlSignal } from '../../state/asset-thumbnail-url-signal';
 import { noPreviewBadgeLabel as computeNoPreviewBadgeLabel } from '../../state/no-preview-extensions';
-import { ASSET_RENAME_CAPABILITY } from '../../rename/asset-rename-capability';
-import { InlineRenameFieldComponent } from '../inline-rename-field/inline-rename-field.component';
 import {
   mediaRouteUrl,
   PREVIEW_VIDEO_ACCESS,
@@ -47,9 +46,8 @@ import type { MuiRatingFlagState } from '../../ui/rating-flags/mui-rating-flags.
 @Component({
   selector: 'maple-asset-tile',
   standalone: true,
-  imports: [MapleIconComponent, InlineRenameFieldComponent, MuiMediaCellComponent],
+  imports: [MapleIconComponent, MuiMediaCellComponent],
   templateUrl: './asset-tile.component.html',
-  styleUrl: './asset-tile.component.scss',
   host: { class: 'block w-full h-full' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
@@ -67,19 +65,6 @@ export class AssetTileComponent {
 
   private state = inject(LibraryStateService);
   readonly sidecarError = computed(() => this.state.sidecarLoadError?.(this.asset().id) ?? null);
-  /** Interface, not the concrete `AssetRenameService` — see
-   * `asset-rename-capability.ts`'s module doc for why this indirection
-   * exists (keeping Self-Hosted-only code out of Hosted's bundle). */
-  protected readonly renameSvc = inject(ASSET_RENAME_CAPABILITY);
-
-  /** True while this tile's filename bar is showing the inline-rename
-   * field (#2637). */
-  readonly isEditingFilename = computed(() => this.renameSvc.editingAssetId() === this.asset().id);
-
-  /** Why rename is unavailable for this asset, or '' when it's allowed —
-   * surfaced as the filename bar's `title` tooltip. */
-  readonly renameDisabledReason = computed(() => this.renameSvc.disabledReason(this.asset()) ?? '');
-
   private readonly videoAccess = inject(PREVIEW_VIDEO_ACCESS);
 
   readonly livePhoto = computed(() => this.asset().livePhoto);
@@ -102,19 +87,6 @@ export class AssetTileComponent {
     return address.slug && address.relPath
       ? mediaRouteUrl(this.videoAccess, 'video', toApiPath(address))
       : undefined;
-  }
-
-  onFilenameDblClick(event: MouseEvent): void {
-    event.stopPropagation();
-    this.renameSvc.startEditing(this.asset());
-  }
-
-  onRenameCommit(newFilename: string): void {
-    this.renameSvc.commit(this.asset(), newFilename);
-  }
-
-  onCollisionResolved(policy: 'replace' | 'keep-both'): void {
-    this.renameSvc.resolveCollision(this.asset(), policy);
   }
 
   /** Select mode (#2404) — session-scoped signal on LibraryStateService.

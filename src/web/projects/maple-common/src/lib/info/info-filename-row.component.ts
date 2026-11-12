@@ -1,8 +1,8 @@
 // InfoFilenameRowComponent — S6 Info panel filename row (#2637).
 //
-// Renders the focused asset's filename, double-click to enter the shared
-// inline-rename field — the same field the grid cell double-click and F2
-// shortcut drive; only one is ever open at a time. Injects the
+// Renders the focused asset's filename (the grid tile carries no caption,
+// #5846), double-click to enter the shared inline-rename field — the same
+// field the F2 shortcut drives; only one is ever open at a time. Injects the
 // `AssetRenameCapability` interface, NOT the concrete `AssetRenameService`
 // (see `asset-rename-capability.ts`'s module doc) — this component is part
 // of `<app-info-panel>`'s shared composition, reachable from both Hosted

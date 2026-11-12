@@ -25,6 +25,17 @@
       LIVE
     </div>
   }
+  @if (a.stack) {
+    <div
+      mediaCellTopLeft
+      data-testid="stack-badge"
+      role="img"
+      aria-label="RAW and JPEG"
+      class="flex h-[14px] px-1 gap-0.5 items-center justify-center rounded-[3px] border-[0.5px] border-white/20 bg-black/60 backdrop-blur-[4px] text-[8px] font-semibold text-white"
+    >
+      RAW+JPEG
+    </div>
+  }
   @if (a.hidden) {
     <div
       mediaCellTopLeft
@@ -79,21 +90,6 @@
     </div>
   }
 
-  <!-- Filename bar (#2637) — hover-reveal caption doubling as the
-       double-click-to-rename target. Projected as `mediaCellFooter`, which
-       `mui-media-cell` renders OUTSIDE its interactive button (nested
-       interactive elements aren't valid HTML); positioned absolute over
-       the host, which the button already fills. Desktop-only affordance:
-       touch grids have no hover and F2/double-click are desktop
-       interactions anyway.
-
-       Always-visible trigger button lives OUTSIDE the @defer block below
-       (#2706 web-build bundle-size fix) so it never disappears — only
-       `<app-inline-rename-field>` itself (and its own JS) code-splits into
-       a lazy chunk, loaded on the first interaction with this button. Every
-       grid tile imports this component eagerly, so without this split the
-       rename editing UI's bytes would sit in the main bundle for every
-       asset ever rendered, most of which are never renamed in a session. -->
   <ng-container mediaCellFooter>
     @if (livePhoto()?.role === 'clip') {
       @if (clipSrc(); as clip) {
@@ -120,35 +116,6 @@
       >
         <maple-icon [name]="clipSrc() ? 'x' : 'play-circle'" [size]="18" color="white" />
       </button>
-    }
-    <button
-      #renameTrigger
-      type="button"
-      class="filename-bar pointer-events-none absolute right-0 bottom-0 left-0 z-10 block w-full truncate rounded-b-[2px] bg-[linear-gradient(to_top,rgba(0,0,0,0.72),rgba(0,0,0,0))] px-1.5 py-0.5 text-left text-[10px] text-white opacity-0 transition-opacity duration-[120ms] ease-out"
-      [class.hidden]="isEditingFilename()"
-      [attr.aria-label]="'Rename ' + a.filename"
-      [attr.title]="renameDisabledReason()"
-      (dblclick)="onFilenameDblClick($event)"
-    >
-      {{ a.filename }}
-    </button>
-    @defer (on interaction(renameTrigger)) {
-      @if (isEditingFilename()) {
-        <div
-          class="filename-bar editing pointer-events-auto absolute right-[3px] bottom-[3px] left-[3px] z-10 rounded-[3px] bg-surface px-1 py-0.5 opacity-100"
-          (click)="$event.stopPropagation()"
-        >
-          <app-inline-rename-field
-            [filename]="a.filename"
-            [error]="renameSvc.error()"
-            [busy]="renameSvc.busy()"
-            [collision]="renameSvc.collision()?.assetId === a.id"
-            (committed)="onRenameCommit($event)"
-            (cancelled)="renameSvc.cancel()"
-            (collisionResolved)="onCollisionResolved($event)"
-          />
-        </div>
-      }
     }
   </ng-container>
 </mui-media-cell>

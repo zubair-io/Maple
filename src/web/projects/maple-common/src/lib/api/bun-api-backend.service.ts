@@ -18,9 +18,9 @@ import type { ObservabilityConfigResponse } from '../observability/observability
 import type { NetworkConfigPatch, NetworkConfigResponse } from '../network/network-config.model';
 import type { ApnsConfigPatch, ApnsConfigResponse } from '../network/apns-config.model';
 import type { RenderConfigPatch, RenderConfigResponse } from '../raw-pipeline/render-config.model';
-import type { ApiFolder, ApiHistogram } from '../workspace/server-library-io';
+import type { ApiDisplayConfig, ApiFolder, ApiHistogram } from '../workspace/server-library-io';
 
-export type { ApiFolder, ApiHistogram } from '../workspace/server-library-io';
+export type { ApiDisplayConfig, ApiFolder, ApiHistogram } from '../workspace/server-library-io';
 
 /** A backup/mirror location for a library (mirrors the server `MirrorLocation`). */
 /** One row of the owner-only user roster (#2893). */
@@ -753,11 +753,11 @@ export class BunApiBackendService {
     return this.http.get<ApiWorkerStatus>(`${this.base}/workers/status`);
   }
 
-  getDisplayConfig(): Observable<{ show_hidden_images: boolean }> {
-    return this.http.get<{ show_hidden_images: boolean }>(`${this.base}/display/config`);
+  getDisplayConfig(): Observable<ApiDisplayConfig> {
+    return this.http.get<ApiDisplayConfig>(`${this.base}/display/config`);
   }
 
-  saveDisplayConfig(config: { show_hidden_images: boolean }): Observable<{ ok: boolean }> {
+  saveDisplayConfig(config: Partial<ApiDisplayConfig>): Observable<{ ok: boolean }> {
     return this.http.put<{ ok: boolean }>(`${this.base}/display/config`, config);
   }
 

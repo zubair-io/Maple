@@ -12,6 +12,8 @@
 export interface BatchRenameSelection {
   address: string;
   filename: string;
+  /** The JPEG of a RAW+JPEG stack (#5050): renamed to the RAW's new stem once the RAW has been. */
+  companion?: { address: string; filename: string };
 }
 
 export type BatchRenameCollisionPolicy = 'auto-suffix' | 'skip' | 'replace' | 'keep-both';
@@ -32,6 +34,7 @@ export interface ResolvedBatchRenameId {
   address: string;
   filename: string;
   id: string | null;
+  companion?: { address: string; filename: string };
 }
 
 /** One row of the live before→after preview list. */

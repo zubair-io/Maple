@@ -16,7 +16,13 @@ import {
 import { Router } from '@angular/router';
 import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
-import { AuthService, errorMessage, BunApiBackendService, MuiButtonComponent } from '@maple-common';
+import {
+  AuthService,
+  errorMessage,
+  BunApiBackendService,
+  LibraryStateService,
+  MuiButtonComponent,
+} from '@maple-common';
 import { SettingsShellComponent } from '../settings-shell.component';
 import { SettingsIconComponent } from '../settings-icon.component';
 import { PairedDevicesComponent } from './paired-devices.component';
@@ -46,11 +52,13 @@ export class AccountComponent implements OnInit {
   private router = inject(Router);
   private http = inject(HttpClient);
   private displayApi = inject(BunApiBackendService);
+  private library = inject(LibraryStateService);
 
   protected readonly credentials = signal<Credential[]>([]);
   protected readonly busy = signal(false);
   protected readonly error = signal<string | null>(null);
   protected readonly showHidden = signal<boolean>(false);
+  protected readonly stackRawJpeg = signal<boolean>(true);
 
   protected readonly user = computed(() => this.auth.user());
   protected readonly isOwner = computed(() => this.auth.user()?.role === 'owner');
@@ -104,7 +112,10 @@ export class AccountComponent implements OnInit {
 
   private fetchDisplayConfig(): void {
     this.displayApi.getDisplayConfig().subscribe({
-      next: (config) => this.showHidden.set(config.show_hidden_images),
+      next: (config) => {
+        this.showHidden.set(config.show_hidden_images);
+        this.stackRawJpeg.set(config.stack_raw_jpeg);
+      },
       error: () => {},
     });
   }
@@ -115,6 +126,18 @@ export class AccountComponent implements OnInit {
       next: (res) => {
         if (res.ok) {
           this.showHidden.set(nextVal);
+        }
+      },
+    });
+  }
+
+  protected toggleStackRawJpeg(): void {
+    const nextVal = !this.stackRawJpeg();
+    this.displayApi.saveDisplayConfig({ stack_raw_jpeg: nextVal }).subscribe({
+      next: (res) => {
+        if (res.ok) {
+          this.stackRawJpeg.set(nextVal);
+          this.library.reloadListings();
         }
       },
     });

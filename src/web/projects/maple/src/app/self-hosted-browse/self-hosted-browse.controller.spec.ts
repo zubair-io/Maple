@@ -142,6 +142,32 @@ describe('SelfHostedBrowseController', () => {
     expect(controller.batchRenameSelections()).toEqual([]);
   });
 
+  it('openBatchRename carries a stacked RAW’s JPEG companion with its selection (#5846)', () => {
+    const raw = {
+      id: 'lib1:2026/a.cr3',
+      filename: 'a.cr3',
+      stack: { companion: { id: 'lib1:2026/a.jpg', name: 'a.jpg', ext: 'jpg', size: 1 } },
+    } as Asset;
+    Object.defineProperty(state, 'selectedAssetIds', {
+      value: signal(new Set([raw.id])),
+      configurable: true,
+    });
+    Object.defineProperty(state, 'assetsInSelectedFolder', {
+      value: signal([raw]),
+      configurable: true,
+    });
+
+    controller.openBatchRename();
+
+    expect(controller.batchRenameSelections()).toEqual([
+      {
+        address: raw.id,
+        filename: raw.filename,
+        companion: { address: 'lib1:2026/a.jpg', filename: 'a.jpg' },
+      },
+    ]);
+  });
+
   it('onBatchRenameApplied repoints the selection to the renamed addresses before refetching (#2847)', () => {
     state.selectMany(['lib1:2026/a.dng', 'lib1:2026/b.dng', 'lib1:2026/c.dng']);
     const loadFolderTree = vi.spyOn(state, 'loadFolderTree').mockImplementation(() => {});

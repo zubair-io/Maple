@@ -146,6 +146,31 @@ describe('Self-Hosted indexed Info metadata', () => {
     ).not.toHaveProperty('livePhoto');
   });
 
+  it('maps the listing’s RAW+JPEG companion and file size onto the primary asset', () => {
+    const raw = selfHostedAssetFromImage(
+      {
+        ...makeImage('IMG_1.CR3', '2026/IMG_1.CR3'),
+        size: 25_000_000,
+        stack: {
+          companion: {
+            name: 'IMG_1.JPG',
+            address: 'library:2026/IMG_1.JPG',
+            size: 4_000_000,
+            ext: 'jpg',
+          },
+        },
+      },
+      `${LIB_SLUG}:`,
+    );
+    expect(raw.size).toBe(25_000_000);
+    expect(raw.stack).toEqual({
+      companion: { id: 'library:2026/IMG_1.JPG', name: 'IMG_1.JPG', ext: 'jpg', size: 4_000_000 },
+    });
+    expect(
+      selfHostedAssetFromImage(makeImage('plain.jpg', 'plain.jpg'), `${LIB_SLUG}:`),
+    ).not.toHaveProperty('stack');
+  });
+
   it('projects the folder response EXIF into the Preview Info rows', () => {
     const image: ImageEntry = {
       ...makeImage('test_0003.CR2', 'test_0003.CR2'),

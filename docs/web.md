@@ -59,6 +59,20 @@ Self Hosted only (#5541): a folder listing entry carrying `livePhoto: { role, pa
 
 In Full image the clip opens as an ordinary video asset. The still reuses the Motion Photo control (`PreviewMotionClip`): when the still is paired it offers `Live` and plays the partner clip through `/api/video` with no `HEAD` probe, since the listing already reported the partner; any other JPEG or HEIC keeps the `Motion` control and its `HEAD /api/motion` probe.
 
+### RAW+JPEG stack tiles
+
+Self Hosted only (#5846, web slice of #5050): a folder listing entry carrying `stack: { companion }` (see [api.md](api.md) § RAW+JPEG stacks) becomes an `Asset` with `stack: { companion: { id, name, ext, size } }`, where `id` is the JPEG's address, and the RAW's own `size` is read from the listing too. The API has already dropped the JPEG from `images`, so the grid renders one `<maple-asset-tile>` with a `RAW+JPEG` pill in the top-left badge slot. `stack` takes part in the folder-reload equality (`sameStack`), so a changed pairing re-renders the tile.
+
+The tile carries no filename caption. The hover-reveal caption and its double-click rename trigger are gone; the media cell keeps the filename as its accessible name. Rename starts from F2 on the focused tile or from the filename row in the Info pane (`app-info-filename-row`), which is also where every asset's filename is read. For a stacked asset the Info pane adds a **Files** section (`app-info-stack-files`): the RAW, marked Primary, and the JPEG, each with name, type and size.
+
+The companion rides along wherever the tile's address is turned into file operations, in `models/asset-stack.ts`:
+
+- **Move and Move to…** (`DragMoveService.beginMove`) and **Trash** (`TrashService.trashAssets`) queue the companion's address right after the RAW's, so both files move or trash and the summary counts files.
+- **Rename** (`AssetRenameService`) renames the RAW, then the JPEG to the RAW's new stem keeping its own extension, and re-pulls the folder listing. A JPEG that cannot follow is reported in the open field. **Batch rename** applies the template to the RAWs, then renames each relocated RAW's JPEG the same way (`batch-rename-companions.ts`), so a `{n}` template cannot put the pair on two stems; each JPEG outcome is one more file in the summary.
+- **Export** acts on the selected tile's asset, which is the RAW; the companion is not an asset and is never exported. Restoring from the Trash panel works per file: the JPEG is its own trash item.
+
+Settings → Account carries **Show one image for RAW+JPEG pairs**, bound to `stack_raw_jpeg` in `GET/PUT /api/display/config` next to **Show Hidden Images**. A successful change calls `LibraryStateService.reloadListings()`, which clears the cached folder listings (they were fetched under the old setting) and re-pulls the open folder.
+
 ### Colour grading and curves UI
 
 `components/develop/` holds three colour surfaces that write straight into `AdjustmentModel` through `LibraryStateService.updateAdjustment`. `color-grading-panel` draws the four wheels, the `Blending` slider and the tonal-zone strip: `computeZoneWeights` mirrors the stage's smoothstep windows (checked against shared goldens), and dragging a pivot rounds to three decimals, snaps to the 0.564622 anchor within 0.005 as `raw-core` does, then clamps, so a drag to the end writes the default rather than 0.565. `tone-curve` adds three diamond split handles on the parametric axis (`tone-curve-splits.ts`: authoring clamps `[10, 70]`, `[20, 80]`, `[30, 90]` with a 5-unit gap) and the `Per-Channel | Ratio-Preserving` toggle. `color-curves-ribbon` is the `8-Band Mixer | Color Curves` switch inside the HSL section: six curve pills, a horizontal ribbon with knot handles (Hue vs Hue limits the slope between knots), six hue anchors, Lock Skin, and the eyedropper, which arms `CanvasPickService` and asks the render worker's `sample_color_curve_from_bytes` for the stage-input colour at the picked point.

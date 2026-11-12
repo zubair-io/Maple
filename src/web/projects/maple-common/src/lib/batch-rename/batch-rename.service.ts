@@ -21,9 +21,10 @@
 
 import { Injectable, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
-import { Observable, forkJoin, map, of, catchError } from 'rxjs';
+import { Observable, forkJoin, map, of, catchError, switchMap } from 'rxjs';
 import { API_BASE_URL } from '../api/api-base-url.token';
 import { BunApiBackendService } from '../api/bun-api-backend.service';
+import { mergeCompanionResults, renameCompanions } from './batch-rename-companions';
 import type {
   BatchRenameApplyResult,
   BatchRenameCollisionPolicy,
@@ -143,6 +144,7 @@ export class BatchRenameService {
             address: selection.address,
             filename: selection.filename,
             id: detail.id,
+            ...(selection.companion ? { companion: selection.companion } : {}),
           })),
           catchError(() =>
             of({ address: selection.address, filename: selection.filename, id: null }),
@@ -240,6 +242,11 @@ export class BatchRenameService {
           };
           return { summary, results };
         }),
+        switchMap((applied) =>
+          renameCompanions(this.api, withIds, applied.results, collision).pipe(
+            map((companions) => mergeCompanionResults(applied, companions)),
+          ),
+        ),
       );
   }
 }

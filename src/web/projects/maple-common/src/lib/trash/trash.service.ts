@@ -21,6 +21,7 @@ import { TrashApiService } from '../api/trash-api.service';
 import { parseAddress } from '../addressing/maple-address';
 import { LibraryStateService } from '../state/library-state.service';
 import type { AssetId } from '../models/asset';
+import { idsWithCompanions, withStackCompanions } from '../models/asset-stack';
 import { errorMessage } from '../util/errors';
 import type { TrashCapability } from './trash-capability';
 import type {
@@ -144,10 +145,14 @@ export class TrashService implements TrashCapability {
     if (this._busy() || (assetIds.length === 0 && folderIds.length === 0)) return;
     this._busy.set(true);
     this._resultSummary.set(null);
-    const assetsById = new Map(
-      this.state.assetsInSelectedFolder().map((asset) => [asset.id, asset]),
+    const assets = this.state.assetsInSelectedFolder();
+    const assetsById = new Map(withStackCompanions(assets).map((member) => [member.id, member]));
+    void this.runTrashQueue(
+      idsWithCompanions(assetIds, assets),
+      assetsById,
+      sourceFolderId,
+      folderIds,
     );
-    void this.runTrashQueue(assetIds, assetsById, sourceFolderId, folderIds);
   }
 
   /** Same registered-library lookup `folder-tree-crud.component.ts`'s

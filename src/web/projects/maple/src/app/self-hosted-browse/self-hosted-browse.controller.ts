@@ -139,7 +139,18 @@ export class SelfHostedBrowseController {
     const assets = this.selectedAssetsOrNull();
     if (!assets) return;
     this.batchRenameSelections.set(
-      assets.map((asset) => ({ address: asset.id, filename: asset.filename })),
+      assets.map((asset) => ({
+        address: asset.id,
+        filename: asset.filename,
+        ...(asset.stack
+          ? {
+              companion: {
+                address: asset.stack.companion.id,
+                filename: asset.stack.companion.name,
+              },
+            }
+          : {}),
+      })),
     );
     this.batchRenameVisible.set(true);
   }

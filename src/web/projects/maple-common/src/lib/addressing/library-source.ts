@@ -10,6 +10,7 @@
 import { InjectionToken } from '@angular/core';
 import type { MapleAddress } from './maple-address';
 import type { DownloadProgress } from '../api/filesystem-browse.service';
+import type { StackWire } from '../models/asset-stack';
 import type { ColorLabelValue } from '../models/color-label';
 
 /** A sub-folder entry returned by `LibrarySource.listFolder`. */
@@ -23,6 +24,8 @@ export interface ImageEntry {
   address: string;
   mapleId: string | null;
   indexed: boolean;
+  /** File size in bytes from the folder walk. */
+  size?: number;
   /** Canonical on-disk XMP culling, available before the photo is opened. */
   edited?: boolean;
   rating?: number;
@@ -46,6 +49,8 @@ export interface ImageEntry {
   isVideo?: boolean;
   /** One half of a paired Live Photo; `partner` is the other half's filename in the same folder. */
   livePhoto?: { role: 'still' | 'clip'; partner: string };
+  /** RAW primary only: the same-stem JPEG the API folded into this entry. */
+  stack?: StackWire;
 }
 
 export interface FolderListing {

@@ -116,6 +116,33 @@ describe('InfoPanelComponent', () => {
     expect(el.querySelector('mui-keyword-row')).not.toBeNull();
   });
 
+  it('shows the filename and, for a RAW+JPEG stack, both files with the RAW primary (#5846)', () => {
+    const stacked = {
+      ...STUB_ASSET,
+      filename: 'IMG_0001.CR3',
+      size: 1024 * 1024,
+      stack: {
+        companion: { id: 'lib:IMG_0001.JPG', name: 'IMG_0001.JPG', ext: 'jpg', size: 2048 },
+      },
+    };
+    const el = makeFixture({ asset: stacked }).nativeElement as HTMLElement;
+    expect(el.querySelector('[data-testid="info-filename"]')?.textContent).toContain(
+      'IMG_0001.CR3',
+    );
+    const rows = [...el.querySelectorAll('.stack-file-row')];
+    expect(rows.map((row) => row.getAttribute('data-primary'))).toEqual(['true', 'false']);
+    expect(rows[0]!.textContent).toContain('IMG_0001.CR3');
+    expect(rows[1]!.textContent).toContain('IMG_0001.JPG');
+  });
+
+  it('lists no stack files for an ordinary asset, but still shows its filename', () => {
+    const el = makeFixture().nativeElement as HTMLElement;
+    expect(el.querySelector('.stack-file-row')).toBeNull();
+    expect(el.querySelector('[data-testid="info-filename"]')?.textContent).toContain(
+      'IMG_0001.dng',
+    );
+  });
+
   it('fills Hosted camera rows from the selected file without indexing the folder', async () => {
     const fixture = makeFixture({
       asset: {
