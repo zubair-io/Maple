@@ -174,6 +174,9 @@ export class PanoDialogComponent implements OnDestroy {
   });
 
   private pollSub: Subscription | null = null;
+  /** The job the last stitch response named. Kept from that response, not from
+   * the first poll two seconds later, so the job can be cancelled in between. */
+  private stitchJobId: string | null = null;
   /** Bumped whenever the dialog goes away, so a stitch response that lands
    * afterwards knows nobody is watching its job. */
   private submitGeneration = 0;
@@ -185,7 +188,10 @@ export class PanoDialogComponent implements OnDestroy {
         this._loadConfig();
       }
       if (!this.visible()) {
-        untracked(() => this.preview.dispose());
+        untracked(() => {
+          this.preview.dispose();
+          this._abandonStitch();
+        });
         this.phase.set('idle');
         this.config.set(null);
         this.errorMessage.set('');
@@ -197,8 +203,6 @@ export class PanoDialogComponent implements OnDestroy {
         this.boundaryWarp.set(0);
         this.committedWarp.set(0);
         this.autoCrop.set(false);
-        this._abandonSubmit();
-        this._stopPolling();
       }
     });
 
@@ -214,8 +218,7 @@ export class PanoDialogComponent implements OnDestroy {
   }
 
   ngOnDestroy(): void {
-    this._abandonSubmit();
-    this._stopPolling();
+    this._abandonStitch();
   }
 
   private options(): PanoStitchRequest['options'] {
@@ -319,6 +322,7 @@ export class PanoDialogComponent implements OnDestroy {
         }
         this.errorMessage.set('');
         this.phase.set('polling');
+        this.stitchJobId = id;
         this._startPolling(id);
       },
       error: (err: HttpErrorResponse) => {
@@ -332,13 +336,8 @@ export class PanoDialogComponent implements OnDestroy {
   }
 
   onCancel(): void {
-    const j = this.job();
-    if (j && this.phase() === 'polling') {
-      this.pano.cancelJob(j.id).subscribe();
-    }
     this.preview.cancel();
-    this._abandonSubmit();
-    this._stopPolling();
+    this._abandonStitch();
     this.dismiss.emit();
   }
 
@@ -394,8 +393,15 @@ export class PanoDialogComponent implements OnDestroy {
       });
   }
 
-  private _abandonSubmit(): void {
+  /** Nobody watches the stitch from here on, so one that is queued or running
+   * is cancelled; one whose response is still in flight, when it lands. */
+  private _abandonStitch(): void {
+    if (this.stitchJobId !== null && this.phase() === 'polling') {
+      this.pano.cancelJob(this.stitchJobId).subscribe();
+    }
+    this.stitchJobId = null;
     this.submitGeneration += 1;
+    this._stopPolling();
   }
 
   private _stopPolling(): void {

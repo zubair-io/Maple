@@ -103,6 +103,11 @@ describe('PanoDialogComponent', () => {
     fixture.detectChanges();
   }
 
+  function cancelStitch(id: string): void {
+    fixture.componentInstance.onCancel();
+    http.expectOne({ method: 'DELETE', url: `/api/pano/jobs/${id}` }).flush({ ok: true });
+  }
+
   it('loads config on open and reaches the options phase', () => {
     open(false);
     expect(fixture.componentInstance.phase()).toBe('options');
@@ -150,7 +155,7 @@ describe('PanoDialogComponent', () => {
     expect(call.request.body.assetIds).toBeUndefined();
     call.flush({ id: 'j1' }, { status: 201, statusText: 'Created' });
     expect(fixture.componentInstance.phase()).toBe('polling');
-    fixture.componentInstance.onCancel();
+    cancelStitch('j1');
   });
 
   it('sends a path for path-having assets and an id only for id-only assets (#1313)', () => {
@@ -173,7 +178,7 @@ describe('PanoDialogComponent', () => {
     expect(call.request.body.libraryId).toBe(MOCK_FOLDER.id);
     call.flush({ id: 'j1' }, { status: 201, statusText: 'Created' });
     expect(fixture.componentInstance.phase()).toBe('polling');
-    fixture.componentInstance.onCancel();
+    cancelStitch('j1');
   });
 
   it('omits the API id when the same asset also has a path (no stale-id shadowing, #1313)', () => {
@@ -190,7 +195,7 @@ describe('PanoDialogComponent', () => {
     expect(call.request.body.assetIds).toBeUndefined();
     call.flush({ id: 'j1' }, { status: 201, statusText: 'Created' });
     expect(fixture.componentInstance.phase()).toBe('polling');
-    fixture.componentInstance.onCancel();
+    cancelStitch('j1');
   });
 
   it('proceeds to polling when the server reports indexing:N (index-on-demand)', () => {
@@ -210,7 +215,7 @@ describe('PanoDialogComponent', () => {
     // Server indexed 3 files on-demand; still returns a job id.
     call.flush({ id: 'j2', indexing: 3 }, { status: 201, statusText: 'Created' });
     expect(fixture.componentInstance.phase()).toBe('polling');
-    fixture.componentInstance.onCancel();
+    cancelStitch('j2');
   });
 
   it('shows an error when no registered library is selected (comment #1)', () => {
@@ -266,7 +271,7 @@ describe('PanoDialogComponent', () => {
     expect(call.request.body.options).toEqual({ retention: 'keep', localAlign: 'mesh' });
     call.flush({ id: 'j1' }, { status: 201, statusText: 'Created' });
     expect(fixture.componentInstance.phase()).toBe('polling');
-    fixture.componentInstance.onCancel();
+    cancelStitch('j1');
   });
 
   it('submits without a strategy field when unsupported', () => {
@@ -276,7 +281,7 @@ describe('PanoDialogComponent', () => {
     expect(call.request.body.options).toEqual({ retention: 'keep', localAlign: 'mesh' });
     call.flush({ id: 'j1' }, { status: 201, statusText: 'Created' });
     expect(fixture.componentInstance.phase()).toBe('polling');
-    fixture.componentInstance.onCancel();
+    cancelStitch('j1');
   });
 
   it('includes the chosen strategy when supported', () => {
@@ -290,7 +295,7 @@ describe('PanoDialogComponent', () => {
       strategy: 'tile',
     });
     call.flush({ id: 'j2' }, { status: 201, statusText: 'Created' });
-    fixture.componentInstance.onCancel();
+    cancelStitch('j2');
   });
 
   // ── Structured error code (comment #3) ────────────────────────────────────
