@@ -34,7 +34,6 @@ describe('workers smoke test', () => {
   let dir: string;
   let libraryId: ObjectId;
   let stages: StageDrive | null = null;
-  let discoverHandle: { stop: () => Promise<void> } | null = null;
 
   beforeAll(async () => {
     live = await createLiveTestDatabase();
@@ -44,7 +43,6 @@ describe('workers smoke test', () => {
   });
 
   afterAll(async () => {
-    if (discoverHandle) await discoverHandle.stop();
     await stages?.stop().catch(() => {});
     invalidateLibraryRoots();
     live.close();
@@ -70,13 +68,10 @@ describe('workers smoke test', () => {
   it(
     'exif + thumb both reach their target version after a file is dropped',
     async () => {
-      // Start only the two stages this smoke test needs, and the discover
-      // watcher pointed at the temp dir.
+      // Start only the two stages this smoke test needs.
       const { startExifStage } = await import('./stages/exif.ts');
       const { startThumbStage } = await import('./stages/thumb.ts');
-      const { startDiscover } = await import('./discover/index.ts');
       stages = driveStages(await Promise.all([startExifStage(), startThumbStage()]));
-      discoverHandle = await startDiscover({ roots: [dir] });
 
       // Read each stage's current target version rather than hardcoding —
       // the smoke test should track bumps (e.g. exif v1 → v2 for the GPS
@@ -88,9 +83,8 @@ describe('workers smoke test', () => {
       const file = path.join(dir, 'smoke.jpg');
       await writeFile(file, await solidJpeg(64, 64, [80, 120, 180]));
 
-      // Chokidar uses polling with a 60s/300s interval — too slow for a 30s
-      // smoke test. Drive discover's handleEvent directly to insert the row
-      // immediately, then let the stages pick it up.
+      // The sweep runs on Temporal and is paced; drive discover's handleEvent
+      // directly to insert the row immediately, then let the stages pick it up.
       const { handleEvent } = await import('./discover/index.ts');
       await handleEvent({ kind: 'created', absPath: file }, libraryId, dir);
 

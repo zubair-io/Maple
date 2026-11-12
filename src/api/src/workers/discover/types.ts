@@ -1,6 +1,6 @@
 /**
  * Discover producer — shared types, the supported-extension allowlist, and
- * pure path-normalisation helpers used by `handleEvent` and `startDiscover`.
+ * pure path-normalisation helpers used by `handleEvent` and the sweep.
  *
  * Lifted out of `index.ts` so the public-surface types and the small pure
  * helpers can be imported without dragging in Mongo or the watcher. See
@@ -8,19 +8,6 @@
  */
 import * as path from 'node:path';
 import type { ObjectId } from '../../db/object-id.ts';
-
-export interface DiscoverOptions {
-  /** Absolute paths to watch. One path per registered folder root. */
-  roots: string[];
-  /** File extensions to index (default: the standard SUPPORTED_EXTS set). */
-  include?: Set<string>;
-  /** Debounce window in ms (default: 250). */
-  debounceMs?: number;
-}
-
-export interface DiscoverHandle {
-  stop: () => Promise<void>;
-}
 
 /**
  * Typed event emitted by the reconciliation sweep (or any future event source).

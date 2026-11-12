@@ -12,6 +12,7 @@ import { Client } from '@temporalio/client';
 import { bundleWorkflowCode, NativeConnection, Runtime, Worker } from '@temporalio/worker';
 import { child as childLogger } from '../log.ts';
 import { importLane } from '../imports/import-queue.ts';
+import { discoverLane } from '../workers/discover/discover-lane.ts';
 import { jobLane } from '../job-runner/job-queue.ts';
 import { stageLane } from '../workers/stage-lane.ts';
 import type { TemporalLane } from './temporal-lane.ts';
@@ -84,8 +85,13 @@ function errorMessage(error: unknown): string {
 const sameTarget = (a: TemporalSettings, b: TemporalSettings): boolean =>
   a.address === b.address && a.namespace === b.namespace;
 
-/** Jobs, imports and stages each get a worker of their own, so none waits on another. */
-export const defaultTemporalLanes = (): TemporalLane[] => [jobLane(), importLane(), stageLane()];
+/** Each lane gets a worker of its own, so none waits on another. */
+export const defaultTemporalLanes = (): TemporalLane[] => [
+  jobLane(),
+  importLane(),
+  stageLane(),
+  discoverLane(),
+];
 
 interface LaneRun {
   worker: Worker;

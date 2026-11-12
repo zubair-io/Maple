@@ -1,7 +1,8 @@
 /**
  * Register `discover` as a controllable worker so /api/workers/status + the
- * generic pause/resume/config routes cover it. The sweeper itself runs in a
- * child; these callbacks only touch worker_config (the child polls it).
+ * generic pause/resume/config routes cover it. The sweep itself runs as
+ * Temporal activities; these callbacks only touch worker_config, which every
+ * sweep slice re-reads before each directory.
  */
 import { stageRegistry } from '../registry.ts';
 import { loadDiscoverConfig, patchDiscoverConfig } from './discover-config.repo.ts';

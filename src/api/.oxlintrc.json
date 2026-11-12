@@ -309,6 +309,9 @@
         "src/workers/discover/rename-reconcile.ts",
         "src/workers/discover/rename-reconcile.test.ts",
         "src/workers/discover/sweeper.test.ts",
+        // #5824: sweep-slice and discover-lane tests build temp library trees under os.tmpdir().
+        "src/workers/discover/sweep-slice.test.ts",
+        "src/temporal/discover-lane.integration.test.ts",
         "src/workers/discover/sweeper.ts",
         "src/workers/migration.test.ts",
         "src/workers/migration/backfill-video-exif.e2e.test.ts",

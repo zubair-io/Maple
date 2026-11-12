@@ -20,8 +20,7 @@ import { fakeAuth } from '../../tests/helpers/test-auth.ts';
 import { toObjectId } from '../db/repos/values.ts';
 import { hashFileForId } from '../indexer/id.ts';
 import { handleEvent } from '../workers/discover/handle-event.ts';
-import * as frontier from '../workers/discover/frontier.repo.ts';
-import { SweeperLoop } from '../workers/discover/sweeper.ts';
+import { sweepGeneration } from '../workers/discover/discover.test-helpers.ts';
 import { runMissingReaperOnce } from '../workers/missing-reaper.ts';
 
 describe('folder routes under a .mapleignore folder', () => {
@@ -83,19 +82,9 @@ describe('folder routes under a .mapleignore folder', () => {
     expect(((await indexed.json()) as { asset_id?: string }).asset_id).toMatch(/^[a-f0-9]{24}$/);
   });
 
-  async function sweepGeneration(gen: number): Promise<void> {
+  async function sweepNextGeneration(): Promise<void> {
     invalidateLibraryRoots();
-    const library = toObjectId(folderId);
-    await frontier.seedRoot(library, root, gen);
-    const loop = new SweeperLoop({
-      folderId: library,
-      root,
-      startGen: gen,
-      deps: { folderId: library, handleEvent },
-      loadConfig: async () => ({ paused: false, sweepDirIntervalMs: 0 }),
-      sleep: async () => {},
-    });
-    await loop.runUntilIdleOrPaused();
+    await sweepGeneration(toObjectId(folderId), root, handleEvent);
   }
 
   function assetAt(dir: string, filename: string): string | null {
@@ -110,12 +99,12 @@ describe('folder routes under a .mapleignore folder', () => {
     await rm(marker);
     const original = nodePath.join(root, 'skip', 'photo.jpg');
     await writeFile(original, 'old photo bytes');
-    await sweepGeneration(1);
+    await sweepNextGeneration();
     const oldId = assetAt('skip', 'photo.jpg')!;
     expect(oldId).not.toBeNull();
 
     await writeFile(marker, '');
-    await sweepGeneration(2);
+    await sweepNextGeneration();
     const res = await upload('skip/photo.jpg', new TextEncoder().encode('new photo bytes'));
     expect(res.status).toBe(201);
     expect(((await res.json()) as { asset_id?: string }).asset_id).toBeUndefined();
@@ -123,7 +112,7 @@ describe('folder routes under a .mapleignore folder', () => {
     expect(await readFile(trashed, 'utf8')).toBe('old photo bytes');
 
     await rm(marker);
-    await sweepGeneration(3);
+    await sweepNextGeneration();
     await runMissingReaperOnce({ deleteBeforeIso: '2000-01-01T00:00:00.000Z' });
 
     const newId = assetAt('skip', 'photo.jpg');

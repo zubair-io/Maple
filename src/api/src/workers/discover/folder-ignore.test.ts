@@ -11,13 +11,14 @@ import { describe, expect, it } from 'bun:test';
 import { mkdirSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { handleEvent } from './handle-event.ts';
-import { SweeperLoop, visitDirectory } from './sweeper.ts';
+import { visitDirectory } from './sweeper.ts';
 import * as frontier from './frontier.repo.ts';
 import {
   assetIdAt,
   assetRow,
   createDiscoverLibrary,
   locationsOf,
+  sweepGeneration,
   type DiscoverLibrary,
 } from './discover.test-helpers.ts';
 import { runMissingReaperOnce } from '../missing-reaper.ts';
@@ -52,19 +53,12 @@ function mark(root: string, relDir: string): string {
   return marker;
 }
 
-/** One full sweep generation per call, through the production loop. */
+/** One full sweep generation per call, through the production slice. */
 async function sweeper(library: DiscoverLibrary): Promise<() => Promise<void>> {
   invalidateLibraryRoots();
-  await frontier.seedRoot(library.folderId, library.root, 1);
-  const loop = new SweeperLoop({
-    folderId: library.folderId,
-    root: library.root,
-    startGen: 1,
-    deps: { folderId: library.folderId, handleEvent },
-    loadConfig: async () => ({ paused: false, sweepDirIntervalMs: 0 }),
-    sleep: async () => {},
-  });
-  return () => loop.runUntilIdleOrPaused();
+  return async () => {
+    await sweepGeneration(library.folderId, library.root, handleEvent);
+  };
 }
 
 /** A reaper pass that treats every tagged entry as aged out. */
