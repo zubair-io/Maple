@@ -95,7 +95,8 @@ extension BatchRenameViewModel {
       do {
         let outcome = try await LocalFileOperations.relocate(
           url, to: url.deletingLastPathComponent(), newBasename: newName,
-          mode: .move, collision: collision.localPolicy)
+          companion: asset.stack?.localCompanionURL, mode: .move,
+          collision: collision.localPolicy)
         results.append(
           BatchRenameApplyResult(
             id: asset.id, oldFilename: item.oldFilename,
@@ -149,8 +150,17 @@ extension BatchRenameViewModel {
         continue
       }
       do {
-        let newPath = try await smbSource.renameAsset(
-          ref, to: newName, collision: collision.localPolicy)
+        let newPath: String
+        if let stack = asset.stack, let companionRef = stack.smbCompanionRef {
+          newPath = try await smbSource.renameAsset(
+            ref, companion: companionRef, to: newName,
+            companionFilename: stack.companionFilename(forPrimaryFilename: newName),
+            collision: collision.localPolicy
+          ).primary
+        } else {
+          newPath = try await smbSource.renameAsset(
+            ref, to: newName, collision: collision.localPolicy)
+        }
         results.append(
           BatchRenameApplyResult(
             id: asset.id, oldFilename: item.oldFilename,
@@ -194,39 +204,65 @@ extension BatchRenameViewModel {
         ids: presentIDs, template: template, sequenceStart: sequenceStart,
         sequencePadWidth: sequencePadWidth, collision: collision.apiValue)
       let byID = indexByIDTolerantOfDuplicates(response.results, id: \.id)
-      return zip(assets, ids).map { asset, stableID in
+      var results: [BatchRenameApplyResult] = []
+      for (asset, stableID) in zip(assets, ids) {
         let old = asset.fullFilename
         guard let stableID else {
-          return BatchRenameApplyResult(
-            id: asset.id, oldFilename: old,
-            outcome: .failed("This photo hasn't finished indexing on the server yet."))
+          results.append(
+            BatchRenameApplyResult(
+              id: asset.id, oldFilename: old,
+              outcome: .failed("This photo hasn't finished indexing on the server yet.")))
+          continue
         }
         guard let item = byID[stableID] else {
-          return BatchRenameApplyResult(
-            id: asset.id, oldFilename: old,
-            outcome: .failed("No result returned by the server."))
+          results.append(
+            BatchRenameApplyResult(
+              id: asset.id, oldFilename: old,
+              outcome: .failed("No result returned by the server.")))
+          continue
         }
         switch item.kind {
         case "relocated":
-          return BatchRenameApplyResult(
-            id: asset.id, oldFilename: old,
-            outcome: .renamed(newFilename: item.newFilename ?? old))
+          results.append(
+            await renamedWithCompanion(asset, as: item.newFilename ?? old, catalog: cloudCatalog))
         case "skipped":
-          return BatchRenameApplyResult(
-            id: asset.id, oldFilename: old,
-            outcome: .skipped(reason: item.reason ?? "collision"))
+          results.append(
+            BatchRenameApplyResult(
+              id: asset.id, oldFilename: old,
+              outcome: .skipped(reason: item.reason ?? "collision")))
         default:
-          return BatchRenameApplyResult(
-            id: asset.id, oldFilename: old,
-            outcome: .failed(item.error ?? "Rename failed (\(item.kind))."))
+          results.append(
+            BatchRenameApplyResult(
+              id: asset.id, oldFilename: old,
+              outcome: .failed(item.error ?? "Rename failed (\(item.kind)).")))
         }
       }
+      return results
     } catch {
       return assets.map {
         BatchRenameApplyResult(
           id: $0.id, oldFilename: $0.fullFilename,
           outcome: .failed(error.localizedDescription))
       }
+    }
+  }
+
+  /// A stacked RAW's JPEG follows the batch: the server renamed the RAW, so the JPEG takes its new
+  /// stem here (#5050).
+  private func renamedWithCompanion(
+    _ asset: AssetRef, as newFilename: String, catalog: RemoteCatalog
+  ) async -> BatchRenameApplyResult {
+    let renamed = BatchRenameApplyResult(
+      id: asset.id, oldFilename: asset.fullFilename, outcome: .renamed(newFilename: newFilename))
+    guard let stack = asset.stack else { return renamed }
+    do {
+      try await catalog.renameCompanion(of: stack, toMatch: newFilename)
+      return renamed
+    } catch {
+      return BatchRenameApplyResult(
+        id: asset.id, oldFilename: asset.fullFilename,
+        outcome: .failed(
+          "Renamed the RAW, but its JPEG could not follow: \(error.localizedDescription)"))
     }
   }
 }

@@ -58,6 +58,22 @@ public struct LivePhotoLink: Decodable, Hashable, Sendable {
   }
 }
 
+/// The JPEG folded into a RAW's entry when the listing stacks a RAW+JPEG pair (docs/api.md
+/// "RAW+JPEG stacks", #5050): the JPEG's own listing entry, with its asset `id` once indexed.
+public struct FsStackCompanion: Decodable, Equatable, Hashable, Sendable {
+  public let name: String
+  public let address: String
+  public let path: String
+  public let size: Int64
+  public let mtime: String
+  public let ext: String
+  public let id: String?
+}
+
+public struct FsStack: Decodable, Equatable, Sendable {
+  public let companion: FsStackCompanion
+}
+
 /// One image entry from `/api/folder/:slug/*`.
 public struct FsImageEntry: Decodable, Equatable, Sendable {
   public let name: String
@@ -67,6 +83,7 @@ public struct FsImageEntry: Decodable, Equatable, Sendable {
   public let ext: String
   public let exif: FsImageExif?
   public let livePhoto: LivePhotoLink?
+  public let stack: FsStack?
 }
 
 /// Full response shape of `/api/folder/:slug/*`.

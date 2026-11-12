@@ -48,6 +48,7 @@ extension BrowseViewModel {
     let scope = currentScopeRoot ?? url
     let checkpoint = folderEnumerationCheckpoint
     let slots = folderEnumerationSlots
+    let stacksPairs = stacksRawJpegPairs()
     let task = Task.detached(priority: .utility) { () throws -> ([AssetRef], [URL]) in
       try await slots.acquire()
       do {
@@ -102,9 +103,8 @@ extension BrowseViewModel {
           }
           return await LiveContentIdentifier.read(fileAt: url, kind: kind)
         }
-        let refs = raws.map {
-          AssetRef(url: $0, scopeParentURL: scope, livePhoto: links[$0.path])
-        }
+        let refs = RawJpegStacking.localRefs(
+          raws, scopeParentURL: scope, livePhotoLinks: links, stacksPairs: stacksPairs)
 
         try Task.checkCancellation()
         await slots.release()

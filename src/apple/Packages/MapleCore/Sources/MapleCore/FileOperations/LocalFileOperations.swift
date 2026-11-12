@@ -35,15 +35,24 @@ public enum LocalFileOperations {
     _ sourcePrimaryURL: URL,
     to destinationDir: URL,
     newBasename: String? = nil,
+    companion: URL? = nil,
     mode: RelocateMode,
     collision: CollisionPolicy = .autoSuffix
   ) async throws -> RelocateOutcome {
+    if let companion {
+      return try await relocateStack(
+        sourcePrimaryURL, companion: companion, to: destinationDir, newBasename: newBasename,
+        mode: mode, collision: collision)
+    }
     let plan = try await planRelocate(
       sourcePrimaryURL, to: destinationDir,
       newBasename: newBasename, mode: mode, collision: collision)
     return await finalizeRelocate(plan)
   }
 
+  /// `alsoLeaving` names same-stem siblings that leave in the same operation (a stacked RAW+JPEG
+  /// pair), so the last one out takes the shared sidecar instead of leaving it behind.
+  ///
   /// Copy (never move) the primary file and its canonical/UUID workflow
   /// `.xmp` sidecars into `destinationDir`, verifying each copy. Nothing is
   /// deleted and the source is untouched no matter how this call ends,
@@ -60,7 +69,8 @@ public enum LocalFileOperations {
     to destinationDir: URL,
     newBasename: String? = nil,
     mode: RelocateMode,
-    collision: CollisionPolicy = .autoSuffix
+    collision: CollisionPolicy = .autoSuffix,
+    alsoLeaving: [URL] = []
   ) async throws -> RelocatePlan {
     let fm = FileManager.default
     guard fm.fileExists(atPath: sourcePrimaryURL.path) else {
@@ -129,7 +139,7 @@ public enum LocalFileOperations {
       throw FileOperationError.destinationExists(resolvedTargetURL.path)
     }
     let sourceClaimed = SidecarOwnership.localStemClaimedBySibling(
-      sourcePrimaryURL, excluding: [resolvedTargetURL])
+      sourcePrimaryURL, excluding: [resolvedTargetURL] + alsoLeaving)
     let copiesSidecar = hasSourceSidecar && !sidecarMapsOntoItself && !joinsCarriedSidecar
     let variantPairs = try sourceVariants.map { variant in
       (

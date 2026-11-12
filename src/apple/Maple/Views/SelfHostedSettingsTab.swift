@@ -152,6 +152,9 @@ struct SelfHostedSettingsTab: View {
                   .font(.caption)
                   .foregroundStyle(.secondary)
                 localAddressStatus(for: url)
+                if signedIn[url] == true {
+                  ServerStackToggle(server: url, session: sessionFor(url))
+                }
               }
               Spacer()
               // Signed out (token cleared by a failed refresh, or

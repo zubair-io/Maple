@@ -15,12 +15,23 @@ import Foundation
 
 extension LocalFileOperations {
 
-  /// Trash a single asset (primary + sidecar).
-  public static func trash(_ primaryURL: URL, libraryRoot: URL) async throws -> RelocateOutcome {
+  /// Trash a single asset (primary + sidecar). A stacked RAW+JPEG tile passes its JPEG as
+  /// `companion`, which goes to the same Trash with it (#5050).
+  public static func trash(
+    _ primaryURL: URL, libraryRoot: URL, companion: URL? = nil
+  ) async throws -> RelocateOutcome {
     #if os(macOS)
-      return try await trashToOSTrash(primaryURL)
+      guard let companion else { return try await trashToOSTrash(primaryURL) }
+      // The JPEG goes first: if the RAW then fails to trash, it is still whole.
+      let companionOutcome = try await trashToOSTrash(companion)
+      let primary = try await trashToOSTrash(primaryURL)
+      return RelocateOutcome(
+        primaryPath: primary.primaryPath, sidecarPath: primary.sidecarPath ?? companionOutcome.sidecarPath,
+        renamedDueToCollision: false, sidecarFollowed: primary.sidecarFollowed,
+        companionPath: companionOutcome.primaryPath)
     #else
-      return try await trashToMapleFolder(primaryURL, libraryRoot: libraryRoot)
+      return try await trashToMapleFolder(
+        primaryURL, libraryRoot: libraryRoot, companion: companion)
     #endif
   }
 
@@ -108,14 +119,17 @@ extension LocalFileOperations {
   /// `.maple/trash/<rel>` fallback. iOS/iPadOS routes here always; it has
   /// no `#if os` gate so it's also directly reachable (and testable) on
   /// macOS, where `trash(_:libraryRoot:)` itself never calls it.
-  static func trashToMapleFolder(_ primaryURL: URL, libraryRoot: URL) async throws
-    -> RelocateOutcome
-  {
+  static func trashToMapleFolder(
+    _ primaryURL: URL, libraryRoot: URL, companion: URL? = nil
+  ) async throws -> RelocateOutcome {
     let trashDir = try trashDestinationDir(for: primaryURL, libraryRoot: libraryRoot)
-    let outcome = try await relocate(primaryURL, to: trashDir, mode: .move, collision: .autoSuffix)
-    let trashed = URL(fileURLWithPath: outcome.primaryPath)
-    removeTrashedMarker(forItemAt: trashed)
-    writeTrashedMarker(forItemAt: trashed)
+    let outcome = try await relocate(
+      primaryURL, to: trashDir, companion: companion, mode: .move, collision: .autoSuffix)
+    for path in [outcome.primaryPath] + [outcome.companionPath].compactMap({ $0 }) {
+      let trashed = URL(fileURLWithPath: path)
+      removeTrashedMarker(forItemAt: trashed)
+      writeTrashedMarker(forItemAt: trashed)
+    }
     return outcome
   }
 
