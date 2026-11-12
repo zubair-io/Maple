@@ -32,7 +32,7 @@ import {
   rankWindow,
   RANKED_WINDOW_BASE,
   windowDepthFor,
-  type RankedAsset,
+  type WindowRow,
 } from './search.ranked.ts';
 import { cachedFacets } from './search.facets.cache.ts';
 import { assetsDb, readBulk, type SqliteDb } from './db-handle.ts';
@@ -72,9 +72,12 @@ export interface SearchFacets {
   scope: FacetScope;
 }
 
-/** The rows a text search's facets count: its request's ranked window. */
+/**
+ * The rows a text search's facets count: its request's ranked window, with the JPEG each folded
+ * stack carries (#5849).
+ */
 export interface FacetWindow {
-  rows: readonly RankedAsset[];
+  rows: readonly Pick<WindowRow, 'r' | 'id' | 'stack_companion'>[];
   /** The engine the request would ask first answered; a stand-in's answer is served, not cached. */
   preferred: boolean;
 }
@@ -195,7 +198,8 @@ interface FacetAnswer {
 /**
  * Every facet's rows. A text search's are the rows of its request's ranked window — the same
  * window its list pages through — so the facets count exactly the photos the list's `total`
- * counts and no statement joins the whole match set (#4514). A search without text keeps the
+ * counts and no statement joins the whole match set (#4514). The total stays folded, while the
+ * groups count files: a stack's folded JPEG too (#5849). A search without text keeps the
  * statements as they were: each reads one index, or one join the planner has been measured on.
  */
 async function facetRows(
@@ -216,8 +220,11 @@ async function facetRows(
         rows: (await rankWindow(ftsRanker(where, db), RANKED_WINDOW_BASE))?.rows ?? [],
         preferred: true,
       };
+  const files = window.rows.flatMap((row) =>
+    row.stack_companion === undefined ? [row] : [row, row.stack_companion],
+  );
   return {
-    rows: { ...(await facetRowsOf(db, window.rows)), total: [{ n: window.rows.length }] },
+    rows: { ...(await facetRowsOf(db, files)), total: [{ n: window.rows.length }] },
     scope: { kind: 'all' },
     preferred: window.preferred,
   };
