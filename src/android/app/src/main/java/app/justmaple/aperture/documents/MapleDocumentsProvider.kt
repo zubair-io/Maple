@@ -129,10 +129,10 @@ class MapleDocumentsProvider : DocumentsProvider() {
         val file = active(documentId)
         if (file.directory) throw FileNotFoundException("${file.name} is a folder")
         if (mode != "r") return@guarded writes.openForWrite(file, mode, signal)
-        if (store.lookup(file) == null)
-            uploads.find(store.account(file.server), file)?.let { pending ->
-                return@guarded ParcelFileDescriptor.open(uploads.data(pending), ParcelFileDescriptor.MODE_READ_ONLY)
-            }
+        // Saved bytes the server has not accepted yet are the document; torn or half-copied ones never are.
+        uploads.find(store.account(file.server), file)?.takeIf { it.readable }?.let { pending ->
+            return@guarded ParcelFileDescriptor.open(uploads.data(pending), ParcelFileDescriptor.MODE_READ_ONLY)
+        }
         // Stat first: the download is keyed by the server's current size and mtime.
         originals.open(file, store.stat(file), signal)
     }

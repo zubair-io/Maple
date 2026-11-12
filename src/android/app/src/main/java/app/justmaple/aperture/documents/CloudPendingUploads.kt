@@ -23,11 +23,23 @@ internal class CloudPendingUploads(private val root: File) {
         val ready: Boolean,
         val failure: String?,
         val generation: Int = 0,
+        /** Persisted before a writer touches the bytes; only its clean close clears it. */
+        val writing: Boolean = false,
     ) {
         fun document(server: String) = CloudDocumentId.file(server, library, slug, path)
+
+        /**
+         * Holds a complete save: not torn, and not the first writer of a server file still
+         * copying or rewriting it (the server copy is the last complete version then).
+         */
+        val readable: Boolean
+            get() = failure != INTERRUPTED && !(writing && generation == 0)
     }
 
     private val writers = mutableMapOf<String, Int>()
+
+    /** Records being sent, or held while a rename or delete reconciles them with the server. */
+    private val busy = mutableSetOf<String>()
 
     fun create(account: String, file: CloudDocumentId, writing: Boolean = false): Upload =
         synchronized(this) {
@@ -40,6 +52,7 @@ internal class CloudPendingUploads(private val root: File) {
                     file.path,
                     ready = false,
                     failure = null,
+                    writing = writing,
                 )
             check(data(upload).createNewFile()) { "Could not stage ${file.name}" }
             if (writing) writers[upload.token] = 1
@@ -55,9 +68,17 @@ internal class CloudPendingUploads(private val root: File) {
             it.library == folder.library && it.path.substringBeforeLast('/', "") == folder.path
         }
 
+    /**
+     * Every record; one still marked as written with no writer in this process was torn
+     * by a process death and is recorded as interrupted, so it never uploads by itself.
+     */
     fun all(account: String): List<Upload> =
         synchronized(this) {
-            folder(account).listFiles().orEmpty().filter { it.name.endsWith(".json") }.mapNotNull(::read)
+            folder(account).listFiles().orEmpty().filter { it.name.endsWith(".json") }.mapNotNull(::read).map {
+                if (it.writing && it.token !in writers)
+                    it.copy(ready = false, failure = INTERRUPTED, writing = false).also(::write)
+                else it
+            }
         }
 
     fun data(upload: Upload) = File(folder(upload.account), "${upload.token}.data")
@@ -67,7 +88,7 @@ internal class CloudPendingUploads(private val root: File) {
         synchronized(this) {
             writers[upload.token] = (writers[upload.token] ?: 0) + 1
             val current = read(record(upload)) ?: upload
-            current.copy(generation = current.generation + 1).also(::write)
+            current.copy(generation = current.generation + 1, writing = true).also(::write)
         }
 
     /** A clean last close publishes; a writer that failed leaves torn bytes that never upload. */
@@ -76,10 +97,13 @@ internal class CloudPendingUploads(private val root: File) {
             val remaining = (writers[upload.token] ?: 1) - 1
             if (remaining <= 0) writers.remove(upload.token) else writers[upload.token] = remaining
             val current = read(record(upload)) ?: return@synchronized
-            when {
-                !clean -> write(current.copy(ready = false, failure = INTERRUPTED))
-                remaining <= 0 -> write(current.copy(ready = true, failure = null))
-            }
+            val next =
+                when {
+                    !clean -> current.copy(ready = false, failure = INTERRUPTED)
+                    remaining <= 0 -> current.copy(ready = true, failure = null)
+                    else -> current
+                }
+            write(next.copy(writing = remaining > 0))
         }
 
     /** Ready records plus created documents that no writer has touched for a minute, oldest first. */
@@ -90,10 +114,43 @@ internal class CloudPendingUploads(private val root: File) {
                 .filter { upload ->
                     upload.failure == null &&
                         upload.token !in writers &&
+                        upload.token !in busy &&
                         (upload.ready || data(upload).lastModified() < idle)
                 }
                 .sortedBy { data(it).lastModified() }
         }
+
+    /**
+     * Takes [upload] for sending: the current record, or null once a writer, another send,
+     * a rename/delete or a failure got to it after [due] listed it.
+     */
+    fun claim(upload: Upload): Upload? =
+        synchronized(this) {
+            val current = read(record(upload))
+            if (current == null || current.failure != null || current.writing || upload.token in writers)
+                return@synchronized null
+            current.takeIf { busy.add(it.token) }
+        }
+
+    fun release(upload: Upload) = synchronized(this) { busy.remove(upload.token) }
+
+    /**
+     * Runs a server rename or delete with the records it affects held: none is mid-send,
+     * and none starts sending until [action] has moved or dropped them.
+     */
+    fun <T> holding(account: String, affected: (Upload) -> Boolean, action: (List<Upload>) -> T): T {
+        val held =
+            synchronized(this) {
+                val records = all(account).filter(affected)
+                check(records.none { it.token in busy }) { "Maple is uploading this item. Try again shortly." }
+                records.also { busy += it.map(Upload::token) }
+            }
+        try {
+            return action(held)
+        } finally {
+            synchronized(this) { busy -= held.map(Upload::token).toSet() }
+        }
+    }
 
     fun moved(upload: Upload, path: String): Upload =
         synchronized(this) {
@@ -141,6 +198,7 @@ internal class CloudPendingUploads(private val root: File) {
                 .put("ready", upload.ready)
                 .put("failure", upload.failure ?: JSONObject.NULL)
                 .put("generation", upload.generation)
+                .put("writing", upload.writing)
                 .toString()
         )
         check(temporary.renameTo(target)) { "Could not record pending upload" }
@@ -158,6 +216,7 @@ internal class CloudPendingUploads(private val root: File) {
                     value.getBoolean("ready"),
                     if (value.isNull("failure")) null else value.getString("failure"),
                     value.optInt("generation"),
+                    value.optBoolean("writing"),
                 )
             }
             .getOrNull()
