@@ -3,6 +3,7 @@ import { ObjectId } from '../../db/object-id.ts';
 import type { AssetFaceDoc } from '../../db/schema.ts';
 import type { ImageDoc, StageResult } from '../run-stage.ts';
 import { runStage } from '../run-stage.ts';
+import { driveStages } from '../stage-driver.test-helpers.ts';
 import {
   createLiveTestDatabase,
   type LiveTestDatabase,
@@ -285,7 +286,7 @@ describe('switching an Ollama bge-m3 library to the bundled model', () => {
       vectors: texts.map(() => unit(3, 1024)),
     }));
 
-    const stage = await runStage(embedStage);
+    const stage = driveStages([await runStage(embedStage)]);
     try {
       await until(
         () => stageRow(live.db, fresh, 'embed')?.version === EMBEDDER_TEMPLATE_SHAPE_VERSION,

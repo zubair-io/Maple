@@ -199,7 +199,7 @@ async function writeFields(
  *
  * Config changes are not propagated from here. `PATCH /api/workers/:name/config`
  * writes through this repo and then calls `stageRegistry.notifyConfigChanged(name)`
- * (`workers/registry.ts`), which re-reads inside the running poll loop — same
+ * (`workers/registry.ts`), which re-reads inside the running stage — same
  * process, no IPC.
  *
  * The Mongo class took the collection it worked on; this one takes the tests'

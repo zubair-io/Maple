@@ -7,7 +7,7 @@
  * migration once discover began writing maple_id + sha1_head inline at insert.
  *
  * Runs against a real SQLite database installed as the process-wide handle, so
- * discover's insert, the two poll loops and this file's assertions are all
+ * discover's insert, the two stages and this file's assertions are all
  * looking at the same rows. The stage bookkeeping this asserts on is
  * `stage_state`, one row per (asset, stage), rather than a `stages` subdocument
  * on the asset.
@@ -24,6 +24,7 @@ import {
   type LiveTestDatabase,
 } from '../db/sqlite/test-sqlite.test-helpers.ts';
 import { invalidateLibraryRoots } from '../indexer/libraries.cache.ts';
+import { driveStages, type StageDrive } from './stage-driver.test-helpers.ts';
 
 const TIMEOUT_MS = 30_000;
 const POLL_INTERVAL_MS = 500;
@@ -32,7 +33,7 @@ describe('workers smoke test', () => {
   let live: LiveTestDatabase;
   let dir: string;
   let libraryId: ObjectId;
-  let stageHandles: Array<{ stop: () => Promise<void> }> = [];
+  let stages: StageDrive | null = null;
   let discoverHandle: { stop: () => Promise<void> } | null = null;
 
   beforeAll(async () => {
@@ -44,7 +45,7 @@ describe('workers smoke test', () => {
 
   afterAll(async () => {
     if (discoverHandle) await discoverHandle.stop();
-    await Promise.all(stageHandles.map((h) => h.stop().catch(() => {})));
+    await stages?.stop().catch(() => {});
     invalidateLibraryRoots();
     live.close();
     if (dir) await rm(dir, { recursive: true, force: true });
@@ -74,7 +75,7 @@ describe('workers smoke test', () => {
       const { startExifStage } = await import('./stages/exif.ts');
       const { startThumbStage } = await import('./stages/thumb.ts');
       const { startDiscover } = await import('./discover/index.ts');
-      stageHandles = await Promise.all([startExifStage(), startThumbStage()]);
+      stages = driveStages(await Promise.all([startExifStage(), startThumbStage()]));
       discoverHandle = await startDiscover({ roots: [dir] });
 
       // Read each stage's current target version rather than hardcoding —
@@ -89,7 +90,7 @@ describe('workers smoke test', () => {
 
       // Chokidar uses polling with a 60s/300s interval — too slow for a 30s
       // smoke test. Drive discover's handleEvent directly to insert the row
-      // immediately, then let the stage children pick it up on their next poll.
+      // immediately, then let the stages pick it up.
       const { handleEvent } = await import('./discover/index.ts');
       await handleEvent({ kind: 'created', absPath: file }, libraryId, dir);
 

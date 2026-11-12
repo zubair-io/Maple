@@ -2,13 +2,13 @@
  * Worker-tier lifecycle — extracted from `src/api/src/index.ts`'s boot IIFE.
  *
  * `startWorkers()` brings up every subsystem that belongs in the worker tier:
- *   - stage orchestrator (10 stages)
+ *   - stage orchestrator (boots every pipeline stage; Temporal schedules them)
  *   - discover sweep (in-process, no child spawn)
  *   - cache-gc sweep
  *   - FFI decode pool sizing
  *   - geocode / face / describe enrichment workers
  *   - worker-side enrichment config refresh
- *   - Temporal host (user-triggered jobs and folder imports)
+ *   - Temporal host (user-triggered jobs, folder imports, pipeline stages)
  *
  * `stopWorkers()` tears them all down in the correct order, mirroring the
  * `shutdown()` function in `index.ts`.
@@ -168,10 +168,10 @@ export async function startWorkers(): Promise<void> {
     startWorkerEnrichmentConfigRefresh();
   }
 
-  // User-triggered jobs (export, batch sync, pano, restore) and folder imports
-  // run on Temporal. Imported here, not at the top: the SDK loads a native
-  // bridge on import, and a platform without one must cost this tier its jobs
-  // and imports, not its stages.
+  // User-triggered jobs (export, batch sync, pano, restore), folder imports and
+  // the pipeline stages booted above run on Temporal. Imported here, not at the
+  // top: the SDK loads a native bridge on import, and a platform without one
+  // must still boot the rest of this tier (stages then wait in `stage_state`).
   await startSubsystem(async () => {
     const temporal = await import('../temporal/temporal-host.ts');
     temporal.startTemporalHost();
@@ -247,8 +247,11 @@ export async function stopWorkers(): Promise<void> {
     log.warn({ err: e }, 'error stopping discover');
   }
 
-  // Stop the in-process stage runners so any in-flight handler can drain
-  // before the process exits.
+  // Stages stop before the Temporal host below. A stage's stop() aborts its
+  // handlers and settles its running slice within its 30 s drain bound, so the
+  // Temporal worker's own drain, which waits for every running activity, never
+  // waits on a stage handler that ignores its abort signal. The other order
+  // would leave that drain unbounded.
   try {
     await stopAllStages();
   } catch (e) {

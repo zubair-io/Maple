@@ -30,7 +30,7 @@ export class StallWatch {
     this.lastProgressAt = now;
   }
 
-  /** Deferrals count as claims, not progress; a stopped poll loop also stalls. */
+  /** Deferrals count as claims, not progress; a stage nobody polls (a hung batch, no Temporal) also stalls. */
   stalledForMs(inFlight: number, now: number = Date.now()): number | null {
     const thresholdMs = this.thresholdMs();
     const sinceProgress = now - this.lastProgressAt;

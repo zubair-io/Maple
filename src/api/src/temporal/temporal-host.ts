@@ -1,7 +1,7 @@
 /**
- * The worker tier's link to Temporal: one connection, one worker per lane (jobs
- * and imports) executing Maple's workflows and activities on it, and the relay
- * that hands each lane's rows over. It follows the saved settings without a
+ * The worker tier's link to Temporal: one connection, one worker per lane (jobs,
+ * imports and pipeline stages) executing Maple's workflows and activities on
+ * it, and the relay that hands each lane its work. It follows the saved settings without a
  * restart and keeps trying while the server is away, publishing what it sees
  * for Settings → Workers.
  */
@@ -13,6 +13,7 @@ import { bundleWorkflowCode, NativeConnection, Runtime, Worker } from '@temporal
 import { child as childLogger } from '../log.ts';
 import { importLane } from '../imports/import-queue.ts';
 import { jobLane } from '../job-runner/job-queue.ts';
+import { stageLane } from '../workers/stage-lane.ts';
 import type { TemporalLane } from './temporal-lane.ts';
 import {
   loadTemporalSettings,
@@ -83,8 +84,8 @@ function errorMessage(error: unknown): string {
 const sameTarget = (a: TemporalSettings, b: TemporalSettings): boolean =>
   a.address === b.address && a.namespace === b.namespace;
 
-/** Imports and jobs each get a worker of their own, so neither waits on the other. */
-export const defaultTemporalLanes = (): TemporalLane[] => [jobLane(), importLane()];
+/** Jobs, imports and stages each get a worker of their own, so none waits on another. */
+export const defaultTemporalLanes = (): TemporalLane[] => [jobLane(), importLane(), stageLane()];
 
 interface LaneRun {
   worker: Worker;
