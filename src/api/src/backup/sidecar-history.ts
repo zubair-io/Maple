@@ -200,8 +200,22 @@ const retainedBy = (history: readonly WorkflowHistoryEntry[]) => [
   '',
 ];
 
-/** Acknowledged without a write: kept, so the digest the device now holds names the
- * head it was acknowledged at even once another writer moved past it. */
+/** Whether the file holds adjustments its history head does not record (an outside
+ * edit): `reconcile_xmp` from the head's adjustments then captures the file as an
+ * `external` entry. A sidecar without history has no head to answer with. */
+async function aheadOfHistory(
+  current: string,
+  history: readonly WorkflowHistoryEntry[],
+  now: number,
+): Promise<boolean> {
+  const recorded = history.at(-1)?.adjustmentXmp;
+  if (recorded === undefined) return false;
+  const probe = await nativeValue('workflowReconcileXmp', [recorded, current, current, `${now}`]);
+  return capturedOutsideEdit(probe, history);
+}
+
+/** Acknowledged without a write, at a head that holds the file's adjustments: kept, so
+ * the digest the device now holds names that head even once another writer moved on. */
 function acknowledged(
   history: readonly WorkflowHistoryEntry[],
   sha256: string,
@@ -210,6 +224,20 @@ function acknowledged(
   const head = history.at(-1)?.id ?? null;
   const sent = { sha256, entryId: head ?? '', checkpoint };
   return { kind: 'unchanged', head, sends: { retained: retainedBy(history), sent } };
+}
+
+/** Whether `send` asks for nothing the stored sidecar and its head do not already hold:
+ * the same adjustments, no new named snapshot, and a head that records the file. A
+ * send of what an outside edit left ahead of the history lands as an entry instead,
+ * so the head it is answered with holds what it acknowledged. */
+async function alreadyHeld(
+  send: BackupSidecarSend,
+  history: readonly WorkflowHistoryEntry[],
+  sent: string,
+  added: readonly WorkflowSnapshot[],
+): Promise<boolean> {
+  if (added.length > 0 || sent !== (await checkpointOf(send.current))) return false;
+  return !(await aheadOfHistory(send.current, history, send.now));
 }
 
 /** The sends to keep once a send landed as `landed` over `history`: its own when the
@@ -260,13 +288,12 @@ export async function reconcileBackupSidecar(
   const history = stored?.history ?? [];
   const head = history.at(-1)?.id ?? null;
   const sent = await checkpointOf(incoming);
-  if (currentSha256 === sentSha256) return acknowledged(history, sentSha256, sent);
 
   const parent = await sendParent(history, send, currentSha256);
   const ownEntry = backupEntryId(parent.id, sentSha256);
   if (history.some((entry) => entry.id === ownEntry)) return { kind: 'unchanged', head: ownEntry };
   const added = await sentSnapshots(incoming, stored);
-  if (added.length === 0 && sent === (await checkpointOf(current))) {
+  if (await alreadyHeld(send, history, sent, added)) {
     return acknowledged(history, sentSha256, sent);
   }
 

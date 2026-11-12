@@ -269,4 +269,22 @@ describe('backup sends are reconciled from what the device sent (#5796)', () => 
     const stored = await onDisk(target.relPath);
     expect([property(stored, 'exposure'), property(stored, 'contrast')]).toEqual(['1', '6']);
   });
+
+  test('a send matching an outside edit is answered with a head that holds it', async () => {
+    const target = await seedUpload('ahead-of-history');
+    const first = await firstSend(target, xmp('v1', { exposure: '0' }));
+    const sidecar = path.join(lib.tmpLib, xmpSidecarPath(target.relPath));
+    await fs.writeFile(sidecar, first.stored.replace(' test:exposure="0"', ' test:exposure="1"'));
+
+    // The head-based client resends the document the file now holds.
+    const ack = await replyOf(post(target, await onDisk(target.relPath), undefined, first.head));
+    expect(ack.head).not.toBe(first.head);
+    const head = (await history(await onDisk(target.relPath))).at(-1)!.id;
+    await replyOf(post(target, xmp('other', { exposure: '2' }), undefined, head));
+
+    const next = xmp('v1', { exposure: '1', contrast: '5' });
+    await replyOf(post(target, next, undefined, ack.head));
+    const stored = await onDisk(target.relPath);
+    expect([property(stored, 'exposure'), property(stored, 'contrast')]).toEqual(['2', '5']);
+  });
 });
