@@ -4,7 +4,7 @@ const DOC_ID = 'display';
 
 export interface DisplayConfig {
   show_hidden_images: boolean;
-  /** One image for a RAW+JPEG pair with the same stem in the Library grid (#5050). */
+  /** The user's RAW+JPEG stacking choice (#5050): stack-aware clients read it and send `stack=1`. */
   stack_raw_jpeg: boolean;
 }
 

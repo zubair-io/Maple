@@ -29,7 +29,6 @@ import { errnoCode } from '../fs/relocate-publish.ts';
 import { parseFolderCulling } from './folder-culling.ts';
 import { pairLivePhotos, type LivePhotoLink } from './live-photo-pairs.ts';
 import { pairRawJpegStacks } from './raw-jpeg-stack.ts';
-import { loadDisplayConfig } from '../display/display-config.repo.ts';
 
 const log = childLogger('library/folder-listing');
 const IMAGE_EXTENSIONS = new Set([...RAW_EXTENSIONS, ...BITMAP_EXTENSIONS, ...PSD_HDR_EXTENSIONS]);
@@ -226,13 +225,12 @@ function sidecarCandidates(rows: readonly DirectoryAsset[]): Map<string, Directo
   return byBase;
 }
 
-async function directoryState(resolved: ResolvedAddress, relPath: string) {
-  const [rows, trashed, names, realRoot, display] = await Promise.all([
+async function directoryState(resolved: ResolvedAddress, relPath: string, stack: boolean) {
+  const [rows, trashed, names, realRoot] = await Promise.all([
     listDirectoryAssets(resolved.libraryId, relPath),
     listTrashedDirectoryFilenames(resolved.libraryId, relPath),
     diskNames(resolved.absPath),
     fs.realpath(resolved.libraryRoot).catch(() => resolved.libraryRoot),
-    loadDisplayConfig(),
   ]);
   const resolveChild = childResolver(resolved.absPath, realRoot);
   const hidden = new Set(trashed);
@@ -243,9 +241,7 @@ async function directoryState(resolved: ResolvedAddress, relPath: string) {
   const visibleNames = [...new Set([...names, ...rows.map((row) => row.filename)])]
     .filter((name) => visibleName(name) && !hidden.has(name))
     .sort();
-  const stackCompanionOf = display.stack_raw_jpeg
-    ? pairRawJpegStacks(visibleNames)
-    : new Map<string, string>();
+  const stackCompanionOf = stack ? pairRawJpegStacks(visibleNames) : new Map<string, string>();
   const companions = new Set(stackCompanionOf.values());
   const allNames = visibleNames.filter((name) => !companions.has(name));
   return { allNames, byName, byBase, livePairs, onDisk, resolveChild, stackCompanionOf };
@@ -292,13 +288,12 @@ async function imageCulling(child: Scanned, state: FolderState): Promise<ImageCu
 }
 
 async function appendEntry(
-  child: Scanned | null,
+  child: Scanned,
   entries: FolderEntries,
   state: FolderState,
   culling: ImageCulling,
   companion: Scanned | null,
 ) {
-  if (!child) return;
   if (child.stat?.isDirectory()) {
     if (await directoryHasIgnoreMarker(child.realPath)) return;
     entries.folders.push({ ...child.entry, realPath: child.realPath });
@@ -325,6 +320,33 @@ async function appendEntry(
   if (assetId) entries.sidecars.push({ ...child.entry, asset_id: assetId });
 }
 
+interface PageUnit {
+  child: Scanned;
+  companion: Scanned | null;
+}
+const isStackHalf = (scanned: Scanned | null): scanned is Scanned =>
+  scanned !== null && !scanned.stat?.isDirectory();
+
+/** A stack lists only when both halves are files. Otherwise each half that scans lists on its
+ * own: a RAW the listing cannot show, or a directory named like a JPEG, never hides its partner. */
+async function scanUnits(
+  name: string,
+  slug: string,
+  relPath: string,
+  resolved: ResolvedAddress,
+  state: FolderState,
+): Promise<PageUnit[]> {
+  const companionName = state.stackCompanionOf.get(name);
+  const [child, companion] = await Promise.all([
+    scanEntry(name, slug, relPath, resolved, state),
+    companionName ? scanEntry(companionName, slug, relPath, resolved, state) : null,
+  ]);
+  if (isStackHalf(child) && isStackHalf(companion)) return [{ child, companion }];
+  return [child, companion].flatMap((scanned) =>
+    scanned ? [{ child: scanned, companion: null }] : [],
+  );
+}
+
 async function scanPage(
   slug: string,
   relPath: string,
@@ -335,24 +357,22 @@ async function scanPage(
   const entries: FolderEntries = { folders: [], images: [], files: [], sidecars: [] };
   // Bound filesystem fanout for both a page and the legacy complete listing.
   for (let start = 0; start < page.length; start += 32) {
-    const scanned = await Promise.all(
-      page.slice(start, start + 32).map((name) => scanEntry(name, slug, relPath, resolved, state)),
-    );
+    const units = (
+      await Promise.all(
+        page
+          .slice(start, start + 32)
+          .map((name) => scanUnits(name, slug, relPath, resolved, state)),
+      )
+    ).flat();
     const culling = await Promise.all(
-      scanned.map((child) =>
-        child && (isMedia(child.entry.name) || child.catalog)
+      units.map(({ child }) =>
+        isMedia(child.entry.name) || child.catalog
           ? imageCulling(child, state)
           : Promise.resolve({}),
       ),
     );
-    const companions = await Promise.all(
-      scanned.map((child) => {
-        const jpeg = child && state.stackCompanionOf.get(child.entry.name);
-        return jpeg ? scanEntry(jpeg, slug, relPath, resolved, state) : null;
-      }),
-    );
-    for (const [index, child] of scanned.entries()) {
-      await appendEntry(child, entries, state, culling[index] ?? {}, companions[index] ?? null);
+    for (const [index, unit] of units.entries()) {
+      await appendEntry(unit.child, entries, state, culling[index] ?? {}, unit.companion);
     }
   }
   return entries;
@@ -361,6 +381,8 @@ async function scanPage(
 export interface FolderPageOptions {
   cursor?: string;
   limit?: number;
+  /** Fold same-stem RAW+JPEG pairs (#5050); only stack-aware clients ask, with `stack=1`. */
+  stack?: boolean;
 }
 /** Stable union ordering is independent of readdir order and host locale.
  * No pagination parameters preserves the historical complete listing. */
@@ -373,7 +395,7 @@ export async function listUnifiedFolder(
   const offset = options.cursor === undefined ? 0 : decodeCursor(options.cursor);
   const paged = options.cursor !== undefined || options.limit !== undefined;
   const limit = Math.max(1, Math.min(2000, options.limit ?? 500));
-  const state = await directoryState(resolved, relPath);
+  const state = await directoryState(resolved, relPath, options.stack === true);
   const page = paged ? state.allNames.slice(offset, offset + limit) : state.allNames;
   const entries = await scanPage(slug, relPath, resolved, page, state);
   const parentRel = path.posix.dirname(relPath);
