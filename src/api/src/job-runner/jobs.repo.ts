@@ -42,6 +42,7 @@ export {
   markCancelled,
   markJobDispatched,
   nextJobId,
+  operationFolderId,
   requestCancel,
   resumeBatchJob,
   saveJobCheckpoint,

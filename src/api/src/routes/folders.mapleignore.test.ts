@@ -22,6 +22,7 @@ import { hashFileForId } from '../indexer/id.ts';
 import { handleEvent } from '../workers/discover/handle-event.ts';
 import { sweepGeneration } from '../workers/discover/discover.test-helpers.ts';
 import { runMissingReaperOnce } from '../workers/missing-reaper.ts';
+import { withOperationsRunning } from '../job-runner/operation-runner.test-helpers.ts';
 
 describe('folder routes under a .mapleignore folder', () => {
   let live: LiveTestDatabase;
@@ -136,8 +137,10 @@ describe('folder routes under a .mapleignore folder', () => {
     await mkdir(nodePath.join(root, 'keep'), { recursive: true });
     await writeFile(nodePath.join(root, 'keep', 'a.jpg'), 'kept bytes');
 
-    const res = await app.handle(
-      new Request(`http://localhost/api/folders/${folderId}/rescan`, { method: 'POST' }),
+    const res = await withOperationsRunning(() =>
+      app.handle(
+        new Request(`http://localhost/api/folders/${folderId}/rescan`, { method: 'POST' }),
+      ),
     );
     expect(res.status).toBe(200);
     const paths = live.db.query(`SELECT path FROM asset_locations ORDER BY path`).all() as Array<{

@@ -8,7 +8,7 @@
  *   PUT    /api/people/:id            — body { name } → rename; merge on collision
  *   POST   /api/people/:id/hide       — soft-hide a person (keeps faces + row)
  *   POST   /api/people/:id/unhide     — restore a hidden person
- *   POST   /api/people/cluster        — kicks off online clustering
+ *   POST   /api/people/cluster        — runs online clustering on the worker tier, answers its counts
  *   POST   /api/people/assign         — manual face → person override
  *   POST   /api/people/hide           — hide a face (excluded from clustering)
  *   POST   /api/people/merge          — merge source people into a target (target survives)
@@ -20,7 +20,11 @@
 import { Elysia, t } from 'elysia';
 import type { ObjectId } from '../db/object-id.ts';
 import { backfillCoverAssets } from '../people/clustering-job.ts';
-import { clusterCoordinator } from '../people/cluster-coordinator.ts';
+import {
+  awaitOperation,
+  operationDeadline,
+  startFreshOperation,
+} from '../job-runner/operations.ts';
 import {
   assignFaceToPerson,
   createPerson,
@@ -411,19 +415,33 @@ export const peopleRoutes = new Elysia({ prefix: '/api/people' })
   // ── Online clustering ───────────────────────────────────────────────
   .post(
     '/cluster',
-    async ({ body }) => {
-      const opts: { similarityThreshold?: number } = {};
-      if (body && typeof body.similarity_threshold === 'number') {
-        opts.similarityThreshold = body.similarity_threshold;
+    async ({ body, set }) => {
+      // A `people_cluster` row: the worker tier runs it through the same
+      // coordinator as the face-embed stage's automatic passes, so the two
+      // never overlap. The answer comes from a pass that started after this
+      // request did, as it did when the API process clustered by itself.
+      const payload =
+        typeof body?.similarity_threshold === 'number'
+          ? { similarity_threshold: body.similarity_threshold }
+          : {};
+      const deadline = operationDeadline();
+      const job = await startFreshOperation('people_cluster', payload, deadline);
+      const finished = await awaitOperation(job._id, deadline);
+      if (finished === null) {
+        set.status = 504;
+        return {
+          error: 'Clustering is still running and will finish in the background',
+          job_id: job._id.toHexString(),
+        };
       }
-      // Route the manual click through the shared single-flight coordinator so
-      // an operator "Run clustering" and a face-embed auto-trigger can never
-      // run two passes concurrently (both walk the whole faces space).
-      const result = await clusterCoordinator().runClusterNow(opts);
+      if (finished.status !== 'done' || finished.result === null) {
+        set.status = 500;
+        return { error: finished.error ?? `Clustering ${finished.status}` };
+      }
       return {
-        assigned: result.assigned,
-        new_people: result.newPeople,
-        scanned: result.scanned,
+        assigned: Number(finished.result['assigned'] ?? 0),
+        new_people: Number(finished.result['new_people'] ?? 0),
+        scanned: Number(finished.result['scanned'] ?? 0),
       };
     },
     { body: ClusterBody },

@@ -23,6 +23,7 @@
  * with no scopes neither fences anything nor is fenced.
  */
 
+import type { OperationKind } from '../schema.ts';
 import { placeholders } from './values.ts';
 
 /** Every `jobs` column, in declaration order. */
@@ -55,13 +56,39 @@ const NO_ACTIVE_PANO_STITCH = `
      WHERE o.kind = 'pano_stitch'
        AND o.status IN ('queued', 'running'))`;
 
+/**
+ * The operator one-shots, which run on their own lane. A user job and an
+ * operation never wait on each other, and no row is ever relayed by both lanes.
+ */
+export const OPERATION_KINDS: readonly OperationKind[] = [
+  'mirror_reconcile',
+  'people_cluster',
+  'folder_scan',
+];
+
+const OPERATION_KIND_LIST = OPERATION_KINDS.map((kind) => `'${kind}'`).join(', ');
+const IS_OPERATION = `kind IN (${OPERATION_KIND_LIST})`;
+const IS_USER_JOB = `kind NOT IN (${OPERATION_KIND_LIST})`;
+
+/**
+ * An active operation of the same kind on the same folder (none, for the kinds
+ * that are not per folder). Binds the kind and the folder id, or null.
+ */
+const NO_ACTIVE_OPERATION = `
+  NOT EXISTS (
+    SELECT 1 FROM jobs o
+     WHERE o.kind = ?
+       AND o.status IN ('queued', 'running')
+       AND json_extract(o.params, '$.folderId') IS ?)`;
+
 /** Which admission rule an insert is checked against, in the same statement. */
-export type JobInsertFence = 'none' | 'batch_scopes' | 'pano_stitch';
+export type JobInsertFence = 'none' | 'batch_scopes' | 'pano_stitch' | 'operation';
 
 const FENCE_PREDICATES: Record<JobInsertFence, string> = {
   none: '1 = 1',
   batch_scopes: NO_ACTIVE_BATCH_OVERLAP,
   pano_stitch: NO_ACTIVE_PANO_STITCH,
+  operation: NO_ACTIVE_OPERATION,
 };
 
 /**
@@ -93,11 +120,11 @@ export function insertJobSql(fence: JobInsertFence): string {
  * There are at most a handful of shapes, all well inside the worker's
  * prepared-statement cache.
  */
-export function listJobsSql(statusCount: number, byKind: boolean, excludeKind: boolean): string {
+export function listJobsSql(statusCount: number, byKind: boolean, excludeCount: number): string {
   const clauses = [
     ...(statusCount > 0 ? [`status IN (${placeholders(statusCount)})`] : []),
     ...(byKind ? ['kind = ?'] : []),
-    ...(excludeKind ? ['kind != ?'] : []),
+    ...(excludeCount > 0 ? [`kind NOT IN (${placeholders(excludeCount)})`] : []),
   ];
   const where = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
   return `SELECT ${JOB_COLUMNS} FROM jobs ${where} ORDER BY created_at DESC, id DESC LIMIT ?`;
@@ -108,25 +135,47 @@ export const DISPATCHED_MARKER = 'temporal';
 
 /**
  * A job Temporal holds: running, or queued with its workflow already started.
- * At most one exists at a time, because {@link NEXT_JOB_SQL} waits for it.
+ * At most one user job is held at a time, because {@link NEXT_JOB_SQL} waits for it.
  */
 const HELD = `(status = 'running' OR (status = 'queued' AND locked_by IS NOT NULL))`;
 
 /**
- * The oldest queued job, but only once nothing else is held.
+ * The oldest queued user job, but only once no other user job is held.
  *
  * Handing Temporal one job at a time is what keeps jobs in the order they were
  * created: several workflows waiting on one task queue are started in no
  * particular order. `locked_by IS NULL` separates a fresh or resumed job from a
  * held one; every statement that puts a job back into `queued` clears it.
+ * Operations are left to their own lane and never hold a user job back.
  */
 export const NEXT_JOB_SQL = `
   SELECT id FROM jobs
-   WHERE status = 'queued' AND locked_by IS NULL
-     AND NOT EXISTS (SELECT 1 FROM jobs WHERE ${HELD})
+   WHERE status = 'queued' AND locked_by IS NULL AND ${IS_USER_JOB}
+     AND NOT EXISTS (SELECT 1 FROM jobs WHERE ${IS_USER_JOB} AND ${HELD})
    ORDER BY created_at, id LIMIT 1`;
 
-export const HELD_JOBS_SQL = `SELECT id FROM jobs WHERE ${HELD} ORDER BY created_at, id`;
+export const HELD_JOBS_SQL = `
+  SELECT id FROM jobs WHERE ${IS_USER_JOB} AND ${HELD} ORDER BY created_at, id`;
+
+/**
+ * The oldest queued operation not yet handed to Temporal. Operations run side
+ * by side: the insert fence already keeps two of a kind (or two scans of one
+ * folder) from being active together, so nothing here has to wait.
+ */
+export const NEXT_OPERATION_SQL = `
+  SELECT id FROM jobs
+   WHERE status = 'queued' AND locked_by IS NULL AND ${IS_OPERATION}
+   ORDER BY created_at, id LIMIT 1`;
+
+export const HELD_OPERATIONS_SQL = `
+  SELECT id FROM jobs WHERE ${IS_OPERATION} AND ${HELD} ORDER BY created_at, id`;
+
+/** The active operation the insert fence measured a new one against. */
+export const ACTIVE_OPERATION_SQL = `
+  SELECT id FROM jobs
+   WHERE kind = ? AND status IN ('queued', 'running')
+     AND json_extract(params, '$.folderId') IS ?
+   ORDER BY created_at DESC LIMIT 1`;
 
 /** Guarded so a job its activity has already claimed keeps that claim. */
 export const MARK_DISPATCHED_SQL = `

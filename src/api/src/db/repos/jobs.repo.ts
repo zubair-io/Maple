@@ -54,6 +54,7 @@ import {
   listJobsSql,
   MARK_DISPATCHED_SQL,
   NEXT_JOB_SQL,
+  OPERATION_KINDS,
   RESUME_BATCH_JOB_SQL,
   SAVE_LEDGER_ENTRY_SQL,
   SAVE_LEDGER_SQL,
@@ -80,8 +81,8 @@ export interface ListJobsFilter {
    * `running` in one query. */
   statuses?: JobStatus[];
   kind?: JobKind;
-  /** Exclude owner-only recovery jobs before pagination for member lists. */
-  excludeKind?: JobKind;
+  /** Kinds left out before pagination: owner-only rows, operator one-shots. */
+  excludeKinds?: readonly JobKind[];
   limit?: number;
 }
 
@@ -97,12 +98,39 @@ const BATCH_ACTIVE_MESSAGE =
 const PANO_STITCH_ACTIVE_MESSAGE =
   'A panorama job is already running or queued. Wait for it to finish.';
 
+const OPERATION_ACTIVE_MESSAGE = 'This operation is already queued or running.';
+
 const FENCED_PANO_KINDS: ReadonlySet<string> = new Set(['pano_stitch', 'pano_preview']);
+
+const FENCED_OPERATION_KINDS: ReadonlySet<string> = new Set(OPERATION_KINDS);
 
 function insertFence(kind: string, scopes: string[] | undefined): JobInsertFence {
   if (scopes !== undefined && scopes.length > 0) return 'batch_scopes';
+  if (FENCED_OPERATION_KINDS.has(kind)) return 'operation';
   return FENCED_PANO_KINDS.has(kind) ? 'pano_stitch' : 'none';
 }
+
+/** The folder an operation is exclusive to, or null for one that is exclusive server-wide. */
+export function operationFolderId(payload: Record<string, unknown>): string | null {
+  return typeof payload['folderId'] === 'string' ? payload['folderId'] : null;
+}
+
+function fenceParams(
+  fence: JobInsertFence,
+  input: CreateJobInput,
+  scopes: string[] | undefined,
+): SqlValue[] {
+  if (fence === 'batch_scopes') return [JSON.stringify(scopes)];
+  if (fence === 'operation') return [input.kind, operationFolderId(input.payload)];
+  return [];
+}
+
+const FENCE_MESSAGES: Record<JobInsertFence, string> = {
+  none: BATCH_ACTIVE_MESSAGE,
+  batch_scopes: BATCH_ACTIVE_MESSAGE,
+  pano_stitch: PANO_STITCH_ACTIVE_MESSAGE,
+  operation: OPERATION_ACTIVE_MESSAGE,
+};
 
 /**
  * The user-facing message for a conflict, or `undefined` when the error is
@@ -184,7 +212,8 @@ function insertParams(
  *    honest and returns that job; a different kind or payload under the same id
  *    is a caller error.
  *  - **Another settings batch holds one of these roots**, or (for a pano job) a
- *    panorama stitch is already queued or running. The fence blocked the
+ *    panorama stitch is already queued or running, or (for an operation) one of
+ *    its kind is already active on the same folder. The fence blocked the
  *    insert, so no row with this id exists.
  */
 export async function createJob(
@@ -197,17 +226,10 @@ export async function createJob(
   const id = input.requestId ?? newObjectIdHex();
   const fence = insertFence(input.kind, scopes);
   const params = insertParams(id, input, scopes, now().toISOString());
-  await db.write(
-    insertJobSql(fence),
-    fence === 'batch_scopes' ? [...params, JSON.stringify(scopes)] : params,
-  );
+  await db.write(insertJobSql(fence), [...params, ...fenceParams(fence, input, scopes)]);
 
   const row = await readJobRow(db, id);
-  if (row === null) {
-    throw new JobConflictError(
-      fence === 'pano_stitch' ? PANO_STITCH_ACTIVE_MESSAGE : BATCH_ACTIVE_MESSAGE,
-    );
-  }
+  if (row === null) throw new JobConflictError(FENCE_MESSAGES[fence]);
   const doc = toJobDoc(row);
   if (doc.kind !== input.kind || !isDeepStrictEqual(doc.payload, input.payload)) {
     throw new JobConflictError('The request id already belongs to a different job');
@@ -228,14 +250,10 @@ export async function listJobs(
 ): Promise<JobWithId[]> {
   const statuses = filter.statuses?.length ? filter.statuses : filter.status ? [filter.status] : [];
   const limit = Math.max(1, Math.min(200, filter.limit ?? 50));
+  const excluded = filter.excludeKinds ?? [];
   const rows = await sqliteDb(dbOverride).read<JobRow>(
-    listJobsSql(statuses.length, filter.kind !== undefined, filter.excludeKind !== undefined),
-    [
-      ...statuses,
-      ...(filter.kind === undefined ? [] : [filter.kind]),
-      ...(filter.excludeKind === undefined ? [] : [filter.excludeKind]),
-      limit,
-    ],
+    listJobsSql(statuses.length, filter.kind !== undefined, excluded.length),
+    [...statuses, ...(filter.kind === undefined ? [] : [filter.kind]), ...excluded, limit],
   );
   return rows.map(toJobDoc);
 }

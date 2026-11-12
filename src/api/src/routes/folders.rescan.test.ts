@@ -30,6 +30,7 @@ import {
   type LiveTestDatabase,
 } from '../db/sqlite/test-sqlite.test-helpers.ts';
 import { ALL_STAGE_NAMES } from '../workers/stages/manifest.ts';
+import { withOperationsRunning } from '../job-runner/operation-runner.test-helpers.ts';
 import { foldersRoutes } from './folders.ts';
 import { fakeAuth } from '../../tests/helpers/test-auth.ts';
 
@@ -88,8 +89,10 @@ describe('POST /api/folders/:id/rescan', () => {
 
   function rescan(folderId: string): Promise<Response> {
     const app = new Elysia().use(fakeAuth()).use(foldersRoutes);
-    return app.handle(
-      new Request(`http://localhost/api/folders/${folderId}/rescan`, { method: 'POST' }),
+    return withOperationsRunning(() =>
+      app.handle(
+        new Request(`http://localhost/api/folders/${folderId}/rescan`, { method: 'POST' }),
+      ),
     );
   }
 
