@@ -32,7 +32,7 @@
     "src/runtime/__fixtures__/stderr-crash-child.ts",
     "src/runtime/__fixtures__/stderr-crash-harness.ts",
     "src/__fixtures__/otel-crash-child.ts",
-    // The auth-expiry regression launches a real API process with this preload.
+    // The API boot test (tests/api-boot.test.ts) launches a real API process with this preload.
     "tests/coverage.child.preload.ts",
     // #3770 — launched by the native File Provider live restart tests.
     "tests/fixtures/file-provider-restart.ts",

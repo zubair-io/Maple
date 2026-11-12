@@ -21,7 +21,7 @@ import {
   type LiveTestDatabase,
 } from '../../db/sqlite/test-sqlite.test-helpers.ts';
 import { enqueueMirrorCopy, mirrorQueueCounts } from '../../fs/mirror-queue.repo.ts';
-import { runMirrorCopyOnce } from './copy.ts';
+import { drainMirrorCopyQueue, runMirrorCopyOnce } from './copy.ts';
 import { copyFileToMirror } from './replicate.ts';
 
 let live: LiveTestDatabase;
@@ -86,5 +86,47 @@ describe('mirror copy worker', () => {
     const counts = await mirrorQueueCounts();
     expect(counts.dead).toBe(1);
     expect(counts.pending).toBe(0); // dead rows aren't claimable
+  });
+
+  it('claims nothing once the run is stopped', async () => {
+    const src = join(tmp, 'a.dng');
+    writeFileSync(src, 'bytes');
+    await enqueueMirrorCopy(src, join(tmp, 'mirror', 'a.dng'), 'scan-missing');
+
+    const summary = await runMirrorCopyOnce({ signal: AbortSignal.abort() });
+
+    expect(summary.claimed).toBe(0);
+    expect((await mirrorQueueCounts()).pending).toBe(1);
+  });
+});
+
+describe('a scheduled drain', () => {
+  const enqueueFiles = async (count: number, mirrorDir: string) => {
+    for (let i = 0; i < count; i++) {
+      const src = join(tmp, `f${i}.dng`);
+      writeFileSync(src, `bytes-${i}`);
+      await enqueueMirrorCopy(src, join(mirrorDir, `f${i}.dng`), 'scan-missing');
+    }
+  };
+
+  it('empties a backlog larger than one batch in one run', async () => {
+    await enqueueFiles(120, join(tmp, 'mirror'));
+
+    await drainMirrorCopyQueue();
+
+    expect(await mirrorQueueCounts()).toEqual({ pending: 0, dead: 0 });
+  });
+
+  it('stops after a batch with a failure, so an unreachable mirror keeps its retries', async () => {
+    const blocker = join(tmp, 'blocker');
+    writeFileSync(blocker, 'i am a file');
+    await enqueueFiles(120, blocker);
+
+    await drainMirrorCopyQueue();
+
+    const attempts = live.db.query(`SELECT SUM(attempts) AS n FROM mirror_queue`).get() as {
+      n: number;
+    };
+    expect(attempts.n).toBeLessThanOrEqual(50);
   });
 });

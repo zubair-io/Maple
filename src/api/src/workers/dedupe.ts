@@ -67,6 +67,8 @@ export interface RunDeDuplicateOptions {
   batchSize?: number;
   /** When true, log intended moves but mutate nothing on disk or in the DB. */
   dryRun?: boolean;
+  /** Stops the pass between assets; the rest stay candidates for the next pass. */
+  signal?: AbortSignal;
 }
 
 /** One dedupe pass. Exported for tests + driven by `runDeDuplicatePass`. */
@@ -102,6 +104,7 @@ export async function runDeDuplicateOnce(
   const candidates = await listDuplicateCandidates(batchSize);
 
   for (const doc of candidates) {
+    if (opts.signal?.aborted) break;
     summary.scanned++;
     try {
       await processAsset(doc, libs, dryRun, summary);
@@ -230,11 +233,15 @@ export const deDuplicatePaused = (): Promise<boolean> => deduplicate.readPaused(
  * One scheduled pass. The schedule is paused along with the worker, but a run
  * already on its way when the operator pauses still finds it paused here.
  */
-export async function runDeDuplicatePass(): Promise<void> {
+export async function runDeDuplicatePass(signal?: AbortSignal): Promise<void> {
   await deduplicate.runPass(async () => {
     if (await deduplicate.readPaused()) return { processed: 0 };
     const cfg = await loadDeDuplicateConfig();
-    const summary = await runDeDuplicateOnce({ batchSize: cfg.batch_size, dryRun: cfg.dry_run });
+    const summary = await runDeDuplicateOnce({
+      batchSize: cfg.batch_size,
+      dryRun: cfg.dry_run,
+      signal,
+    });
     return { processed: summary.deduped };
   });
 }

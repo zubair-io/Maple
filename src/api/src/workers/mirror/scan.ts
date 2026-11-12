@@ -62,6 +62,8 @@ async function* liveLocations(): AsyncGenerator<LiveLocationRow> {
 export interface MirrorScanOptions {
   /** Stop enqueueing after this many rows in one pass (runaway guard). */
   maxEnqueue?: number;
+  /** Stops the walk between library files; the next pass walks again from the start. */
+  signal?: AbortSignal;
   /** Optional live-progress hook, fired once per primary file checked. Powers the
    * operator "Scan now" readout so you can see the walk is actually touching the
    * filesystem. Must be cheap + synchronous (an in-memory snapshot) — no I/O. */
@@ -79,6 +81,36 @@ export interface MirrorScanSummary {
   upToDate: number;
   skippedOffline: number;
   errors: number;
+}
+
+/** Checks everything one asset owns on disk; answers 'cap' once the per-pass enqueue ceiling is hit. */
+async function checkAssetFiles(
+  primaryAbs: string,
+  checkOne: (file: string) => Promise<'cap' | 'ok'>,
+  summary: MirrorScanSummary,
+): Promise<'cap' | 'ok'> {
+  // In priority order; `checkOne` no-ops on any of these the primary doesn't have.
+  const replicable = [
+    primaryAbs,
+    // The canonical XMP sidecar carries the user's edits (the non-destructive
+    // contract), so it must back up too.
+    xmpSidecarPath(primaryAbs),
+    // The derived `.maple/` cache. Fresh renders reach the mirror inline via
+    // `fs/mirrored.ts:replicatePath`; this is what carries the pre-existing
+    // backlog — and anything a dropped inline copy missed — across, so a
+    // mirror-served read hits the cache instead of regenerating (#926).
+    resolveThumbPath(primaryAbs),
+    cachePathFor(primaryAbs, 'previews', PREVIEW_CACHE_SUFFIX),
+  ];
+  try {
+    for (const candidate of replicable) {
+      if ((await checkOne(candidate)) === 'cap') return 'cap';
+    }
+  } catch (err) {
+    summary.errors++;
+    log.warn({ primaryAbs, err: err instanceof Error ? err.message : err }, 'scan row failed');
+  }
+  return 'ok';
 }
 
 /** One detection pass; scheduled hourly as the `mirror-scan` maintenance task. */
@@ -134,36 +166,15 @@ export async function runMirrorScanOnce(opts: MirrorScanOptions = {}): Promise<M
   // Liveness is now the query's job — every row that arrives here is a file the
   // library believes is present at that path.
   for await (const row of liveLocations()) {
+    if (opts.signal?.aborted) break;
     const root = libs.get(row.library_id);
     if (!root) continue;
     const segments = row.path === '' ? [] : row.path.split('/');
     const primaryAbs = path.join(root, ...segments, row.filename);
 
-    // Everything this asset owns on disk, in priority order. `checkOne`
-    // no-ops on any of these that the primary doesn't have.
-    const replicable = [
-      primaryAbs,
-      // The canonical XMP sidecar carries the user's edits (the
-      // non-destructive contract), so it must back up too.
-      xmpSidecarPath(primaryAbs),
-      // The derived `.maple/` cache. Fresh renders reach the mirror inline via
-      // `fs/mirrored.ts:replicatePath`; this is what carries the pre-existing
-      // backlog — and anything a dropped inline copy missed — across, so a
-      // mirror-served read hits the cache instead of regenerating (#926).
-      resolveThumbPath(primaryAbs),
-      cachePathFor(primaryAbs, 'previews', PREVIEW_CACHE_SUFFIX),
-    ];
-
-    try {
-      for (const candidate of replicable) {
-        if ((await checkOne(candidate)) === 'cap') {
-          log.warn({ maxEnqueue }, 'mirror-scan hit per-pass enqueue cap — deferring rest');
-          return summary;
-        }
-      }
-    } catch (err) {
-      summary.errors++;
-      log.warn({ primaryAbs, err: err instanceof Error ? err.message : err }, 'scan row failed');
+    if ((await checkAssetFiles(primaryAbs, checkOne, summary)) === 'cap') {
+      log.warn({ maxEnqueue }, 'mirror-scan hit per-pass enqueue cap — deferring rest');
+      return summary;
     }
 
     // Surface live progress (the file just checked + running counts) so the

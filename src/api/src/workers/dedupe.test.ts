@@ -41,7 +41,7 @@ import {
 } from '../db/sqlite/test-sqlite.test-helpers.ts';
 import { invalidateLibraryRoots } from '../indexer/libraries.cache.ts';
 import * as fs from '../fs/mirrored.ts';
-import { runDeDuplicateOnce } from './dedupe.ts';
+import { DEDUPLICATE_NAME, runDeDuplicateOnce, runDeDuplicatePass } from './dedupe.ts';
 
 /** Every seeded copy shares one content id — that is what makes them duplicates. */
 const MAPLE_ID = 'a'.repeat(32);
@@ -493,4 +493,38 @@ describe('runDeDuplicateOnce', () => {
       ]);
     },
   );
+});
+
+describe('a deduplicate run that should not move anything', () => {
+  const seedDuplicate = (env: DedupeEnv): string => {
+    writeCopy(env, 'photos/2024', 'IMG.dng');
+    writeCopy(env, 'unsorted', 'IMG.dng');
+    return seedAsset(env, [{ dir: 'unsorted' }, { dir: 'photos/2024' }]);
+  };
+
+  const untouched = (env: DedupeEnv, id: string): void => {
+    expect(existsSync(join(env.root, 'unsorted', 'IMG.dng'))).toBe(true);
+    expect(existsSync(join(env.root, DUP))).toBe(false);
+    expect(locationsOf(env, id)).toHaveLength(2);
+  };
+
+  it('a scheduled run that lands after a pause moves nothing', async () => {
+    using env = await createEnv();
+    const id = seedDuplicate(env);
+    run(env.live.db, `INSERT INTO worker_config (name, paused) VALUES (?, 1)`, DEDUPLICATE_NAME);
+
+    await runDeDuplicatePass();
+
+    untouched(env, id);
+  });
+
+  it('a stopped pass moves nothing', async () => {
+    using env = await createEnv();
+    const id = seedDuplicate(env);
+
+    const summary = await runDeDuplicateOnce({ signal: AbortSignal.abort() });
+
+    expect(summary.scanned).toBe(0);
+    untouched(env, id);
+  });
 });

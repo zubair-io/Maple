@@ -402,6 +402,20 @@ describe('runMissingReaperOnce', () => {
     expect(assetRow(live.db, assetId).deleted_at).toBeNull();
   });
 
+  it('a stopped pass scans nothing and reaps nothing', async () => {
+    using live = await createLiveTestDatabase();
+    const libraryId = seedLibrary(live.db, makeRoot('other.jpg'));
+    const assetId = seedAsset(live.db, libraryId, [{ filename: 'gone.jpg', missing: AGED }]);
+
+    const summary = await runMissingReaperOnce({
+      deleteBeforeIso: DELETE_BEFORE,
+      signal: AbortSignal.abort(),
+    });
+
+    expect(summary.scanned).toBe(0);
+    expect(assetRow(live.db, assetId).deleted_at).toBeNull();
+  });
+
   it('circuit breaker: flags a mass-reap pass but proceeds (soft-deletes are recoverable)', async () => {
     using live = await createLiveTestDatabase();
     const libraryId = seedLibrary(live.db, makeRoot('other.jpg')); // every recorded file gone

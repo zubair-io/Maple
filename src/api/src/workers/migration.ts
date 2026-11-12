@@ -15,6 +15,7 @@
  * the worker-level `paused` flag lives in `worker_config` like every stage.
  */
 
+import { setTimeout as sleep } from 'node:timers/promises';
 import { child as childLogger } from '../log.ts';
 import { pausableWorker, type RegisteredWorker } from './pause-control.ts';
 import { MIGRATIONS } from './migration/index.ts';
@@ -132,9 +133,14 @@ async function runMigrationOnce(
   return batch.processed;
 }
 
-export async function runMigrationTickOnce(batchSize: number, nowIso: string): Promise<number> {
+export async function runMigrationTickOnce(
+  batchSize: number,
+  nowIso: string,
+  signal?: AbortSignal,
+): Promise<number> {
   let processedThisTick = 0;
   for (const migration of MIGRATIONS) {
+    if (signal?.aborted) break;
     processedThisTick += await runMigrationOnce(migration, batchSize, nowIso);
   }
   return processedThisTick;
@@ -174,10 +180,29 @@ export async function migrationHasWork(): Promise<boolean> {
   });
 }
 
-/** One scheduled pass: a batch of every enabled migration, unless the worker is paused. */
-export async function runMigrationPass(batchSize = DEFAULT_BATCH): Promise<void> {
+/** Batches 5 s apart, as the interval loop this replaced ran them. */
+const TICK_SPACING_MS = 5_000;
+/** Ends a little inside the one-minute schedule, so the next run is not skipped as an overlap. */
+const PASS_SPAN_MS = 55_000;
+
+/**
+ * One scheduled run: a batch of every enabled migration every 5 s for about a
+ * minute, until the worker is paused, no enabled migration is left, or the run
+ * is stopped. Each batch is recorded as it finishes, so a stop between batches
+ * resumes where it left off.
+ */
+export async function runMigrationPass(
+  signal?: AbortSignal,
+  batchSize = DEFAULT_BATCH,
+): Promise<void> {
   await migrationWorker.runPass(async () => {
-    if (await migrationWorker.readPaused()) return { processed: 0 };
-    return { processed: await runMigrationTickOnce(batchSize, new Date().toISOString()) };
+    const deadline = Date.now() + PASS_SPAN_MS;
+    let processed = 0;
+    while (!signal?.aborted && !(await migrationWorker.readPaused())) {
+      processed += await runMigrationTickOnce(batchSize, new Date().toISOString(), signal);
+      if (Date.now() + TICK_SPACING_MS > deadline || !(await migrationHasWork())) break;
+      await sleep(TICK_SPACING_MS, undefined, { signal }).catch(() => undefined);
+    }
+    return { processed };
   });
 }

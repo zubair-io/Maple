@@ -27,7 +27,7 @@ const log = childLogger('deduplicate:config');
 export const DEFAULT_BATCH_SIZE = 200;
 const MIN_BATCH_SIZE = 1;
 const MAX_BATCH_SIZE = 5000;
-export const DEFAULT_DRY_RUN = false;
+const DEFAULT_DRY_RUN = false;
 
 export interface DeDuplicateConfig {
   batch_size: number;

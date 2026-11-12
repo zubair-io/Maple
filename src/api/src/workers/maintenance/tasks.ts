@@ -22,7 +22,7 @@ import { loadDerivativeAuditConfig } from '../derivative-audit/config.repo.ts';
 import { derivativeAuditEveryMs, runDerivativeAuditPass } from '../derivative-audit/scan.ts';
 import { generatedSearchTick } from '../generated-search/schedule.ts';
 import { migrationHasWork, runMigrationPass } from '../migration.ts';
-import { runMirrorCopyOnce } from '../mirror/copy.ts';
+import { drainMirrorCopyQueue } from '../mirror/copy.ts';
 import { runMirrorScanOnce } from '../mirror/scan.ts';
 import { runMissingReaperPass } from '../missing-reaper.ts';
 import { drainTrashPurgeCleanup, runTrashGcOnce } from '../trash-gc.ts';
@@ -58,8 +58,8 @@ export const MAINTENANCE_TASKS: readonly MaintenanceTask[] = [
   {
     id: 'trash-gc',
     desired: always(DAY_MS),
-    run: async () => {
-      await runTrashGcOnce();
+    run: async (signal) => {
+      await runTrashGcOnce({ signal });
     },
   },
   {
@@ -77,30 +77,30 @@ export const MAINTENANCE_TASKS: readonly MaintenanceTask[] = [
   {
     id: 'missing-reaper',
     desired: always(MINUTE_MS),
-    run: () => runMissingReaperPass(),
+    run: (signal) => runMissingReaperPass(signal),
   },
   {
     id: 'deduplicate',
     desired: unless(5 * MINUTE_MS, deDuplicatePaused),
-    run: () => runDeDuplicatePass(),
+    run: (signal) => runDeDuplicatePass(signal),
   },
   {
     id: 'migration',
-    desired: unless(5_000, async () => !(await migrationHasWork())),
-    run: () => runMigrationPass(),
+    desired: unless(MINUTE_MS, async () => !(await migrationHasWork())),
+    run: (signal) => runMigrationPass(signal),
   },
   {
     id: 'mirror-scan',
     desired: unless(HOUR_MS, mirroringIdle),
-    run: async () => {
-      await runMirrorScanOnce();
+    run: async (signal) => {
+      await runMirrorScanOnce({ signal });
     },
   },
   {
     id: 'mirror-copy',
     desired: unless(30_000, mirroringIdle),
-    run: async () => {
-      if (isMirroringActive()) await runMirrorCopyOnce();
+    run: async (signal) => {
+      if (isMirroringActive()) await drainMirrorCopyQueue(signal);
     },
   },
   {
@@ -109,13 +109,13 @@ export const MAINTENANCE_TASKS: readonly MaintenanceTask[] = [
       const cfg = await loadDerivativeAuditConfig();
       return { everyMs: derivativeAuditEveryMs(cfg), paused: !cfg.enabled };
     },
-    run: () => runDerivativeAuditPass(),
+    run: (signal) => runDerivativeAuditPass(signal),
   },
   {
     id: 'generated-search',
     desired: always(15 * MINUTE_MS),
-    run: async () => {
-      await generatedSearchTick();
+    run: async (signal) => {
+      await generatedSearchTick(undefined, signal);
     },
   },
   {
@@ -130,7 +130,7 @@ export const MAINTENANCE_TASKS: readonly MaintenanceTask[] = [
   },
   {
     id: 'db-backup',
-    desired: unless(MINUTE_MS, async () => !(await loadDbBackupSettings()).policy.enabled),
+    desired: unless(15 * MINUTE_MS, async () => !(await loadDbBackupSettings()).policy.enabled),
     run: (signal, options) => runDbBackupPass(signal, options),
   },
 ];

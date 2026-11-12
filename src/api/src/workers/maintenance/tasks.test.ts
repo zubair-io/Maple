@@ -42,7 +42,7 @@ describe('the task list', () => {
     expect(new Set(ids).size).toBe(ids.length);
   });
 
-  test('keeps the intervals of the timers it replaced', async () => {
+  test('runs each task at its interval', async () => {
     using _live = await createLiveTestDatabase();
     const intervals = Object.fromEntries(
       await Promise.all(MAINTENANCE_TASKS.map(async (t) => [t.id, (await t.desired()).everyMs])),
@@ -53,14 +53,14 @@ describe('the task list', () => {
       'change-log-gc': 24 * 60 * MINUTE,
       'missing-reaper': MINUTE,
       deduplicate: 5 * MINUTE,
-      migration: 5_000,
+      migration: MINUTE,
       'mirror-scan': 60 * MINUTE,
       'mirror-copy': 30_000,
       'derivative-audit': 6 * 60 * MINUTE,
       'generated-search': 15 * MINUTE,
       'cloud-backup': MINUTE,
       'auth-expiry': MINUTE,
-      'db-backup': MINUTE,
+      'db-backup': 15 * MINUTE,
     });
   });
 });
@@ -146,12 +146,5 @@ describe('passes that find nothing to do', () => {
       claimed_at: null,
       attempts: 0,
     });
-  });
-
-  test('a deduplicate run that lands after a pause moves nothing', async () => {
-    using live = await createLiveTestDatabase();
-    pauseWorker(live.db, DEDUPLICATE_NAME, true);
-    await task('deduplicate').run(new AbortController().signal, {});
-    expect(live.db.query(`SELECT COUNT(*) AS n FROM worker_config`).get()).toEqual({ n: 1 });
   });
 });

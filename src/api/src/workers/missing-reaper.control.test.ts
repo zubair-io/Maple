@@ -201,30 +201,30 @@ describe('registerMissingReaper', () => {
     expect(stageRegistry.statuses()[MISSING_REAPER_NAME]).toBeUndefined();
   });
 
-  it('persists pause across restarts (worker_config), running by default', async () => {
+  it('with no stored row reports paused, and a resume persists across restarts', async () => {
     using live = await createLiveTestDatabase();
     expect(storedPaused(live.db, MISSING_REAPER_NAME)).toBeUndefined();
 
-    // First lifetime: no stored config → registers running by default. Pause it.
+    // First lifetime: no stored config → paused, the soft-delete stays gated.
     const first = registerMissingReaper();
     await first.ready;
-    expect(stageRegistry.statuses()[MISSING_REAPER_NAME]!.status).toBe('idle');
-    await stageRegistry.pause(MISSING_REAPER_NAME);
-    expect(storedPaused(live.db, MISSING_REAPER_NAME)).toBe(true);
-    first.stop();
-
-    // Second lifetime: adopts the stored paused state.
-    const second = registerMissingReaper();
-    await second.ready;
     expect(stageRegistry.statuses()[MISSING_REAPER_NAME]!.status).toBe('paused');
     await stageRegistry.resume(MISSING_REAPER_NAME);
     expect(storedPaused(live.db, MISSING_REAPER_NAME)).toBe(false);
+    first.stop();
+
+    // Second lifetime: adopts the stored resume. Pause it.
+    const second = registerMissingReaper();
+    await second.ready;
+    expect(stageRegistry.statuses()[MISSING_REAPER_NAME]!.status).toBe('idle');
+    await stageRegistry.pause(MISSING_REAPER_NAME);
+    expect(storedPaused(live.db, MISSING_REAPER_NAME)).toBe(true);
     second.stop();
 
-    // Third lifetime: the resume persisted → registers running again.
+    // Third lifetime: the pause persisted.
     const third = registerMissingReaper();
     await third.ready;
-    expect(stageRegistry.statuses()[MISSING_REAPER_NAME]!.status).toBe('idle');
+    expect(stageRegistry.statuses()[MISSING_REAPER_NAME]!.status).toBe('paused');
     third.stop();
   });
 
@@ -249,14 +249,25 @@ describe('registerMissingReaper', () => {
 });
 
 describe('runMissingReaperPass', () => {
-  it('reaps an aged missing asset while the reaper is running', async () => {
+  it('reaps an aged missing asset once an owner has resumed the reaper', async () => {
     using live = await createLiveTestDatabase();
+    run(live.db, `INSERT INTO worker_config (name, paused) VALUES (?, 0)`, MISSING_REAPER_NAME);
     const libraryId = seedLibrary(live.db, { 'other.jpg': 'x' });
     const assetId = seedAsset(live.db, libraryId, [{ filename: 'gone.jpg', missing: AGED }]);
 
     await runMissingReaperPass();
 
     expect(assetRow(live.db, assetId).reason).toBe('reaped');
+  });
+
+  it('reaps nothing on an install that has never stored a pause state for it', async () => {
+    using live = await createLiveTestDatabase();
+    const libraryId = seedLibrary(live.db, { 'other.jpg': 'x' });
+    const assetId = seedAsset(live.db, libraryId, [{ filename: 'gone.jpg', missing: AGED }]);
+
+    await runMissingReaperPass();
+
+    expect(assetRow(live.db, assetId).deleted_at).toBeNull();
   });
 
   it('while paused still recovers a re-found file but reaps nothing', async () => {

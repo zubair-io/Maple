@@ -121,6 +121,8 @@ export interface RunOptions {
   observed?: ReadonlyMap<string, LibraryRunRecord>;
   /** Test seam replacing the digest → LLM → persist pass for one library. */
   runLibrary?: LibraryPass;
+  /** Stops the run between libraries; one not yet attempted is still owed next time. */
+  signal?: AbortSignal;
 }
 
 /** A saved AI assignment is independent; legacy deployments retain their
@@ -239,6 +241,7 @@ export async function runGeneratedSearchOnce(
   };
   let saved = 0;
   for (const libraryId of libraries) {
+    if (opts.signal?.aborted) break;
     saved += await attemptLibrary(
       {
         library_id: libraryId,
