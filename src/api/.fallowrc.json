@@ -12,6 +12,7 @@
     "src/enrichment/face-pool.child.ts",
     "src/search/search.child.ts",
     "src/db/sqlite/db.worker.ts",
+    "src/fs/rename-no-replace.worker.ts",
     "scripts/sqlite-bench/run.ts",
 
     // The benchmarks. Entry points, run by hand, so their exports have no
