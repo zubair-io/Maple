@@ -8,6 +8,7 @@
 
 import type { AssetId } from '../../models/asset';
 import type { AdjustmentModel } from '../../models/adjustment-model';
+import { renderModelForImportedAuto } from '../../models/partial-white-balance';
 import type { LocalAdjustment } from '../../models/local-adjustment';
 import type { MaskRangeSeed } from '../../raw-pipeline/raw-pipeline.sample-range.types';
 import { RangeSampleRejected } from '../../raw-pipeline/raw-pipeline.sample-range.types';
@@ -89,8 +90,8 @@ export async function sampleMaskRangeInto(
     const bytes = await host.bytes(id);
     // The sampler develops its own probe from this model, so it must be the
     // model the canvas painted with — the click point is normalised against
-    // the PAINTED raster (#3309).
-    const xmp = host.serialize(host.currentAdjustment(id));
+    // the PAINTED raster (#3309); a resolved imported Auto as its pair (#4669).
+    const xmp = host.serialize(renderModelForImportedAuto(host.currentAdjustment(id)));
     const seed = await host.sampleMaskRange(bytes, ext, xmp, nx, ny);
     if (host.focusedAssetId() !== id) return false;
     host.applySeed(seed);

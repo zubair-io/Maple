@@ -1,5 +1,35 @@
 import type { AdjustmentModel } from '../models/adjustment-model';
-import { hydratePartialWhiteBalance } from '../models/partial-white-balance';
+import type { AssetId } from '../models/asset';
+import {
+  hydratePartialWhiteBalance,
+  type ImportedAutoPair,
+  withResolvedImportedAuto,
+} from '../models/partial-white-balance';
+
+/** Each opened RAW's resolved name-only Auto pair (#4669), so any model that still
+ * carries the intent (undo, restore, merge, Before/After) renders it without a
+ * second estimate. Session-scoped, like the camera reading. */
+export class ImportedAutoPairs {
+  readonly byAsset = new Map<AssetId, ImportedAutoPair>();
+
+  record(id: AssetId, pair: ImportedAutoPair): void {
+    this.byAsset.set(id, { temperature: pair.temperature, tint: pair.tint });
+  }
+
+  apply(id: AssetId, model: AdjustmentModel): AdjustmentModel {
+    const pair = this.byAsset.get(id);
+    return pair ? withResolvedImportedAuto(model, pair) : model;
+  }
+}
+
+/** Display hydration from the camera frame (absent axes; 6500/0 before a decode). */
+export function hydrateCameraWhiteBalance(
+  model: AdjustmentModel,
+  reading: CameraWhiteBalanceReading | undefined,
+): AdjustmentModel {
+  const frame = reading?.frame;
+  return hydratePartialWhiteBalance(model, frame?.temperature ?? 6500, frame?.tint ?? 0, !!frame);
+}
 
 export interface CameraWhiteBalanceReading {
   readonly temperature: number;

@@ -1,8 +1,4 @@
-import {
-  hydratePartialWhiteBalance,
-  whiteBalanceAuthoredPatch,
-  withResolvedImportedAuto,
-} from '../models/partial-white-balance';
+import { type ImportedAutoPair, whiteBalanceAuthoredPatch } from '../models/partial-white-balance';
 // Library store — data and adjustment models. Persisted UI prefs live in
 // `BrowsePreferencesService`; ephemeral UI flags move out screen-by-screen (#191).
 // Holds the signal-readable state for the browse + editor shells:
@@ -42,6 +38,8 @@ import { parseAddress } from '../addressing/maple-address';
 import type { XmpCulling } from '../xmp/xmp.types';
 import {
   cameraWhiteBalanceReading,
+  hydrateCameraWhiteBalance,
+  ImportedAutoPairs,
   seedWhiteBalanceModel,
   type CameraWhiteBalanceReading,
 } from './library-store-white-balance';
@@ -192,6 +190,7 @@ export class LibraryStore {
    * to XMP (the camera reading is re-derived from the RAW on every decode).
    */
   private readonly asShotWb = new Map<AssetId, CameraWhiteBalanceReading>();
+  private readonly importedAuto = new ImportedAutoPairs();
 
   /** Per-asset decode-derived lens-correction capability (#3182). */
   readonly lensCorrections = new LensCorrectionCapabilities();
@@ -223,6 +222,7 @@ export class LibraryStore {
         apiAssetIds: this.apiAssetIds,
         assetAbsPaths: this.assetAbsPaths,
         asShotWb: this.asShotWb,
+        importedAutoWb: this.importedAuto.byAsset,
         lensCorrections: this.lensCorrections.byAsset,
         sessionEdited: this._sessionEdited,
         sessionCullingPatches: this._sessionCullingPatches,
@@ -246,10 +246,11 @@ export class LibraryStore {
   }
 
   /** Carry the session's resolved name-only Auto pair (#4669); never authors the sidecar. */
-  resolveImportedAutoWhiteBalance(id: AssetId, pair: { temperature: number; tint: number }): void {
+  resolveImportedAutoWhiteBalance(id: AssetId, pair: ImportedAutoPair): void {
+    this.importedAuto.record(id, pair);
     this.adjustmentModels.update((map) => {
       const current = map.get(id);
-      const resolved = current && withResolvedImportedAuto(current, pair);
+      const resolved = current && this.importedAuto.apply(id, current);
       return !resolved || resolved === current ? map : new Map(map).set(id, resolved);
     });
   }
@@ -291,7 +292,7 @@ export class LibraryStore {
       const next = new Map(map);
       const current = next.get(id) ?? defaultAdjustmentModel();
       this.lensCorrections.invalidateProfileReplacement(id, current, effective);
-      next.set(id, { ...current, ...effective });
+      next.set(id, this.importedAuto.apply(id, { ...current, ...effective }));
       return next;
     });
     return effective;
@@ -363,12 +364,8 @@ export class LibraryStore {
       const wbSeed = current ? { temperature: current.temperature, tint: current.tint } : {};
       const next = new Map(map);
       const restored = { ...defaultAdjustmentModel(), ...wbSeed, ...parsed };
-      const frame = this.asShotWb.get(id)?.frame;
       this.lensCorrections.invalidateProfileReplacement(id, current, restored);
-      next.set(
-        id,
-        hydratePartialWhiteBalance(restored, frame?.temperature ?? 6500, frame?.tint ?? 0, !!frame),
-      );
+      next.set(id, this.hydrateAdjustment(id, restored));
       return next;
     });
     return true;
@@ -376,8 +373,7 @@ export class LibraryStore {
 
   /** Hydrate a captured publication without mutating the current editor model (#4053). */
   hydrateAdjustment(id: AssetId, model: AdjustmentModel): AdjustmentModel {
-    const frame = this.asShotWb.get(id)?.frame;
-    return hydratePartialWhiteBalance(model, frame?.temperature ?? 6500, frame?.tint ?? 0, !!frame);
+    return this.importedAuto.apply(id, hydrateCameraWhiteBalance(model, this.asShotWb.get(id)));
   }
 
   /** Merge a delayed persisted base with fields authored during that read. */

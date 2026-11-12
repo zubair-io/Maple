@@ -248,6 +248,7 @@ export class ImageCanvasGpuPresent {
       }
 
       this.publishOpenedFrame(assetId, info, openModel, fitRevision, serializeOpened);
+      resolveImportedAutoAfterFirstFrame(this.host.state, this.host.pipeline, assetId, bytes);
       performance.mark(`maple:open:${assetId}:paint`);
       performance.measure(
         `maple:open`,
@@ -343,7 +344,6 @@ export class ImageCanvasGpuPresent {
       this.host.lastRenderedXmp = serializeOpened(coldOpenRenderedModel(openModel, info));
     }
     this.host.markColdOpenDone();
-    resolveImportedAutoAfterFirstFrame(this.host.state, this.host.pipeline, assetId);
   }
 
   /**

@@ -77,10 +77,11 @@ const NON_FAST_PATH_KEYS = SCHEMA_KEYS.filter(
   (k) => !FAST_PATH_OR_SPECIAL_KEYS.has(k) && !isToneCurveValue(DEFAULT_MODEL[k]),
 );
 
-/** The scalar ABI authors both axes; XMP preserves As-Shot, absent axes and scales. */
+/** The scalar ABI authors both axes; XMP preserves As-Shot, absent axes and scales.
+ * A resolved name-only Auto import renders as its numeric pair (#4669). */
 function canUseScalarWhiteBalance(model: AdjustmentModel): boolean {
   return (
-    !model.partialWhiteBalance &&
+    (!model.partialWhiteBalance || !!model.partialWhiteBalance.resolved) &&
     model.wbScaleVersion === 5 &&
     !!model.whiteBalancePreset &&
     model.whiteBalancePreset !== 'As Shot'

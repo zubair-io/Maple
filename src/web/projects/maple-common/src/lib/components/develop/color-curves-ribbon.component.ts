@@ -14,6 +14,7 @@ import { LibraryStateService } from '../../state/library-state.service';
 import { EditorStateService } from '../../editor/editor-state.service';
 import { RawPipelineService } from '../../raw-pipeline/raw-pipeline.service';
 import { XmpSerializerService } from '../../xmp/xmp-serializer.service';
+import { renderModelForImportedAuto } from '../../models/partial-white-balance';
 import { applyAffine, cropToFullFrameAffine } from '../mask-overlay/mask-geometry';
 import { CanvasPickService } from '../image-canvas/canvas-pick.service';
 import {
@@ -391,7 +392,9 @@ export class ColorCurvesRibbonComponent {
     if (!this.sampleIsCurrent(request)) return;
     const asset = this.library.assets().find((item) => item.id === id);
     const ext = asset?.filename.split('.').pop()?.toLowerCase() ?? 'dng';
-    const xmp = request.xmp;
+    // The sampler develops what the canvas painted (`sampleIsCurrent` checked the
+    // model above): a resolved imported Auto as its pair (#4669).
+    const xmp = this.serializer.serialize(renderModelForImportedAuto(this.adj()!));
     const full = applyAffine(cropToFullFrameAffine(a.crop, asset?.width ?? 1, asset?.height ?? 1), {
       x: pt.nx,
       y: pt.ny,
