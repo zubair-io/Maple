@@ -365,8 +365,10 @@ describe('a retirement that keeps failing records its kept-aside edit once (#502
     async () => {
       const photo = await seedUpload('2024/10/02/IMG_61.HEIC');
       const dir = path.join(tmpLib, '2024/10/02');
+      // The device's edit is already on the canonical sidecar (with its history, as every
+      // send leaves it since #5796); its retries now meet a pre-#5021 old-name file.
+      expect((await post(photo, mapleXmp('newer edit'), 'none')).status).toBe(200);
       await fs.writeFile(path.join(dir, 'IMG_61.HEIC.xmp'), mapleXmp('older send'));
-      await fs.writeFile(path.join(dir, 'IMG_61.xmp'), mapleXmp('newer edit'));
       await fs.chmod(dir, 0o555);
       const statuses = await (async () => {
         try {
