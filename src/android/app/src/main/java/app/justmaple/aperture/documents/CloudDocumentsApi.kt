@@ -2,9 +2,9 @@ package app.justmaple.aperture.documents
 
 import android.net.Uri
 import android.os.CancellationSignal
-import app.justmaple.aperture.cloud.CloudHttp
 import app.justmaple.aperture.cloud.CloudResponse
 import app.justmaple.aperture.cloud.CloudStatusException
+import app.justmaple.aperture.cloud.CloudTransport
 import java.io.File
 import java.io.OutputStream
 import java.time.Instant
@@ -37,6 +37,11 @@ internal data class CloudEntry(
         get() = path.substringAfterLast('/')
 }
 
+/** What `file-meta` knows: size and mtime, never what kind of item the server lists it as. */
+internal data class CloudFileStat(val size: Long, val modified: Long?)
+
+internal data class CloudListingPage(val entries: List<CloudEntry>, val next: String?)
+
 internal data class CloudChange(
     val cursor: Long,
     val library: String?,
@@ -52,7 +57,7 @@ internal sealed interface CloudChangePage {
 }
 
 /** The Maple server contract the Apple File Provider also uses, over the app's shared client. */
-internal class CloudDocumentsApi(private val http: CloudHttp) {
+internal class CloudDocumentsApi(private val http: CloudTransport) {
     fun libraries(server: String): List<CloudLibraryRoot> {
         val list = JSONArray(get(server, "/api/folders", "List libraries").text())
         return (0 until list.length()).mapNotNull { index ->
@@ -70,30 +75,40 @@ internal class CloudDocumentsApi(private val http: CloudHttp) {
         }
     }
 
+    /** The unfolded listing (no `stack=1`): a RAW+JPEG pair is two documents here. */
+    fun page(folder: CloudDocumentId, cursor: String?): CloudListingPage {
+        val query = "?limit=500" + (cursor?.let { "&cursor=${Uri.encode(it)}" } ?: "")
+        val page = JSONObject(get(folder.server, folderPath(folder) + query, "List folder").text())
+        val entries =
+            page.entries("folders").map { entry(it, CloudEntryKind.Folder) } +
+                page.entries("images").map { value ->
+                    val media =
+                        value.optBoolean("isVideo") || value.optBoolean("isAudio") || value.optBoolean("isStub")
+                    entry(value, if (media) CloudEntryKind.Media else CloudEntryKind.Photo)
+                } +
+                page.entries("files").map { entry(it, CloudEntryKind.File) } +
+                page.entries("sidecars").map { entry(it, CloudEntryKind.Sidecar) }
+        val next = page.optString("next_cursor").takeIf { it.isNotEmpty() && it != "null" }
+        return CloudListingPage(entries.filter { CloudDocumentId.validName(it.name) }, next)
+    }
+
     fun list(folder: CloudDocumentId): List<CloudEntry> {
+        val first = page(folder, null)
+        return (first.entries + rest(folder, first.next)).distinctBy { it.path }
+    }
+
+    /** The pages after [cursor]; a server repeating a cursor is an error, never a loop. */
+    fun rest(folder: CloudDocumentId, cursor: String?): List<CloudEntry> {
         val entries = mutableListOf<CloudEntry>()
         val seen = mutableSetOf<String>()
-        var cursor: String? = null
-        do {
-            val query = "?limit=500" + (cursor?.let { "&cursor=${Uri.encode(it)}" } ?: "")
-            val page = JSONObject(get(folder.server, folderPath(folder) + query, "List folder").text())
-            entries += page.entries("folders").map { entry(it, CloudEntryKind.Folder) }
-            entries +=
-                page.entries("images").map { value ->
-                    val kind =
-                        if (value.optBoolean("isVideo") || value.optBoolean("isAudio") ||
-                            value.optBoolean("isStub"))
-                            CloudEntryKind.Media
-                        else CloudEntryKind.Photo
-                    entry(value, kind)
-                }
-            entries += page.entries("files").map { entry(it, CloudEntryKind.File) }
-            entries += page.entries("sidecars").map { entry(it, CloudEntryKind.Sidecar) }
-            val next = page.optString("next_cursor").takeIf { it.isNotEmpty() && it != "null" }
-            check(next == null || seen.add(next)) { "Cloud folder returned a repeated page cursor" }
-            cursor = next
-        } while (cursor != null)
-        return entries.filter { CloudDocumentId.validName(it.name) }.distinctBy { it.path }
+        var next = cursor
+        while (next != null) {
+            check(seen.add(next)) { "Cloud folder returned a repeated page cursor" }
+            val page = page(folder, next)
+            entries += page.entries
+            next = page.next
+        }
+        return entries
     }
 
     fun folderExists(folder: CloudDocumentId): Boolean {
@@ -103,12 +118,12 @@ internal class CloudDocumentsApi(private val http: CloudHttp) {
         return true
     }
 
-    fun stat(file: CloudDocumentId): CloudEntry? {
+    fun stat(file: CloudDocumentId): CloudFileStat? {
         val response =
             http.request(file.server, "/api/folders/${file.library}/file-meta?path=${query(file.path)}")
         if (response.status == 404) return null
         val value = JSONObject(ensure(response, "Read ${file.name}").text())
-        return CloudEntry(file.path, kindOf(file.name), value.getLong("size"), time(value), false)
+        return CloudFileStat(value.getLong("size"), time(value))
     }
 
     fun download(file: CloudDocumentId, output: OutputStream, signal: CancellationSignal?) =
@@ -267,27 +282,6 @@ internal class CloudDocumentsApi(private val http: CloudHttp) {
         private const val TARGET = "X-Maple-Target-Path"
         private val SLUG = Regex("[A-Za-z0-9_-]+")
         private val LIBRARY = Regex("[0-9a-f]{24}")
-        val PHOTO_EXTENSIONS =
-            setOf(
-                "cr2", "cr3", "crw", "nef", "nrw", "arw", "srf", "sr2", "dng", "raf", "orf", "rw2",
-                "pef", "srw", "x3f", "3fr", "mef", "erf", "mrw", "raw", "fff", "iiq", "rwl", "kdc",
-                "dcr", "mos", "jpg", "jpeg", "png", "webp", "tif", "tiff", "heic", "heif", "avif",
-                "psd", "hdr", "exr",
-            )
-        val MEDIA_EXTENSIONS =
-            setOf(
-                "mp4", "mov", "m4v", "avi", "mkv", "webm", "3gp", "mts", "m2ts", "mp3", "m4a",
-                "wav", "aac", "flac", "ogg",
-            )
-
-        /** The listing's classification when only a name is known (create, stat). */
-        fun kindOf(name: String): CloudEntryKind =
-            when (name.substringAfterLast('.', "").lowercase()) {
-                "xmp" -> CloudEntryKind.Sidecar
-                in PHOTO_EXTENSIONS -> CloudEntryKind.Photo
-                in MEDIA_EXTENSIONS -> CloudEntryKind.Media
-                else -> CloudEntryKind.File
-            }
 
         fun ensure(response: CloudResponse, action: String): CloudResponse {
             if (response.status in 200..299) return response

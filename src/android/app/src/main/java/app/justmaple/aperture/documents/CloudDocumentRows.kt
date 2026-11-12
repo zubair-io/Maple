@@ -12,6 +12,7 @@ internal data class CloudDocumentRow(
     val size: Long?,
     val modified: Long?,
     val flags: Int,
+    val summary: String? = null,
 )
 
 /** SAF projection of Maple Cloud items. Capabilities follow what the server contract allows. */
@@ -24,6 +25,7 @@ internal object CloudDocumentRows {
             Document.COLUMN_SIZE,
             Document.COLUMN_LAST_MODIFIED,
             Document.COLUMN_FLAGS,
+            Document.COLUMN_SUMMARY,
         )
 
     private val RAW_TYPES =
@@ -49,6 +51,10 @@ internal object CloudDocumentRows {
             "mef" to "image/x-mamiya-mef",
             "erf" to "image/x-epson-erf",
             "iiq" to "image/x-phaseone-iiq",
+            "kdc" to "image/x-kodak-kdc",
+            "dcr" to "image/x-kodak-dcr",
+            "mos" to "image/x-leaf-mos",
+            "rwl" to "image/x-leica-rwl",
             "raw" to "image/x-dcraw",
             "heic" to "image/heic",
             "heif" to "image/heif",
@@ -99,8 +105,11 @@ internal object CloudDocumentRows {
             flags(entry),
         )
 
-    /** A document written here that the server has not accepted yet. */
-    fun pending(id: CloudDocumentId, size: Long, modified: Long) =
+    /**
+     * A document written here that the server has not accepted yet. A rejected upload
+     * says so in its summary; rewriting it retries, deleting it discards the bytes.
+     */
+    fun pending(id: CloudDocumentId, size: Long, modified: Long, failure: String?) =
         CloudDocumentRow(
             id.encode(),
             id.name,
@@ -110,6 +119,7 @@ internal object CloudDocumentRows {
             Document.FLAG_SUPPORTS_WRITE or
                 Document.FLAG_SUPPORTS_DELETE or
                 Document.FLAG_SUPPORTS_REMOVE,
+            failure?.let { "Not uploaded: $it" } ?: "Waiting to upload to Maple",
         )
 
     // Originals are never modified and sidecars are written only through Maple's
@@ -139,6 +149,7 @@ internal object CloudDocumentRows {
                         Document.COLUMN_SIZE -> row.size
                         Document.COLUMN_LAST_MODIFIED -> row.modified
                         Document.COLUMN_FLAGS -> row.flags
+                        Document.COLUMN_SUMMARY -> row.summary
                         else -> null
                     }
                 }

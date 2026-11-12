@@ -24,6 +24,8 @@ import app.justmaple.aperture.cloud.CloudStatusException
 import java.io.File
 import java.io.FileNotFoundException
 import java.io.IOException
+import java.util.concurrent.Executor
+import java.util.concurrent.Executors
 
 /**
  * Maple Cloud in the system Files app and every app's document picker: one root per
@@ -37,12 +39,18 @@ class MapleDocumentsProvider : DocumentsProvider() {
     private val cloud by lazy { CloudLibrary(host) }
     private val uploads by lazy { CloudPendingUploads(File(host.filesDir, "documents-provider/uploads")) }
     private val store by lazy {
-        CloudDocumentStore(cloud.credentials, CloudDocumentsApi(cloud.http), uploads, host.contentResolver)
+        CloudDocumentStore(
+            cloud.credentials::servers,
+            CloudDocumentsApi(cloud.http),
+            uploads,
+            host.contentResolver,
+            daemon("maple-documents-listings"),
+        )
     }
     private val callbacks by lazy {
         Handler(HandlerThread("maple-documents-writers").apply { start() }.looper)
     }
-    private val writes by lazy { CloudDocumentWrites(store, uploads, callbacks) }
+    private val writes by lazy { CloudDocumentWrites(store, uploads, callbacks, daemon("maple-documents-uploads")) }
     private val originals by lazy {
         CloudOriginalCache(File(host.cacheDir, "documents-provider/originals"), store.api)
     }
@@ -101,10 +109,11 @@ class MapleDocumentsProvider : DocumentsProvider() {
         sortOrder: String?,
     ): Cursor = guarded {
         val parent = active(parentDocumentId)
-        val rows = store.children(parent)
+        val children = store.children(parent)
         writes.schedule(parent.server)
-        CloudDocumentRows.cursor(projection, rows).apply {
+        CloudDocumentRows.cursor(projection, children.rows).apply {
             setNotificationUri(host.contentResolver, CloudDocumentStore.childrenUri(parent))
+            if (children.loading) extras = Bundle().apply { putBoolean(DocumentsContract.EXTRA_LOADING, true) }
         }
     }
 
@@ -120,13 +129,12 @@ class MapleDocumentsProvider : DocumentsProvider() {
         val file = active(documentId)
         if (file.directory) throw FileNotFoundException("${file.name} is a folder")
         if (mode != "r") return@guarded writes.openForWrite(file, mode, signal)
-        val pending = uploads.find(store.origin(file.server), file)
-        if (pending != null && store.lookup(file) == null)
-            return@guarded ParcelFileDescriptor.open(uploads.data(pending), ParcelFileDescriptor.MODE_READ_ONLY)
+        if (store.lookup(file) == null)
+            uploads.find(store.account(file.server), file)?.let { pending ->
+                return@guarded ParcelFileDescriptor.open(uploads.data(pending), ParcelFileDescriptor.MODE_READ_ONLY)
+            }
         // Stat first: the download is keyed by the server's current size and mtime.
-        val entry = store.api.stat(file) ?: throw FileNotFoundException("${file.name} no longer exists")
-        store.lookup(file)?.let { store.remember(file, entry.copy(indexed = it.indexed)) }
-        originals.open(file, entry, signal)
+        originals.open(file, store.stat(file), signal)
     }
 
     override fun openDocumentThumbnail(
@@ -204,6 +212,9 @@ class MapleDocumentsProvider : DocumentsProvider() {
                 Root.COLUMN_FLAGS,
                 Root.COLUMN_ICON,
             )
+
+        private fun daemon(name: String): Executor =
+            Executors.newSingleThreadExecutor { task -> Thread(task, name).apply { isDaemon = true } }
 
         /** Called by the app after sign-in or sign-out; a removed server's caches go with it. */
         internal fun connectionsChanged(context: Context, removed: String? = null) {

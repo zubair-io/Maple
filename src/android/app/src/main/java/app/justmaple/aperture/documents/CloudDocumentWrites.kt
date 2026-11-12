@@ -8,7 +8,7 @@ import android.util.Log
 import app.justmaple.aperture.cloud.CloudStatusException
 import java.io.FileNotFoundException
 import java.io.IOException
-import java.util.concurrent.Executors
+import java.util.concurrent.Executor
 
 /**
  * Create, rename, trash and upload through the server's path-keyed library routes.
@@ -19,17 +19,14 @@ internal class CloudDocumentWrites(
     private val store: CloudDocumentStore,
     private val uploads: CloudPendingUploads,
     private val handler: Handler,
+    private val worker: Executor,
 ) {
     private val api = store.api
-    private val worker =
-        Executors.newSingleThreadExecutor { task ->
-            Thread(task, "maple-documents-uploads").apply { isDaemon = true }
-        }
     private val queued = mutableSetOf<String>()
 
     fun create(parent: CloudDocumentId, mime: String, displayName: String): CloudDocumentId {
         require(parent.directory && !parent.isServerRoot) { "Choose a Maple library folder" }
-        val origin = store.origin(parent.server)
+        val account = store.account(parent.server)
         val directory = mime == Document.MIME_TYPE_DIR
         val requested = CloudDocumentRows.nameFor(displayName.trim(), mime)
         CloudDocumentId.requireValidName(requested)
@@ -38,15 +35,15 @@ internal class CloudDocumentWrites(
         if (directory) {
             api.mkdir(created)
             store.remember(created, CloudEntry(created.path, CloudEntryKind.Folder, null, null, false))
-        } else uploads.create(origin, created)
+        } else uploads.create(account, created)
         store.notifyFolder(parent)
         return created
     }
 
     fun openForWrite(file: CloudDocumentId, mode: String, signal: CancellationSignal?): ParcelFileDescriptor {
-        val origin = store.origin(file.server)
+        val account = store.account(file.server)
         val upload =
-            uploads.find(origin, file)?.also(uploads::opened)
+            uploads.find(account, file)?.let(uploads::opened)
                 ?: run {
                     val entry = store.entry(file)
                     if (entry.kind == CloudEntryKind.Sidecar)
@@ -56,7 +53,7 @@ internal class CloudDocumentWrites(
                     if (entry.kind != CloudEntryKind.File)
                         throw FileNotFoundException("${file.name} is an original and stays read-only")
                     // Registered as written before the prefill, so it is never uploaded half-copied.
-                    uploads.create(origin, file, writing = true).also { created ->
+                    uploads.create(account, file, writing = true).also { created ->
                         if (mode !in TRUNCATING)
                             try {
                                 uploads.data(created).outputStream().use { api.download(file, it, signal) }
@@ -81,12 +78,12 @@ internal class CloudDocumentWrites(
     }
 
     fun rename(id: CloudDocumentId, name: String): CloudDocumentId {
-        val origin = store.origin(id.server)
+        val account = store.account(id.server)
         val target = id.renamed(name.trim())
         if (target == id) return id
         if (id.directory) api.moveFolder(id, target)
         else {
-            val pending = uploads.find(origin, id)
+            val pending = uploads.find(account, id)
             if (pending != null && store.lookup(id) == null) {
                 check(target.name !in store.names(id.parent())) { "An item named \"${target.name}\" already exists" }
                 uploads.moved(pending, target.path)
@@ -106,10 +103,10 @@ internal class CloudDocumentWrites(
     }
 
     fun delete(id: CloudDocumentId) {
-        val origin = store.origin(id.server)
+        val account = store.account(id.server)
         if (id.directory)
             throw UnsupportedOperationException("The Maple server cannot remove folders")
-        val pending = uploads.find(origin, id)
+        val pending = uploads.find(account, id)
         if (pending != null && store.lookup(id) == null) uploads.remove(pending)
         else catalogued(id, { asset -> api.trashAsset(id, asset) }) { api.trashFile(id) }
         store.forget(id)
@@ -118,10 +115,11 @@ internal class CloudDocumentWrites(
 
     /**
      * Photos use their asset route, which carries paired sidecars. An unindexed photo has
-     * no asset yet, and the plain-file route would separate it from its sidecar.
+     * no asset yet, and the plain-file route would separate it from its sidecar. The kind
+     * is the server listing's, never a guess from the extension.
      */
     private fun catalogued(id: CloudDocumentId, asset: (String) -> Unit, file: () -> String?) {
-        val kind = CloudDocumentsApi.kindOf(id.name)
+        val kind = store.entry(id).kind
         if (kind == CloudEntryKind.Sidecar)
             throw UnsupportedOperationException("Maple sidecars move and trash with their photo")
         val known = api.assetAt(id)
@@ -142,12 +140,16 @@ internal class CloudDocumentWrites(
     }
 
     private fun drain(server: String) {
-        val origin = store.origin(server)
-        for (upload in uploads.due(origin)) if (!send(server, upload)) return
+        for (upload in uploads.due(store.account(server)))
+            if (send(server, upload) == Outcome.Paused) return
     }
 
-    /** False when the server is unreachable or rejects the session: retry on the next poll. */
-    private fun send(server: String, initial: CloudPendingUploads.Upload): Boolean {
+    /**
+     * One record's attempt. Only a server-wide condition (unreachable, signed out, rate
+     * limited) pauses the queue; a record the server rejects is marked failed and the
+     * records after it still go out.
+     */
+    private fun send(server: String, initial: CloudPendingUploads.Upload): Outcome {
         var upload = initial
         repeat(MAX_RENAMES) {
             val file = upload.document(server)
@@ -156,14 +158,14 @@ internal class CloudDocumentWrites(
                     api.upload(file, uploads.data(upload))
                 } catch (failure: IOException) {
                     Log.w("Maple", "Maple Cloud upload deferred", failure)
-                    return false
+                    return Outcome.Paused
                 }
             when {
                 response.status in 200..299 -> {
-                    uploads.remove(upload)
+                    uploads.sent(upload)
                     store.forget(file)
                     store.notify(listOf(CloudDocumentStore.childrenUri(file.parent()), CloudDocumentStore.documentUri(file)))
-                    return true
+                    return Outcome.Done
                 }
                 // An existing sidecar (or a racing upload) holds the name: keep both.
                 response.status == 409 -> {
@@ -171,23 +173,35 @@ internal class CloudDocumentWrites(
                     upload = uploads.moved(upload, file.parent().child(name, false).path)
                     store.notifyFolder(file.parent())
                 }
-                response.status in RETRYABLE || response.status >= 500 -> return false
+                response.status in PAUSING -> return Outcome.Paused
+                response.status == 408 || response.status >= 500 -> return Outcome.Deferred
                 else -> {
                     val failure =
                         runCatching { CloudDocumentsApi.ensure(response, "Upload ${file.name}") }
                             .exceptionOrNull() as? CloudStatusException
-                    uploads.failed(upload, failure?.message ?: "HTTP ${response.status}")
-                    Log.e("Maple", "Maple Cloud rejected ${file.name}: ${failure?.message}")
-                    return true
+                    return rejected(file, upload, failure?.message ?: "HTTP ${response.status}")
                 }
             }
         }
-        return true
+        return rejected(upload.document(server), upload, "No free name for ${upload.path.substringAfterLast('/')}")
+    }
+
+    private fun rejected(file: CloudDocumentId, upload: CloudPendingUploads.Upload, reason: String): Outcome {
+        uploads.failed(upload, reason)
+        Log.e("Maple", "Maple Cloud rejected ${file.name}: $reason")
+        store.notifyFolder(file.parent())
+        return Outcome.Done
+    }
+
+    private enum class Outcome {
+        Done,
+        Deferred,
+        Paused,
     }
 
     companion object {
         private val TRUNCATING = setOf("w", "wt", "rwt")
-        private val RETRYABLE = setOf(401, 403, 408, 429)
+        private val PAUSING = setOf(401, 429)
         private const val MAX_RENAMES = 20
     }
 }
