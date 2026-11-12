@@ -67,12 +67,25 @@ final class RawJpegStackServerTests: XCTestCase {
         """)
   }
 
+  /// `file-meta` for a library-relative path: a file when `taken` holds it, else 404.
+  private func fileMeta(_ request: URLRequest, taken: Set<String>) -> (Data, HTTPURLResponse) {
+    let path =
+      URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?
+      .queryItems?.first { $0.name == "path" }?.value ?? ""
+    return taken.contains(path)
+      ? respond(
+        request,
+        json: #"{"name":"x","path":"/x","size":1,"mtime":"2026-01-01T00:00:00Z","ext":"jpg"}"#)
+      : respond(request, status: 404, json: #"{"error":"file not found"}"#)
+  }
+
   // MARK: - Relocate
 
   func testReplaceOnTheRawSendsTheJpegWithItsOwnDetectOnlyPolicy() async throws {
     let recorder = Recorder()
     let catalog = catalog(recorder) { record, request in
-      self.moved(
+      if record.path == "/api/folders/f1/file-meta" { return self.fileMeta(request, taken: []) }
+      return self.moved(
         request, path: "Album",
         filename: record.path.contains(self.rawID) ? "IMG_1.CR3" : "IMG_1.JPG")
     }
@@ -110,12 +123,48 @@ final class RawJpegStackServerTests: XCTestCase {
     XCTAssertEqual(recorder.requests.last?.body["collision"] as? String, "replace")
   }
 
-  /// The rollback used the RAW's pre-move address, which the server answers with 409 ("no longer
-  /// belongs to this asset"), leaving the RAW at the destination and the JPEG at the source.
+  /// Replace answered for the RAW used to move it before the JPEG's name was looked at: the server
+  /// deletes the file a Replace displaced once that asset commits, so skipping the JPEG's prompt
+  /// that followed lost the unindexed file the RAW had replaced. Both names are now asked about
+  /// before either file moves.
+  func testATakenJpegNameStopsTheMoveBeforeTheRawReplacesAnything() async throws {
+    let recorder = Recorder()
+    let catalog = catalog(recorder) { record, request in
+      if record.path == "/api/folders/f1/file-meta" {
+        return self.fileMeta(request, taken: ["Album/IMG_1.JPG"])
+      }
+      if record.path.contains(self.jpegID), record.body["collision"] as? String == "skip" {
+        return self.respond(request, json: #"{"skipped":true,"reason":"collision"}"#)
+      }
+      return self.moved(
+        request, path: "Album",
+        filename: record.path.contains(self.rawID) ? "IMG_1.CR3" : "IMG_1.JPG")
+    }
+
+    do {
+      _ = try await catalog.relocateAsset(
+        assetID: rawID, mode: .move, collision: .replace, destinationPath: "Album",
+        sourceAddress: "lib:Trip/IMG_1.CR3", stack: stack, libraryFolderID: "f1",
+        restore: ("Trip", "IMG_1.CR3"))
+      XCTFail("the JPEG's name is taken")
+    } catch FileOperationError.destinationExists(let name) {
+      XCTAssertEqual(name, "IMG_1.JPG")
+    }
+
+    XCTAssertEqual(
+      recorder.requests.filter { $0.path.hasSuffix("/relocate") }.map(\.path), [],
+      "nothing moves, so nothing is replaced, until the JPEG's own prompt is answered")
+  }
+
+  /// The JPEG's name was free when asked, then taken by the time the JPEG moved: the RAW, which
+  /// replaced nothing, goes back. The rollback used the RAW's pre-move address, which the server
+  /// answers with 409 ("no longer belongs to this asset"), leaving the RAW at the destination and
+  /// the JPEG at the source.
   func testAJpegThatCannotFollowPutsTheRawBackByItsMovedAddress() async throws {
     let recorder = Recorder()
     var rawAddress = "lib:Trip/IMG_1.CR3"
     let catalog = catalog(recorder) { record, request in
+      if record.path == "/api/folders/f1/file-meta" { return self.fileMeta(request, taken: []) }
       if record.path.contains(self.jpegID) {
         return self.respond(request, json: #"{"skipped":true,"reason":"collision"}"#)
       }
@@ -156,14 +205,7 @@ final class RawJpegStackServerTests: XCTestCase {
     let occupied: Set<String> = ["Album/IMG_1.JPG"]
     let catalog = catalog(recorder) { record, request in
       if record.path == "/api/folders/f1/file-meta" {
-        let path =
-          URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?
-          .queryItems?.first { $0.name == "path" }?.value ?? ""
-        return occupied.contains(path)
-          ? self.respond(
-            request,
-            json: #"{"name":"x","path":"/x","size":1,"mtime":"2026-01-01T00:00:00Z","ext":"jpg"}"#)
-          : self.respond(request, status: 404, json: #"{"error":"file not found"}"#)
+        return self.fileMeta(request, taken: occupied)
       }
       let isJpeg = record.path.contains(self.jpegID)
       let filename =
