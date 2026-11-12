@@ -18,7 +18,7 @@ import {
 } from '../db/sqlite/test-sqlite.test-helpers.ts';
 import { AttemptSuperseded, UnknownRowError } from '../temporal/activity-attempt.ts';
 import { recordedAttempt } from '../temporal/recorded-attempt.test-helpers.ts';
-import { createImport, failImport, getImport } from './repo.ts';
+import { claimImport, createImport, failImport, getImport, ImportTakenOver } from './repo.ts';
 import { ImportRunner, type ImportRunnerDeps } from './worker.ts';
 
 let tmp: string;
@@ -113,6 +113,22 @@ describe('ImportRunner.run', () => {
     expect(after.locked_by).toBe('paused');
     expect(after.counts.copied).toBe(1);
     expect(await landed(lib, 'B.dng')).toBe(false);
+  });
+
+  test('an attempt a later delivery replaced stops and leaves the import to that one', async () => {
+    using live = await createLiveTestDatabase();
+    const { id, importId } = await pendingImport(live.db, 'replaced', ['A.dng', 'B.dng', 'C.dng']);
+
+    const running = runnerWith(async () => {
+      await claimImport(id, 'replacement');
+    }).run(importId, recordedAttempt('original'));
+
+    await expect(running).rejects.toBeInstanceOf(ImportTakenOver);
+    const after = (await getImport(id))!;
+    expect(after.status).toBe('running');
+    expect(after.locked_by).toBe('replacement');
+    expect(after.error ?? null).toBeNull();
+    expect(after.progress.current).toBeLessThan(3);
   });
 
   test('a cancel made in Temporal ends the import cancelled, keeping what was copied', async () => {

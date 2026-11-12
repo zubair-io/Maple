@@ -41,6 +41,7 @@ import {
   completeImport,
   failImport,
   markImportCancelled,
+  ImportTakenOver,
   assetExistsForHash as realAssetExistsForHash,
   type ClaimedImport,
 } from './repo.ts';
@@ -154,9 +155,9 @@ export class ImportRunner {
     try {
       return await this.processImport(held);
     } catch (err) {
-      if (err instanceof AttemptSuperseded) throw err;
+      if (err instanceof AttemptSuperseded || err instanceof ImportTakenOver) throw err;
       const message = err instanceof Error ? err.message : String(err);
-      await failImport(claim._id, message, this.now);
+      await failImport(claim._id, message, this.now, undefined, attempt.identity);
       return { outcome: 'failed', error: message };
     } finally {
       stopKeepAlive();
@@ -166,6 +167,7 @@ export class ImportRunner {
   private async processImport(held: HeldImport): Promise<RowRun> {
     const { claim } = held;
     const id = claim._id;
+    const holder = held.attempt.identity;
 
     // Auto Import: the create request deferred the scan to us. Walk the source
     // now (default `misc/<folder>` labels, or a nearby-asset/shot-folder match
@@ -175,7 +177,7 @@ export class ImportRunner {
     // read them back from that table rather than off the claim — the file list
     // is a row per file and never a field on the import itself, which is what
     // keeps a folder of any size from being bounded by one record's size.
-    const loaded = await this.loadFiles(claim);
+    const loaded = await this.loadFiles(claim, holder);
     if ('result' in loaded) return loaded.result;
     const { files } = loaded;
     held.progress = { current: 0, total: files.length };
@@ -202,14 +204,18 @@ export class ImportRunner {
         );
       }
       current += 1;
-      await updateImportProgress(id, { index, state, error, destRel, current, counts }, this.now);
+      await updateImportProgress(
+        id,
+        { index, state, error, destRel, current, counts, holder },
+        this.now,
+      );
       held.progress = { current, total: files.length };
       heartbeat(held);
     };
 
     for (const pIdx of primaries) {
       if (await importStopRequested(held)) {
-        await markImportCancelled(id, counts, this.now);
+        await markImportCancelled(id, counts, this.now, undefined, holder);
         return { outcome: 'cancelled' };
       }
 
@@ -222,17 +228,18 @@ export class ImportRunner {
     // success is not a failed import.
     if (counts.copied === 0 && counts.skipped === 0 && counts.failed > 0) {
       const error = `All ${counts.failed} file(s) failed to import.`;
-      await failImport(id, error, this.now);
+      await failImport(id, error, this.now, undefined, holder);
       log.warn({ importId: id.toHexString(), counts }, 'import failed: all files failed');
       return { outcome: 'failed', error };
     }
-    await completeImport(id, counts, this.now);
+    await completeImport(id, counts, this.now, undefined, holder);
     return { outcome: 'done' };
   }
 
   /** The import's file rows, scanning first for an Auto Import; `result` when it cannot proceed. */
   private async loadFiles(
     claim: ClaimedImport,
+    holder: string,
   ): Promise<{ files: ImportFileEntry[] } | { result: RowRun }> {
     if (!claim.scan_pending) return { files: await getImportFiles(claim._id) };
     const scanned = await buildImportFiles(
@@ -245,10 +252,10 @@ export class ImportRunner {
     );
     if (scanned.length === 0) {
       const error = `No importable photos, sidecars, or movies in ${claim.source_root}.`;
-      await failImport(claim._id, error, this.now);
+      await failImport(claim._id, error, this.now, undefined, holder);
       return { result: { outcome: 'failed', error } };
     }
-    await setImportFiles(claim._id, scanned, this.now);
+    await setImportFiles(claim._id, scanned, this.now, undefined, holder);
     return { files: scanned };
   }
 
