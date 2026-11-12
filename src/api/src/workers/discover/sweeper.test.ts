@@ -15,7 +15,7 @@ import { join } from 'node:path';
 import { newObjectIdHex } from '../../db/object-id.ts';
 import { createDiscoverLibrary, seedAsset, seedLocation } from './discover.test-helpers.ts';
 import * as frontier from './frontier.repo.ts';
-import { advanceSweep, SweeperLoop, visitDirectory } from './sweeper.ts';
+import { advanceSweep, visitDirectory } from './sweeper.ts';
 import type { WatchEvent } from './types.ts';
 
 /** Record an asset at one location, the way a previous sweep would have. */
@@ -214,57 +214,5 @@ describe('advanceSweep', () => {
     const next = await advanceSweep(library.folderId, library.root, 1);
     expect(next).toBe(2);
     expect(await frontier.remainingForGen(library.folderId, 2)).toBe(1);
-  });
-});
-
-describe('SweeperLoop', () => {
-  it('visits dirs paced by the interval and halts when paused', async () => {
-    using library = await createDiscoverLibrary('maple-loop-');
-    mkdirSync(join(library.root, 'a'));
-    mkdirSync(join(library.root, 'b'));
-    await frontier.seedRoot(library.folderId, library.root, 1);
-
-    let paused = false;
-    const visited: string[] = [];
-    const loop = new SweeperLoop({
-      folderId: library.folderId,
-      root: library.root,
-      deps: { folderId: library.folderId, handleEvent: async () => {} },
-      loadConfig: async () => ({ paused, sweepDirIntervalMs: 0 }),
-      sleep: async () => {},
-      onVisit: (dirPath) => {
-        visited.push(dirPath);
-        if (visited.length === 3) paused = true;
-      },
-    });
-    await loop.runUntilIdleOrPaused(); // test-only bound
-    expect(visited.length).toBeGreaterThanOrEqual(3);
-  });
-
-  it('resumes a persisted generation and does not process gen-1 rows', async () => {
-    // Regression guard for the restart-rehydration fix: without `startGen` the
-    // loop defaults to gen 1, misses the gen-3 row, and returns idle without
-    // visiting any directory.
-    using library = await createDiscoverLibrary('maple-resume-');
-
-    // Seed a gen-3 frontier row directly — a sweep that had already advanced
-    // past gen 1 before the process restarted.
-    await frontier.enqueueDirs(library.folderId, [library.root], 3, false);
-
-    const visited: string[] = [];
-    const loop = new SweeperLoop({
-      folderId: library.folderId,
-      root: library.root,
-      startGen: 3,
-      deps: { folderId: library.folderId, handleEvent: async () => {} },
-      loadConfig: async () => ({ paused: false, sweepDirIntervalMs: 0 }),
-      sleep: async () => {},
-      onVisit: (dirPath) => visited.push(dirPath),
-    });
-    await loop.runUntilIdleOrPaused();
-
-    expect(visited).toContain(library.root);
-    // The gen-3 row was consumed (the directory was completed).
-    expect(await frontier.remainingForGen(library.folderId, 3)).toBe(0);
   });
 });

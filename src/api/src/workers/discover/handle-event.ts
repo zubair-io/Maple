@@ -48,9 +48,9 @@ const log = child('discover');
 
 /**
  * `libraryRoot` is the absolute filesystem path of the library that owns
- * `folderId`. The supervisor caches this from the folders table at boot (see
- * `startDiscover`) so handleEvent doesn't pay a round-trip per event. Tests
- * that drive `handleEvent` directly must pass it.
+ * `folderId`. Each sweep slice resolves it from the folders table once (see
+ * `discover-activity.ts`) so handleEvent doesn't pay a round-trip per event.
+ * Tests that drive `handleEvent` directly must pass it.
  */
 export async function handleEvent(
   event: WatchEvent,

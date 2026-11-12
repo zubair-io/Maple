@@ -3,12 +3,12 @@
  *
  * `startWorkers()` brings up every subsystem that belongs in the worker tier:
  *   - stage orchestrator (boots every pipeline stage; Temporal schedules them)
- *   - discover sweep (in-process, no child spawn)
+ *   - discover registration (the sweep itself runs on the Temporal host)
  *   - cache-gc sweep
  *   - FFI decode pool sizing
  *   - geocode / face / describe enrichment workers
  *   - worker-side enrichment config refresh
- *   - Temporal host (user-triggered jobs, folder imports, pipeline stages)
+ *   - Temporal host (user-triggered jobs, folder imports, pipeline stages, the discover sweep)
  *
  * `stopWorkers()` tears them all down in the correct order, mirroring the
  * `shutdown()` function in `index.ts`.
@@ -25,7 +25,6 @@ import { listLibraryRoots } from '../db/repos/folders.repo.ts';
 import { startAllStages, stopAllStages } from './orchestrator.ts';
 import { stageRegistry } from './registry.ts';
 import { registerDiscoverWorker, unregisterDiscoverWorker } from './discover/register.ts';
-import { startDiscover, type DiscoverHandle } from './discover/index.ts';
 import { sweepOrphanedCaches } from './cache-gc.ts';
 import { bootstrapFfiPool, stopFfiPoolConfigRefresh } from '../ffi/ffi-pool-bootstrap.ts';
 import { decodeMemoryBudget } from '../ffi/decode-memory-budget.ts';
@@ -56,7 +55,6 @@ const log = childLogger('workers');
 // Module-level handles — kept so stopWorkers() can reach them
 // ---------------------------------------------------------------------------
 
-let _discoverHandle: DiscoverHandle | null = null;
 /** Unref'd timer that publishes stageRegistry.statuses() to the `worker_status` row. */
 let _statusInterval: ReturnType<typeof setInterval> | null = null;
 let _countsRefresher: RefresherHandle | null = null;
@@ -104,12 +102,10 @@ export async function startWorkers(): Promise<void> {
   }, 'Worker stages failed to start');
 
   await startSubsystem(async () => {
+    // Registered with or without roots: the Temporal host starts a root's sweep
+    // as soon as the folder is added, and its pause switch applies from then on.
+    registerDiscoverWorker();
     const discoverRoots = (await listLibraryRoots()).map((root) => root.path).filter(Boolean);
-    if (discoverRoots.length > 0) {
-      registerDiscoverWorker();
-      _discoverHandle = await startDiscover({ roots: discoverRoots });
-      log.info({ roots: discoverRoots }, 'discover sweep started in-process');
-    }
 
     // Fire-and-forget cache-gc sweep per library: reaps orphans for
     // hard-deleted or relocated assets and leaves retired hashed/versioned
@@ -127,7 +123,7 @@ export async function startWorkers(): Promise<void> {
         }
       })(root);
     }
-  }, 'Discover failed to start');
+  }, 'Discover registration or cache-gc failed to start');
 
   // Slow-tier enrichment workers run in-process. Each one's failure is
   // isolated — the operator recovers via /settings/enrichment without a
@@ -169,9 +165,10 @@ export async function startWorkers(): Promise<void> {
   }
 
   // User-triggered jobs (export, batch sync, pano, restore), folder imports and
-  // the pipeline stages booted above run on Temporal. Imported here, not at the
-  // top: the SDK loads a native bridge on import, and a platform without one
-  // must still boot the rest of this tier (stages then wait in `stage_state`).
+  // the pipeline stages booted above and the discover sweep run on Temporal.
+  // Imported here, not at the top: the SDK loads a native bridge on import, and
+  // a platform without one must still boot the rest of this tier (stages and the
+  // sweep then wait in the database).
   await startSubsystem(async () => {
     const temporal = await import('../temporal/temporal-host.ts');
     temporal.startTemporalHost();
@@ -238,14 +235,8 @@ export async function stopWorkers(): Promise<void> {
     log.warn({ err: e }, 'error stopping maintenance jobs');
   }
 
-  // Stop the discover sweep (in-process handle).
-  try {
-    await _discoverHandle?.stop();
-    _discoverHandle = null;
-    unregisterDiscoverWorker();
-  } catch (e) {
-    log.warn({ err: e }, 'error stopping discover');
-  }
+  // The sweep itself stops with the Temporal host below.
+  unregisterDiscoverWorker();
 
   // Stages stop before the Temporal host below. A stage's stop() aborts its
   // handlers and settles its running slice within its 30 s drain bound, so the

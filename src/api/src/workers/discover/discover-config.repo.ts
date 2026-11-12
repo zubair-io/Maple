@@ -8,7 +8,7 @@
  * (#3787), which is where they belong: the discover row and a stage row are
  * rows of one table differing only in which columns they fill in, so putting
  * two modules' statements on that table was the thing worth avoiding. This
- * module stays as the import path `index.ts` and `register.ts` already use.
+ * module stays as the import path `discover-activity.ts` and `register.ts` use.
  *
  * Each name is re-exported explicitly rather than with `export *`, so a name
  * whose shape changed fails to compile here instead of being swapped silently.
