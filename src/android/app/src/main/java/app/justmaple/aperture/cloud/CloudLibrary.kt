@@ -3,6 +3,7 @@ package app.justmaple.aperture.cloud
 import android.content.Context
 import android.net.Uri
 import app.justmaple.aperture.data.*
+import app.justmaple.aperture.documents.MapleDocumentsProvider
 import java.io.OutputStream
 import java.time.Instant
 import kotlinx.coroutines.Dispatchers
@@ -14,9 +15,9 @@ import org.json.JSONObject
 
 internal class CloudDerivativePending(val retryMillis: Long) : Exception("Cloud photo is indexing")
 
-class CloudLibrary(context: Context) {
-    private val credentials = CloudCredentials(context)
-    private val http = CloudHttp(credentials)
+class CloudLibrary(private val context: Context) {
+    internal val credentials = CloudCredentials(context)
+    internal val http = CloudHttp(credentials)
     private val signIn = CloudSignIn(credentials)
     val signingIn: Boolean
         get() = signIn.pending
@@ -28,7 +29,10 @@ class CloudLibrary(context: Context) {
 
     fun cancelLogin() = signIn.cancel()
 
-    suspend fun complete(callback: Uri): Folder = source(signIn.complete(callback))
+    suspend fun complete(callback: Uri): Folder =
+        source(signIn.complete(callback)).also {
+            MapleDocumentsProvider.connectionsChanged(context)
+        }
 
     private fun source(server: CloudServer) =
         Folder(root(server.id), Uri.parse(server.origin).authority ?: server.origin)
@@ -36,7 +40,12 @@ class CloudLibrary(context: Context) {
     suspend fun disconnect(folder: Folder): Unit =
         withContext(Dispatchers.IO) {
             val id = folder.uri.host ?: error("Invalid server")
-            http.disconnect(id)
+            try {
+                http.disconnect(id)
+            } finally {
+                // Only this server's provider caches go; other connections keep theirs.
+                MapleDocumentsProvider.connectionsChanged(context, removed = id)
+            }
         }
 
     suspend fun list(uri: Uri): LibraryListing {
@@ -186,7 +195,7 @@ class CloudLibrary(context: Context) {
         private fun root(id: String): Uri =
             Uri.Builder().scheme("maple-cloud").authority(id).build()
 
-        private fun address(id: String, address: String, path: String): Uri =
+        internal fun address(id: String, address: String, path: String): Uri =
             root(id)
                 .buildUpon()
                 .appendQueryParameter("address", address)

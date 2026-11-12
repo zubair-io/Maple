@@ -42,6 +42,9 @@ class AndroidSelectionTests(unittest.TestCase):
             "src/android/scripts/build-native.sh",
             "src/api/src/thumbs/render.ts",
             "src/api/src/indexer/previewer.ts",
+            "src/api/src/routes/changes.ts",
+            "src/api/src/routes/folders.upload.ts",
+            "src/api/src/routes/assets/trash.ts",
             "src/web/projects/maple-common/src/lib/maple-cache/preview-cache-protocol.ts",
             "src/web/projects/maple-common/src/lib/maple-cache/cache-image-format.ts",
             "tools/codegen.sh",
@@ -130,6 +133,7 @@ class AndroidWorkflowTests(unittest.TestCase):
             "python3 tools/android_test_reports.py",
             "sudo udevadm trigger --settle --name-match=kvm",
             "test -r /dev/kvm && test -w /dev/kvm",
+            "bun install --frozen-lockfile",
         ):
             self.assertIn(gate, commands)
         reports = next(
@@ -148,6 +152,7 @@ class AndroidWorkflowTests(unittest.TestCase):
             "vulkan.level",
             "logcat -d",
             "screencap",
+            "scripts/with-cloud-api.sh ./gradlew",
         ):
             self.assertIn(contract, runner)
         self.assertNotIn("connectedDebugAndroidTest ||", runner)

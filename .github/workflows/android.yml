@@ -43,6 +43,13 @@ jobs:
         with:
           workspaces: src/android/native -> target
           cache-on-failure: true
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      # The documents-provider device tests run against a real, disposable Maple API.
+      - name: Install the Maple API for provider device tests
+        working-directory: src/api
+        run: bun install --frozen-lockfile
       - name: Install pinned Android SDK (bounded download recovery)
         run: bash src/android/scripts/install-ci-sdk.sh
       - name: Build arm64 and emulator APKs, JVM contracts and lint

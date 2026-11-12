@@ -100,4 +100,6 @@ else
 	echo 'Android boot UI healthy after one recovery boot'
 fi
 adb logcat -c
-./gradlew --no-daemon "-PmapleAbis=$build_abis" connectedDebugAndroidTest
+# The documents-provider tests talk to a real, disposable Maple API (#5836).
+MAPLE_API_FIXTURE_LOG="$artifacts/api-fixture.log" \
+	bash scripts/with-cloud-api.sh ./gradlew --no-daemon "-PmapleAbis=$build_abis" connectedDebugAndroidTest

@@ -156,7 +156,7 @@ store setup and review are complete.
 
 ```sh
 ./gradlew testDebugUnitTest lintDebug
-./gradlew connectedDebugAndroidTest    # a running arm64 emulator/device
+scripts/with-cloud-api.sh ./gradlew connectedDebugAndroidTest   # running emulator/device; boots src/api
 cargo test --manifest-path native/Cargo.toml --lib
 ```
 
@@ -368,6 +368,14 @@ checks, cancellation during redemption, refresh/disconnect ordering, nested Unic
 paths, real XMP saves/conflicts, and original-byte
 preservation against a temporary fixture server. Live account/passkey-provider
 and physical-device qualification remains outstanding.
+
+Connected servers also appear in the system Files app and every app's document
+picker as **Maple Cloud** (`MapleDocumentsProvider`): browse, on-demand
+downloads, server thumbnails, create/upload, rename and trash where the server
+allows, with change-feed refresh. Originals and existing sidecars stay
+read-only there. See [Android documents provider](../../docs/android-documents-provider.md).
+Its device tests need a real Maple API: run them through
+`scripts/with-cloud-api.sh ./gradlew connectedDebugAndroidTest`.
 
 Numeric raster availability is generated from the Rust raster validator and
 cross-checked by the native test. RAW-only sliders are hidden for raster inputs

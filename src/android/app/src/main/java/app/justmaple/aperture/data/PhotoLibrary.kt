@@ -152,7 +152,7 @@ class PhotoLibrary(private val context: Context) {
                 originals.withLock {
                     check(temporary.renameTo(staged)) { "Could not stage $name" }
                     staged.setLastModified(System.currentTimeMillis())
-                    trim(folder, 512L * 1024 * 1024, setOf(staged))
+                    trimCache(folder, 512L * 1024 * 1024, setOf(staged))
                 }
                 photo
             } finally {
@@ -183,7 +183,7 @@ class PhotoLibrary(private val context: Context) {
                 } finally {
                     converted.delete()
                 }
-                trim(folder, 512L * 1024 * 1024, setOf(source, file))
+                trimCache(folder, 512L * 1024 * 1024, setOf(source, file))
             }
             file.setLastModified(System.currentTimeMillis())
             file
@@ -209,7 +209,7 @@ class PhotoLibrary(private val context: Context) {
             } finally {
                 temporary.delete()
             }
-            trim(folder, 512L * 1024 * 1024, setOf(file))
+            trimCache(folder, 512L * 1024 * 1024, setOf(file))
         }
         file.setLastModified(System.currentTimeMillis())
         return file
@@ -277,7 +277,8 @@ class PhotoLibrary(private val context: Context) {
                     }
                 }
             try {
-                if (result.inserted) trim(folder, 64L * 1024 * 1024, setOfNotNull(result.image.file))
+                if (result.inserted)
+                    trimCache(folder, THUMBNAIL_BYTES, setOfNotNull(result.image.file))
                 return result.image
             } catch (failure: Throwable) {
                 result.image.close()
@@ -289,7 +290,7 @@ class PhotoLibrary(private val context: Context) {
             if (remote != null) {
                 try {
                     if (remote.inserted)
-                        trim(folder, 64L * 1024 * 1024, setOfNotNull(remote.image.file, remote.index))
+                        trimCache(folder, THUMBNAIL_BYTES, setOfNotNull(remote.image.file, remote.index))
                     return remote.image
                 } catch (failure: Throwable) {
                     remote.image.close()
@@ -323,56 +324,13 @@ class PhotoLibrary(private val context: Context) {
             }
             return synchronized(OpenThumbnail.lock) {
                 check(temporary.renameTo(file))
-                trim(folder, 64L * 1024 * 1024, setOf(file))
+                trimCache(folder, THUMBNAIL_BYTES, setOf(file))
                 OpenThumbnail(file)
             }
         } finally {
             temporary.delete()
         }
     }
-
-    private fun trim(folder: File, limit: Long, keep: Set<File>) =
-        synchronized(OpenThumbnail.lock) {
-            val files =
-                folder.listFiles().orEmpty().filter {
-                    it.isFile && !it.name.endsWith(".tmp") && !it.name.startsWith("thumb-")
-                }
-            val indexed =
-                files
-                    .mapNotNull { file ->
-                        val key =
-                            CLOUD_INDEX.matchEntire(file.name)?.groupValues?.get(1)
-                                ?: return@mapNotNull null
-                        val content = runCatching {
-                            org.json.JSONObject(file.readText()).getString("content")
-                        }
-                            .getOrNull()
-                        if (content?.matches(Regex("[0-9a-f]{64}")) == true) key to content
-                        else null
-                    }
-                    .toMap()
-            val entries =
-                files
-                    .groupBy { file ->
-                        val index = CLOUD_INDEX.matchEntire(file.name)?.groupValues?.get(1)
-                        val payload = CLOUD_PAYLOAD.matchEntire(file.name)
-                        when {
-                            index != null && index in indexed -> "cloud-$index"
-                            payload != null &&
-                                indexed[payload.groupValues[1]] == payload.groupValues[2] ->
-                                "cloud-${payload.groupValues[1]}"
-                            else -> file.name
-                        }
-                    }
-                    .values
-                    .sortedByDescending { entry -> entry.maxOf { it.lastModified() } }
-            val protected = entries.filter { entry -> entry.any { it in keep } }
-            var bytes = protected.sumOf { entry -> entry.sumOf { it.length() } }
-            for (entry in entries.filter { group -> group.none { it in keep } }) {
-                val size = entry.sumOf { it.length() }
-                if (bytes + size <= limit) bytes += size else entry.forEach { it.delete() }
-            }
-        }
 
     private fun privateSidecar(photo: Photo) =
         File(
@@ -475,8 +433,8 @@ class PhotoLibrary(private val context: Context) {
         private val io = Mutex()
         private val originals = Mutex()
 
-        private val CLOUD_INDEX = Regex("cloud-([0-9a-f]{64})\\.json")
-        private val CLOUD_PAYLOAD = Regex("cloud-([0-9a-f]{64})-([0-9a-f]{64})\\.avif")
+        /** The `cacheDir/thumbnails` budget, shared with the documents provider. */
+        const val THUMBNAIL_BYTES = 64L * 1024 * 1024
         val EXTENSIONS =
             setOf(
                 "cr2",
