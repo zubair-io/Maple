@@ -1,13 +1,8 @@
 // TemporalSettings.swift — wire types for GET/PUT /api/workers/temporal
-// (#5826): where the server finds its Temporal job server, and what the
-// worker tier last saw there.
-//
-// Server shape: `TemporalStatus` in src/api/src/temporal/temporal-config.ts.
+// (#5826); server shape `TemporalStatus` in src/api/src/temporal/temporal-config.ts.
 
 import Foundation
 
-/// `unknown` means the worker tier has not reported on the currently saved
-/// target yet — right after a save, or while the worker tier is down.
 public enum TemporalConnectionState: String, Decodable, Sendable, Equatable {
   case connected
   case unreachable
@@ -78,6 +73,13 @@ public struct TemporalSettings: Decodable, Sendable, Equatable {
     self.connection = connection
   }
 
+  /// The connection state describes the saved target, not the editable
+  /// draft, so the readout names the target it is about.
+  public var connectionDetail: String {
+    let target = "\(address) · \(namespace)"
+    return connection.detail.map { "\(target) — \($0)" } ?? target
+  }
+
   /// The worker tier reports within about ten seconds of a save, so an
   /// unreported target is re-read quickly and a settled one slowly.
   public var nextPollDelay: Duration {
@@ -85,8 +87,6 @@ public struct TemporalSettings: Decodable, Sendable, Equatable {
   }
 }
 
-/// PUT body. Nil when either field is blank after trimming — the server
-/// rejects that too, so there is nothing worth sending.
 public struct TemporalTarget: Encodable, Sendable, Equatable {
   public let address: String
   public let namespace: String

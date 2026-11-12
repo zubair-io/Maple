@@ -156,7 +156,6 @@ struct ServerAdminView: View {
         WorkersSettingsView(
           client: WorkersAdminClient(server: server, httpClient: httpClient),
           events: eventsClient,
-          isOwner: session.isOwner,
           generatedSearch: GeneratedSearchAdminClient(server: server, httpClient: httpClient),
           generatedSearchCollections: GeneratedSearchClient(server: server, httpClient: httpClient),
           foldersClient: CloudFoldersClient(server: server, httpClient: httpClient),

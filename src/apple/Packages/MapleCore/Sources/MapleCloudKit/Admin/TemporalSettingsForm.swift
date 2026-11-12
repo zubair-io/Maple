@@ -1,10 +1,5 @@
 // TemporalSettingsForm.swift — editable state for the Temporal section of
-// the Workers page (#5826). Mirrors temporal-settings.component.ts.
-//
-// Kept free of SwiftUI so it can be unit-tested directly, like
-// NetworkSettingsForm. Two rules live here: the draft is seeded once and
-// never overwritten by a later poll, and a response issued before a save
-// cannot land after it.
+// the Workers page (#5826).
 
 import Foundation
 
@@ -25,24 +20,21 @@ public struct TemporalSettingsForm: Equatable, Sendable {
     TemporalTarget(address: address, namespace: namespace)
   }
 
-  /// Bumps the generation so every read issued before the save is discarded
-  /// when it lands; the returned token is the one the save response carries.
+  /// Every read issued before the save carries an older token and is
+  /// discarded when it lands; the returned token is the save's own.
   public mutating func beginSave() -> Int {
     generation += 1
     return generation
   }
 
-  /// Applies a response issued under `token`. The first accepted response
-  /// seeds the draft; later ones only refresh the connection readout, so a
-  /// poll never clobbers what the operator is typing.
-  @discardableResult
-  public mutating func adopt(_ next: TemporalSettings, token: Int) -> Bool {
-    guard token == generation else { return false }
+  /// Only the first accepted response seeds the draft, so a poll never
+  /// clobbers what the operator is typing.
+  public mutating func adopt(_ next: TemporalSettings, token: Int) {
+    guard token == generation else { return }
     if settings == nil {
       address = next.address
       namespace = next.namespace
     }
     settings = next
-    return true
   }
 }

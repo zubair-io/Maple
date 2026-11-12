@@ -2,8 +2,7 @@
 //
 // Note these routes are `requireAuth` only, NOT `requireOwner`
 // (src/api/src/workers/routes-main.ts) — unlike /api/cloudflare. Hiding the
-// Workers page from members is a presentation choice, not a boundary. The one
-// exception is `PUT /api/workers/temporal`, which is owner-only.
+// Workers page from members is a presentation choice, not a boundary.
 
 import Foundation
 
@@ -133,9 +132,6 @@ public actor WorkersAdminClient {
     try await get(server.appending(path: "/api/workers/temporal"), as: TemporalSettings.self)
   }
 
-  /// Owner only: unlike the rest of /api/workers this is `requireOwner`
-  /// server-side, so a member gets a 403 `ServerAdminError`. An address that
-  /// isn't host:port comes back as a 400 carrying the server's explanation.
   public func saveTemporal(_ target: TemporalTarget) async throws -> TemporalSettings {
     var request = URLRequest(url: server.appending(path: "/api/workers/temporal"))
     request.httpMethod = "PUT"
