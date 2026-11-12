@@ -71,7 +71,8 @@ val geometryFieldNames =
 val geometryFields: List<AdjustmentField>
     get() = geometryFieldNames.map(AdjustmentFields.byName::getValue)
 
-fun subToolsFor(group: EditorGroup): List<EditorSubTool> =
+/** [raw]: the photo is a RAW, so RAW-only tools (Heal: `retouch_spots` is raster-restricted) are offered. */
+fun subToolsFor(group: EditorGroup, raw: Boolean): List<EditorSubTool> =
     when (group) {
         EditorGroup.Light ->
             listOf(EditorSubTool("basic", "Basic"), EditorSubTool("curve", "Tone Curve"))
@@ -84,12 +85,24 @@ fun subToolsFor(group: EditorGroup): List<EditorSubTool> =
         EditorGroup.Effects ->
             listOf(EditorSubTool("basic", "Basic"), EditorSubTool("presets", "Presets"))
         EditorGroup.Detail ->
-            listOf(
+            listOfNotNull(
                 EditorSubTool("basic", "Basic"),
                 EditorSubTool("crop", "Crop"),
                 EditorSubTool("geometry", "Geometry"),
                 EditorSubTool("mask", "Mask"),
+                EditorSubTool("heal", "Heal").takeIf { raw },
             )
+    }
+
+/** The canvas authoring overlay a sub-tool arms; arming one snaps the canvas to fit. */
+enum class CanvasTool { Mask, Heal }
+
+fun canvasToolFor(editing: Boolean, group: EditorGroup, subTool: String, raw: Boolean): CanvasTool? =
+    when {
+        !editing || group != EditorGroup.Detail -> null
+        subTool == "mask" -> CanvasTool.Mask
+        subTool == "heal" && raw -> CanvasTool.Heal
+        else -> null
     }
 
 fun fieldsForSubTool(
@@ -98,7 +111,7 @@ fun fieldsForSubTool(
     fullInspector: Boolean = false,
 ): List<AdjustmentField> =
     when {
-        group == EditorGroup.Detail && (subToolId == "crop" || subToolId == "mask") -> emptyList()
+        group == EditorGroup.Detail && subToolId in setOf("crop", "mask", "heal") -> emptyList()
         group == EditorGroup.Light && subToolId == "curve" -> toneCurveFields
         group == EditorGroup.Detail && subToolId == "geometry" -> geometryFields
         fullInspector -> group.fields

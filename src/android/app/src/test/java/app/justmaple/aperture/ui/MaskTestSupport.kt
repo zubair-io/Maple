@@ -21,26 +21,30 @@ import org.json.JSONObject
 import org.robolectric.RuntimeEnvironment
 
 /**
- * The JNI renderer is the only seam in the mask tests. raw-core's mask codec sits
- * behind it, so this one keeps the layer JSON inside a single container element:
- * the real `XmpDocument` splice, history, ViewModel and sidecar writer carry it.
- * Weights are a constant full weight and the frame map is the identity unless a test
- * sets [frame]; the eyedropper answers with a fixed seed at the point it is given.
+ * The JNI renderer is the only seam in the mask and heal tests. raw-core's mask and
+ * repair codecs sit behind it, so this one keeps each family's JSON inside a single
+ * container element: the real `XmpDocument` splice, history, ViewModel and sidecar
+ * writer carry it. Weights are a constant full weight and the frame map is the identity
+ * unless a test sets [frame]; the eyedropper answers with a fixed seed at the point it is
+ * given. [raw] is the photo's source kind; [invalidations] counts native model reloads.
  */
-internal class MaskTestRenderer : PreviewRenderer {
+internal class MaskTestRenderer(private val raw: Boolean = true) : PreviewRenderer {
     override val hasPresented = true
     override var revision = 0
     var latest: EditSnapshot? = null
     /** Counted on the tint's background dispatcher, read from the test thread. */
     @Volatile var weightRequests = 0
+    var invalidations = 0
     val samples = mutableListOf<Pair<Float, Float>>()
     /** When set, a sample stays in flight until the test completes it. */
     var sampleGate: CompletableDeferred<Unit>? = null
 
     override fun invalidateDraws() = ++revision
-    override fun invalidateModel() {}
+    override fun invalidateModel() {
+        invalidations++
+    }
     override suspend fun open(path: String, document: String, edge: Int, generation: Int) =
-        mapOf("exposure" to 0f, "_raw" to 1f, "_uncropped_aspect" to 1.5f)
+        mapOf("exposure" to 0f, "_raw" to if (raw) 1f else 0f, "_uncropped_aspect" to 1.5f)
     override suspend fun modelValues(document: String): Map<String, Float> = error("Settings paste is not exercised by this test")
     override suspend fun autoWhiteBalance(document: String): app.justmaple.aperture.WhiteBalanceRecommendation =
         error("White balance analysis is not expected in this test")
@@ -58,24 +62,19 @@ internal class MaskTestRenderer : PreviewRenderer {
     override suspend fun shutdown() {}
     override fun close() {}
 
-    override fun readMasks(input: String): String {
-        val containers = JSONObject(input).getJSONArray("containers")
-        val stored =
-            (0 until containers.length()).firstNotNullOfOrNull {
-                CONTAINER.find(containers.getJSONObject(it).getString("xml"))?.groupValues?.get(1)
-            }
-        return JSONObject().put("layers", stored?.let { JSONArray(unescape(it)) } ?: JSONArray()).toString()
+    override fun readMasks(input: String): String =
+        JSONObject().put("layers", stored(input, MASKS) ?: JSONArray()).toString()
+
+    override fun writeMasks(input: String): String = written(input, MASKS, "layers")
+
+    /** Each stored spot reads back with its position as the entry it was read from. */
+    override fun readRepairs(input: String): String {
+        val spots = stored(input, REPAIRS) ?: JSONArray()
+        for (index in 0 until spots.length()) spots.getJSONObject(index).put("slot", index)
+        return JSONObject().put("spots", spots).toString()
     }
 
-    override fun writeMasks(input: String): String {
-        val json = JSONObject(input)
-        val count = json.getJSONArray("containers").length()
-        val layers = json.getJSONArray("layers")
-        val text = if (layers.length() == 0) "" else "<$TAG>${escape(layers.toString())}</$TAG>"
-        val containers = JSONArray((0 until count).map { if (it == 0) text else "" })
-        val appended = JSONArray(if (count == 0 && text.isNotEmpty()) listOf(text) else emptyList())
-        return JSONObject().put("containers", containers).put("appended", appended).toString()
-    }
+    override fun writeRepairs(input: String): String = written(input, REPAIRS, "spots")
 
     override fun maskWeights(layer: String, width: Int, height: Int): ByteArray {
         weightRequests++
@@ -100,8 +99,27 @@ internal class MaskTestRenderer : PreviewRenderer {
     }
 
     private companion object {
-        const val TAG = "crs:MaskGroupBasedCorrections"
-        val CONTAINER = Regex("<$TAG>(.*)</$TAG>", RegexOption.DOT_MATCHES_ALL)
+        const val MASKS = "crs:MaskGroupBasedCorrections"
+        const val REPAIRS = "crs:RetouchAreas"
+
+        fun container(tag: String) = Regex("<$tag>(.*)</$tag>", RegexOption.DOT_MATCHES_ALL)
+
+        fun stored(input: String, tag: String): JSONArray? {
+            val containers = JSONObject(input).getJSONArray("containers")
+            return (0 until containers.length()).firstNotNullOfOrNull {
+                container(tag).find(containers.getJSONObject(it).getString("xml"))?.groupValues?.get(1)
+            }?.let { JSONArray(unescape(it)) }
+        }
+
+        fun written(input: String, tag: String, key: String): String {
+            val json = JSONObject(input)
+            val count = json.getJSONArray("containers").length()
+            val items = json.getJSONArray(key)
+            val text = if (items.length() == 0) "" else "<$tag>${escape(items.toString())}</$tag>"
+            val containers = JSONArray((0 until count).map { if (it == 0) text else "" })
+            val appended = JSONArray(if (count == 0 && text.isNotEmpty()) listOf(text) else emptyList())
+            return JSONObject().put("containers", containers).put("appended", appended).toString()
+        }
 
         fun escape(text: String) = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
@@ -110,12 +128,12 @@ internal class MaskTestRenderer : PreviewRenderer {
 }
 
 /** A real ViewModel and PhotoLibrary over a temp photo, open for editing. */
-internal class MaskFixture(prefix: String) {
+internal class MaskFixture(prefix: String, rawSource: Boolean = true) {
     val app = RuntimeEnvironment.getApplication()
     val raw: File = File.createTempFile(prefix, ".dng", app.cacheDir).apply { writeText("renderer seam") }
     val photo = Photo(Uri.fromFile(raw), raw.name, raw.length(), raw.lastModified(), null)
     val library = PhotoLibrary(app)
-    val renderer = MaskTestRenderer()
+    val renderer = MaskTestRenderer(rawSource)
     val model = MapleViewModel(app, library, renderer)
 
     init {

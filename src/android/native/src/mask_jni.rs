@@ -14,7 +14,7 @@ use raw_core::RawImage;
 use std::ffi::{c_char, c_void, CString};
 use std::{ptr, slice, sync::Arc};
 
-fn json_call(
+pub(crate) fn json_call(
     input: *const c_char,
     body: fn(&serde_json::Value) -> Result<serde_json::Value, String>,
 ) -> *mut c_char {

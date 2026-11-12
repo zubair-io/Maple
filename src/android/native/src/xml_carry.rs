@@ -1,6 +1,7 @@
-//! Carrying unknown XML through a canonical rewrite: the attributes and child
-//! nodes a writer does not own are re-emitted where the canonical form puts
-//! its element, declaring the namespaces they need there.
+//! Carrying unknown XML through a canonical rewrite, shared by the mask and
+//! repair-spot writers: the attributes and child nodes a writer does not own
+//! are re-emitted where the canonical form puts its element, declaring the
+//! namespaces they need there.
 use crate::mask_document::Bindings;
 use crate::mask_xml::{self, Attr, Element};
 use std::collections::BTreeMap;

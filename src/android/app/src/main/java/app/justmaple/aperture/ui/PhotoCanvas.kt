@@ -43,14 +43,14 @@ internal fun PhotoCanvas(
     badgeStartPadding: Dp = 12.dp,
     badgeBottomPadding: Dp = 12.dp,
     showCropOverlay: Boolean = false,
-    showMaskOverlay: Boolean = false,
+    canvasTool: CanvasTool? = null,
 ) {
     DisposableEffect(model, showCropOverlay) {
         model.setCropToolActive(showCropOverlay)
         onDispose { model.setCropToolActive(false) }
     }
-    // Arming the mask tool snaps to fit so every handle is reachable; zoom stays live after.
-    LaunchedEffect(showMaskOverlay) { if (showMaskOverlay) zoomState.reset() }
+    // Arming a canvas tool snaps to fit so every handle is reachable; zoom stays live after.
+    LaunchedEffect(canvasTool) { if (canvasTool != null) zoomState.reset() }
     var view by remember { mutableStateOf<SurfaceView?>(null) }
     var surfaceVersion by remember { mutableIntStateOf(0) }
     val sampler = remember(state.selected?.key) { HistogramSampler() }
@@ -230,10 +230,14 @@ internal fun PhotoCanvas(
         }
         // Above the native detail patch, in the same zoomed box as the image, so the
         // handles and tint follow pinch and pan and stay visible over refined pixels.
-        if (state.mode == PhotoMode.Edit && showMaskOverlay) {
+        if (state.mode == PhotoMode.Edit && canvasTool != null) {
             val width = minOf(maxWidth, maxHeight * aspect)
             Box(Modifier.size(width, width / aspect).then(zoomModifier)) {
-                MaskOverlay(model, state, zoom = if (zoomState.isZoomed) zoomFactor else 1f)
+                val zoom = if (zoomState.isZoomed) zoomFactor else 1f
+                when (canvasTool) {
+                    CanvasTool.Mask -> MaskOverlay(model, state, zoom)
+                    CanvasTool.Heal -> HealOverlay(model, state, zoom)
+                }
             }
         }
         if (state.mode == PhotoMode.Edit && state.comparingBefore) {

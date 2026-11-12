@@ -18,7 +18,7 @@ filmstrip. With a connected server, Search queries that server (see Cloud
 connections); without one it filters names in the open folder. Maple Cloud/self-hosted
 connections support the iPad server-domain sign-in flow, registered libraries,
 nested folders, remote previews, and editing with conditional XMP saves. Device-library
-backup, server timeline/map/admin, brush and person masks, clone/heal, Browse multi-select (and with it
+backup, server timeline/map/admin, brush and person masks, Browse multi-select (and with it
 paste onto a selection) and the other remaining specialized editor surfaces are not
 implemented; the per-surface status is
 the audit on #4623, which remains open. Android delegates
@@ -119,6 +119,41 @@ drops it; when the attribute holds an entry or field raw-core does not read, or 
 Android does not author, the write is refused so nothing is lost. The slider ranges come
 from raw-core's `types/local_adjustment/controls.rs` through `tools/codegen.sh`
 (`generated/LocalMaskControls.kt`).
+
+## Clone / heal
+
+Detail → Heal (offered for RAW photos only, because raw-core rejects repair spots on a
+raster, `AdjustmentFields.rasterRestricted`) places clone / heal spots as on Web and Apple
+(`docs/features.md` § "Clone / heal brush"). The panel has the Heal / Clone toggle, size
+(0.2–20 % of the frame width), feather and opacity, which seed the next spot and rewrite
+the selected one; the spot list with select and delete; and Reset, which removes every
+listed spot. Selecting a spot loads its shape into those controls.
+
+While the tool is armed the canvas snaps to fit and `HealOverlay` draws every destination
+disc, plus the selected spot's dashed source disc and the line joining them. Spots cross
+the same crop map and zoomed image box as the mask overlay (`rememberFrameMaps`), and a
+disc's radius is a fraction of the frame width, so it stays a circle. Tapping empty
+canvas places a spot with the brush, its source 1.5 radii to the right; dragging on from
+that tap aims the source. A press on a spot selects it and drags it (the destination
+carries its source with it) or the selected spot's source alone. A second finger before
+the tap lands leaves the gesture to canvas zoom. A placement, a mode change, a delete
+and Reset are one undo entry each; a drag is one entry opened on its first movement;
+selection adds none. The overlay handles, list rows and panel controls carry accessibility
+labels and `editor-heal-*` test tags.
+
+Spots are read and written through raw-core in the native crate (`retouch_document.rs`).
+Each `crs:RetouchAreas` entry is read through raw-core's own parser, so the list is exactly
+what renders. An unchanged entry keeps its bytes; an edited or new spot is raw-core's
+canonical entry (`serialize_retouch_areas`), carrying the unknown attributes and child
+nodes of the entry it came from and Lightroom's own `crs:Seed`, `crs:MaskValue`,
+`crs:Flow` and `crs:CenterWeight`. Entries raw-core does not model (Lightroom brush heals)
+are not listed and stay in place. A list held only in Lightroom's legacy
+`crs:RetouchInfo` strings converts to `crs:RetouchAreas` on the first edit. A written list
+carries `papp:RetouchFrameVersion="2"`, and an unrelated save stamps an unstamped
+Lightroom list, because the Maple markup the save adds would otherwise make every reader
+treat it as the legacy sensor frame (`docs/xmp-canonical-format.md` § "Repair spots").
+Repair runs in raw-core's decode product: a spot change reloads the native model, whose
+preparation re-decodes the capture. Copy / Paste settings never moves spots.
 
 ## Build
 

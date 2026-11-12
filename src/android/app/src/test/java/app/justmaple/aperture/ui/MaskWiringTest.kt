@@ -85,7 +85,8 @@ class MaskWiringTest {
         compose.setContent {
             val state by model.state.collectAsState()
             Box(Modifier.size(400.dp, 300.dp)) {
-                PhotoCanvas(model, state, onHistogram = {}, zoomState = zoom, showMaskOverlay = armedTool)
+                PhotoCanvas(model, state, onHistogram = {}, zoomState = zoom,
+                    canvasTool = CanvasTool.Mask.takeIf { armedTool })
             }
         }
         compose.onNodeWithTag("editor-mask-overlay").assertDoesNotExist()

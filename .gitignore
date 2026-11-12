@@ -61,6 +61,9 @@ test-fixtures/*
 # Exception: Lightroom profile-look sidecars (#4685) — two small XMPs shared
 # by the raw-core, MapleCore and maple-common reader/passthrough tests.
 !test-fixtures/look-profiles/
+# Exception: Lightroom-shaped repair-spot sidecars (#5904) — small XMPs read by
+# the Android native repair writer tests and Android's XmpDocument splice test.
+!test-fixtures/retouch/
 # Exception: the shared workflow corpus (#4035/#4983) — the v2 wire corpus and
 # one real v1 sidecar for the migration — read by raw-core, the Swift, Web and
 # API contract tests and tools/qualification/workflow-roundtrip.sh. No RAWs.

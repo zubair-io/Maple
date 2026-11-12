@@ -283,6 +283,8 @@ internal constructor(
                 maskPicking = false,
                 maskSampling = false,
                 maskMessage = null,
+                healSelection = null,
+                healMessage = null,
                 error = null,
             )
         }
@@ -804,7 +806,7 @@ internal constructor(
         }
     }
 
-    /** Mask authoring (`MaskSession.kt`) writes through the same gesture as every document edit. */
+    /** Canvas authoring (`MaskSession.kt`, `HealSession.kt`) writes through the same gesture as every document edit. */
     internal fun updateMaskDocument(commit: Boolean, transform: (XmpDocument) -> XmpDocument) =
         updateDocument(commit, transform)
 

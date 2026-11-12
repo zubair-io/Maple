@@ -40,7 +40,7 @@ internal fun BookSplitPhotoSurface(
 ) {
     val editing = state.mode == PhotoMode.Edit
     val cropActive = editing && group == EditorGroup.Detail && subTool == "crop"
-    val maskActive = editing && group == EditorGroup.Detail && subTool == "mask"
+    val canvasTool = canvasToolFor(editing, group, subTool, raw = state.values["_raw"] == 1f)
     Row(
         Modifier.fillMaxSize()
             .background(MapleColors.canvas)
@@ -60,7 +60,7 @@ internal fun BookSplitPhotoSurface(
                 badgeStartPadding = 12.dp,
                 badgeBottomPadding = if (state.showFilmstrip) 76.dp else 12.dp,
                 showCropOverlay = cropActive,
-                showMaskOverlay = maskActive,
+                canvasTool = canvasTool,
             )
             if (editing && armedField != null)
                 androidx.compose.animation.AnimatedVisibility(hud, Modifier.align(Alignment.Center)) {
@@ -173,7 +173,7 @@ internal fun TabletopSplitPhotoSurface(
 ) {
     val editing = state.mode == PhotoMode.Edit
     val cropActive = editing && group == EditorGroup.Detail && subTool == "crop"
-    val maskActive = editing && group == EditorGroup.Detail && subTool == "mask"
+    val canvasTool = canvasToolFor(editing, group, subTool, raw = state.values["_raw"] == 1f)
     Column(
         Modifier.fillMaxSize()
             .background(MapleColors.canvas)
@@ -191,7 +191,7 @@ internal fun TabletopSplitPhotoSurface(
                 modifier = Modifier.fillMaxSize(),
                 zoomState = zoomState,
                 showCropOverlay = cropActive,
-                showMaskOverlay = maskActive,
+                canvasTool = canvasTool,
             )
             if (editing && armedField != null)
                 androidx.compose.animation.AnimatedVisibility(hud, Modifier.align(Alignment.Center)) {

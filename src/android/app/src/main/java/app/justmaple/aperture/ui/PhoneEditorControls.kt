@@ -37,9 +37,11 @@ internal fun PhoneEditorControls(
     activeSubTool: String? = null,
     onSubToolChange: ((String) -> Unit)? = null,
 ) {
-    val subTools = remember(group) { subToolsFor(group) }
+    val raw = state.values["_raw"] == 1f
+    val subTools = remember(group, raw) { subToolsFor(group, raw) }
     var internalSubTool by remember(group) { mutableStateOf(subTools.first().id) }
-    val subTool = activeSubTool ?: internalSubTool
+    // A RAW-only tool falls back to the group's first tool when the photo is not a RAW.
+    val subTool = (activeSubTool ?: internalSubTool).takeIf { id -> subTools.any { it.id == id } } ?: subTools.first().id
     var band by remember(group) { mutableStateOf(HslBand.Red) }
     var curveFamily by rememberSaveable { mutableStateOf(ToneCurveFamily.Scene) }
     fun sliderFields(tool: String) =
@@ -123,6 +125,10 @@ internal fun PhoneEditorControls(
         if (group == EditorGroup.Detail && subTool == "mask")
             Column(Modifier.fillMaxWidth().heightIn(max = 320.dp).verticalScroll(rememberScrollState())) {
                 MaskPanel(model, state, Modifier.padding(horizontal = 12.dp, vertical = 4.dp))
+            }
+        if (group == EditorGroup.Detail && subTool == "heal")
+            Column(Modifier.fillMaxWidth().heightIn(max = 320.dp).verticalScroll(rememberScrollState())) {
+                HealPanel(model, state, Modifier.padding(horizontal = 12.dp, vertical = 4.dp))
             }
         if (dockFields.isNotEmpty()) LazyRow(
             Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 8.dp),

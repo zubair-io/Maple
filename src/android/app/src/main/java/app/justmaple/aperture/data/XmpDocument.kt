@@ -17,14 +17,14 @@ private constructor(
     val changes: Map<String, String?>,
     /** Point curves replaced since [original]; an empty list is the identity. */
     val curves: Map<PointCurve, List<CurveKnot>>,
-    /** The mask containers rewritten since [original]; `null` keeps their bytes. */
-    val masks: MaskEdit?,
+    /** The child containers each native writer rewrote since [original]; absent families keep their bytes. */
+    val edits: Map<ChildFamily, ChildEdit>,
 ) {
     constructor(
         original: String = EMPTY,
         changes: Map<String, String?> = emptyMap(),
         curves: Map<PointCurve, List<CurveKnot>> = emptyMap(),
-    ) : this(ParsedSource(original), changes, curves, null)
+    ) : this(ParsedSource(original), changes, curves, emptyMap())
 
     val original: String
         get() = source.xml
@@ -45,63 +45,108 @@ private constructor(
                 DescriptionTag(tag.range, tag.value, effectiveBindings(tag.value, scope.bindings), scope.defaultNamespace)
             }
         }
-        val maskContainers by lazy {
-            matchingChildren(xml, descriptionTags, ::elementName) { it in MASK_CONTAINERS }
+        val children by lazy {
+            ChildFamily.entries.associateWith { family ->
+                matchingChildren(xml, descriptionTags, ::elementName) { it in family.names }
+            }
+        }
+        /**
+         * A Maple namespace appears in the source outside an embedded `papp:Workflow` record,
+         * so raw-core reads it as Maple-authored.
+         */
+        val pappPresent by lazy {
+            WORKFLOW.replace(xml, "").let { text -> (LEGACY_PAPP + NAMESPACES.getValue("papp")).any { it in text } }
+        }
+        /**
+         * raw-core reads the source's repair list as upright without a frame stamp, because
+         * the source carries no Maple markup (Lightroom). Any save adds Maple markup, so it must
+         * stamp the list or every reader would turn it into the legacy sensor frame (#4473).
+         */
+        val unstampedUprightRepairs by lazy {
+            !pappPresent &&
+                children.getValue(ChildFamily.Repairs).any { (child, _) ->
+                    REPAIR_ENTRY.containsMatchIn(xml.substring(child.start, child.end + 1))
+                }
         }
     }
 
     override fun equals(other: Any?): Boolean =
         this === other ||
             (other is XmpDocument && original == other.original && changes == other.changes &&
-                curves == other.curves && masks == other.masks)
+                curves == other.curves && edits == other.edits)
 
     override fun hashCode(): Int =
-        31 * (31 * (31 * original.hashCode() + changes.hashCode()) + curves.hashCode()) + masks.hashCode()
+        31 * (31 * (31 * original.hashCode() + changes.hashCode()) + curves.hashCode()) + edits.hashCode()
 
     fun curve(curve: PointCurve): List<CurveKnot> = curves[curve] ?: source.curves[curve].orEmpty()
 
-    private fun originalMask(index: Int): String =
-        source.maskContainers[index].first.let { original.substring(it.start, it.end + 1) }
+    private fun originalChild(family: ChildFamily, index: Int): String =
+        source.children.getValue(family)[index].first.let { original.substring(it.start, it.end + 1) }
 
-    /** The mask containers as they stand, each with the scope it is read in. */
-    private fun currentMasks(): List<Pair<Int?, JSONObject>> {
-        val last = source.descriptionTags.last()
-        val target = maskTarget(last)
-        val kept = source.maskContainers.indices.mapNotNull { index ->
-            val text = masks?.containers?.get(index) ?: originalMask(index)
-            val scope = source.maskContainers[index].second.scope
-            text.takeIf { it.isNotEmpty() }?.let { index to maskSource(scope, it) }
+    private fun childTexts(family: ChildFamily): List<String> =
+        source.children.getValue(family).indices.map { edits[family]?.containers?.get(it) ?: originalChild(family, it) }
+
+    /** The family's containers as they stand, each with the scope it is read in. */
+    private fun currentChildren(family: ChildFamily): List<Pair<Int?, JSONObject>> {
+        val target = childTarget(source.descriptionTags.last())
+        val kept = childTexts(family).mapIndexedNotNull { index, text ->
+            val scope = source.children.getValue(family)[index].second.scope
+            text.takeIf { it.isNotEmpty() }?.let { index to childSource(scope, it) }
         }
-        return kept + masks?.appended.orEmpty().map { null to maskSource(target, it) }
+        return kept + edits[family]?.appended.orEmpty().map { null to childSource(target, it) }
     }
 
-    /** `mask_document.rs`'s input for the current mask containers. */
-    fun maskInput(): JSONObject {
+    /** A native reader/writer's input for the family's current containers. */
+    private fun childInput(family: ChildFamily): JSONObject {
         val last = source.descriptionTags.last()
         return JSONObject()
-            .put("target", JSONObject(maskTarget(last).toMap()))
-            .put("containers", JSONArray(currentMasks().map { it.second }))
-            .put("legacy", attribute(LEGACY_MASKS) ?: JSONObject.NULL)
+            .put("target", JSONObject(childTarget(last).toMap()))
+            .put("containers", JSONArray(currentChildren(family).map { it.second }))
             .put("indent", childIndent(original, last))
     }
 
-    /** The document after `mask_write.rs` replaced the containers [maskInput] described. */
-    fun withMaskOutput(output: JSONObject): XmpDocument {
+    /** The edit after a native writer replaced the containers [childInput] described. */
+    private fun childOutput(family: ChildFamily, output: JSONObject): Map<ChildFamily, ChildEdit> {
         val replaced = output.getJSONArray("containers")
         val written = output.getJSONArray("appended")
-        val containers = source.maskContainers.indices.map { masks?.containers?.get(it) ?: originalMask(it) }.toMutableList()
+        val containers = childTexts(family).toMutableList()
         val appended = mutableListOf<String>()
-        currentMasks().forEachIndexed { position, (index, _) ->
+        currentChildren(family).forEachIndexed { position, (index, _) ->
             val text = replaced.getString(position)
             if (index != null) containers[index] = text else if (text.isNotEmpty()) appended += text
         }
         for (position in 0 until written.length()) appended += written.getString(position)
-        val unchanged = appended.isEmpty() && containers.indices.all { containers[it] == originalMask(it) }
-        val withoutLegacy = if (attribute(LEGACY_MASKS) != null) changes + (LEGACY_MASKS to null) else changes
-        return XmpDocument(source, withoutLegacy, curves, if (unchanged) null else MaskEdit(containers, appended))
+        val unchanged = appended.isEmpty() && containers.indices.all { containers[it] == originalChild(family, it) }
+        return if (unchanged) edits - family else edits + (family to ChildEdit(containers, appended))
     }
 
-    private fun maskTarget(last: DescriptionTag): Map<String, String> =
+    /** `mask_document.rs`'s input for the current mask containers. */
+    fun maskInput(): JSONObject = childInput(ChildFamily.Masks).put("legacy", attribute(LEGACY_MASKS) ?: JSONObject.NULL)
+
+    /** The document after `mask_write.rs` replaced the containers [maskInput] described. */
+    fun withMaskOutput(output: JSONObject): XmpDocument {
+        val withoutLegacy = if (attribute(LEGACY_MASKS) != null) changes + (LEGACY_MASKS to null) else changes
+        return XmpDocument(source, withoutLegacy, curves, childOutput(ChildFamily.Masks, output))
+    }
+
+    /** `retouch_document.rs`'s input for the current repair containers. */
+    fun repairInput(): JSONObject = childInput(ChildFamily.Repairs)
+
+    /**
+     * The document after `retouch_document.rs` replaced the containers [repairInput]
+     * described. Every host authors spots over the upright image, so a written list is
+     * stamped `papp:RetouchFrameVersion="2"` (adopting an unstamped legacy list, as Apple
+     * and Web do) and an emptied one drops the stamp.
+     */
+    fun withRepairOutput(output: JSONObject, hasSpots: Boolean): XmpDocument =
+        XmpDocument(
+            source,
+            changes + (RETOUCH_FRAME to if (hasSpots) "2" else null),
+            curves,
+            childOutput(ChildFamily.Repairs, output),
+        )
+
+    private fun childTarget(last: DescriptionTag): Map<String, String> =
         last.scope + outputPrefixes(last.bindings).map { (canonical, prefix) -> prefix to NAMESPACES.getValue(canonical) }
 
     /** Restoring the loaded knots drops the change, so the saved bytes stay untouched. */
@@ -110,7 +155,7 @@ private constructor(
             source,
             changes,
             if (knots == source.curves[curve].orEmpty()) curves - curve else curves + (curve to knots),
-            masks,
+            edits,
         )
 
     fun withField(field: AdjustmentField, value: Float): XmpDocument {
@@ -127,7 +172,7 @@ private constructor(
                     "papp:WbSource" to "Manual",
                 )
             else emptyMap()
-        return XmpDocument(source, changes + additions + wb, curves, masks)
+        return XmpDocument(source, changes + additions + wb, curves, edits)
     }
 
     val rating: Int
@@ -138,7 +183,7 @@ private constructor(
                 ?.toInt() ?: 0
 
     fun withAttribute(name: String, value: String?) =
-        XmpDocument(source, changes + (name to value), curves, masks)
+        XmpDocument(source, changes + (name to value), curves, edits)
 
     fun withoutWhiteBalance(): XmpDocument =
         listOf(
@@ -188,8 +233,13 @@ private constructor(
                     }
                     if (mapleAuthored) "1" else AdjustmentFields.whiteBalanceScaleVersion.toString()
                 } else null
+        // An untouched upright Lightroom list gains the stamp the Maple markup below requires.
+        val frame =
+            if (source.unstampedUprightRepairs && ChildFamily.Repairs !in edits && RETOUCH_FRAME !in changes)
+                mapOf(RETOUCH_FRAME to "2")
+            else emptyMap()
         val owned =
-            changes +
+            changes + frame +
                 mapOf(
                     "papp:Profile" to profile,
                     "papp:WbScaleVersion" to wbScale,
@@ -201,21 +251,23 @@ private constructor(
         val descriptionTags = source.descriptionTags
         val last = descriptionTags.last()
         val indent = childIndent(original, last)
-        val maskEdits = masks?.let { edit ->
-            source.maskContainers.mapIndexedNotNull { index, (child, description) ->
+        val childEdits = edits.flatMap { (family, edit) ->
+            source.children.getValue(family).mapIndexedNotNull { index, (child, description) ->
                 val text = edit.containers[index]
                 when {
-                    text == originalMask(index) -> null
+                    text == originalChild(family, index) -> null
                     text.isEmpty() -> removal(original, child, description)
                     else -> XmlEdit(child.start, child.end, text)
                 }
             }
-        }.orEmpty()
+        }
         val block =
             pointCurveBlock(curves, last, outputPrefixes(lastScope.bindings), indent) +
-                masks?.appended.orEmpty().joinToString("") { "\n$indent$it" }
+                ChildFamily.entries.joinToString("") { family ->
+                    edits[family]?.appended.orEmpty().joinToString("") { "\n$indent$it" }
+                }
         val (insertion, selfClosingTail) = appendToDescription(original, last, block)
-        val curveEdits = pointCurveRemovals(original, descriptionTags, curves, ::elementName) + maskEdits + insertion
+        val curveEdits = pointCurveRemovals(original, descriptionTags, curves, ::elementName) + childEdits + insertion
         val replacements = tags.map { (tag, scope) ->
             val stripped =
                 ATTRIBUTE.replace(tag.value) { match ->
@@ -278,6 +330,13 @@ private constructor(
         private val LEGACY_PAPP = setOf("http://ns.justmaple.app/1.0/", "https://maple.app/ns/1.0/")
         /** Slice 1's JSON mask attribute: raw-core still reads it when no container models a layer. */
         private const val LEGACY_MASKS = "papp:LocalAdjustments"
+        /** The repair list's frame stamp (`docs/xmp-canonical-format.md` § "Repair spots"). */
+        private const val RETOUCH_FRAME = "papp:RetouchFrameVersion"
+        /** An entry of a repair list's sequence. */
+        private val REPAIR_ENTRY = Regex("""<(?:[^\s/>:]+:)?li[\s/>]""")
+        /** An embedded workflow record, which raw-core never reads as Maple authorship. */
+        private val WORKFLOW =
+            Regex("""<([^\s/>:]+:|)Workflow[\s/>](?:[^>]*/>|.*?</\1Workflow\s*>)""", RegexOption.DOT_MATCHES_ALL)
 
         /** [bindings] as [serialize] leaves them: a local legacy `papp` declaration is rewritten. */
         private fun effectiveBindings(tag: String, bindings: Map<String, String>): Map<String, String> =

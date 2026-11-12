@@ -34,6 +34,12 @@ interface PreviewRenderer : Closeable {
     /** raw-core's canonical containers for [input]'s edited `layers`. */
     fun writeMasks(input: String): String = NativeBridge.masksWrite(input)
 
+    /** raw-core's reading of the repair containers [input] describes (`XmpDocument.repairInput`). */
+    fun readRepairs(input: String): String = NativeBridge.retouchRead(input)
+
+    /** raw-core's canonical repair containers for [input]'s edited `spots`. */
+    fun writeRepairs(input: String): String = NativeBridge.retouchWrite(input)
+
     /** The layer's weight over the full frame from raw-core's evaluator, `0…255` per cell. */
     fun maskWeights(layer: String, width: Int, height: Int): ByteArray = NativeBridge.maskWeights(layer, width, height)
 

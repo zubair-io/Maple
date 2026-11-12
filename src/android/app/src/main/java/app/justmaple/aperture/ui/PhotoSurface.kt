@@ -50,13 +50,13 @@ fun PhotoSurface(
     val zoomState = rememberCanvasZoomState()
     val editing = state.mode == PhotoMode.Edit
     val cropActive = editing && group == EditorGroup.Detail && subTool == "crop"
-    val maskActive = editing && group == EditorGroup.Detail && subTool == "mask"
+    val canvasTool = canvasToolFor(editing, group, subTool, raw = state.values["_raw"] == 1f)
     val field = if (cropActive) null else AdjustmentFields.byName[armed]?.takeIf(state::supportsField)
     val value = field?.let { state.values[it.name] ?: it.initial } ?: 0f
     if (state.selected == null) return
     val selectGroup: (EditorGroup) -> Unit = {
         group = it
-        subTool = subToolsFor(it).first().id
+        subTool = subToolsFor(it, raw = state.values["_raw"] == 1f).first().id
         armed = it.tools.first().field
     }
     val toggleAdjustments: () -> Unit = {
@@ -146,7 +146,7 @@ fun PhotoSurface(
                     badgeStartPadding = badgeStart,
                     badgeBottomPadding = badgeBottom,
                     showCropOverlay = cropActive,
-                    showMaskOverlay = maskActive,
+                    canvasTool = canvasTool,
                 )
                 if (regular && state.showFilmstrip)
                     FloatingFilmstrip(

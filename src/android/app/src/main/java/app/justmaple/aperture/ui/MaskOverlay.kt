@@ -80,6 +80,23 @@ private fun maskFrameSize(aspect: Float): NativeImageSize =
     if (aspect >= 1f) NativeImageSize(FRAME_EDGE, (FRAME_EDGE / aspect).roundToInt().coerceAtLeast(2))
     else NativeImageSize((FRAME_EDGE * aspect).roundToInt().coerceAtLeast(2), FRAME_EDGE)
 
+/**
+ * The presented image's (normalised) projective map onto the full frame canvas tools author
+ * in, and its inverse (`mask_frame`): the crop, then the manual geometry, as the render
+ * samples the frame. Shared by the Mask and Heal overlays.
+ */
+@Composable
+internal fun rememberFrameMaps(model: MapleViewModel, state: MapleState): Pair<MaskProjection?, MaskProjection?> {
+    val aspect = state.uncroppedAspect()
+    val crop = remember(state.document, state.cropToolActive) { state.presentedCropRect() }
+    val geometry = state.presentedGeometry()
+    val toFrame =
+        remember(crop, aspect, geometry) {
+            runCatching { MaskProjection(model.renderer.maskFrame(maskFrameSize(aspect), crop, geometry)) }.getOrNull()
+        }
+    return toFrame to remember(toFrame) { toFrame?.inverse() }
+}
+
 /** raw-core's weights for [layer] as a tint bitmap over the full frame, `TINT_PEAK` at `w = 1`. */
 private fun tintBitmap(model: MapleViewModel, layer: MaskLayer, aspect: Float): Bitmap {
     val (w, h) =
@@ -114,13 +131,7 @@ internal fun MaskOverlay(model: MapleViewModel, state: MapleState, zoom: Float, 
     val layer = state.selectedMask(layers)
     val shape = layer?.let(state::editedShape)
     val aspect = state.uncroppedAspect()
-    val crop = remember(state.document, state.cropToolActive) { state.presentedCropRect() }
-    val geometry = state.presentedGeometry()
-    val toFrame =
-        remember(crop, aspect, geometry) {
-            runCatching { MaskProjection(model.renderer.maskFrame(maskFrameSize(aspect), crop, geometry)) }.getOrNull()
-        }
-    val fromFrame = remember(toFrame) { toFrame?.inverse() }
+    val (toFrame, fromFrame) = rememberFrameMaps(model, state)
     val tint by
         produceState<Bitmap?>(null, layer, aspect) {
             value = layer?.let { selected ->
