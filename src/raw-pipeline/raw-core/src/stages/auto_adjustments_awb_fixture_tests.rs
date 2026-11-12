@@ -10,10 +10,15 @@
 //! that; a per-fixture bound on the distance from the camera's reading can.
 
 use super::*;
-use crate::pipeline::{develop_scene_linear_from_raw_with_quality, RenderQuality};
+use crate::pipeline::{
+    develop_scene_linear_from_raw_with_quality, develop_scene_linear_sized_from_raw_with_quality,
+    RenderQuality,
+};
 use crate::stages::auto_adjustments::compute_auto_adjustments;
+use crate::stages::imported_auto_wb;
 use crate::test_support::fixtures::{decode_raw, REFERENCE_RAWS};
 use crate::types::adjustment::AutoExposureMode;
+use crate::CancelToken;
 
 /// ACR's own Auto white balance on the reference set, as `(fixture, K, tint)`
 /// in ACR's slider frame — the frame `stages::wb_camera` renders in (#1894).
@@ -75,7 +80,39 @@ struct Row {
     auto: (f32, f32),
 }
 
-fn rows() -> Vec<Row> {
+/// A caller of the shared estimator and the probe it measures. Every cell
+/// below holds for both callers at the same budgets.
+struct Estimator {
+    estimate: fn(&RawImage) -> (f32, f32),
+    probe: fn(&RawImage, &AdjustmentModel) -> Image,
+}
+
+/// AUTO, on its full Preview develop.
+const AUTO: Estimator = Estimator {
+    estimate: |raw| {
+        let a = compute_auto_adjustments(raw, &AdjustmentModel::default()).unwrap();
+        (a.temperature, a.tint)
+    },
+    probe: |raw, model| {
+        develop_scene_linear_from_raw_with_quality(raw, model, RenderQuality::Preview).unwrap()
+    },
+};
+
+/// An imported name-only Auto request, on its 1536 px sized probe (#4669).
+const IMPORTED: Estimator = Estimator {
+    estimate: |raw| imported_auto_wb::estimate(raw, CancelToken::never()).unwrap(),
+    probe: |raw, model| {
+        develop_scene_linear_sized_from_raw_with_quality(
+            raw,
+            model,
+            RenderQuality::Preview,
+            imported_auto_wb::PROBE_LONG_EDGE,
+        )
+        .unwrap()
+    },
+};
+
+fn rows(estimator: &Estimator) -> Vec<Row> {
     println!(
         "{:<14}{:>10}{:>8}{:>10}{:>8}{:>9}{:>8}",
         "fixture", "shot K", "tint", "auto K", "tint", "Δmired", "Δtint"
@@ -85,8 +122,7 @@ fn rows() -> Vec<Row> {
         .map(|name| {
             let raw = decode_raw(name);
             let shot = dcp::estimate_as_shot_cct_tint(&raw).unwrap();
-            let a = compute_auto_adjustments(&raw, &AdjustmentModel::default()).unwrap();
-            let auto = (a.temperature, a.tint);
+            let auto = (estimator.estimate)(&raw);
             println!(
                 "{:<14}{:>10.0}{:>8.1}{:>10.0}{:>8.1}{:>9.1}{:>8.1}",
                 name,
@@ -110,12 +146,10 @@ fn rows() -> Vec<Row> {
 /// as-shot reading is a usable prior, the recommendation sits within
 /// `MAX_MIRED_MOVE` / `MAX_TINT_MOVE` of it — the #2247 railing (−83.6
 /// against +3.9 on test_0017) is 87 units out.
-#[test]
-#[cfg_attr(not(feature = "fixtures"), ignore)]
-fn auto_wb_stays_inside_its_band_around_the_camera_reading() {
+fn stays_inside_its_band_around_the_camera_reading(estimator: &Estimator) {
     let (t_lo, t_hi) = schema_range("temperature");
     let (tint_lo, tint_hi) = schema_range("tint");
-    let violations: Vec<String> = rows()
+    let violations: Vec<String> = rows(estimator)
         .iter()
         .filter(|r| (t_lo..=t_hi).contains(&r.shot.0) && (tint_lo..=tint_hi).contains(&r.shot.1))
         .filter(|r| {
@@ -135,10 +169,8 @@ fn auto_wb_stays_inside_its_band_around_the_camera_reading() {
 /// Calibration against the reference renderer: across the set, AUTO must land
 /// closer to ACR's Auto than the as-shot reading does on temperature, and no
 /// worse on tint — and it must actually move, on at least half the fixtures.
-#[test]
-#[cfg_attr(not(feature = "fixtures"), ignore)]
-fn auto_wb_moves_toward_acr_auto_and_carries_information() {
-    let rows = rows();
+fn moves_toward_acr_auto_and_carries_information(estimator: &Estimator) {
+    let rows = rows(estimator);
     let acr = |name: &str| {
         ACR_AUTO
             .iter()
@@ -194,9 +226,7 @@ fn auto_wb_moves_toward_acr_auto_and_carries_information() {
 /// frame-consistency assertion — an estimate solved in a frame the chain
 /// does not render in (defect 4 in the module doc) overshoots on the
 /// second pass instead of standing still.
-#[test]
-#[cfg_attr(not(feature = "fixtures"), ignore)]
-fn auto_wb_is_a_fixed_point_of_its_own_recommendation() {
+fn is_a_fixed_point_of_its_own_recommendation(estimator: &Estimator) {
     // Calibrated bodies only: the generic tier (test_0006 is an 8-bit lossy
     // LinearRaw whose WB is a post-DCP CAT16 delta from 6500 K / 0) reads its
     // residual against the probe's own render, so a second pass at the
@@ -211,29 +241,66 @@ fn auto_wb_is_a_fixed_point_of_its_own_recommendation() {
     ];
     for name in SAMPLE {
         let raw = decode_raw(name);
-        let first = compute_auto_adjustments(&raw, &AdjustmentModel::default()).unwrap();
+        let first = (estimator.estimate)(&raw);
         let balanced = AdjustmentModel {
             auto_exposure: AutoExposureMode::Off,
             highlight_recovery: crate::xmp::HighlightRecoveryMode::Off,
-            temperature: first.temperature,
-            tint: first.tint,
+            temperature: first.0,
+            tint: first.1,
             temperature_seen: true,
             tint_seen: true,
             ..AdjustmentModel::default()
         };
-        let probe =
-            develop_scene_linear_from_raw_with_quality(&raw, &balanced, RenderQuality::Preview)
-                .unwrap();
+        let probe = (estimator.probe)(&raw, &balanced);
         let second = compute_awb(&probe, &raw, &balanced);
         println!(
             "{name:<14} first {:.0} K / {:.1}   re-estimated at that render {:.0} K / {:.1}",
-            first.temperature, first.tint, second.0, second.1
+            first.0, first.1, second.0, second.1
         );
         assert!(
-            ((second.0 / first.temperature).log2().abs() < 0.03)
-                && (second.1 - first.tint).abs() < 1.5,
-            "{name}: not a fixed point — first {:?}, second {second:?}",
-            (first.temperature, first.tint)
+            agree(first, second),
+            "{name}: not a fixed point — first {first:?}, second {second:?}"
         );
     }
+}
+
+/// The fixed-point tolerance: two estimates of one light.
+fn agree(a: (f32, f32), b: (f32, f32)) -> bool {
+    (b.0 / a.0).log2().abs() < 0.03 && (b.1 - a.1).abs() < 1.5
+}
+
+#[test]
+#[cfg_attr(not(feature = "fixtures"), ignore)]
+fn auto_wb_stays_inside_its_band_around_the_camera_reading() {
+    stays_inside_its_band_around_the_camera_reading(&AUTO);
+}
+
+#[test]
+#[cfg_attr(not(feature = "fixtures"), ignore)]
+fn auto_wb_moves_toward_acr_auto_and_carries_information() {
+    moves_toward_acr_auto_and_carries_information(&AUTO);
+}
+
+#[test]
+#[cfg_attr(not(feature = "fixtures"), ignore)]
+fn auto_wb_is_a_fixed_point_of_its_own_recommendation() {
+    is_a_fixed_point_of_its_own_recommendation(&AUTO);
+}
+
+#[test]
+#[cfg_attr(not(feature = "fixtures"), ignore)]
+fn imported_auto_wb_stays_inside_its_band_around_the_camera_reading() {
+    stays_inside_its_band_around_the_camera_reading(&IMPORTED);
+}
+
+#[test]
+#[cfg_attr(not(feature = "fixtures"), ignore)]
+fn imported_auto_wb_moves_toward_acr_auto_and_carries_information() {
+    moves_toward_acr_auto_and_carries_information(&IMPORTED);
+}
+
+#[test]
+#[cfg_attr(not(feature = "fixtures"), ignore)]
+fn imported_auto_wb_is_a_fixed_point_of_its_own_recommendation() {
+    is_a_fixed_point_of_its_own_recommendation(&IMPORTED);
 }

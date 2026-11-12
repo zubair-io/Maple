@@ -12,6 +12,7 @@ pub struct CpuLiveSession {
     bytes: Vec<u8>,
     ext: String,
     raw: RawImage,
+    imported_wb: raw_core::stages::imported_auto_wb::CachedEstimate,
     preview: Option<CpuPreview>,
     lens_generation: u64,
     film_bytes: Vec<u8>,
@@ -29,6 +30,7 @@ impl CpuLiveSession {
             bytes,
             ext: ext.to_owned(),
             raw,
+            imported_wb: Default::default(),
             preview: None,
             lens_generation: crate::lens_profile::registry_generation(),
             film_bytes: Vec::new(),
@@ -37,6 +39,12 @@ impl CpuLiveSession {
             support,
         })
     }
+    /// Resolve a name-only imported Auto WB once, off the first frame (#4669):
+    /// returns `[temperature, tint]`. Later renders of that sidecar use it.
+    pub fn resolve_imported_white_balance(&mut self) -> Result<Vec<f32>, JsError> {
+        crate::open_metadata::resolve_imported(&mut self.imported_wb, &self.raw)
+    }
+
     pub fn render(
         &mut self,
         xmp: Option<String>,
@@ -47,8 +55,9 @@ impl CpuLiveSession {
         if max_long_edge == 0 {
             return Err(JsError::new("CPU viewport cap must be positive"));
         }
-        let model = crate::mask_registry::parse_model(xmp.as_deref())
+        let mut model = crate::mask_registry::parse_model(xmp.as_deref())
             .map_err(|e| JsError::new(&e.to_string()))?;
+        self.imported_wb.apply(&mut model);
         if film_bytes != self.film_bytes {
             let decoded = if film_bytes.is_empty() {
                 None
@@ -137,6 +146,46 @@ impl CpuLiveSession {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn imported_auto_first_frame_is_as_shot_then_one_resolved_render_without_reopening_source() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../test-fixtures/batch-transfer/source.dng");
+        let bytes = std::fs::read(path).unwrap();
+        let mut session = CpuLiveSession::open(bytes.clone(), "dng").unwrap();
+        let pointer = session.raw.raw_data.as_ptr();
+        let name_only = r#"<x crs:WhiteBalance="Auto" papp:Profile="Neutral"/>"#.to_string();
+        let first = session
+            .render(Some(name_only.clone()), true, 24, &[])
+            .unwrap();
+        let as_shot = crate::render::render_bytes_sized(
+            &bytes,
+            "dng",
+            Some(r#"<x papp:Profile="Neutral"/>"#.to_string()),
+            true,
+            24,
+        )
+        .unwrap();
+        assert_eq!(first.rgb(), as_shot.rgb());
+        let pair = session.resolve_imported_white_balance().unwrap();
+        let explicit = format!(
+            r#"<x crs:WhiteBalance="Auto" crs:Temperature="{}" crs:Tint="{}" papp:WbScaleVersion="5" papp:Profile="Neutral"/>"#,
+            pair[0], pair[1]
+        );
+        let resolved = session
+            .render(Some(name_only.clone()), true, 24, &[])
+            .unwrap();
+        let expected =
+            crate::render::render_bytes_sized(&bytes, "dng", Some(explicit), true, 24).unwrap();
+        assert_ne!(resolved.rgb(), first.rgb());
+        assert_eq!(resolved.rgb(), expected.rgb());
+        // A one-shot render is final output: it resolves name-only Auto itself.
+        let one_shot =
+            crate::render::render_bytes_sized(&bytes, "dng", Some(name_only), true, 24).unwrap();
+        assert_eq!(one_shot.rgb(), expected.rgb());
+        assert_eq!(session.resolve_imported_white_balance().unwrap(), pair);
+        assert_eq!(pointer, session.raw.raw_data.as_ptr());
+    }
 
     #[test]
     fn refine_preserves_fast_session_and_matches_legacy_bytes() {

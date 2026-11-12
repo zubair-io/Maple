@@ -23,6 +23,18 @@ fn from_resolution(
     }
 }
 
+/// The pair a session's name-only imported Auto WB resolves to, retained by
+/// its [`CachedEstimate`](raw_core::stages::imported_auto_wb::CachedEstimate).
+pub(crate) fn resolve_imported(
+    cache: &mut raw_core::stages::imported_auto_wb::CachedEstimate,
+    raw: &RawImage,
+) -> Result<Vec<f32>, wasm_bindgen::JsError> {
+    let (temperature, tint) = cache
+        .resolve(raw, raw_core::CancelToken::never())
+        .map_err(|e| wasm_bindgen::JsError::new(&e.to_string()))?;
+    Ok(vec![temperature, tint])
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

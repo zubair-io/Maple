@@ -46,6 +46,10 @@ There is no pipeline output version. The monotonic counter that once answered "t
 
 Apple's former local counter, `RenderedPreviewCache.viewTransformVersion` (8), was a pipeline-version proxy and was removed with #4793; the rendered-preview cache carries no version. (The 512²-grid `TileManager` compositor and its `viewTransformVersion` (5) were retired in #3288.)
 
+### Imported Auto white balance (#4669)
+
+A name-only `crs:WhiteBalance="Auto"` is resolved by the shared estimator on a 1536 px proxy probe of the decoded RAW (`imported_auto_wb::PROBE_LONG_EDGE`; ~2.3 s CPU on the 100 MP test_0000 and ~0.9 s on test_0017, measured for #4669; decimated probes that would be cheaper do not reproduce the estimator's pair). It is never on the first-frame path: the first frame renders As Shot, the session resolves the pair once in the background (`imported_auto_wb::CachedEstimate`, retained with the session's immutable decoded RAW; a new source creates a fresh estimate) and re-renders once with it overlaid on the render model only. Later renders reuse the pair; the native-detail session folds it into its prepared-context key. The file FFI resolver (`maple_resolve_imported_white_balance_file`) reads the RAW through the shared decode cache, so it never decodes the open file a second time. Synchronous final-output entries (export, thumbnails, batch, CLI, one-shot WASM renders) resolve per call and cache nothing. The stored model and XMP keep their name-only intent. There is no disk entry, no original-file write and no per-tick estimation.
+
 ## Apple
 
 Caches under `src/apple/Packages/MapleCore/Sources/MapleCore/`.

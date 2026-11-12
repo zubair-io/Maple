@@ -485,6 +485,13 @@ pub async fn render_bytes_gpu(
         crate::open_metadata::assess(&raw_img);
     let model = crate::mask_registry::parse_model(xmp.as_deref())
         .map_err(|e| JsError::new(&e.to_string()))?;
+    // One-shot output has no first frame to protect: name-only Auto resolves here (#4669).
+    let model = raw_core::stages::imported_auto_wb::resolve(
+        &raw_img,
+        &model,
+        raw_core::CancelToken::never(),
+    )
+    .map_err(|e| JsError::new(&e.to_string()))?;
 
     let (ow, oh, oriented, auto_fit) =
         render_gpu_core_with_status(&raw_img, &raw, &ext, &model, max_long_edge)
@@ -543,3 +550,7 @@ mod tests_sharpen;
 #[cfg(all(test, not(target_arch = "wasm32")))]
 #[path = "gpu_render/tests_capture.rs"]
 mod tests_capture;
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+#[path = "gpu_render/tests_imported_wb.rs"]
+mod tests_imported_wb;

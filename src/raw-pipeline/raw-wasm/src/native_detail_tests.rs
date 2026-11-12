@@ -116,3 +116,35 @@ fn native_detail_preparation_admits_existing_limit_before_native_sampler() {
         .contains("preparation exceeds working-pixel budget"));
     assert_eq!(Arc::strong_count(&session.raw), 1);
 }
+
+#[test]
+fn imported_auto_tile_is_as_shot_until_resolved_then_matches_the_authored_pair() {
+    let bytes = std::fs::read(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../test-fixtures/batch-transfer/source.dng"),
+    )
+    .unwrap();
+    let wrap = |attributes: &str| {
+        Some(format!(
+            r#"<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/" xmlns:papp="http://ns.justmaple.app/photo/1.0/" papp:Profile="Neutral" {attributes}/></rdf:RDF></x:xmpmeta>"#
+        ))
+    };
+    let rect = [0, 0, 16, 16];
+    let tile = |session: &mut NativeDetailSession, xmp| {
+        session.render_tile(xmp, &rect, 32, true, &[]).unwrap().rgb
+    };
+    let name_only = wrap(r#"crs:WhiteBalance="Auto""#);
+    let mut session = NativeDetailSession::new(&bytes, "dng").unwrap();
+    let first = tile(&mut session, name_only.clone());
+    let mut as_shot = NativeDetailSession::new(&bytes, "dng").unwrap();
+    assert_eq!(first, tile(&mut as_shot, wrap("")));
+    let pair = session.resolve_imported_white_balance().unwrap();
+    let resolved = tile(&mut session, name_only);
+    let mut authored = NativeDetailSession::new(&bytes, "dng").unwrap();
+    let explicit = wrap(&format!(
+        r#"crs:WhiteBalance="Auto" crs:Temperature="{}" crs:Tint="{}" papp:WbScaleVersion="5""#,
+        pair[0], pair[1]
+    ));
+    assert_ne!(resolved, first);
+    assert_eq!(resolved, tile(&mut authored, explicit));
+}
