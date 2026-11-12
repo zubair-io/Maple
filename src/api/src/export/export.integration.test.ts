@@ -96,7 +96,7 @@ async function claimed(value: Record<string, unknown>) {
       ? {}
       : { checkpoint: { originalPaths: value['originalPaths'] } }),
   });
-  expect((await jobs.claimJob(job._id, 'recipe-worker', 60000))?._id.toHexString()).toBe(
+  expect((await jobs.claimJob(job._id, 'recipe-worker'))?._id.toHexString()).toBe(
     job._id.toHexString(),
   );
   return job;
@@ -105,10 +105,9 @@ async function context(jobId: ObjectId): Promise<JobHandlerContext> {
   return {
     jobId,
     checkpoint: (await jobs.getJob(jobId))?.checkpoint,
-    saveCheckpoint: (checkpoint) =>
-      jobs.saveJobCheckpoint(jobId, 'recipe-worker', checkpoint, 60000),
+    saveCheckpoint: (checkpoint) => jobs.saveJobCheckpoint(jobId, 'recipe-worker', checkpoint),
     reportProgress: (current, total) =>
-      jobs.updateProgress(jobId, { current, total }, 60000, undefined, 'recipe-worker'),
+      jobs.updateProgress(jobId, { current, total }, undefined, 'recipe-worker'),
     shouldCancel: () => jobs.isCancelRequested(jobId),
   };
 }
@@ -165,7 +164,7 @@ integration('persisted developed-image recipe export', () => {
     await jobs.markCancelled(job._id, partial.result);
     await writeFile(join(root, 'exports', 'cancel-two_8.png'), 'existing output');
     expect(await jobs.resumeBatchJob(job._id)).toBe(true);
-    await jobs.claimJob(job._id, 'recipe-worker', 60000);
+    await jobs.claimJob(job._id, 'recipe-worker');
     const result = await batchRecipeExportHandler.run(job.payload, await context(job._id));
     expect(result.result.skipped).toEqual([photos[1].id]);
     expect(await readFile(join(root, 'exports', 'cancel-two_8.png'), 'utf8')).toBe(
@@ -277,7 +276,7 @@ integration('export recovery boundaries', () => {
     await expect(stat(join(root, 'exports', 'cancel-prepared_1.png'))).rejects.toThrow();
     await jobs.markCancelled(job._id, stopped.result);
     expect(await jobs.resumeBatchJob(job._id)).toBe(true);
-    await jobs.claimJob(job._id, 'recipe-worker', 60000);
+    await jobs.claimJob(job._id, 'recipe-worker');
     const resumed = await batchRecipeExportHandler.run(job.payload, await context(job._id));
     expect(resumed.result.applied).toEqual([photo.id]);
     expect((await stat(join(root, 'exports', 'cancel-prepared_1.png'))).mtimeMs).toBe(stagedTime);
@@ -474,7 +473,7 @@ integration('export recovery boundaries', () => {
         maxPx: 32,
       },
     });
-    await jobs.claimJob(job._id, 'recipe-worker', 60000);
+    await jobs.claimJob(job._id, 'recipe-worker');
     const ctx = await context(job._id);
     ctx.shouldCancel = async () => true;
     const stopped = await batchJpegExportHandler.run(job.payload, ctx);
@@ -485,7 +484,7 @@ integration('export recovery boundaries', () => {
     expect(snapshot.targets[0].xmp).toBe(xml);
     await writeFile(join(root, 'legacy.xmp'), 'later edit must not change this export');
     expect(await jobs.resumeBatchJob(job._id)).toBe(true);
-    await jobs.claimJob(job._id, 'recipe-worker', 60000);
+    await jobs.claimJob(job._id, 'recipe-worker');
     const completed = await batchJpegExportHandler.run(job.payload, await context(job._id));
     expect(completed.result.applied).toEqual([assetId]);
     expect((await readFile(join(root, 'exports', 'legacy.jpg'))).subarray(0, 2)).toEqual(

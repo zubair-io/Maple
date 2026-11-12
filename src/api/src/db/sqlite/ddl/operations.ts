@@ -4,9 +4,13 @@
  * tokens.
  *
  * These are queues and configuration, not the photo library, so the schema
- * rule that applies is a different one: claim queries need real columns for
- * their lease and status fields, and everything else can stay a payload. A
- * `jobs` row is read whole by exactly one worker at a time.
+ * rule that applies is a different one: the relay and claim statements need
+ * real columns for their status and holder fields, and everything else can
+ * stay a payload. A `jobs` row is read whole by exactly one worker at a time.
+ *
+ * The `lease_expires_at` columns and the `*_claim` indexes on `jobs` and
+ * `imports` are frozen 0001 DDL: Temporal's heartbeat replaced them, and 0043
+ * drops them (#5825).
  *
  * `job.id`, `import.id` and `upload_session.id` all reach clients through
  * polling endpoints, so they keep the 24-character hex shape.
@@ -20,7 +24,7 @@ CREATE TABLE jobs (
   kind   TEXT NOT NULL,
   status TEXT NOT NULL CHECK (status IN ('queued', 'running', 'done', 'failed', 'cancelled')),
 
-  -- Claim lease, mirroring the geocode worker's.
+  -- The attempt holding the job; the lease beside it is dropped by 0043.
   locked_by        TEXT,
   lease_expires_at TEXT,
   cancel_requested INTEGER NOT NULL DEFAULT 0 CHECK (cancel_requested IN (0, 1)),

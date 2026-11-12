@@ -54,8 +54,11 @@ async function pendingImport(db: Database, sub: string, names: string[]) {
   return { id: created._id, importId: created._id.toHexString(), lib };
 }
 
-const runnerWith = (handleEvent: ImportRunnerDeps['handleEvent'], leaseMs?: number) =>
-  new ImportRunner({ leaseMs, deps: { assetExistsForHash: async () => false, handleEvent } });
+const runnerWith = (handleEvent: ImportRunnerDeps['handleEvent'], heartbeatEveryMs?: number) =>
+  new ImportRunner({
+    heartbeatEveryMs,
+    deps: { assetExistsForHash: async () => false, handleEvent },
+  });
 
 const landed = (lib: string, name: string) =>
   fs.stat(path.join(lib, '2024/03', name)).then(
@@ -140,23 +143,20 @@ describe('ImportRunner.run', () => {
     expect(attempt.beats.at(-1)).toEqual({ current: 2, total: 2 });
   });
 
-  test('a long copy still renews the lease and heartbeats on a timer', async () => {
+  test('a long copy still heartbeats on a timer', async () => {
     using live = await createLiveTestDatabase();
-    const { id, importId } = await pendingImport(live.db, 'long-copy', ['A.dng']);
+    const { importId } = await pendingImport(live.db, 'long-copy', ['A.dng']);
     const attempt = recordedAttempt('long-copy');
-    const observed = { beatsBefore: 0, beatsAfter: 0, leaseBefore: '', leaseAfter: '' };
+    const observed = { beatsBefore: 0, beatsAfter: 0 };
 
     const outcome = await runnerWith(async () => {
       observed.beatsBefore = attempt.beats.length;
-      observed.leaseBefore = (await getImport(id))!.lease_expires_at!;
       await new Promise((resolve) => setTimeout(resolve, 450));
       observed.beatsAfter = attempt.beats.length;
-      observed.leaseAfter = (await getImport(id))!.lease_expires_at!;
-    }, 300).run(importId, attempt);
+    }, 100).run(importId, attempt);
 
     expect(outcome).toEqual({ outcome: 'done' });
     expect(observed.beatsAfter).toBeGreaterThan(observed.beatsBefore + 1);
-    expect(Date.parse(observed.leaseAfter)).toBeGreaterThan(Date.parse(observed.leaseBefore));
   });
 
   test('an unexpected error fails the import with its message instead of escaping', async () => {

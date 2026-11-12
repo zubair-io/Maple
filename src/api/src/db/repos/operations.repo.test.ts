@@ -24,7 +24,6 @@ import {
 } from './jobs.repo.ts';
 import { activeOperationId, heldOperationIds, nextOperationId } from './operations.repo.ts';
 
-const LEASE = 60_000;
 const at = (ms: number) => () => new Date(ms);
 const hex = (job: { _id: ObjectId }) => job._id.toHexString();
 
@@ -42,7 +41,7 @@ async function drainUserJobs(db: SqliteDb): Promise<string[]> {
   const id = await nextJobId(db);
   if (id === null) return [];
   await markJobDispatched(id, db);
-  await claimJob(new ObjectId(id), 'w', LEASE, at(0), db);
+  await claimJob(new ObjectId(id), 'w', at(0), db);
   await completeJob(new ObjectId(id), {}, at(0), 'w', db);
   return [id, ...(await drainUserJobs(db))];
 }
@@ -71,7 +70,7 @@ describe('the two lanes over one table', () => {
     const db = testSqliteDb(handle.db);
     const cluster = await operation(db, 'people_cluster', 500);
     await markJobDispatched(hex(cluster), db);
-    await claimJob(cluster._id, 'op', LEASE, at(600), db);
+    await claimJob(cluster._id, 'op', at(600), db);
     const jobs = [await userJob(db, 3_000), await userJob(db, 1_000), await userJob(db, 2_000)];
 
     expect(await drainUserJobs(db)).toEqual([jobs[1], jobs[2], jobs[0]].map(hex));
@@ -104,7 +103,7 @@ describe('one active operation per kind and folder', () => {
     const cluster = await operation(db, 'people_cluster', 0);
 
     await expect(operation(db, 'mirror_reconcile', 1)).rejects.toBeInstanceOf(JobConflictError);
-    await claimJob(cluster._id, 'w', LEASE, at(1), db);
+    await claimJob(cluster._id, 'w', at(1), db);
     await expect(operation(db, 'people_cluster', 2)).rejects.toBeInstanceOf(JobConflictError);
 
     expect(await activeOperationId('mirror_reconcile', null, db)).toBe(hex(reconcile));
@@ -131,7 +130,7 @@ describe('one active operation per kind and folder', () => {
     using handle = await createTestDatabase();
     const db = testSqliteDb(handle.db);
     const first = await operation(db, 'mirror_reconcile', 0);
-    await claimJob(first._id, 'w', LEASE, at(1), db);
+    await claimJob(first._id, 'w', at(1), db);
     await completeJob(first._id, {}, at(2), 'w', db);
 
     const second = await operation(db, 'mirror_reconcile', 3);
@@ -158,7 +157,7 @@ describe('one active operation per kind and folder', () => {
     const folderId = 'a'.repeat(24);
     const stopping = await operation(db, 'folder_scan', 0, { folderId });
     await markJobDispatched(hex(stopping), db);
-    await claimJob(stopping._id, 'w', LEASE, at(1), db);
+    await claimJob(stopping._id, 'w', at(1), db);
 
     await requestCancel(stopping._id, at(2), db);
 

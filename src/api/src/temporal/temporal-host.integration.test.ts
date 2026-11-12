@@ -249,7 +249,7 @@ describe('jobs on Temporal', () => {
     run(
       live.db,
       `UPDATE jobs SET status = 'running', locked_by = 'job-runner-123-abc',
-          lease_expires_at = '2026-01-01T00:00:00.000Z', ledger = json('{"applied":2}')
+          ledger = json('{"applied":2}')
         WHERE id = ?`,
       job._id.toHexString(),
     );

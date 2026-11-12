@@ -58,7 +58,8 @@ import { rearmStageByFilenames } from '../db/repos/stage-state.repo.ts';
 import { SIDECAR_METADATA_INDEX_STAGE_NAME } from '../workers/stages/sidecar-metadata-index.ts';
 import type { ImportFileEntry } from '../db/schema.ts';
 
-const LEASE_MS_DEFAULT = 5 * 60 * 1_000;
+/** Well inside the five-minute heartbeat timeout of `ROW_ACTIVITY_OPTIONS`. */
+const HEARTBEAT_EVERY_MS_DEFAULT = 100_000;
 /** Max no-clobber publish attempts before a file is marked failed (each
  * attempt re-resolves a fresh sibling; only a sustained adversarial racer
  * exhausts this). */
@@ -85,8 +86,8 @@ const DEFAULT_DEPS: ImportRunnerDeps = {
 };
 
 export interface ImportRunnerConfig {
-  /** The lease is renewed, and the engine heartbeaten, every third of this. */
-  leaseMs?: number;
+  /** How often a running import heartbeats while no file finishes. */
+  heartbeatEveryMs?: number;
   deps?: Partial<ImportRunnerDeps>;
   now?: () => Date;
 }
@@ -132,12 +133,12 @@ async function recordWholeGroup(
 }
 
 export class ImportRunner {
-  private readonly leaseMs: number;
+  private readonly heartbeatEveryMs: number;
   private readonly deps: ImportRunnerDeps;
   private readonly now: () => Date;
 
   constructor(config: ImportRunnerConfig = {}) {
-    this.leaseMs = config.leaseMs ?? LEASE_MS_DEFAULT;
+    this.heartbeatEveryMs = config.heartbeatEveryMs ?? HEARTBEAT_EVERY_MS_DEFAULT;
     this.deps = { ...DEFAULT_DEPS, ...config.deps };
     this.now = config.now ?? (() => new Date());
   }
@@ -145,11 +146,11 @@ export class ImportRunner {
   /** Runs one import for one activity attempt and reports how it stands afterwards. */
   async run(importId: string, attempt: RowAttempt): Promise<RowRun> {
     const id = new ObjectId(importId);
-    const claim = await claimImport(id, attempt.identity, this.leaseMs, this.now);
+    const claim = await claimImport(id, attempt.identity, this.now);
     if (!claim) return finishedImportRun(id);
     const held: HeldImport = { claim, attempt, progress: { current: 0, total: 0 } };
     heartbeat(held);
-    const stopKeepAlive = keepImportAlive(held, this.leaseMs, this.now);
+    const stopKeepAlive = keepImportAlive(held, this.heartbeatEveryMs);
     try {
       return await this.processImport(held);
     } catch (err) {
@@ -201,12 +202,7 @@ export class ImportRunner {
         );
       }
       current += 1;
-      await updateImportProgress(
-        id,
-        { index, state, error, destRel, current, counts },
-        this.leaseMs,
-        this.now,
-      );
+      await updateImportProgress(id, { index, state, error, destRel, current, counts }, this.now);
       held.progress = { current, total: files.length };
       heartbeat(held);
     };
@@ -252,7 +248,7 @@ export class ImportRunner {
       await failImport(claim._id, error, this.now);
       return { result: { outcome: 'failed', error } };
     }
-    await setImportFiles(claim._id, scanned, this.leaseMs, this.now);
+    await setImportFiles(claim._id, scanned, this.now);
     return { files: scanned };
   }
 

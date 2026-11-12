@@ -153,23 +153,7 @@ async function readJobRow(db: SqliteDb, hex: string): Promise<JobRow | null> {
   return rows[0] ?? null;
 }
 
-/**
- * The two instants every lease-renewing write needs together, derived from one
- * reading of the clock.
- *
- * Stamping `updated_at` from one reading and `lease_expires_at` from another
- * would make the lease differ from `leaseMs` by however long the statement took
- * to build — drift that only ever shows up as a rare mid-run reclaim.
- */
-function leaseStamps(leaseMs: number, now: () => Date): { nowIso: string; leaseIso: string } {
-  const at = now();
-  return {
-    nowIso: at.toISOString(),
-    leaseIso: new Date(at.getTime() + leaseMs).toISOString(),
-  };
-}
-
-/** The 15 bound values of a fresh job row, in column order. */
+/** The 14 bound values of a fresh job row, in column order. */
 function insertParams(
   id: string,
   input: CreateJobInput,
@@ -180,7 +164,6 @@ function insertParams(
     id,
     input.kind,
     'queued',
-    null,
     null,
     0,
     0,
@@ -269,14 +252,12 @@ export async function listJobs(
 export async function claimJob(
   id: ObjectId,
   workerId: string,
-  leaseMs: number,
   now: () => Date = () => new Date(),
   dbOverride?: SqliteDb,
 ): Promise<ClaimedJob | null> {
   const db = sqliteDb(dbOverride);
   const hex = toHex(id);
-  const { nowIso, leaseIso } = leaseStamps(leaseMs, now);
-  const result = await db.write(CLAIM_JOB_SQL, [workerId, leaseIso, nowIso, hex]);
+  const result = await db.write(CLAIM_JOB_SQL, [workerId, now().toISOString(), hex]);
   if (result.changes === 0) return null;
   const row = await readJobRow(db, hex);
   return row === null ? null : toClaimedJob(row);
@@ -297,32 +278,27 @@ export async function markJobDispatched(id: string, dbOverride?: SqliteDb): Prom
 }
 
 /**
- * Patch progress counters on an in-flight claim, renewing the lease so a long
- * handler that is making progress does not get reaped.
+ * Patch progress counters on an in-flight claim.
  *
- * `workerId` makes the write a fenced one: it matches only while this worker
- * still holds a running claim, and a miss is the signal that the job was
- * reclaimed and this worker must stop. Without it the write is unfenced, which
- * is what the runner's own bookkeeping calls do.
+ * `workerId` makes the write a fenced one: it matches only while this attempt
+ * still holds a running claim, and a miss is the signal that a later attempt
+ * took the job over and this one must stop. Without it the write is unfenced.
  */
 export async function updateProgress(
   id: ObjectId,
   progress: { current: number; total: number },
-  leaseMs: number,
   now: () => Date = () => new Date(),
   workerId?: string,
   dbOverride?: SqliteDb,
 ): Promise<void> {
-  const { nowIso, leaseIso } = leaseStamps(leaseMs, now);
   const fence = workerId === undefined ? '' : ` AND locked_by = ? AND status = 'running'`;
   const result = await sqliteDb(dbOverride).write(
-    `UPDATE jobs SET progress_current = ?, progress_total = ?, lease_expires_at = ?, updated_at = ?
+    `UPDATE jobs SET progress_current = ?, progress_total = ?, updated_at = ?
       WHERE id = ?${fence}`,
     [
       progress.current,
       progress.total,
-      leaseIso,
-      nowIso,
+      now().toISOString(),
       toHex(id),
       ...(workerId === undefined ? [] : [workerId]),
     ],
@@ -332,7 +308,7 @@ export async function updateProgress(
   }
 }
 
-/** Apply a terminal state under the same lease fence used for progress writes. */
+/** Apply a terminal state under the same attempt fence used for progress writes. */
 async function finishJob(
   id: ObjectId,
   assignments: string,
@@ -343,7 +319,7 @@ async function finishJob(
 ): Promise<void> {
   const fence = workerId === undefined ? '' : ` AND locked_by = ? AND status = 'running'`;
   await sqliteDb(dbOverride).write(
-    `UPDATE jobs SET ${assignments}, locked_by = NULL, lease_expires_at = NULL, updated_at = ?
+    `UPDATE jobs SET ${assignments}, locked_by = NULL, updated_at = ?
       WHERE id = ?${fence}`,
     [...params, now().toISOString(), toHex(id), ...(workerId === undefined ? [] : [workerId])],
   );
@@ -407,7 +383,7 @@ export async function cancelUnfinishedJob(
 ): Promise<void> {
   await sqliteDb(dbOverride).write(
     `UPDATE jobs SET status = 'cancelled', cancel_requested = 1,
-            locked_by = NULL, lease_expires_at = NULL, updated_at = ?
+            locked_by = NULL, updated_at = ?
       WHERE id = ? AND status IN ('queued', 'running')`,
     [now().toISOString(), toHex(id)],
   );
@@ -460,8 +436,9 @@ function ledgerField(checkpoint: Record<string, unknown>, key: string): string {
 }
 
 /**
- * Fence checkpoint writes to the lease owner so a reclaimed job cannot be
- * overwritten by the former worker. Renew before each sidecar commit.
+ * Fence checkpoint writes to the attempt that holds the job, so one taken over
+ * by a later attempt cannot be overwritten by the former one. Saved before each
+ * sidecar commit.
  *
  * `entryIndex` narrows the write to one entry of `ledger.entries` plus the three
  * summary counters, which is what keeps a 2,000-photo batch from resending every
@@ -473,19 +450,18 @@ export async function saveJobCheckpoint(
   id: ObjectId,
   workerId: string,
   checkpoint: Record<string, unknown>,
-  leaseMs: number,
   now: () => Date = () => new Date(),
   entryIndex?: number,
   dbOverride?: SqliteDb,
 ): Promise<void> {
-  const { nowIso, leaseIso } = leaseStamps(leaseMs, now);
+  const nowIso = now().toISOString();
   const hex = toHex(id);
   const whole = JSON.stringify(checkpoint);
   const db = sqliteDb(dbOverride);
 
   const result =
     entryIndex === undefined
-      ? await db.write(SAVE_LEDGER_SQL, [whole, nowIso, leaseIso, hex, workerId])
+      ? await db.write(SAVE_LEDGER_SQL, [whole, nowIso, hex, workerId])
       : await db.write(SAVE_LEDGER_ENTRY_SQL, [
           entryIndex,
           entryIndex,
@@ -495,7 +471,6 @@ export async function saveJobCheckpoint(
           ledgerField(checkpoint, 'remaining'),
           whole,
           nowIso,
-          leaseIso,
           hex,
           workerId,
         ]);

@@ -91,7 +91,10 @@ Every table the API opens is declared here, and
 Jobs use `jobs` for creation, claims, progress, cancellation, terminal
 transitions and resumable batch ledgers. Temporal schedules them; `locked_by`
 names the activity attempt that holds a running job (or `temporal` for a queued
-job Temporal already has), and `lease_expires_at` is no longer read. Batch library exclusivity is
+job Temporal already has). Temporal's heartbeat decides when an attempt is gone,
+so the lease columns `jobs` and `imports` carried (and the `jobs_claim` and
+`imports_claim` indexes over them) are dropped by `0043-remove-row-leases`
+(#5825); `jobs_status` takes over the relay's status lookup. Batch library exclusivity is
 intentionally enforced by the atomic `INSERT … SELECT … WHERE NOT EXISTS` and
 resume `UPDATE` in `db/repos/jobs.sql.ts`. Overlapping queued/running settings
 batches conflict on any shared root. These statements are the only creation and

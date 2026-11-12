@@ -1,5 +1,5 @@
 /**
- * Per-stage orchestrator — boots and drains the in-process stage runners.
+ * Per-stage orchestrator — boots and drains the stage handles the stage lane schedules.
  *
  * Replaces the deleted multi-process supervisor (`supervisor.ts`) — see issue
  * #135. Each `startXxxStage()` function in `stages/*.ts` calls `runStage()`

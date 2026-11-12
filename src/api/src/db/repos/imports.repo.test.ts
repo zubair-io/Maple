@@ -71,7 +71,6 @@ describe('createImport', () => {
     expect(created.scan_pending).toBe(false);
     expect(created.cancel_requested).toBe(false);
     expect(created.locked_by).toBeNull();
-    expect(created.lease_expires_at).toBeNull();
     expect(created.created_at).toBe('2026-04-01T10:00:00.000Z');
     expect(created.library_id.toHexString()).toBe(library.toHexString());
     // The inline `files` array is legacy-only and has no column; an absent key
@@ -259,7 +258,6 @@ describe('setImportFiles', () => {
     await setImportFiles(
       created._id,
       [entry({ src: '/inbox/only.dng', dest: '2026/05/only.dng' })],
-      60_000,
       () => new Date('2026-05-01T00:00:00.000Z'),
       db,
     );
@@ -267,7 +265,6 @@ describe('setImportFiles', () => {
     const after = (await getImport(created._id, db))!;
     expect(after.scan_pending).toBe(false);
     expect(after.progress).toEqual({ current: 0, total: 1 });
-    expect(after.lease_expires_at).toBe('2026-05-01T00:01:00.000Z');
     expect(after.updated_at).toBe('2026-05-01T00:00:00.000Z');
 
     const files = await getImportFiles(created._id, db);
@@ -291,7 +288,7 @@ describe('setImportFiles', () => {
       undefined,
       db,
     );
-    await setImportFiles(created._id, [], 60_000, undefined, db);
+    await setImportFiles(created._id, [], undefined, db);
 
     expect((await getImport(created._id, db))!.progress.total).toBe(0);
     expect(await getImportFiles(created._id, db)).toEqual([]);

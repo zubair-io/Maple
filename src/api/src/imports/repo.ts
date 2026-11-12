@@ -38,7 +38,6 @@ export {
   markImportCancelled,
   markImportDispatched,
   nextImportId,
-  renewImportLease,
   requestImportCancel,
   setImportFiles,
   updateImportProgress,

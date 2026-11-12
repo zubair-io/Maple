@@ -22,7 +22,6 @@ import {
   markImportCancelled,
   markImportDispatched,
   nextImportId,
-  renewImportLease,
   requestImportCancel,
   updateImportProgress,
 } from './imports.repo.ts';
@@ -76,7 +75,7 @@ describe('claimImport', () => {
     await newImport(db, library, 0, '2026-04-01T10:00:00.000Z');
     const newer = await newImport(db, library, 2, '2026-04-02T10:00:00.000Z');
 
-    const claimed = await claimImport(newer, 'attempt-1', 60_000, AT, db);
+    const claimed = await claimImport(newer, 'attempt-1', AT, db);
 
     expect(claimed!._id.toHexString()).toBe(newer.toHexString());
     expect(claimed!.source_root).toBe('/inbox');
@@ -85,22 +84,21 @@ describe('claimImport', () => {
     const after = (await getImport(newer, db))!;
     expect(after.status).toBe('running');
     expect(after.locked_by).toBe('attempt-1');
-    expect(after.lease_expires_at).toBe('2026-04-03T00:01:00.000Z');
+    expect(after.updated_at).toBe(AT().toISOString());
   });
 
-  test('a later attempt takes over a running import, lease or no lease', async () => {
+  test('a later attempt takes over a running import', async () => {
     using handle = await createTestDatabase();
     const db = testSqliteDb(handle.db);
     const library = new ObjectId(insertFolder(handle.db));
     const id = await newImport(db, library);
     run(
       handle.db,
-      `UPDATE imports SET status = 'running', locked_by = 'import-worker-1-abc',
-          lease_expires_at = '2099-01-01T00:00:00.000Z' WHERE id = ?`,
+      `UPDATE imports SET status = 'running', locked_by = 'import-worker-1-abc' WHERE id = ?`,
       id.toHexString(),
     );
 
-    expect(await claimImport(id, 'attempt-2', 60_000, AT, db)).not.toBeNull();
+    expect(await claimImport(id, 'attempt-2', AT, db)).not.toBeNull();
     expect((await getImport(id, db))!.locked_by).toBe('attempt-2');
   });
 
@@ -111,8 +109,8 @@ describe('claimImport', () => {
     const id = await newImport(db, library);
     await completeImport(id, { copied: 0, skipped: 0, failed: 0 }, undefined, db);
 
-    expect(await claimImport(id, 'attempt-1', 60_000, undefined, db)).toBeNull();
-    expect(await claimImport(new ObjectId(), 'attempt-1', 60_000, undefined, db)).toBeNull();
+    expect(await claimImport(id, 'attempt-1', undefined, db)).toBeNull();
+    expect(await claimImport(new ObjectId(), 'attempt-1', undefined, db)).toBeNull();
     expect((await getImport(id, db))!.status).toBe('done');
   });
 });
@@ -134,7 +132,7 @@ describe('the relay queue', () => {
     expect(await nextImportId(db)).toBeNull();
     expect(await heldImportIds(db)).toEqual([older.toHexString()]);
 
-    await claimImport(older, 'attempt-1', 60_000, undefined, db);
+    await claimImport(older, 'attempt-1', undefined, db);
     expect(await nextImportId(db)).toBeNull();
     expect(await heldImportIds(db)).toEqual([older.toHexString()]);
 
@@ -148,7 +146,7 @@ describe('the relay queue', () => {
     const db = testSqliteDb(handle.db);
     const library = new ObjectId(insertFolder(handle.db));
     const id = await newImport(db, library);
-    await claimImport(id, 'attempt-1', 60_000, undefined, db);
+    await claimImport(id, 'attempt-1', undefined, db);
 
     await markImportDispatched(id.toHexString(), db);
 
@@ -177,7 +175,7 @@ describe('the relay queue', () => {
     const library = new ObjectId(insertFolder(handle.db));
     const stopped = await newImport(db, library, 0, '2026-04-01T10:00:00.000Z');
     const next = await newImport(db, library, 0, '2026-04-02T10:00:00.000Z');
-    await claimImport(stopped, 'attempt-1', 60_000, undefined, db);
+    await claimImport(stopped, 'attempt-1', undefined, db);
 
     await cancelUnfinishedImport(stopped, AT, db);
 
@@ -185,7 +183,6 @@ describe('the relay queue', () => {
     expect(after.status).toBe('cancelled');
     expect(after.cancel_requested).toBe(true);
     expect(after.locked_by).toBeNull();
-    expect(after.lease_expires_at).toBeNull();
     expect(await nextImportId(db)).toBe(next.toHexString());
   });
 
@@ -202,7 +199,7 @@ describe('the relay queue', () => {
   });
 });
 
-describe('updateImportProgress and renewImportLease', () => {
+describe('updateImportProgress', () => {
   test('records one file outcome and the import-level tally together', async () => {
     using handle = await createTestDatabase();
     const db = testSqliteDb(handle.db);
@@ -219,7 +216,6 @@ describe('updateImportProgress and renewImportLease', () => {
         current: 1,
         counts: { copied: 1, skipped: 0, failed: 0 },
       },
-      60_000,
       () => new Date('2026-04-03T00:00:00.000Z'),
       db,
     );
@@ -236,7 +232,7 @@ describe('updateImportProgress and renewImportLease', () => {
     const after = (await getImport(id, db))!;
     expect(after.progress).toEqual({ current: 1, total: 3 });
     expect(after.counts).toEqual({ copied: 1, skipped: 0, failed: 0 });
-    expect(after.lease_expires_at).toBe('2026-04-03T00:01:00.000Z');
+    expect(after.updated_at).toBe('2026-04-03T00:00:00.000Z');
   });
 
   test('records a failure with its message', async () => {
@@ -255,7 +251,6 @@ describe('updateImportProgress and renewImportLease', () => {
         current: 1,
         counts: { copied: 0, skipped: 0, failed: 1 },
       },
-      60_000,
       undefined,
       db,
     );
@@ -282,7 +277,6 @@ describe('updateImportProgress and renewImportLease', () => {
           current: 1,
           counts: { copied: 1, skipped: 0, failed: 0 },
         },
-        60_000,
         undefined,
         db,
       ),
@@ -291,21 +285,7 @@ describe('updateImportProgress and renewImportLease', () => {
     const after = (await getImport(id, db))!;
     expect(after.progress).toEqual(before.progress);
     expect(after.counts).toEqual(before.counts);
-    expect(after.lease_expires_at).toBe(before.lease_expires_at);
-  });
-
-  test('renews a lease only while the import is running', async () => {
-    using handle = await createTestDatabase();
-    const db = testSqliteDb(handle.db);
-    const library = new ObjectId(insertFolder(handle.db));
-    const id = await newImport(db, library);
-
-    await renewImportLease(id, 60_000, () => new Date('2026-04-03T00:00:00.000Z'), db);
-    expect((await getImport(id, db))!.lease_expires_at).toBeNull();
-
-    await claimImport(id, 'worker-1', 1_000, () => new Date('2026-04-03T00:00:00.000Z'), db);
-    await renewImportLease(id, 600_000, () => new Date('2026-04-03T00:00:10.000Z'), db);
-    expect((await getImport(id, db))!.lease_expires_at).toBe('2026-04-03T00:10:10.000Z');
+    expect(after.updated_at).toBe(before.updated_at);
   });
 });
 
@@ -343,7 +323,7 @@ describe('terminal transitions', () => {
     const db = testSqliteDb(handle.db);
     const library = new ObjectId(insertFolder(handle.db));
     const id = await newImport(db, library);
-    await claimImport(id, 'worker-1', 60_000, undefined, db);
+    await claimImport(id, 'worker-1', undefined, db);
     run(handle.db, `UPDATE imports SET error = 'earlier failure' WHERE id = ?`, id.toHexString());
 
     await completeImport(
@@ -358,7 +338,6 @@ describe('terminal transitions', () => {
     expect(done.counts).toEqual({ copied: 4, skipped: 1, failed: 0 });
     expect(done.error).toBeNull();
     expect(done.locked_by).toBeNull();
-    expect(done.lease_expires_at).toBeNull();
     expect(done.updated_at).toBe('2026-04-03T01:00:00.000Z');
   });
 
@@ -367,7 +346,7 @@ describe('terminal transitions', () => {
     const db = testSqliteDb(handle.db);
     const library = new ObjectId(insertFolder(handle.db));
     const id = await newImport(db, library);
-    await claimImport(id, 'worker-1', 60_000, undefined, db);
+    await claimImport(id, 'worker-1', undefined, db);
 
     await failImport(id, 'source root vanished', undefined, db);
 
@@ -375,7 +354,6 @@ describe('terminal transitions', () => {
     expect(failed.status).toBe('failed');
     expect(failed.error).toBe('source root vanished');
     expect(failed.locked_by).toBeNull();
-    expect(failed.lease_expires_at).toBeNull();
   });
 
   test('cancelling keeps the tally of what had already been copied', async () => {
@@ -383,7 +361,7 @@ describe('terminal transitions', () => {
     const db = testSqliteDb(handle.db);
     const library = new ObjectId(insertFolder(handle.db));
     const id = await newImport(db, library);
-    await claimImport(id, 'worker-1', 60_000, undefined, db);
+    await claimImport(id, 'worker-1', undefined, db);
 
     await markImportCancelled(id, { copied: 2, skipped: 0, failed: 1 }, undefined, db);
 
@@ -398,7 +376,7 @@ describe('terminal transitions', () => {
     const db = testSqliteDb(handle.db);
     const library = new ObjectId(insertFolder(handle.db));
     const id = await newImport(db, library);
-    await claimImport(id, 'worker-1', 60_000, undefined, db);
+    await claimImport(id, 'worker-1', undefined, db);
     await cancelUnfinishedImport(id, undefined, db);
 
     await completeImport(id, { copied: 1, skipped: 0, failed: 0 }, undefined, db);

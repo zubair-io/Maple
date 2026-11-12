@@ -26,10 +26,10 @@ import { placeholders } from './values.ts';
 const IMPORT_COLUMNS = `
   id, status, source_root, library_id, library_root, scan_pending,
   progress_current, progress_total, count_copied, count_skipped, count_failed,
-  error, locked_by, lease_expires_at, cancel_requested, created_at, updated_at`;
+  error, locked_by, cancel_requested, created_at, updated_at`;
 
 /** The number of `?` an insert of a whole import row binds. */
-const IMPORT_COLUMN_COUNT = 17;
+const IMPORT_COLUMN_COUNT = 16;
 
 export const IMPORT_BY_ID_SQL = `SELECT ${IMPORT_COLUMNS} FROM imports WHERE id = ?`;
 
@@ -89,7 +89,7 @@ export const MARK_IMPORT_DISPATCHED_SQL = `
  */
 export const CLAIM_IMPORT_SQL = `
   UPDATE imports
-     SET status = 'running', locked_by = ?, lease_expires_at = ?, updated_at = ?
+     SET status = 'running', locked_by = ?, updated_at = ?
    WHERE id = ? AND status IN ('pending', 'running')`;
 
 /**

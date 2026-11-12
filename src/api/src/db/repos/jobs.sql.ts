@@ -28,7 +28,7 @@ import { placeholders } from './values.ts';
 
 /** Every `jobs` column, in declaration order. */
 const JOB_COLUMNS = `
-  id, kind, status, locked_by, lease_expires_at, cancel_requested,
+  id, kind, status, locked_by, cancel_requested,
   progress_current, progress_total, error, created_at, updated_at,
   params, result, ledger, batch_scopes`;
 
@@ -111,7 +111,7 @@ const FENCE_PREDICATES: Record<JobInsertFence, string> = {
 export function insertJobSql(fence: JobInsertFence): string {
   return `
     INSERT INTO jobs (${JOB_COLUMNS})
-    SELECT ${placeholders(15)}
+    SELECT ${placeholders(14)}
      WHERE ${FENCE_PREDICATES[fence]}
     ON CONFLICT (id) DO NOTHING`;
 }
@@ -208,7 +208,7 @@ export const MARK_DISPATCHED_SQL = `
  */
 export const CLAIM_JOB_SQL = `
   UPDATE jobs
-     SET status = 'running', locked_by = ?, lease_expires_at = ?, updated_at = ?
+     SET status = 'running', locked_by = ?, updated_at = ?
    WHERE id = ? AND status IN ('queued', 'running')`;
 
 /**
@@ -223,8 +223,8 @@ export const CLAIM_JOB_SQL = `
  */
 export const RESUME_BATCH_JOB_SQL = `
   UPDATE jobs
-     SET status = 'queued', locked_by = NULL, lease_expires_at = NULL,
-         cancel_requested = 0, error = NULL, result = NULL, updated_at = ?
+     SET status = 'queued', locked_by = NULL, cancel_requested = 0,
+         error = NULL, result = NULL, updated_at = ?
    WHERE id = ?
      AND kind IN ('batch_adjustment_sync', 'batch_recipe_export', 'batch_jpeg_export')
      AND status IN ('failed', 'cancelled')
@@ -236,14 +236,14 @@ export const RESUME_BATCH_JOB_SQL = `
           AND os.value IN (SELECT value FROM json_each(jobs.batch_scopes)))`;
 
 /**
- * Save a whole recovery ledger and renew the lease, fenced to the lease holder.
+ * Save a whole recovery ledger, fenced to the attempt that holds the job.
  *
- * The fence is the `locked_by`/`status` pair in the `WHERE`: a job reclaimed by
- * another worker matches nothing, the row count is zero, and the repository
- * turns that into the throw the former worker needs to stop writing.
+ * The fence is the `locked_by`/`status` pair in the `WHERE`: a job taken over by
+ * a later attempt matches nothing, the row count is zero, and the repository
+ * turns that into the throw the former attempt needs to stop writing.
  */
 export const SAVE_LEDGER_SQL = `
-  UPDATE jobs SET ledger = json(?), updated_at = ?, lease_expires_at = ?
+  UPDATE jobs SET ledger = json(?), updated_at = ?
    WHERE id = ? AND locked_by = ? AND status = 'running'`;
 
 /**
@@ -270,5 +270,5 @@ export const SAVE_LEDGER_ENTRY_SQL = `
                     '$.remaining', json(?))
            ELSE json(?)
          END,
-         updated_at = ?, lease_expires_at = ?
+         updated_at = ?
    WHERE id = ? AND locked_by = ? AND status = 'running'`;

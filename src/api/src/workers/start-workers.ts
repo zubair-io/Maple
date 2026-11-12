@@ -92,7 +92,7 @@ function persistWorkerMemory(row: ProcessMemoryRow): void {
 }
 
 export async function startWorkers(): Promise<void> {
-  // Before any stage polls: a decode enqueued while the budget is still
+  // Before any stage runs: a decode enqueued while the budget is still
   // unconfigured skips admission for good (#5467).
   await bootstrapFfiPool();
 

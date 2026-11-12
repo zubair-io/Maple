@@ -1,4 +1,4 @@
-/** A recipe job reuses JobRunner's lease/cancel/checkpoint contract. One render at a time. */
+/** A recipe job reuses the job claim fence, cancel flag and checkpoint ledger. One render at a time. */
 import { exportOriginals, type ExportOriginals } from '../../export/export-originals.ts';
 import { parseExportPayload, type ExportTarget } from '../../export/export-payload.ts';
 import {

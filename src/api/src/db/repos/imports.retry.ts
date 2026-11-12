@@ -37,7 +37,7 @@ import { placeholders, toHex } from './values.ts';
  * back to `pending` with its error and its claim cleared.
  */
 const REQUEUE_ASSIGNMENTS = `
-  status = 'pending', error = NULL, locked_by = NULL, lease_expires_at = NULL,
+  status = 'pending', error = NULL, locked_by = NULL,
   cancel_requested = 0, updated_at = ?`;
 
 /** Idxs per `IN (…)` list, well inside SQLite's parameter ceiling. */
@@ -159,7 +159,7 @@ async function requeueRecoveredFiles(
  * Re-queue a failed (or partially-failed `done`) import so the relay dispatches
  * it again. Resets every `failed` file back to `pending`, clears the import-level
  * error, recomputes the failure count, sets the status back to `pending`, and
- * clears the lease and the cancel flag. Already-copied and skipped files keep
+ * clears the claim and the cancel flag. Already-copied and skipped files keep
  * their state, so the worker does not re-copy them.
  *
  * Guarded to terminal-with-failures: only a `failed` import, or a `done` import

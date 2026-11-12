@@ -9,7 +9,7 @@
  * A new preview supersedes any queued or running one (the dialog re-previews
  * on every option change), so those are cancelled rather than refused. A
  * running full stitch still refuses with 409 `pano_job_running`: both are
- * heavy, and the JobRunner would only queue the preview behind it anyway.
+ * heavy, and the jobs lane would only queue the preview behind it anyway.
  * A binary without the preview flags answers 409 `pano_preview_unsupported`,
  * and the config's `preview_supported: false` lets the UI skip asking. The
  * matcher plan (and its 409s) is the stitch route's, so a preview and the

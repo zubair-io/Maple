@@ -23,9 +23,8 @@
  * inserts or resets a `pending` row, the worker tier relays the oldest one to a
  * workflow ({@link nextImportId}, {@link markImportDispatched}) once nothing
  * else is held, and that workflow's activity calls {@link claimImport} for
- * exactly that row. The lease on the row is still renewed while an import runs,
- * but nothing reclaims on it any more: Temporal's heartbeat timeout decides when
- * an attempt is gone.
+ * exactly that row. Temporal's heartbeat timeout decides when an attempt is
+ * gone; `locked_by` only fences a superseded attempt's writes.
  *
  * ## Three places this is stricter than the Mongo original
  *
@@ -107,28 +106,6 @@ async function readImportRow(db: SqliteDb, hex: string): Promise<ImportRow | nul
 }
 
 /**
- * The three values every lease-renewing write needs together: the import's hex
- * id, the instant of the write, and the instant the renewed claim lapses.
- *
- * Derived from one reading of the clock on purpose. Stamping `updated_at` from
- * one reading and `lease_expires_at` from another would make the lease shorter
- * or longer than `leaseMs` by however long the statements took to build, which
- * is the kind of drift that only shows up as a rare mid-copy reclaim.
- */
-function leaseStamps(
-  id: ObjectId,
-  leaseMs: number,
-  now: () => Date,
-): { hex: string; nowIso: string; leaseExpiresAt: string } {
-  const at = now();
-  return {
-    hex: toHex(id),
-    nowIso: at.toISOString(),
-    leaseExpiresAt: new Date(at.getTime() + leaseMs).toISOString(),
-  };
-}
-
-/**
  * Insert a pending import together with its per-file rows.
  *
  * `progress.total` is the file count. The entries are rows in `import_files`
@@ -162,7 +139,6 @@ export async function createImport(
     count_failed: 0,
     error: null,
     locked_by: null,
-    lease_expires_at: null,
     cancel_requested: 0,
     created_at: nowIso,
     updated_at: nowIso,
@@ -185,7 +161,6 @@ export async function createImport(
         row.count_failed,
         row.error,
         row.locked_by,
-        row.lease_expires_at,
         row.cancel_requested,
         row.created_at,
         row.updated_at,
@@ -223,13 +198,12 @@ export async function listImports(
 export async function claimImport(
   id: ObjectId,
   workerId: string,
-  leaseMs: number,
   now: () => Date = () => new Date(),
   dbOverride?: SqliteDb,
 ): Promise<ClaimedImport | null> {
   const db = sqliteDb(dbOverride);
-  const { hex, nowIso, leaseExpiresAt } = leaseStamps(id, leaseMs, now);
-  const result = await db.write(CLAIM_IMPORT_SQL, [workerId, leaseExpiresAt, nowIso, hex]);
+  const hex = toHex(id);
+  const result = await db.write(CLAIM_IMPORT_SQL, [workerId, now().toISOString(), hex]);
   if (result.changes === 0) return null;
   const row = await readImportRow(db, hex);
   return row === null ? null : toClaimedImport(row);
@@ -260,7 +234,7 @@ export async function cancelUnfinishedImport(
 ): Promise<void> {
   await sqliteDb(dbOverride).write(
     `UPDATE imports SET status = 'cancelled', cancel_requested = 1,
-            locked_by = NULL, lease_expires_at = NULL, updated_at = ?
+            locked_by = NULL, updated_at = ?
       WHERE id = ? AND status IN ('pending', 'running')`,
     [now().toISOString(), toHex(id)],
   );
@@ -285,8 +259,8 @@ export async function getImportFiles(
 
 /**
  * Populate an Auto Import's files after the worker's deferred scan: replace
- * any rows a prior scan left behind, set `progress.total`, clear
- * `scan_pending`, and renew the lease.
+ * any rows a prior scan left behind, set `progress.total` and clear
+ * `scan_pending`.
  *
  * `progress.current` goes back to zero with them. A re-scan replaces the file
  * rows wholesale, so the previous attempt's per-file counter no longer refers
@@ -299,26 +273,24 @@ export async function getImportFiles(
 export async function setImportFiles(
   id: ObjectId,
   files: ImportFileEntry[],
-  leaseMs: number,
   now: () => Date = () => new Date(),
   dbOverride?: SqliteDb,
 ): Promise<void> {
-  const { hex, nowIso, leaseExpiresAt } = leaseStamps(id, leaseMs, now);
+  const hex = toHex(id);
   await sqliteDb(dbOverride).transaction([
     { sql: `DELETE FROM import_files WHERE import_id = ?`, params: [hex] },
     ...insertFileStatements(hex, files),
     {
       sql: `UPDATE imports
-               SET scan_pending = 0, progress_total = ?, progress_current = 0,
-                   lease_expires_at = ?, updated_at = ?
+               SET scan_pending = 0, progress_total = ?, progress_current = 0, updated_at = ?
              WHERE id = ?`,
-      params: [files.length, leaseExpiresAt, nowIso, hex],
+      params: [files.length, now().toISOString(), hex],
     },
   ]);
 }
 
 /**
- * Persist one file's outcome and renew the lease. `index` is the file's `idx`;
+ * Persist one file's outcome. `index` is the file's `idx`;
  * `current` is the count processed so far. Counts are recomputed by the caller
  * and written wholesale so a redelivered attempt cannot double-count.
  *
@@ -339,11 +311,10 @@ export async function updateImportProgress(
     current: number;
     counts: ImportCounts;
   },
-  leaseMs: number,
   now: () => Date = () => new Date(),
   dbOverride?: SqliteDb,
 ): Promise<void> {
-  const { hex, nowIso, leaseExpiresAt } = leaseStamps(id, leaseMs, now);
+  const hex = toHex(id);
   const results = await sqliteDb(dbOverride).transaction([
     {
       sql: `UPDATE import_files SET state = ?, error = ?, dest = ?
@@ -353,7 +324,7 @@ export async function updateImportProgress(
     {
       sql: `UPDATE imports
                SET progress_current = ?, count_copied = ?, count_skipped = ?, count_failed = ?,
-                   lease_expires_at = ?, updated_at = ?
+                   updated_at = ?
              WHERE id = ?
                AND EXISTS (SELECT 1 FROM import_files WHERE import_id = ? AND idx = ?)`,
       params: [
@@ -361,8 +332,7 @@ export async function updateImportProgress(
         args.counts.copied,
         args.counts.skipped,
         args.counts.failed,
-        leaseExpiresAt,
-        nowIso,
+        now().toISOString(),
         hex,
         hex,
         args.index,
@@ -374,25 +344,6 @@ export async function updateImportProgress(
       `updateImportProgress: no import_files row for import ${hex} idx ${args.index}`,
     );
   }
-}
-
-/**
- * Extend the claim's lease without recording file progress. Called on a timer
- * while a single long file copy (a large movie) runs, so `lease_expires_at`
- * keeps reporting a live holder.
- */
-export async function renewImportLease(
-  id: ObjectId,
-  leaseMs: number,
-  now: () => Date = () => new Date(),
-  dbOverride?: SqliteDb,
-): Promise<void> {
-  const { hex, nowIso, leaseExpiresAt } = leaseStamps(id, leaseMs, now);
-  await sqliteDb(dbOverride).write(
-    `UPDATE imports SET lease_expires_at = ?, updated_at = ?
-      WHERE id = ? AND status = 'running'`,
-    [leaseExpiresAt, nowIso, hex],
-  );
 }
 
 /**
@@ -408,7 +359,7 @@ async function finishImport(
   nowIso: string,
 ): Promise<void> {
   await db.write(
-    `UPDATE imports SET ${assignments}, locked_by = NULL, lease_expires_at = NULL, updated_at = ?
+    `UPDATE imports SET ${assignments}, locked_by = NULL, updated_at = ?
       WHERE id = ? AND status IN ('pending', 'running')`,
     [...params, nowIso, hex],
   );

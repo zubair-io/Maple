@@ -201,7 +201,7 @@ const RECONCILE_CONCURRENCY = 4;
  * `place_text` the user has already superseded — the batch metadata editor
  * writes the sidecar and marks the stage dirty, and the relocate offer surfaces
  * straight afterwards. A failed reconcile is logged and the asset is left out of
- * the writeback entirely, so its stage row stays below target and the poll loop
+ * the writeback entirely, so its stage row stays below target and the stage
  * retries it properly rather than the route marking it handled.
  */
 async function reconcileSidecarMetadata(ids: readonly ObjectId[]): Promise<void> {

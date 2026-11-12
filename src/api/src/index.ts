@@ -397,8 +397,8 @@ async function start(): Promise<void> {
   // on missing `.part` files (returns 409 expected_offset: 0).
   //
   // Failure is logged at `error` (operator-visible) but non-fatal — the
-  // pattern matches the surrounding subsystem boots (workers, discover,
-  // jobrunner all log + continue). A missing success line is the
+  // pattern matches the surrounding subsystem boots (mirror config, change
+  // feed, APNs, telemetry all log + continue). A missing success line is the
   // operator's signal that the backup subsystem is degraded; promoting to
   // process exit would be inconsistent with the rest of the boot.
   try {
