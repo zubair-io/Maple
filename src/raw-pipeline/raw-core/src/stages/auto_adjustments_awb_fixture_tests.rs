@@ -168,9 +168,10 @@ fn stays_inside_its_band_around_the_camera_reading(estimator: &Estimator) {
 
 /// Calibration against the reference renderer: across the set, AUTO must land
 /// closer to ACR's Auto than the as-shot reading does on temperature, and no
-/// worse on tint — and it must actually move, on at least half the fixtures.
-fn moves_toward_acr_auto_and_carries_information(estimator: &Estimator) {
-    let rows = rows(estimator);
+/// worse on tint. AUTO's pre-#5000 cell only: ACR targets are retired, so no
+/// other estimator caller is held to them (the imported request runs
+/// `carries_information` alone).
+fn auto_moves_toward_acr_auto(rows: &[Row]) {
     let acr = |name: &str| {
         ACR_AUTO
             .iter()
@@ -206,6 +207,11 @@ fn moves_toward_acr_auto_and_carries_information(estimator: &Estimator) {
         auto_tint <= shot_tint + ACR_TINT_SLACK,
         "AUTO's tint moved away from ACR's Auto: {auto_tint:.1} vs as-shot {shot_tint:.1}"
     );
+}
+
+/// The estimate must actually move: more than `INFORMATIVE_MIRED` from the
+/// camera's reading on at least half the fixtures.
+fn carries_information(rows: &[Row]) {
     let informative = rows
         .iter()
         .filter(|r| (mired(r.auto.0) - mired(r.shot.0)).abs() > INFORMATIVE_MIRED)
@@ -216,7 +222,7 @@ fn moves_toward_acr_auto_and_carries_information(estimator: &Estimator) {
     );
     assert!(
         informative * 2 >= rows.len(),
-        "AUTO moved on only {informative}/{} fixtures — the estimate has collapsed onto the prior",
+        "the estimate moved on only {informative}/{} fixtures — it has collapsed onto the prior",
         rows.len()
     );
 }
@@ -278,7 +284,9 @@ fn auto_wb_stays_inside_its_band_around_the_camera_reading() {
 #[test]
 #[cfg_attr(not(feature = "fixtures"), ignore)]
 fn auto_wb_moves_toward_acr_auto_and_carries_information() {
-    moves_toward_acr_auto_and_carries_information(&AUTO);
+    let rows = rows(&AUTO);
+    auto_moves_toward_acr_auto(&rows);
+    carries_information(&rows);
 }
 
 #[test]
@@ -295,8 +303,8 @@ fn imported_auto_wb_stays_inside_its_band_around_the_camera_reading() {
 
 #[test]
 #[cfg_attr(not(feature = "fixtures"), ignore)]
-fn imported_auto_wb_moves_toward_acr_auto_and_carries_information() {
-    moves_toward_acr_auto_and_carries_information(&IMPORTED);
+fn imported_auto_wb_carries_information() {
+    carries_information(&rows(&IMPORTED));
 }
 
 #[test]
