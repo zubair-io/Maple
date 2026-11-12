@@ -96,9 +96,15 @@ extension CloudSource: ImageSource {
   }
 
   /// Full directory listing — used by callers that also want subfolders
-  /// (sidebar drill-down, breadcrumb navigation).
-  public func listDir(absPath: String) async throws -> FsDirListing {
-    let dirURL = try await addresses.url(route: "folder", absPath: absPath)
+  /// (sidebar drill-down, breadcrumb navigation). `stackRawJpeg` sends
+  /// `stack=1`, asking the server to fold each RAW+JPEG pair into the RAW's
+  /// entry (#5050); only stack-aware callers pass it, so everything else
+  /// keeps seeing both files.
+  public func listDir(absPath: String, stackRawJpeg: Bool = false) async throws -> FsDirListing {
+    let folderURL = try await addresses.url(route: "folder", absPath: absPath)
+    let dirURL =
+      stackRawJpeg
+      ? folderURL.appending(queryItems: [URLQueryItem(name: "stack", value: "1")]) : folderURL
     let req = URLRequest(url: dirURL)
     let (data, resp) = try await httpClient.data(for: req)
     try Self.checkOK(resp, data: data)
@@ -110,6 +116,16 @@ extension CloudSource: ImageSource {
         "decode FsDirListing failed (path \(absPath, privacy: .public)): \(error.localizedDescription, privacy: .public) — body preview: \(preview, privacy: .public)"
       )
       throw error
+    }
+  }
+
+  /// The user's 'Show one image for RAW+JPEG pairs' preference for this server
+  /// (`stack_raw_jpeg` on `/api/display/config`, #5050), read once and then
+  /// kept by `ServerRawJpegStackPreference`.
+  public func stacksRawJpegPairs() async -> Bool {
+    let client = DisplayConfigClient(server: server, httpClient: httpClient)
+    return await ServerRawJpegStackPreference.shared.isEnabled(server: identity) {
+      try await client.fetch()
     }
   }
 

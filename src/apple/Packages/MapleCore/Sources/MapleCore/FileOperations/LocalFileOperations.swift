@@ -31,18 +31,23 @@ public enum LocalFileOperations {
   /// `planRelocate`/`finalizeRelocate` exist separately for crash-safety
   /// testing (see the file header) and so a caller can inspect a plan
   /// before committing to it.
+  ///
+  /// `companion` is a stacked RAW+JPEG tile's JPEG (#5050). `collision` is the
+  /// RAW's policy and is never extended to the JPEG: `companionCollision` is
+  /// the JPEG's own, `.replace` only once the user answered a prompt naming it.
   public static func relocate(
     _ sourcePrimaryURL: URL,
     to destinationDir: URL,
     newBasename: String? = nil,
     companion: URL? = nil,
     mode: RelocateMode,
-    collision: CollisionPolicy = .autoSuffix
+    collision: CollisionPolicy = .autoSuffix,
+    companionCollision: CollisionPolicy = .fail
   ) async throws -> RelocateOutcome {
     if let companion {
       return try await relocateStack(
         sourcePrimaryURL, companion: companion, to: destinationDir, newBasename: newBasename,
-        mode: mode, collision: collision)
+        mode: mode, collision: collision, companionCollision: companionCollision)
     }
     let plan = try await planRelocate(
       sourcePrimaryURL, to: destinationDir,
@@ -51,7 +56,9 @@ public enum LocalFileOperations {
   }
 
   /// `alsoLeaving` names same-stem siblings that leave in the same operation (a stacked RAW+JPEG
-  /// pair), so the last one out takes the shared sidecar instead of leaving it behind.
+  /// pair), so the last one out takes the shared sidecar instead of leaving it behind;
+  /// `displacing` names destination siblings the same operation replaces, which then no longer
+  /// claim the destination's sidecar.
   ///
   /// Copy (never move) the primary file and its canonical/UUID workflow
   /// `.xmp` sidecars into `destinationDir`, verifying each copy. Nothing is
@@ -70,7 +77,8 @@ public enum LocalFileOperations {
     newBasename: String? = nil,
     mode: RelocateMode,
     collision: CollisionPolicy = .autoSuffix,
-    alsoLeaving: [URL] = []
+    alsoLeaving: [URL] = [],
+    displacing: [URL] = []
   ) async throws -> RelocatePlan {
     let fm = FileManager.default
     guard fm.fileExists(atPath: sourcePrimaryURL.path) else {
@@ -126,7 +134,7 @@ public enum LocalFileOperations {
       && SidecarOwnership.localSidecarAlreadyCarried(
         sourceSidecarURL.path, at: sidecarTargetURL.path)
     let destinationClaimed = SidecarOwnership.localStemClaimedBySibling(
-      resolvedTargetURL, excluding: [sourcePrimaryURL])
+      resolvedTargetURL, excluding: [sourcePrimaryURL] + displacing)
     if hasSourceSidecar, destinationSidecarOccupied, !joinsCarriedSidecar,
       collision != .replace || destinationClaimed
     {
@@ -343,7 +351,7 @@ public enum LocalFileOperations {
   /// On any failure the temp file is removed and the error propagates;
   /// neither `source` nor any prior occupant of `destination` is ever
   /// touched.
-  private static func stageVerifiedCopy(from source: URL, forDestination destination: URL) throws
+  static func stageVerifiedCopy(from source: URL, forDestination destination: URL) throws
     -> URL
   {
     let fm = FileManager.default
@@ -434,7 +442,7 @@ public enum LocalFileOperations {
     if let primaryBackup { try? fm.removeItem(at: primaryBackup) }
   }
 
-  private static func restoreBackup(from backup: URL, to destination: URL) throws {
+  static func restoreBackup(from backup: URL, to destination: URL) throws {
     let fm = FileManager.default
     if fm.fileExists(atPath: destination.path) {
       try fm.removeItem(at: destination)
@@ -542,7 +550,7 @@ public enum LocalFileOperations {
   /// Occupied for a whole asset (#4707): the primary name itself, or its
   /// derived sidecar name unless that is the moving asset's own sidecar or
   /// already holds exactly its bytes.
-  private static func assetDestinationOccupied(
+  static func assetDestinationOccupied(
     _ path: String, ownSidecar: URL?, sourcePrimaryURL: URL
   ) throws -> Bool {
     let fm = FileManager.default

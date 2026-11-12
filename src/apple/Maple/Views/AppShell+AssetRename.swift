@@ -167,9 +167,8 @@ extension AppShell {
       // Keep decode routing and bind drag-out to the confirmed new path.
       return try asset.renamedSMB(to: newFilename, at: path, source: source)
     }
-    let companionName = stack.companionFilename(forPrimaryFilename: newFilename)
-    let paths = try await source.renameAsset(
-      ref, companion: companionRef, to: newFilename, companionFilename: companionName)
+    let paths = try await source.renameAsset(ref, companion: companionRef, to: newFilename)
+    let companionName = (paths.companion as NSString).lastPathComponent
     let renamedCompanion = ImageRef(
       id: companionRef.id, displayName: companionName, smbPath: paths.companion,
       smbSourceID: companionRef.smbSourceID)

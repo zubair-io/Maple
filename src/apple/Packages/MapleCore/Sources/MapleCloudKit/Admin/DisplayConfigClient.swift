@@ -6,11 +6,20 @@ import Foundation
 
 public struct DisplayConfig: Decodable, Equatable, Sendable {
   public let showHiddenImages: Bool
+  /// On when the server omits it: a server older than the RAW+JPEG stack feature has no setting,
+  /// and the preference defaults to on (#5050).
   public let stackRawJpeg: Bool
 
   public init(showHiddenImages: Bool, stackRawJpeg: Bool) {
     self.showHiddenImages = showHiddenImages
     self.stackRawJpeg = stackRawJpeg
+  }
+
+  public init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    showHiddenImages =
+      try container.decodeIfPresent(Bool.self, forKey: .showHiddenImages) ?? false
+    stackRawJpeg = try container.decodeIfPresent(Bool.self, forKey: .stackRawJpeg) ?? true
   }
 
   private enum CodingKeys: String, CodingKey {

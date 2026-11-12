@@ -460,7 +460,7 @@ public enum SMBFileOperations {
   /// Occupied for a whole asset (#4707): the primary name itself, or its
   /// derived sidecar name unless that is the moving asset's own sidecar or
   /// already holds exactly its bytes.
-  private static func assetDestinationOccupied(
+  static func assetDestinationOccupied(
     _ path: String, ownSidecar: String?, transport: SMBFileTransport
   ) async -> Bool {
     guard await !exists(path, transport: transport) else { return true }

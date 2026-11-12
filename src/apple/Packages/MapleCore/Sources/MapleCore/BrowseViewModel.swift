@@ -222,7 +222,9 @@ public final class BrowseViewModel {
           stableID: capturedRef.id,
           captureDate: capturedRef.captureDate,
           thumbnailProvenance: provenance,
-          livePhoto: capturedRef.smbPath.flatMap { livePhotoLinks[$0] },
+          livePhoto: RawJpegStacking.smbLivePhoto(
+            rawPath: capturedRef.smbPath,
+            stack: capturedRef.smbPath.flatMap { smbStacks[$0] }, links: livePhotoLinks),
           stack: capturedRef.smbPath.flatMap { smbStacks[$0] },
           smbPath: capturedRef.smbPath,
           smbSourceID: capturedRef.smbSourceID,
@@ -436,7 +438,10 @@ public final class BrowseViewModel {
 
     do {
       await source.navigate(to: absPath)
-      let listing = try await source.listDir(absPath: absPath)
+      // The grid is stack-aware: it asks the server to fold RAW+JPEG pairs when the user's
+      // per-server preference is on (#5050).
+      let stacksPairs = await source.stacksRawJpegPairs()
+      let listing = try await source.listDir(absPath: absPath, stackRawJpeg: stacksPairs)
       guard gen == loadGeneration else { return }
 
       let dirURLs = listing.dirs.map { URL(fileURLWithPath: $0.path) }

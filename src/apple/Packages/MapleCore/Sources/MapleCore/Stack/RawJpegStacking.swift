@@ -12,16 +12,26 @@ enum RawJpegStacking {
     let companions = Set(pairs.values)
     let urlByPath = Dictionary(urls.map { ($0.path, $0) }, uniquingKeysWith: { first, _ in first })
     return urls.filter { !companions.contains($0.path) }.map { url in
-      let stack = pairs[url.path].flatMap { urlByPath[$0] }.map { jpeg in
+      let jpeg = pairs[url.path].flatMap { urlByPath[$0] }
+      let stack = jpeg.map { jpeg in
         RawJpegStack(
           primary: .init(name: url.lastPathComponent, size: fileSize(url)),
           companion: .init(name: jpeg.lastPathComponent, size: fileSize(jpeg)),
           location: .local(jpeg))
       }
+      // A Live Photo still is the JPEG half; the tile keeps its link (#5050).
       return AssetRef(
-        url: url, scopeParentURL: scopeParentURL, livePhoto: livePhotoLinks[url.path],
+        url: url, scopeParentURL: scopeParentURL,
+        livePhoto: livePhotoLinks[url.path] ?? jpeg.flatMap { livePhotoLinks[$0.path] },
         stack: stack)
     }
+  }
+
+  /// The Live Photo link a stacked SMB tile carries: its own, or its JPEG half's (#5050).
+  static func smbLivePhoto(
+    rawPath: String?, stack: RawJpegStack?, links: [String: LivePhotoLink]
+  ) -> LivePhotoLink? {
+    rawPath.flatMap { links[$0] } ?? stack?.smbCompanionRef?.smbPath.flatMap { links[$0] }
   }
 
   /// The SMB listing folded the same way: the refs that stay tiles, and the stack each RAW ref
