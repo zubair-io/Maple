@@ -4,6 +4,7 @@ import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { API_BASE_URL } from './api-base-url.token';
 import { MapClustersService, type MapCluster } from './map-clusters.service';
+import { StackPreferenceService } from '../stack/stack-preference.service';
 
 const CELLS: MapCluster[] = [
   {
@@ -62,8 +63,16 @@ describe('MapClustersService', () => {
       received = cells;
     });
 
-    http.expectOne('/api/map/clusters?bbox=0,0,1,1&zoom=10').flush({ cells: [] });
+    http.expectOne('/api/map/clusters?bbox=0,0,1,1&zoom=10&stack=1').flush({ cells: [] });
 
     expect(received).toEqual([]);
+  });
+
+  it('sends stack=1 only while the user stacks RAW+JPEG pairs', () => {
+    TestBed.inject(StackPreferenceService).set(false);
+    svc.getClusters({ west: 0, south: 0, east: 1, north: 1 }, 10).subscribe();
+    const call = http.expectOne((req) => req.url === '/api/map/clusters');
+    expect(call.request.params.has('stack')).toBe(false);
+    call.flush({ cells: [] });
   });
 });
