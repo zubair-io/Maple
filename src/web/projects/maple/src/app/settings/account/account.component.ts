@@ -17,11 +17,13 @@ import { Router } from '@angular/router';
 import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
 import {
+  type ApiDisplayConfig,
   AuthService,
   errorMessage,
   BunApiBackendService,
   LibraryStateService,
   MuiButtonComponent,
+  StackPreferenceService,
 } from '@maple-common';
 import { SettingsShellComponent } from '../settings-shell.component';
 import { SettingsIconComponent } from '../settings-icon.component';
@@ -53,12 +55,14 @@ export class AccountComponent implements OnInit {
   private http = inject(HttpClient);
   private displayApi = inject(BunApiBackendService);
   private library = inject(LibraryStateService);
+  private stackPreference = inject(StackPreferenceService);
 
   protected readonly credentials = signal<Credential[]>([]);
   protected readonly busy = signal(false);
   protected readonly error = signal<string | null>(null);
   protected readonly showHidden = signal<boolean>(false);
   protected readonly stackRawJpeg = signal<boolean>(true);
+  protected readonly preferenceError = signal<string | null>(null);
 
   protected readonly user = computed(() => this.auth.user());
   protected readonly isOwner = computed(() => this.auth.user()?.role === 'owner');
@@ -114,32 +118,40 @@ export class AccountComponent implements OnInit {
     this.displayApi.getDisplayConfig().subscribe({
       next: (config) => {
         this.showHidden.set(config.show_hidden_images);
-        this.stackRawJpeg.set(config.stack_raw_jpeg);
+        this.stackRawJpeg.set(config.stack_raw_jpeg ?? true);
       },
-      error: () => {},
+      error: (e: unknown) =>
+        this.preferenceError.set(`Could not load preferences: ${errorMessage(e)}`),
+    });
+  }
+
+  private savePreference(
+    patch: Partial<ApiDisplayConfig>,
+    label: string,
+    applied: () => void,
+  ): void {
+    this.preferenceError.set(null);
+    const failed = (reason: string): void =>
+      this.preferenceError.set(`Could not change "${label}": ${reason}`);
+    this.displayApi.saveDisplayConfig(patch).subscribe({
+      next: (res) => (res.ok ? applied() : failed('the server did not accept the change')),
+      error: (e: unknown) => failed(errorMessage(e)),
     });
   }
 
   protected toggleShowHidden(): void {
     const nextVal = !this.showHidden();
-    this.displayApi.saveDisplayConfig({ show_hidden_images: nextVal }).subscribe({
-      next: (res) => {
-        if (res.ok) {
-          this.showHidden.set(nextVal);
-        }
-      },
-    });
+    this.savePreference({ show_hidden_images: nextVal }, 'Show Hidden Images', () =>
+      this.showHidden.set(nextVal),
+    );
   }
 
   protected toggleStackRawJpeg(): void {
     const nextVal = !this.stackRawJpeg();
-    this.displayApi.saveDisplayConfig({ stack_raw_jpeg: nextVal }).subscribe({
-      next: (res) => {
-        if (res.ok) {
-          this.stackRawJpeg.set(nextVal);
-          this.library.reloadListings();
-        }
-      },
+    this.savePreference({ stack_raw_jpeg: nextVal }, 'Show one image for RAW+JPEG pairs', () => {
+      this.stackRawJpeg.set(nextVal);
+      this.stackPreference.set(nextVal);
+      this.library.reloadListings();
     });
   }
 }

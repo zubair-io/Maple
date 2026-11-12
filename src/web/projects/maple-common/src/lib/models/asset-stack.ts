@@ -50,46 +50,37 @@ export function sameStack(a: Asset['stack'], b: Asset['stack']): boolean {
   );
 }
 
-/** The `{ id, filename }` pair the move and trash queues carry per file. */
-export interface StackMember {
+/** One file of a tile, as the move, rename and trash queues address it. */
+export interface StackFile {
   readonly id: AssetId;
   readonly filename: string;
 }
 
-/** Each asset followed by its companion, so an action on the tile covers both files. */
-export function withStackCompanions(
-  assets: readonly Pick<Asset, 'id' | 'filename' | 'stack'>[],
-): StackMember[] {
-  return assets.flatMap(({ id, filename, stack }) => [
-    { id, filename },
-    ...(stack ? [{ id: stack.companion.id, filename: stack.companion.name }] : []),
-  ]);
+/** One tile as its file operations see it: a pair is one tile but two files,
+ * so the queues carry the RAW with its JPEG and act on the JPEG only after
+ * the RAW's outcome is known. */
+export interface StackTile extends StackFile {
+  readonly companion?: StackFile;
 }
 
-/** Asset ids with each stacked asset's companion id appended; duplicates collapse. */
-export function idsWithCompanions(
+function stackTile({ id, filename, stack }: Pick<Asset, 'id' | 'filename' | 'stack'>): StackTile {
+  return stack
+    ? { id, filename, companion: { id: stack.companion.id, filename: stack.companion.name } }
+    : { id, filename };
+}
+
+/** The tiles behind `ids`, in order. An unknown id stays a one-file tile named
+ * by its id; an id that is already the companion of another selected tile is
+ * dropped, so no file is queued twice. */
+export function stackTiles(
   ids: readonly AssetId[],
-  assets: readonly Pick<Asset, 'id' | 'stack'>[],
-): AssetId[] {
-  const stackOf = new Map(assets.map((a) => [a.id, a.stack]));
-  return [
-    ...new Set(
-      ids.flatMap((id) => {
-        const companion = stackOf.get(id)?.companion;
-        return companion ? [id, companion.id] : [id];
-      }),
-    ),
-  ];
-}
-
-function stemOf(filename: string): string {
-  const dot = filename.lastIndexOf('.');
-  return dot > 0 ? filename.slice(0, dot) : filename;
-}
-
-/** The companion's name after its RAW is renamed: the RAW's new stem, the companion's own extension. */
-export function companionFilenameFor(companionName: string, rawNewFilename: string): string {
-  const dot = companionName.lastIndexOf('.');
-  const ext = dot > 0 ? companionName.slice(dot) : '';
-  return `${stemOf(rawNewFilename)}${ext}`;
+  assets: readonly Pick<Asset, 'id' | 'filename' | 'stack'>[],
+): StackTile[] {
+  const byId = new Map(assets.map((a) => [a.id, a]));
+  const tiles = [...new Set(ids)].map((id) => {
+    const asset = byId.get(id);
+    return asset ? stackTile(asset) : { id, filename: id };
+  });
+  const companions = new Set(tiles.flatMap((tile) => (tile.companion ? [tile.companion.id] : [])));
+  return tiles.filter((tile) => !companions.has(tile.id));
 }

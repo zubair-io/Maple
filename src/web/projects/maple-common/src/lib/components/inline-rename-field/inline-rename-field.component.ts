@@ -62,6 +62,13 @@ export class InlineRenameFieldComponent {
    * Skip / Replace / Keep Both choice instead of the text input. */
   readonly collision = input<boolean>(false);
 
+  /** The name that is taken, when it is not the attempted name: the JPEG of a
+   * RAW+JPEG stack whose RAW was already renamed (#5050). */
+  readonly collisionFilename = input<string | null>(null);
+
+  /** False for a stack's JPEG prompt: Keep Both would split the pair's stem. */
+  readonly keepBothAvailable = input<boolean>(true);
+
   readonly committed = output<string>();
   readonly cancelled = output<void>();
   readonly collisionResolved = output<'replace' | 'keep-both'>();

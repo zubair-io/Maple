@@ -1,11 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import {
-  companionFilenameFor,
-  idsWithCompanions,
-  sameStack,
-  stackFromWire,
-  withStackCompanions,
-} from './asset-stack';
+import { sameStack, stackFromWire, stackTiles } from './asset-stack';
 import type { Asset } from './asset';
 
 const JPEG = { id: 'lib:IMG_1.JPG', name: 'IMG_1.JPG', ext: 'jpg', size: 4 };
@@ -46,37 +40,25 @@ describe('sameStack', () => {
   });
 });
 
-describe('idsWithCompanions', () => {
-  it('appends each stacked asset’s companion address to the selection', () => {
-    expect(idsWithCompanions([raw.id, plain.id], [raw, plain])).toEqual([
-      'lib:IMG_1.CR3',
-      'lib:IMG_1.JPG',
-      'lib:IMG_2.CR3',
-    ]);
-  });
-
-  it('collapses a companion that is already in the selection', () => {
-    expect(idsWithCompanions([raw.id, JPEG.id], [raw])).toEqual(['lib:IMG_1.CR3', 'lib:IMG_1.JPG']);
-  });
-
-  it('passes through ids that are not in the listing', () => {
-    expect(idsWithCompanions(['lib:gone.CR3'], [raw])).toEqual(['lib:gone.CR3']);
-  });
-});
-
-describe('withStackCompanions', () => {
-  it('lists each file once, the RAW before its JPEG', () => {
-    expect(withStackCompanions([raw, plain])).toEqual([
-      { id: 'lib:IMG_1.CR3', filename: 'IMG_1.CR3' },
-      { id: 'lib:IMG_1.JPG', filename: 'IMG_1.JPG' },
+describe('stackTiles', () => {
+  it('carries each stacked asset’s JPEG on its tile, one tile per selected asset', () => {
+    expect(stackTiles([raw.id, plain.id], [raw, plain])).toEqual([
+      {
+        id: 'lib:IMG_1.CR3',
+        filename: 'IMG_1.CR3',
+        companion: { id: 'lib:IMG_1.JPG', filename: 'IMG_1.JPG' },
+      },
       { id: 'lib:IMG_2.CR3', filename: 'IMG_2.CR3' },
     ]);
   });
-});
 
-describe('companionFilenameFor', () => {
-  it('keeps the companion’s own extension under the RAW’s new stem', () => {
-    expect(companionFilenameFor('IMG_1.JPG', 'trip-001.CR3')).toBe('trip-001.JPG');
-    expect(companionFilenameFor('IMG_1.jpeg', 'a.b.dng')).toBe('a.b.jpeg');
+  it('drops a selected id that is already another tile’s companion', () => {
+    expect(stackTiles([raw.id, JPEG.id], [raw]).map((tile) => tile.id)).toEqual(['lib:IMG_1.CR3']);
+  });
+
+  it('keeps an id that is not in the listing as a one-file tile', () => {
+    expect(stackTiles(['lib:gone.CR3'], [raw])).toEqual([
+      { id: 'lib:gone.CR3', filename: 'lib:gone.CR3' },
+    ]);
   });
 });

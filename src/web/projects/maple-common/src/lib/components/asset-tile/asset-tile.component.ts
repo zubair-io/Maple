@@ -42,11 +42,13 @@ import {
 } from '../../shells/preview-shell/preview-video-access';
 import { MuiMediaCellComponent } from '../../ui/media-cell/mui-media-cell.component';
 import type { MuiRatingFlagState } from '../../ui/rating-flags/mui-rating-flags.component';
+import { ASSET_RENAME_CAPABILITY } from '../../rename/asset-rename-capability';
+import { InlineRenameFieldComponent } from '../inline-rename-field/inline-rename-field.component';
 
 @Component({
   selector: 'maple-asset-tile',
   standalone: true,
-  imports: [MapleIconComponent, MuiMediaCellComponent],
+  imports: [MapleIconComponent, MuiMediaCellComponent, InlineRenameFieldComponent],
   templateUrl: './asset-tile.component.html',
   host: { class: 'block w-full h-full' },
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -66,6 +68,15 @@ export class AssetTileComponent {
   private state = inject(LibraryStateService);
   readonly sidecarError = computed(() => this.state.sidecarLoadError?.(this.asset().id) ?? null);
   private readonly videoAccess = inject(PREVIEW_VIDEO_ACCESS);
+  /** The capability interface, not `AssetRenameService`: see
+   * `asset-rename-capability.ts` for why Hosted must not import the service. */
+  protected readonly renameSvc = inject(ASSET_RENAME_CAPABILITY);
+  /** F2 on the focused tile opens the rename field over it (#2637). */
+  readonly isEditingFilename = computed(() => this.renameSvc.editingAssetId() === this.asset().id);
+  protected readonly pendingCollision = computed(() => {
+    const pending = this.renameSvc.collision();
+    return pending?.assetId === this.asset().id ? pending : null;
+  });
 
   readonly livePhoto = computed(() => this.asset().livePhoto);
 

@@ -29,6 +29,10 @@ export interface DragMoveCollisionPrompt {
   filename: string;
   /** The server refused Replace because the destination is another indexed photo. */
   replaceUnavailable?: boolean;
+  /** A RAW+JPEG stack's JPEG (#5050): its RAW already landed as this name.
+   * The prompt offers Skip or Replace for the JPEG only; Keep Both is not
+   * offered because it would put the pair on two stems. */
+  companionOf?: string;
 }
 
 export interface DragMoveCapability {

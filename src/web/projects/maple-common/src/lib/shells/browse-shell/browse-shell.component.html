@@ -149,6 +149,7 @@
   <app-drag-move-collision-dialog
     [filename]="prompt.filename"
     [replaceUnavailable]="prompt.replaceUnavailable ?? false"
+    [companionOf]="prompt.companionOf ?? null"
     (resolve)="onDragMoveCollisionResolved($event)"
   />
 }

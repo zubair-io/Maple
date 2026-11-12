@@ -117,5 +117,29 @@
         <maple-icon [name]="clipSrc() ? 'x' : 'play-circle'" [size]="18" color="white" />
       </button>
     }
+    <!-- F2 rename overlay (#2637, #5846): the tile has no filename caption,
+         so F2 on the focused tile opens the field here. Deferred until the
+         field is first needed, keeping its code out of the grid's bundle. -->
+    @defer (when isEditingFilename()) {
+      @if (isEditingFilename()) {
+        <div
+          class="pointer-events-auto absolute right-[3px] bottom-[3px] left-[3px] z-10 rounded-[3px] bg-surface px-1 py-0.5"
+          data-testid="tile-rename"
+          (click)="$event.stopPropagation()"
+        >
+          <app-inline-rename-field
+            [filename]="a.filename"
+            [error]="renameSvc.error()"
+            [busy]="renameSvc.busy()"
+            [collision]="pendingCollision() !== null"
+            [collisionFilename]="pendingCollision()?.filename ?? null"
+            [keepBothAvailable]="!pendingCollision()?.companion"
+            (committed)="renameSvc.commit(a, $event)"
+            (cancelled)="renameSvc.cancel()"
+            (collisionResolved)="renameSvc.resolveCollision(a, $event)"
+          />
+        </div>
+      }
+    }
   </ng-container>
 </mui-media-cell>

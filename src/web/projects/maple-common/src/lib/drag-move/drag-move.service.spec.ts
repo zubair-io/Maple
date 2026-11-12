@@ -8,6 +8,7 @@ import { BunApiBackendService } from '../api/bun-api-backend.service';
 import { FolderCrudService } from '../api/folder-crud.service';
 import { LibraryStateService } from '../state/library-state.service';
 import type { Asset } from '../models/asset';
+import { FolderOccupancyService } from '../stack/folder-occupancy.service';
 import type { GridFolderItem, SidebarEntry } from '../models/folder';
 
 const SOURCE_FOLDER_ID = 'library:2026';
@@ -32,20 +33,6 @@ const ASSET_B: Asset = {
   colorLabel: null,
   thumbnailGradient: '',
   aspectRatio: 1.5,
-};
-
-const STACKED_RAW: Asset = {
-  ...ASSET_B,
-  id: 'library:2026/IMG_0003.CR3',
-  filename: 'IMG_0003.CR3',
-  stack: {
-    companion: {
-      id: 'library:2026/IMG_0003.JPG',
-      name: 'IMG_0003.JPG',
-      ext: 'jpg',
-      size: 1,
-    },
-  },
 };
 
 const TARGET_NODE: SidebarEntry = {
@@ -98,7 +85,7 @@ describe('DragMoveService', () => {
     const fakeFolderCrud = { move: folderMoveSpy };
     const fakeState = {
       backend: opts.backend ?? 'self-hosted',
-      assets: () => [ASSET_A, ASSET_B, STACKED_RAW],
+      assets: () => [ASSET_A, ASSET_B],
       gridFolders: () => [FOLDER_TRIPS],
       registeredFolders: () => [REGISTERED_LIBRARY],
       refreshFolderListing: refreshFolderListingSpy,
@@ -113,6 +100,7 @@ describe('DragMoveService', () => {
         { provide: BunApiBackendService, useValue: fakeApi },
         { provide: FolderCrudService, useValue: fakeFolderCrud },
         { provide: LibraryStateService, useValue: fakeState },
+        { provide: FolderOccupancyService, useValue: { occupiedNames: vi.fn() } },
       ],
     });
     service = TestBed.inject(DragMoveService);
@@ -201,31 +189,6 @@ describe('DragMoveService', () => {
     expect(refreshFolderListingSpy).toHaveBeenCalledWith(TARGET_NODE.id);
     expect(loadFolderTreeSpy).toHaveBeenCalled();
     expect(clearSelectionSpy).toHaveBeenCalled();
-  });
-
-  it('moving a stacked RAW relocates its JPEG companion with it (#5846)', () => {
-    relocateAssetSpy.mockImplementation((id: string) =>
-      of({
-        kind: 'relocated',
-        newAbsPath: `/lib/France/${id}`,
-        newPath: 'France',
-        newFilename: id.split('/').pop(),
-        renamedOnCollision: false,
-      }),
-    );
-    service.beginMove([STACKED_RAW.id], SOURCE_FOLDER_ID, TARGET_NODE, 'move');
-
-    expect(relocateAssetSpy.mock.calls.map((call) => call[0])).toEqual([
-      'library:2026/IMG_0003.CR3',
-      'library:2026/IMG_0003.JPG',
-    ]);
-    expect(relocateAssetSpy).toHaveBeenCalledWith(
-      'library:2026/IMG_0003.JPG',
-      'move',
-      'skip',
-      '2026/France',
-    );
-    expect(service.resultSummary()).toMatchObject({ total: 2, moved: 2 });
   });
 
   it('copy mode does not clear the selection (originals stay put)', () => {
