@@ -194,6 +194,7 @@ describe('PanoDialogComponent quick preview (#4580)', () => {
         .expectOne('/api/pano/stitch')
         .flush({ id: 's1' }, { status: 201, statusText: 'Created' });
       fixture.componentInstance.onCancel();
+      http.expectOne({ method: 'DELETE', url: '/api/pano/jobs/s1' }).flush({ ok: true });
     });
 
     it('renders the stage and bar inside the sticky preview, under the image', () => {
@@ -246,6 +247,7 @@ describe('PanoDialogComponent quick preview (#4580)', () => {
       expect(q('[data-testid="pano-preview"]')).toBeNull();
       expect(q('[data-testid="pano-stitch-progress"]')).not.toBeNull();
       fixture.componentInstance.onCancel();
+      http.expectOne({ method: 'DELETE', url: '/api/pano/jobs/s1' }).flush({ ok: true });
     });
   });
 

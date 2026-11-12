@@ -6,7 +6,7 @@ import { provideRouter } from '@angular/router';
 import { PanoDialogComponent } from './pano-dialog.component';
 import { API_BASE_URL } from '../api/api-base-url.token';
 import { LibraryStateService } from '../state/library-state.service';
-import type { PanoConfig } from '../api/pano.service';
+import type { PanoConfig, PanoJobStatus } from '../api/pano.service';
 
 const config = (strategySupported: boolean): PanoConfig => ({
   maple_cli_path: '/opt/maple-cli',
@@ -157,5 +157,93 @@ describe('PanoDialogComponent going away mid-submit and between opens (#5517)', 
     });
     expect(fixture.componentInstance.phase()).toBe('done');
     expect(created).toBe(1);
+  });
+
+  describe('a stitch that is queued or running when the dialog lets go of it (#5641)', () => {
+    const JOB_URL = '/api/pano/jobs/j1';
+
+    function submitted(): void {
+      open(false);
+      fixture.componentInstance.onSubmit();
+      http
+        .expectOne('/api/pano/stitch')
+        .flush({ id: 'j1' }, { status: 201, statusText: 'Created' });
+      expect(fixture.componentInstance.phase()).toBe('polling');
+    }
+
+    function polled(status: PanoJobStatus): void {
+      vi.advanceTimersByTime(2_000);
+      http
+        .expectOne({ method: 'GET', url: JOB_URL })
+        .flush({ id: 'j1', status, progress: null, result: null, error: null });
+    }
+
+    function hostHidesDialog(): void {
+      fixture.componentRef.setInput('visible', false);
+      fixture.detectChanges();
+    }
+
+    function expectCancelledOnce(): void {
+      http.expectOne({ method: 'DELETE', url: JOB_URL }).flush({ ok: true });
+      vi.advanceTimersByTime(6_000);
+      http.expectNone(JOB_URL);
+    }
+
+    it('Cancel job before the first poll cancels the job the create response named', () => {
+      let dismissed = 0;
+      fixture.componentInstance.dismiss.subscribe(() => (dismissed += 1));
+      submitted();
+      expect(fixture.componentInstance.job()).toBeNull();
+
+      fixture.componentInstance.onCancel();
+      hostHidesDialog();
+
+      expectCancelledOnce();
+      expect(dismissed).toBe(1);
+    });
+
+    it('Cancel job after a poll cancels the job once', () => {
+      submitted();
+      polled('running');
+
+      fixture.componentInstance.onCancel();
+      hostHidesDialog();
+
+      expectCancelledOnce();
+    });
+
+    it('cancels the job when the host hides the dialog', () => {
+      submitted();
+
+      hostHidesDialog();
+
+      expectCancelledOnce();
+      expect(fixture.componentInstance.phase()).toBe('idle');
+    });
+
+    it('cancels the job when the dialog is destroyed', () => {
+      submitted();
+      polled('queued');
+
+      fixture.destroy();
+
+      expectCancelledOnce();
+    });
+
+    it.each<PanoJobStatus>(['done', 'failed', 'cancelled'])(
+      'sends no cancel for a job that ended as %s',
+      (status) => {
+        submitted();
+        polled(status);
+        expect(fixture.componentInstance.phase()).not.toBe('polling');
+
+        fixture.componentInstance.onClose();
+        hostHidesDialog();
+        fixture.destroy();
+
+        vi.advanceTimersByTime(6_000);
+        http.expectNone(JOB_URL);
+      },
+    );
   });
 });
