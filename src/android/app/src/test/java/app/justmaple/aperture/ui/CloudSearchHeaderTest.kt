@@ -2,24 +2,31 @@ package app.justmaple.aperture.ui
 
 import android.net.Uri
 import androidx.compose.material3.Text
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.assertTextEquals
+import androidx.compose.ui.test.junit4.StateRestorationTester
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
+import app.justmaple.aperture.cloud.CloudResponse
+import app.justmaple.aperture.cloud.CloudSearchModel
 import app.justmaple.aperture.cloud.CloudSearchQuery
 import app.justmaple.aperture.cloud.CloudSearchState
 import app.justmaple.aperture.cloud.SearchDatePreset
 import app.justmaple.aperture.cloud.SearchFacet
 import app.justmaple.aperture.data.Folder
 import app.justmaple.aperture.data.Photo
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -106,6 +113,33 @@ class CloudSearchHeaderTest {
         compose.onNodeWithTag("grid-sort-toggle").performClick()
         compose.onNodeWithTag("grid-sort-toggle").performClick()
         compose.runOnIdle { assertEquals(BrowseSort.Server, sort) }
+    }
+
+    @Test
+    fun aRestoredSearchBoxSearchesItsTextNotTheWholeLibrary() {
+        val home = Folder(Uri.parse("maple-cloud://home"), "home.example.com")
+        val paths = mutableListOf<String>()
+        fun model() =
+            CloudSearchModel(CoroutineScope(Dispatchers.Unconfined)) { _, path ->
+                synchronized(paths) { paths += path }
+                CloudResponse(404, "{}".toByteArray(), null, null)
+            }
+        var search by mutableStateOf(model())
+        val restoration = StateRestorationTester(compose)
+        restoration.setContent {
+            val state by search.state.collectAsState()
+            CloudSearchHeader(state, listOf(home), search::selectServer, search::setText, {}, {}, {}, {})
+        }
+        compose.onNodeWithTag("cloud-search-query").performTextInput("red barn")
+        // Process death: the activity restores its saved state over a brand-new model.
+        search = model()
+        compose.runOnIdle { paths.clear() }
+        restoration.emulateSavedInstanceStateRestore()
+        compose.runOnIdle {
+            assertEquals("red barn", search.state.value.query.text)
+            assertTrue(paths.isNotEmpty())
+            assertTrue(paths.all { "placeQuery=red%20barn" in it })
+        }
     }
 
     private fun photo(name: String) =
