@@ -45,7 +45,9 @@ class CloudSearchTest {
         val query =
             CloudSearchQuery(" red barn ", SearchDatePreset.Last7, setOf("Zoe", "Ann"), setOf("Kyoto, Kansai", "Albany, New York"))
         val first = params(CloudSearchWire.searchPath(query, today, null))
-        assertEquals("red barn", first["q"])
+        assertEquals("The search box reaches the ranked natural-language path", "red barn", first["placeQuery"])
+        assertNull("`q` is only a filename substring", first["q"])
+        assertNull("Android never asks the server to fold RAW+JPEG pairs", first["stack"])
         assertEquals("2026-03-04", first["from"])
         assertEquals("2026-03-10", first["to"])
         assertEquals("Ann,Zoe", first["people"])
@@ -54,7 +56,7 @@ class CloudSearchTest {
         val ranked = params(CloudSearchWire.searchPath(query, today, SearchContinuation(null, 2, "pin")))
         assertEquals("2" to "pin", ranked["page"] to ranked["rankPin"])
         assertEquals("c1", params(CloudSearchWire.searchPath(CloudSearchQuery(), today, SearchContinuation("c1", 0, null)))["cursor"])
-        assertTrue(CloudSearchWire.facetsPath(query, today).startsWith("/api/search/facets?q=red%20barn"))
+        assertTrue(CloudSearchWire.facetsPath(query, today).startsWith("/api/search/facets?placeQuery=red%20barn"))
     }
 
     @Test
@@ -64,7 +66,8 @@ class CloudSearchTest {
                 "server-1",
                 JSONObject()
                     .put("results", org.json.JSONArray()
-                        .put(row("lib:2026/a.dng", "a.dng"))
+                        .put(row("lib:2026/a.dng", "a.dng")
+                            .put("stack", JSONObject().put("companion", JSONObject().put("name", "a.jpg").put("address", "lib:2026/a.jpg"))))
                         .put(row(null, "b.dng"))
                         .put(row("lib:2026/clip.mov", "clip.mov"))
                         .put(row("lib:top.jpg", "top.jpg")))
@@ -73,7 +76,8 @@ class CloudSearchTest {
                     .put("nextCursor", "next"),
                 0,
             )
-        assertEquals(listOf("a.dng", "top.jpg"), page.photos.map { it.name })
+        assertEquals("A folded row's companion is ignored, never invented", listOf("a.dng", "top.jpg"), page.photos.map { it.name })
+        assertEquals(2, page.dropped)
         val photo = page.photos.first()
         assertEquals("server-1", photo.uri.host)
         assertEquals("/api/image/lib/2026/a.dng", CloudLibrary.mediaPath("image", photo.uri))
@@ -125,7 +129,7 @@ class CloudSearchTest {
 
         model.setText("barn")
         advanceUntilIdle()
-        assertTrue(requests.any { params(it)["q"] == "barn" })
+        assertTrue(requests.any { params(it)["placeQuery"] == "barn" })
         assertTrue(model.state.value.canLoadMore)
         assertTrue(model.state.value.openEnded)
 
@@ -161,5 +165,52 @@ class CloudSearchTest {
         advanceUntilIdle()
         assertEquals("Cloud session expired. Reconnect this server in Settings.", model.state.value.error)
         assertFalse(model.state.value.loading)
+    }
+
+    @Test
+    fun aFailedFacetsFetchKeepsThePageAndAFailedRestartClearsTheOldResults() = runTest {
+        var failSearch = false
+        val model =
+            CloudSearchModel(TestScope(StandardTestDispatcher(testScheduler)), { today }) { _, path ->
+                when {
+                    path.startsWith("/api/search/facets") -> response(500, JSONObject())
+                    failSearch -> response(503, JSONObject())
+                    else ->
+                        response(200, JSONObject()
+                            .put("results", org.json.JSONArray()
+                                .put(row("lib:a.dng", "a.dng")).put(row(null, "gone.dng")).put(row("lib:b.dng", "b.dng")))
+                            .put("total", 3).put("cursorPaging", true))
+                }
+            }
+        model.selectServer(Folder(Uri.parse("maple-cloud://server-1"), "photos.example.com"))
+        advanceUntilIdle()
+        assertEquals(listOf("a.dng", "b.dng"), model.state.value.results.map { it.name })
+        assertNull("Facets decorate the filters; their failure is not a search failure", model.state.value.error)
+        assertTrue(model.state.value.people.isEmpty())
+        assertEquals("The count excludes rows this client cannot open", 2, model.state.value.total)
+
+        failSearch = true
+        model.setText("barn")
+        advanceUntilIdle()
+        assertNotNull(model.state.value.error)
+        assertTrue("A failed new search never shows the previous query's results", model.state.value.results.isEmpty())
+        assertEquals(0, model.state.value.total)
+        assertFalse(model.state.value.canLoadMore)
+    }
+
+    @Test
+    fun anOpenWindowCountsTheServerTotalLessTheRowsItDropped() = runTest {
+        val model =
+            CloudSearchModel(TestScope(StandardTestDispatcher(testScheduler)), { today }) { _, path ->
+                if (path.startsWith("/api/search/facets")) response(200, JSONObject())
+                else
+                    response(200, JSONObject()
+                        .put("results", org.json.JSONArray().put(row("lib:a.dng", "a.dng")).put(row("lib:clip.mov", "clip.mov")))
+                        .put("total", 450).put("cursorPaging", true).put("nextCursor", "c2"))
+            }
+        model.selectServer(Folder(Uri.parse("maple-cloud://server-1"), "photos.example.com"))
+        advanceUntilIdle()
+        assertEquals(449, model.state.value.total)
+        assertTrue(model.state.value.canLoadMore)
     }
 }
