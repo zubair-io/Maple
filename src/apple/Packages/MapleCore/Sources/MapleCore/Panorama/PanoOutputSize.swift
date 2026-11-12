@@ -111,20 +111,11 @@ public enum PanoMemoryFit: Sendable, Equatable {
 ///   *width*: the composite streams fixed-height strips whose buffers are
 ///   output rows.
 ///
-/// Calibrated after banded decode and refinement and tap-only composite
-/// reads (#5552–#5566): pano_00 (3 × 100.7 MP, tile, 12315 px wide) on an
-/// iPad adds 1263 MiB in the head and 593 MiB in the composite;
-/// `maple-cli` on a Mac measures pano_00's composite at up to 1.2 GiB and
-/// pano_01 (21 × 20.8 MP, rotation, 26981 px wide) at up to 1.8 GiB for the
-/// head and 2.8 GiB for the composite. The constants are fitted to those
-/// five figures and round up, so each overstates its measurement; the
-/// Mac's allocator keeps more than the iPad's, so the column term is the
-/// Mac's. Every input frame counts toward `frameCount`, dropped or not.
+/// The constants and their calibration live in raw-core's `pano_memory`,
+/// which `maple-pano` also refuses an over-limit stitch with (#5835); they
+/// reach here as `PanoMemoryConstants` through `tools/codegen.sh`. Every
+/// input frame counts toward `frameCount`, dropped or not.
 public struct PanoMemoryModel: Sendable, Equatable {
-    public static let bytesPerFrame = 80 << 20
-    public static let headBytesPerLargestFramePixel = 12
-    public static let compositeBytesPerLargestFramePixel = 5
-    public static let compositeBytesPerCanvasColumn = 49_350
     /// Headroom for what the model does not see (allocator fragmentation,
     /// the app itself, thumbnail work running alongside).
     public static let safetyFactor = 1.15
@@ -160,7 +151,7 @@ public struct PanoMemoryModel: Sendable, Equatable {
         let head = headBytes(sizes)
         let budgets = full > hardBudget ? [defaultBudget, hardBudget] : [defaultBudget]
         for budget in budgets where head <= budget {
-            let width = (budget - compositeBaseBytes(sizes)) / Self.compositeBytesPerCanvasColumn
+            let width = (budget - compositeBaseBytes(sizes)) / PanoMemoryConstants.compositeBytesPerCanvasColumn
             if let canvas = sizes.fittedCanvas(width: width) {
                 return .fitted(estimatedFullBytes: full, canvas: canvas)
             }
@@ -169,15 +160,17 @@ public struct PanoMemoryModel: Sendable, Equatable {
     }
 
     func compositeBytes(_ sizes: PanoStitchSizes, canvasWidth: Int) -> Int {
-        compositeBaseBytes(sizes) + canvasWidth * Self.compositeBytesPerCanvasColumn
+        compositeBaseBytes(sizes) + canvasWidth * PanoMemoryConstants.compositeBytesPerCanvasColumn
     }
 
     func headBytes(_ sizes: PanoStitchSizes) -> Int {
-        sizes.frameCount * Self.bytesPerFrame + sizes.largestFramePixels * Self.headBytesPerLargestFramePixel
+        sizes.frameCount * PanoMemoryConstants.bytesPerFrame
+            + sizes.largestFramePixels * PanoMemoryConstants.headBytesPerLargestFramePixel
     }
 
     private func compositeBaseBytes(_ sizes: PanoStitchSizes) -> Int {
-        sizes.frameCount * Self.bytesPerFrame + sizes.largestFramePixels * Self.compositeBytesPerLargestFramePixel
+        sizes.frameCount * PanoMemoryConstants.bytesPerFrame
+            + sizes.largestFramePixels * PanoMemoryConstants.compositeBytesPerLargestFramePixel
     }
 }
 

@@ -21,6 +21,8 @@ export interface PanoCliCapabilities {
   preview: boolean;
   /** `--boundary-warp` / `--auto-crop` (#5574). */
   edges: boolean;
+  /** `--memory-limit-bytes` (#5835). A binary without it stitches unchecked. */
+  memoryLimit: boolean;
 }
 
 const NO_CAPABILITIES: PanoCliCapabilities = {
@@ -28,6 +30,7 @@ const NO_CAPABILITIES: PanoCliCapabilities = {
   featuresEngine: false,
   preview: false,
   edges: false,
+  memoryLimit: false,
 };
 
 let cached: { key: string; capabilities: PanoCliCapabilities } | null = null;
@@ -68,6 +71,7 @@ export async function probePanoCli(cliPath: string): Promise<PanoCliCapabilities
       featuresEngine: help.includes('--features-engine'),
       preview: help.includes('--preview-out') && help.includes('--alignment-in'),
       edges: help.includes('--boundary-warp') && help.includes('--auto-crop'),
+      memoryLimit: help.includes('--memory-limit-bytes'),
     }))
     .catch(() => NO_CAPABILITIES);
   cached = { key, capabilities };

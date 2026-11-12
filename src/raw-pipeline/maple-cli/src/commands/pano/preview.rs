@@ -75,7 +75,7 @@ pub(super) fn run_preview(
         super::progress::stderr_progress(),
         || false,
     )
-    .map_err(|e| e.to_string())?;
+    .map_err(|e| super::refusal::describe(e, args.report.as_deref()))?;
 
     let t_out = Instant::now();
     write_frame_png(

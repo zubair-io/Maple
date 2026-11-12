@@ -137,6 +137,11 @@ pub(super) fn rotation_tail(
 
     let canvas =
         auto_canvas(&kept_cams, &canvas_opts).map_err(|e| StitchError::Composite(e.to_string()))?;
+    super::memory::admit_composite(
+        alignment.frames.iter().map(|frame| frame.full_dims),
+        canvas.width,
+        opts,
+    )?;
 
     let (tiled_report, falloff) = {
         let stage = CompositeProgress::new(progress, is_cancelled);

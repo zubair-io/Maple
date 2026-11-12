@@ -50,6 +50,7 @@ mod filename;
 mod film_catalog;
 mod local_mask_wire;
 mod maple_id;
+mod pano_memory;
 mod ranked_window;
 mod raster_recipe;
 mod scope_targets;
@@ -136,6 +137,8 @@ enum Schema {
     AdjustmentApi,
     /// The ranked search window's ladder (#4545).
     RankedWindow,
+    /// The panorama stitch's memory model (#5835).
+    PanoMemory,
     /// raw-ffi develop statuses the API acts on (#5499).
     FfiStatus,
     /// Per-field batch transfer decisions (#3311).
@@ -230,6 +233,11 @@ fn main() {
         (Schema::RankedWindow, Target::Ts) => ranked_window::emit_ts(),
         (Schema::RankedWindow, _) => {
             eprintln!("ranked-window supports swift / ts");
+            std::process::exit(2);
+        }
+        (Schema::PanoMemory, Target::Swift) => pano_memory::emit_swift(),
+        (Schema::PanoMemory, _) => {
+            eprintln!("pano-memory supports swift");
             std::process::exit(2);
         }
         (Schema::Filename, target) => filename::emit(target),

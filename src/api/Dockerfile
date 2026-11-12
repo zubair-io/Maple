@@ -241,13 +241,14 @@ ENV MAPLE_NATIVE_LIB=/app/native/libraw_ffi.so
 # The panorama stitcher from stage 2 (#5493). MAPLE_PANO_CLI only names the
 # binary this image ships, so a stock image stitches with no setup; the path
 # saved in Settings > Pano still wins. The check fails `docker build` on a
-# binary that cannot load or lacks the matcher and preview flags the server
-# relies on.
+# binary that cannot load or lacks the matcher, preview and memory-limit flags
+# the server relies on.
 COPY --from=rust-builder /maple-cli native/
 ENV MAPLE_PANO_CLI=/app/native/maple-cli
 RUN help="$("$MAPLE_PANO_CLI" pano stitch --help)" \
  && printf '%s\n' "$help" | grep -q -- --features-engine \
- && printf '%s\n' "$help" | grep -q -- --preview-out
+ && printf '%s\n' "$help" | grep -q -- --preview-out \
+ && printf '%s\n' "$help" | grep -q -- --memory-limit-bytes
 
 # ONNX Runtime for maple-search's query embedder (#4462). Like maple-pano's
 # `ml` feature, the crate dlopens a libonnxruntime >= 1.23 from a configured

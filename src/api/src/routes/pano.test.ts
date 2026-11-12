@@ -481,7 +481,7 @@ describe('POST /api/pano/stitch (provisioned)', () => {
     // Two close-together stitch POSTs must not enqueue multiple concurrent jobs.
     // The first creates a queued job; the second must see the queued job and
     // return 409 — not enqueue a second job that a worker would later execute
-    // concurrently (pano is ~tens of GB RSS, concurrent runs OOM the box).
+    // concurrently (a stitch holds the whole decode memory budget; concurrent runs OOM the box).
     // First request — should succeed.
     const first = await postJson('/api/pano/stitch', STITCH_BODY());
     expect(first.status).toBe(201);

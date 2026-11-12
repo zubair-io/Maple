@@ -17,7 +17,7 @@
  * can only run ML (`pano_cli_outdated`) — is `pano/pano-engine.ts`.
  *
  * Concurrency: one pano_stitch job may run at a time (they are heavy:
- * ~6 min, tens of GB RSS). POST returns 409 { error: 'pano_job_running' }
+ * minutes of every core and gigabytes of RSS). POST returns 409 { error: 'pano_job_running' }
  * when a running job exists, unless the request repeats that job's — then it
  * answers with that job's id (`pano/pano-stitch-rejoin.ts`).
  *
@@ -92,7 +92,7 @@ const ConfigBody = t.Object({
 async function withProbedFlags(cfg: PanoConfigResolution) {
   const capabilities = cfg.maple_cli_path
     ? await probePanoCli(cfg.maple_cli_path)
-    : { strategy: false, featuresEngine: false, preview: false, edges: false };
+    : { strategy: false, featuresEngine: false, preview: false, edges: false, memoryLimit: false };
   return {
     ...cfg,
     strategy_supported: capabilities.strategy,
@@ -269,6 +269,7 @@ export async function panoJobPayload(
     boundaryWarp: request.options.boundaryWarp ?? 0,
     autoCrop: request.options.autoCrop ?? false,
     alignmentIn: capabilities.preview ? await previewAlignment(request.alignmentFrom) : null,
+    memoryLimitSupported: capabilities.memoryLimit,
   };
 }
 

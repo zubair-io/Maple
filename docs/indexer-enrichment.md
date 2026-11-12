@@ -310,7 +310,7 @@ Six kinds exist (`JobKind` in `db/schema.ts`, registry in `job-runner/handlers/i
 
 - `batch_jpeg_export` and `batch_recipe_export` — render the selected assets into an output directory via the shared FFI pool. See [export recipes](export-recipes.md).
 - `batch_adjustment_sync` — applies one edit to a selection of photos, with a per-photo ledger.
-- `pano_stitch` and `pano_preview` — spawn `maple-cli pano` over the selected assets and, for a stitch, import the result as a new asset. Admission allows one stitch at a time. See [pano](pano.md).
+- `pano_stitch` and `pano_preview` — spawn `maple-cli pano` over the selected assets and, for a stitch, import the result as a new asset. Admission allows one stitch at a time. A stitch holds the whole decode memory budget while it runs and passes it to the CLI as a memory limit, so a panorama too large for the server fails with the reason instead of being killed (#5835). See [pano](pano.md).
 - `cloud_backup_restore` — restores from a cloud-backup destination.
 
 **Which to reach for.** Anything whose job is "eventually, every eligible asset gets property X" is a stage, not a job — a stage gets pause/resume, concurrency, retry/backoff, dead-letter, and a live progress row on Settings → Workers for free from the generic machinery, and it becomes retroactively eligible for the existing library the moment it is added to the manifest. A job is for a specific, user-selected request with no ongoing backlog behind it: export _these_ photos, stitch _this_ panorama.

@@ -16,6 +16,7 @@
  *     ortDylibPath:  string | null,         // ML only
  *     matcherNote:   string | null,         // why the planned matcher differs (#5487)
  *     alignmentIn?:  string | null,         // a done preview's alignment.json (#4580)
+ *     memoryLimitSupported?: boolean,       // the binary takes --memory-limit-bytes (#5835)
  *   }
  *
  * The handler:
@@ -91,6 +92,8 @@ export interface PanoStitchPayload {
   /** Boundary Warp strength in percent, 0 to 100 (#5576). */
   boundaryWarp: number;
   autoCrop: boolean;
+  /** The binary takes `--memory-limit-bytes`; false for a job queued before #5835. */
+  memoryLimitSupported: boolean;
 }
 
 /** The report's `alignment` block; null from a binary that predates #4578. */
@@ -217,6 +220,7 @@ export function parsePayload(raw: Record<string, unknown>): PanoStitchPayload {
     matcherNote: typeof raw.matcherNote === 'string' ? raw.matcherNote : null,
     alignmentIn: parseAlignmentIn(raw.alignmentIn),
     ...parseEdges(raw),
+    memoryLimitSupported: raw.memoryLimitSupported === true,
   };
 }
 
@@ -410,7 +414,7 @@ export const panoStitchHandler: JobHandler = {
           { exitCode: run.exitCode, stderrLines: run.stderrLines.slice(-5) },
           'pano stitch failed',
         );
-        throw cliFailure(run);
+        throw await cliFailure(run, payload.outputDir);
       }
 
       const [alignment, edges] = await Promise.all([

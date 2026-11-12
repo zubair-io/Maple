@@ -331,3 +331,24 @@ describe('Boundary Warp and Auto Crop options (#5576)', () => {
     );
   });
 });
+
+describe('memory limit (#5835)', () => {
+  const queuedPayload = async (url: string) => {
+    const res = await send('POST', url, BODY());
+    const { id } = (await res.json()) as { id: string };
+    return (await getJob(new ObjectId(id)))?.payload;
+  };
+
+  it('queues a preview and a stitch that know the binary takes a limit', async () => {
+    await configure(await writeFakePanoCli(tmpDir, { preview: true, memoryLimit: true }));
+
+    expect(await queuedPayload('/api/pano/preview')).toMatchObject({ memoryLimitSupported: true });
+    expect(await queuedPayload('/api/pano/stitch')).toMatchObject({ memoryLimitSupported: true });
+  });
+
+  it('queues jobs for a binary from before the flag without one', async () => {
+    await configure(previewCli);
+
+    expect(await queuedPayload('/api/pano/stitch')).toMatchObject({ memoryLimitSupported: false });
+  });
+});

@@ -6,6 +6,7 @@
  * given, and reports `reused` when handed `--alignment-in`. Every invocation's
  * arguments are appended to `<cli>.args`, one line per run. With `edges`, a
  * `<cli>.rect` file holds the JSON rectangle `--auto-crop` reports (else null).
+ * With `refuses`, it writes that refusal to `--report` and exits 1 (#5835).
  */
 
 import fs from 'node:fs/promises';
@@ -20,22 +21,37 @@ export interface FakeCliOptions {
   /** Whether `--help` lists `--boundary-warp` and `--auto-crop`; the report then carries an `edges` block echoing them. */
   edges?: boolean;
   exitCode?: number;
+  /** Whether `--help` lists `--memory-limit-bytes`. */
+  memoryLimit?: boolean;
+  /** Refuse every run for this reason: 3.2 GB needed, 2.0 GB available. */
+  refuses?: 'memory' | 'scratch_space';
 }
 
 export async function writeFakePanoCli(dir: string, opts: FakeCliOptions): Promise<string> {
-  const cli = path.join(
-    dir,
-    `fake-maple-cli-${opts.preview ? 'preview' : 'legacy'}${opts.edges ? '-edges' : ''}-${opts.exitCode ?? 0}`,
-  );
+  const variant = [
+    opts.preview ? 'preview' : 'legacy',
+    ...(opts.edges ? ['edges'] : []),
+    ...(opts.memoryLimit ? ['limit'] : []),
+    ...(opts.refuses ? [opts.refuses] : []),
+    String(opts.exitCode ?? 0),
+  ].join('-');
+  const cli = path.join(dir, `fake-maple-cli-${variant}`);
   const helpFlags = opts.preview
     ? '--strategy --features-engine <E> --preview-out <PNG> --alignment-in <JSON> --alignment-out <JSON>'
     : '--strategy --features-engine <E>';
-  const helpWithEdges = opts.edges ? `${helpFlags} --boundary-warp <PCT> --auto-crop` : helpFlags;
+  const help = [
+    helpFlags,
+    ...(opts.edges ? ['--boundary-warp <PCT> --auto-crop'] : []),
+    ...(opts.memoryLimit ? ['--memory-limit-bytes <N>'] : []),
+  ].join(' ');
+  const refusal = opts.refuses
+    ? `[ -n "$REPORT" ] && echo '{"refused":{"reason":"${opts.refuses}","needed_bytes":3200000000,"available_bytes":2000000000}}' > "$REPORT"; echo "error: refused" >&2; exit 1`
+    : '';
   await fs.writeFile(
     cli,
     `#!/bin/sh
 echo "$*" >> "$0.args"
-case "$*" in *--help*) echo "Usage: maple-cli pano stitch ${helpWithEdges}"; exit 0;; esac
+case "$*" in *--help*) echo "Usage: maple-cli pano stitch ${help}"; exit 0;; esac
 DISPLAY=""; PREVIEW=""; ALIGN_OUT=""; ALIGN_IN=""; REPORT=""; WARP=0; CROP=false
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -49,6 +65,7 @@ while [ $# -gt 0 ]; do
   esac
   shift
 done
+${refusal}
 for s in 0 1 2; do
   echo "pano: progress $s stage 0%" >&2
   echo "pano: progress $s stage 50%" >&2

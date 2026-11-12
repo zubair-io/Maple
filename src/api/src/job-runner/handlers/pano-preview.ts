@@ -98,7 +98,7 @@ export const panoPreviewHandler: JobHandler = {
         await removePreviewDir(payload.outputDir);
         return cancelled();
       }
-      if (run.exitCode !== 0) throw cliFailure(run);
+      if (run.exitCode !== 0) throw await cliFailure(run, payload.outputDir);
 
       await ctx.reportProgress(PROGRESS_TOTAL, PROGRESS_TOTAL);
       const [alignment, report, edges] = await Promise.all([

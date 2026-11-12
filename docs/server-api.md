@@ -353,6 +353,8 @@ Recovery bodies are `{ targetPath, includeTrash, entryId?, sequence? }`; `entryI
 | GET    | `/api/pano/jobs/:id/preview` | bearer | The finished preview PNG                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | DELETE | `/api/pano/jobs/:id`         | bearer | Cancel an in-flight stitch                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 
+A pano job the server cannot hold fails instead of running out of memory or disk (#5835): `maple-cli` is given the decode memory budget as its limit, and `GET /api/pano/jobs/:id` then reports `status: "failed"` with an `error` sentence that says how much memory, or temporary disk space, the panorama needs and how much the server has. See [pano](pano.md#server-self-hosted).
+
 ## Change feed
 
 | Method | Path                     | Auth   | Purpose                                                                                                                                                                              |

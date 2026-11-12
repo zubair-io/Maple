@@ -188,6 +188,13 @@ name = "classical_gates"
 path = "tests/classical_gates.rs"
 required-features = ["classical-features", "testkit"]
 
+# #5835: the stitch's memory limit on frames `pano-gen-fixture` writes into
+# a temp dir, classical matcher, so it runs on every CI runner too.
+[[test]]
+name = "memory_limit_gates"
+path = "tests/memory_limit_gates.rs"
+required-features = ["classical-features"]
+
 # Frame store (#5553): `statvfs` for the free-space preflight and
 # `kill(pid, 0)` for the orphan sweep. Already in the tree via raw-core's
 # `avif` feature.

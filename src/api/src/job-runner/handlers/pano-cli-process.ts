@@ -19,6 +19,7 @@ import { assetAbsPath } from '../../indexer/images.repo.ts';
 import { invalidateLibraryRoots, loadLibraryRoots } from '../../indexer/libraries.cache.ts';
 import { child as childLogger } from '../../log.ts';
 import { jailExecutablePaths } from '../../pano/pano-config-paths.ts';
+import { readRefusal, refusalMessage } from '../../pano/pano-refusal.ts';
 import { decodeMemoryBudget } from '../../ffi/decode-memory-budget.ts';
 import type { JobHandlerContext } from './index.ts';
 import type { PanoStitchPayload } from './pano-stitch.ts';
@@ -99,6 +100,22 @@ function panoEnv(payload: PanoStitchPayload): Record<string, string> {
     ...(payload.modelsDir ? { MAPLE_PANO_MODELS: payload.modelsDir } : {}),
     ...(payload.ortDylibPath ? { ORT_DYLIB_PATH: payload.ortDylibPath } : {}),
   };
+}
+
+/** `args` with the decode memory budget as the stitch's limit (#5835), ahead
+ * of the `--` that ends the options. An uncapped budget, or a binary from
+ * before the flag, runs without one. */
+function withMemoryLimit(payload: PanoStitchPayload, args: readonly string[]): readonly string[] {
+  const { limitBytes } = decodeMemoryBudget().snapshot();
+  if (limitBytes === null || !payload.memoryLimitSupported) return args;
+  const separator = args.indexOf('--');
+  const optionsEnd = separator === -1 ? args.length : separator;
+  return [
+    ...args.slice(0, optionsEnd),
+    '--memory-limit-bytes',
+    String(limitBytes),
+    ...args.slice(optionsEnd),
+  ];
 }
 
 export interface PanoCliRun {
@@ -198,14 +215,15 @@ export async function runPanoCli(
     ortDylibPath: jailed.canonical.ort_dylib_path ?? payload.ortDylibPath,
     modelsDir: jailed.canonical.models_dir ?? payload.modelsDir,
   };
-  // A stitch peaks at tens of GB, so it reserves the whole decode memory
-  // budget and runs only once every in-flight decode has released (#5467).
+  // The stitch holds the whole decode memory budget: it runs only once every
+  // in-flight decode has released (#5467), and that budget is the limit the
+  // CLI refuses an oversized panorama against (#5835).
   const release = await decodeMemoryBudget().acquireAll();
   try {
     if (await ctx.shouldCancel()) {
       return { exitCode: 0, cancelled: true, stderrLines: [], progress: 0 };
     }
-    return await spawnPanoCli(executables, args, ctx);
+    return await spawnPanoCli(executables, withMemoryLimit(payload, args), ctx);
   } finally {
     release();
   }
@@ -252,13 +270,15 @@ export const PANO_CLI_FAILURE_MESSAGE =
   'The panorama merge failed. The server log has the details.';
 
 /** The job's error is shown to the user verbatim, so the exit code and the
- *  tool's stderr go to the log instead (#5487). */
-export function cliFailure(run: PanoCliRun): Error {
+ *  tool's stderr go to the log instead (#5487). A stitch the CLI refused for
+ *  memory or scratch space says so in its report, and fails with that. */
+export async function cliFailure(run: PanoCliRun, outputDir: string): Promise<Error> {
   log.error(
     { exitCode: run.exitCode, stderr: run.stderrLines.slice(-10) },
     'maple-cli pano failed',
   );
-  return new Error(PANO_CLI_FAILURE_MESSAGE);
+  const refusal = await readRefusal(reportPath(outputDir));
+  return new Error(refusal === null ? PANO_CLI_FAILURE_MESSAGE : refusalMessage(refusal));
 }
 
 export function reportPath(outputDir: string): string {

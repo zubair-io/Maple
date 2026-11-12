@@ -154,6 +154,12 @@ pub struct StitchArgs {
     /// spans the wrapping axis.
     #[arg(long)]
     pub(super) auto_crop: bool,
+    /// Refuse the stitch when its estimated peak memory is above this many
+    /// bytes (#5835): before decoding for the frames alone, and before
+    /// compositing for the solved canvas. A refusal for memory, or for
+    /// scratch space, is written to --report as a `refused` block.
+    #[arg(long)]
+    pub(super) memory_limit_bytes: Option<u64>,
 }
 
 impl StitchArgs {
