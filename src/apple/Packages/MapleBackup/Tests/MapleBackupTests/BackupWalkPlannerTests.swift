@@ -56,6 +56,7 @@ final class BackupWalkPlannerTests: XCTestCase {
       fullLibraryAccess: fullLibraryAccess)
     let library = try XCTUnwrap(planned)
     _ = try await store.removeDeleted(library.forget.map(id))
+    _ = try await store.removeExcluded(library.dropExcluded.map(id))
     _ = try await store.suspendExcluded(library.suspend.map(id))
     let reconcile = BackupWalkPlanner.planReconcile(
       local: local, library: library, outcome: outcome, deviceId: device,
@@ -100,6 +101,7 @@ final class BackupWalkPlannerTests: XCTestCase {
     let plan = try await walk(store, listing: [asset("keep")]).library
 
     XCTAssertEqual(plan.forget, ["gone", "queued"])
+    XCTAssertEqual(plan.dropExcluded, [])
     XCTAssertEqual(plan.libraryPhotoIDs, ["keep"])
     XCTAssertEqual(plan.backedUpPhotoIDs, ["keep"])
     XCTAssertEqual(plan.pendingPhotoIDs, [])
@@ -179,7 +181,8 @@ final class BackupWalkPlannerTests: XCTestCase {
       inPhotoKit: everyone
     ).library
 
-    XCTAssertEqual(plan.forget, ["queued", "failed"])
+    XCTAssertEqual(plan.forget, [])
+    XCTAssertEqual(plan.dropExcluded, ["queued", "failed"])
     XCTAssertEqual(plan.deleted, [])
     XCTAssertEqual(plan.libraryPhotoIDs, ["other"])
     XCTAssertEqual(plan.pendingPhotoIDs, ["other"])
@@ -227,6 +230,75 @@ final class BackupWalkPlannerTests: XCTestCase {
     XCTAssertNil(gone, "a photo deleted from Photos can never deliver its companions")
   }
 
+  func testAnExcludedRowDeliveredSinceThePlansSnapshotIsKeptNotDeleted() async throws {
+    let store = try freshStore()
+    try await store.upsert([row("raced", .pending, retryCount: 1), row("idle", .pending)])
+    let local = LocalTaskIndex(tasks: try await store.allTasks(), deviceId: device)
+    let outcome = DiscoveryOutcome(
+      assets: [asset("other")], deletedPhids: [], newToken: nil, isFullScan: true)
+    let library = try XCTUnwrap(
+      BackupWalkPlanner.planLibrary(
+        local: local, outcome: outcome, previouslySeen: ["other", "raced", "idle"],
+        stillInPhotoKit: ["raced", "idle"], owingCompanions: [], fullLibraryAccess: true))
+    XCTAssertEqual(library.dropExcluded, ["raced", "idle"])
+
+    try await store.transition(id("raced"), to: .uploaded)
+    let cancelled = try await store.removeExcluded(library.dropExcluded.sorted().map(id))
+
+    XCTAssertEqual(cancelled, [id("idle")])
+    let raced = try await state(store, "raced")
+    XCTAssertEqual(raced, .uploaded, "a delivery the snapshot predates must not be deleted")
+    let idle = try await state(store, "idle")
+    XCTAssertNil(idle)
+  }
+
+  func testAnExcludedRowThatStartedOwingCompanionsSinceThePlansSnapshotIsKept() async throws {
+    let store = try freshStore()
+    try await store.upsert([
+      row("failed", .failedRetry), row("retry", .pending, retryCount: 2),
+      row("claimed", .uploading),
+    ])
+    try await store.markCompanionsOwed(id("failed"))
+    try await store.markCompanionsOwed(id("retry"))
+
+    let cancelled = try await store.removeExcluded(
+      ["failed", "retry", "claimed", "unknown"].map(id))
+
+    XCTAssertEqual(cancelled, [id("retry")], "the parked retry leaves the queue")
+    let failed = try await state(store, "failed")
+    XCTAssertEqual(failed, .failedRetry, "its mark is the only record the companions never landed")
+    let retry = try await store.find(id("retry"))
+    XCTAssertEqual(
+      retry?.state, .skippedPolicy, "parked, as the walk parks an owing excluded retry")
+    XCTAssertEqual(retry?.retryCount, 2)
+    let claimed = try await state(store, "claimed")
+    XCTAssertEqual(claimed, .uploading)
+    let owing = try await store.phidsOwingCompanions(deviceId: device)
+    XCTAssertEqual(owing, ["failed", "retry"])
+  }
+
+  func testReturningToPendingLeavesRowsAWalkSettledOrParked() async throws {
+    let store = try freshStore()
+    try await store.upsert([
+      row("queued", .pending, retryCount: 1), row("settled", .uploaded),
+      row("parked", .skippedPolicy),
+    ])
+
+    let queued = try await store.returnToPending(id("queued"))
+    let settled = try await store.returnToPending(id("settled"))
+    let parked = try await store.returnToPending(id("parked"))
+    let unknown = try await store.returnToPending(id("unknown"))
+
+    XCTAssertTrue(queued)
+    XCTAssertFalse(settled)
+    XCTAssertFalse(parked)
+    XCTAssertFalse(unknown)
+    let settledState = try await state(store, "settled")
+    XCTAssertEqual(settledState, .uploaded)
+    let parkedState = try await state(store, "parked")
+    XCTAssertEqual(parkedState, .skippedPolicy)
+  }
+
   func testAnEmptyListingWithLocalRowsForgetsAndRecordsNothing() async throws {
     let store = try freshStore()
     try await store.upsert([row("a", .uploaded), row("b", .pending)])
@@ -249,7 +321,7 @@ final class BackupWalkPlannerTests: XCTestCase {
     let plan = try await walk(store, listing: [], inPhotoKit: ["sent", "queued"]).library
 
     XCTAssertEqual(
-      plan.forget, ["queued"], "videos turned off: the library of videos lists nothing")
+      plan.dropExcluded, ["queued"], "videos turned off: the library of videos lists nothing")
     XCTAssertEqual(plan.libraryPhotoIDs, [])
     let sent = try await state(store, "sent")
     XCTAssertEqual(sent, .uploaded)

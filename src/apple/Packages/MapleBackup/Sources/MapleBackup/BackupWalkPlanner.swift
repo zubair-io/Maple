@@ -70,9 +70,12 @@ public struct LocalTaskIndex: Sendable {
 
 /// Which photos are in the library after this walk, and which rows to forget.
 public struct BackupLibraryPlan: Sendable {
-  /// Rows to forget: photos that left Photos, and rows kept for nothing by a
-  /// photo the inclusion settings now exclude.
+  /// Rows to forget: photos that left Photos.
   public let forget: Set<String>
+  /// Rows an excluded photo keeps for nothing: pending or failed, owing no
+  /// companions. The store re-reads each before deleting it, since a worker
+  /// may have delivered or begun to owe since the snapshot the plan reads.
+  public let dropExcluded: Set<String>
   /// Pending rows of excluded photos that owe companions: kept, but not
   /// uploaded until the photo is listed again.
   public let suspend: Set<String>
@@ -121,9 +124,9 @@ public enum BackupWalkPlanner {
   /// A row is forgotten only for a photo PhotoKit no longer returns, so a
   /// photo a setting merely excludes keeps the record that its original is on
   /// the server, and the walk that includes it again does not upload it a
-  /// second time. An excluded photo's row that records nothing delivered goes:
-  /// a pending or failed row leaves the queue, as the setting asks. A row
-  /// owing companions stays whatever its state, because its mark is the only
+  /// second time. An excluded photo's row that records nothing delivered is
+  /// dropped: a pending or failed row leaves the queue, as the setting asks.
+  /// A row owing companions stays whatever its state, because its mark is the only
   /// record that the photo's Live Photo video or edited render never landed;
   /// one still pending is suspended so it cannot upload while excluded, and
   /// resumed when the photo is listed again.
@@ -148,10 +151,12 @@ public enum BackupWalkPlanner {
     let listed = Set(outcome.assets.map(\.phid))
     let deleted: Set<String>
     let forget: Set<String>
+    let dropExcluded: Set<String>
     let suspend: Set<String>
     if !outcome.isFullScan {
       deleted = outcome.deletedPhids
       forget = deleted
+      dropExcluded = []
       suspend = []
     } else if listed.isEmpty && !local.stateByPhid.isEmpty && stillInPhotoKit.isEmpty {
       return nil
@@ -160,16 +165,17 @@ public enum BackupWalkPlanner {
       let gone = notListed.subtracting(stillInPhotoKit)
       let excluded = notListed.intersection(stillInPhotoKit)
       deleted = gone.intersection(previouslySeen)
-      forget = gone.union(
-        excluded.filter {
-          !owingCompanions.contains($0) && local.stateByPhid[$0].map(deliveredNothing) == true
-        })
+      forget = gone
+      dropExcluded = excluded.filter {
+        !owingCompanions.contains($0) && local.stateByPhid[$0].map(deliveredNothing) == true
+      }
       suspend = excluded.filter {
         owingCompanions.contains($0) && local.stateByPhid[$0] == .pending
       }
     } else {
       deleted = previouslySeen.subtracting(listed)
       forget = deleted
+      dropExcluded = []
       suspend = []
     }
     let baseline = previouslySeen.isEmpty ? local.allPhids : previouslySeen
@@ -179,6 +185,7 @@ public enum BackupWalkPlanner {
     }
     return BackupLibraryPlan(
       forget: forget,
+      dropExcluded: dropExcluded,
       suspend: suspend,
       deleted: deleted,
       libraryPhotoIDs: libraryPhotoIDs,

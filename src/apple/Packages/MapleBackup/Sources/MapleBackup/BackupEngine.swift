@@ -269,7 +269,10 @@ public actor BackupEngine {
       await reachability.status() != .wifi,
       task.priority < .userEdit
     {
-      try await state.transition(task.id, to: .pending)
+      guard try await state.returnToPending(task.id) else {
+        await queue.emit(.cancelled(task.id))
+        return
+      }
       await queue.emit(
         .failed(
           task.id,

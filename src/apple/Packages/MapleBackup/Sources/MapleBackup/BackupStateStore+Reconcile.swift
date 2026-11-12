@@ -119,6 +119,63 @@ extension BackupStateStore {
     }
   }
 
+  /// Drops the rows of photos the inclusion settings exclude that record
+  /// nothing delivered. Each row is re-read in its own transaction, so a row a
+  /// worker has claimed, uploaded or marked as owing companions since the
+  /// caller's snapshot is kept: a pending row that now owes companions is
+  /// parked, as the walk would have parked it. Returns the ids that were
+  /// pending and left the queue, whose queue entries the caller should cancel.
+  public func removeExcluded(_ ids: [BackupTaskID]) throws -> [BackupTaskID] {
+    try dbQueue.write { db in
+      try ids.compactMap { id in
+        let row = try Row.fetchOne(
+          db,
+          sql: """
+            SELECT state, companions_owed FROM tasks
+             WHERE device_id = ? AND phasset_local_id = ?
+            """,
+          arguments: [id.deviceId, id.phassetLocalId])
+        guard let prior = (row?["state"] as String?).flatMap(BackupState.init(rawValue:)) else {
+          return nil
+        }
+        let owesCompanions = (row?["companions_owed"] as Int? ?? 0) != 0
+        switch (prior, owesCompanions) {
+        case (.observed, false), (.pending, false), (.failedRetry, false),
+          (.localEditPending, false):
+          try db.execute(
+            sql: "DELETE FROM tasks WHERE device_id = ? AND phasset_local_id = ?",
+            arguments: [id.deviceId, id.phassetLocalId])
+        case (.pending, true):
+          try db.execute(
+            sql: "UPDATE tasks SET state = ? WHERE device_id = ? AND phasset_local_id = ?",
+            arguments: [BackupState.skippedPolicy.rawValue, id.deviceId, id.phassetLocalId])
+        default:
+          return nil
+        }
+        return prior == .pending ? id : nil
+      }
+    }
+  }
+
+  /// Returns a dequeued task's row to pending while it waits for Wi-Fi.
+  /// Returns false when a walk has since recorded the photo as uploaded or
+  /// suspended it as excluded, or its row is gone, so the worker drops it
+  /// rather than undo what the walk wrote.
+  public func returnToPending(_ id: BackupTaskID) throws -> Bool {
+    try dbQueue.write { db in
+      try db.execute(
+        sql: """
+          UPDATE tasks SET state = ?, last_error = NULL
+           WHERE device_id = ? AND phasset_local_id = ? AND state NOT IN (?, ?)
+          """,
+        arguments: [
+          BackupState.pending.rawValue, id.deviceId, id.phassetLocalId,
+          BackupState.uploaded.rawValue, BackupState.skippedPolicy.rawValue,
+        ])
+      return db.changesCount > 0
+    }
+  }
+
   /// Moves a dequeued task to uploading. Returns false when its row is gone, a
   /// walk already recorded the photo as uploaded, or a walk suspended it as
   /// excluded, so the worker drops it.
