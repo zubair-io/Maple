@@ -375,7 +375,7 @@ A pano job the server cannot hold fails instead of running out of memory or disk
 
 ## Workers
 
-Pause and config changes are written to the `worker_config` table; the worker child re-reads it on its next poll tick, so there is no IPC.
+Pause and config changes are written to the `worker_config` table; the worker child re-reads it within about 2 s, so there is no IPC.
 
 | Method | Path                                       | Auth   | Purpose                                                                  |
 | ------ | ------------------------------------------ | ------ | ------------------------------------------------------------------------ |

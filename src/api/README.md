@@ -11,11 +11,11 @@ Architecture: `docs/api.md`, `docs/server-api.md`, `docs/indexer-enrichment.md`.
 - [Bun](https://bun.sh) ≥ 1.3
 - Node / npm (only needed to rebuild the Angular UI)
 
-- A [Temporal](https://temporal.io) server. Maple runs its background jobs (exports, batch edits, panorama stitches, restores) and folder imports on it. For development the single-binary one is enough: install the [Temporal CLI](https://docs.temporal.io/cli) and run `temporal server start-dev`, which listens on `127.0.0.1:7233`, the address Maple tries by default.
+- A [Temporal](https://temporal.io) server. Maple runs its background jobs (exports, batch edits, panorama stitches, restores), folder imports and the per-asset pipeline stages (thumbnails, previews, EXIF, faces, search, …) on it. For development the single-binary one is enough: install the [Temporal CLI](https://docs.temporal.io/cli) and run `temporal server start-dev`, which listens on `127.0.0.1:7233`, the address Maple tries by default.
 
 There is no database to install. Maple keeps its entire library index in one SQLite file, which the server creates for itself the first time it starts.
 
-Without a reachable Temporal server the API still starts and serves the library, but jobs and imports stay queued until one appears. Settings → Workers shows whether the server can be reached and lets you change its address and namespace without a restart.
+Without a reachable Temporal server the API still starts and serves the library, but new photos are not processed and jobs and imports stay queued until one appears. Settings → Workers shows whether the server can be reached and lets you change its address and namespace without a restart.
 
 ### 1. (Optional) Build the native RAW thumbnail library
 
@@ -282,7 +282,7 @@ bun run typecheck       # TypeScript strict check
 bun run lint            # oxlint (correctness + fs-import guardrail)
 ```
 
-Nothing needs to be running first. `src/db/sqlite/test-sqlite.test-helpers.ts` gives each test its own schema-applied database file and disposes of it when the test ends, so the suite is self-contained on a clean checkout. The tests that drive jobs and imports through Temporal start their own throwaway server (`@temporalio/testing` downloads the Temporal CLI on first use and runs it on an ephemeral port). CI (`.github/workflows/api.yml`) runs it the same way, with no service containers. See [`docs/testing.md`](../../docs/testing.md).
+Nothing needs to be running first. `src/db/sqlite/test-sqlite.test-helpers.ts` gives each test its own schema-applied database file and disposes of it when the test ends, so the suite is self-contained on a clean checkout. The tests that drive jobs, imports and stages through Temporal start their own throwaway server (`@temporalio/testing` downloads the Temporal CLI on first use and runs it on an ephemeral port). CI (`.github/workflows/api.yml`) runs it the same way, with no service containers. See [`docs/testing.md`](../../docs/testing.md).
 
 ## Managed local HTTPS and IP fallback
 
