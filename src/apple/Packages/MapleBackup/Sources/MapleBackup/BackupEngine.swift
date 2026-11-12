@@ -54,6 +54,13 @@ public actor BackupEngine {
   /// retry path deliberately stays on the static schedule.
   let companionBackoff: @Sendable (Int) -> TimeInterval
 
+  /// Sleeps a failed upload's backoff before its retry re-enqueues. Defaults
+  /// to `Task.sleep`; tests inject a gate they release, so the retry wake is
+  /// observed by event instead of by a wall-clock bound that a loaded host
+  /// breaks (#5127). The schedule itself stays `backoffSeconds(for:)`. Must
+  /// return once the calling task is cancelled: `stop()` awaits each retry.
+  let retrySleep: @Sendable (TimeInterval) async -> Void
+
   /// In-flight retry tasks, tracked so stop() can cancel them cleanly.
   /// Covers both the primary-bytes retry/backoff path and the best-effort
   /// companion retry path (#700).
@@ -116,6 +123,9 @@ public actor BackupEngine {
     maxConcurrency: Int = BackupEngine.defaultMaxConcurrency,
     companionBackoff: @escaping @Sendable (Int) -> TimeInterval = {
       min(3600, pow(2.0, Double($0)))
+    },
+    retrySleep: @escaping @Sendable (TimeInterval) async -> Void = {
+      try? await Task.sleep(nanoseconds: UInt64($0 * 1_000_000_000))
     }
   ) {
     precondition(maxConcurrency > 0, "maxConcurrency must be > 0")
@@ -128,6 +138,7 @@ public actor BackupEngine {
     self.wifiOnly = wifiOnly
     self.maxConcurrency = maxConcurrency
     self.companionBackoff = companionBackoff
+    self.retrySleep = retrySleep
   }
 
   /// Drive the queue until empty or until the enclosing Task is cancelled.
@@ -393,11 +404,12 @@ public actor BackupEngine {
         // Re-enqueue from a detached Task that sleeps the backoff.
         let backoff = Self.backoffSeconds(for: nextRetry)
         let queueRef = queue
+        let sleep = retrySleep
         let token = UUID()
         let retryTask = Task.detached(priority: .background) { [weak self] in
           // Same cancellation discipline as the busy-elsewhere path —
           // bail after the sleep if `stop()` cancelled us.
-          try? await Task.sleep(nanoseconds: UInt64(backoff * 1_000_000_000))
+          await sleep(backoff)
           if Task.isCancelled {
             await self?.finishRetry(token)
             return
