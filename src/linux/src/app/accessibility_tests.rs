@@ -105,7 +105,7 @@ fn thumbnail_open_node_survives_the_thumbnail_load() {
         assert!(Instant::now() < deadline, "folder listing did not load");
         std::thread::sleep(Duration::from_millis(5));
     };
-    assert!(app.thumbnail_cache.get(&path).is_none());
+    assert!(!app.thumbnail_cache.contains_key(&path));
     while !app.thumbnail_cache.get(&path).is_some_and(Result::is_ok) {
         frame(&mut app, &context, Vec::new());
         assert!(Instant::now() < deadline, "thumbnail did not load");
