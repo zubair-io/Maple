@@ -199,6 +199,34 @@ class CloudSearchTest {
     }
 
     @Test
+    fun submittingTheUnchangedQueryRetriesAFailedSearch() = runTest {
+        var unavailable = true
+        val searches = mutableListOf<String>()
+        val model =
+            CloudSearchModel(TestScope(StandardTestDispatcher(testScheduler)), { today }) { _, path ->
+                when {
+                    path.startsWith("/api/search/facets") -> response(200, JSONObject())
+                    unavailable -> response(503, JSONObject()).also { searches += path }
+                    else -> response(200, JSONObject().put("results", org.json.JSONArray().put(row("lib:a.dng", "a.dng"))))
+                        .also { searches += path }
+                }
+            }
+        model.selectServer(Folder(Uri.parse("maple-cloud://server-1"), "photos.example.com"))
+        model.setText("barn")
+        advanceUntilIdle()
+        assertNotNull(model.state.value.error)
+        unavailable = false
+        model.setText("barn")
+        advanceUntilIdle()
+        assertNotNull("Retyping the same text alone does not search again", model.state.value.error)
+        model.submit("barn")
+        advanceUntilIdle()
+        assertNull(model.state.value.error)
+        assertEquals(listOf("a.dng"), model.state.value.results.map { it.name })
+        assertTrue(params(searches.last())["placeQuery"] == "barn")
+    }
+
+    @Test
     fun anOpenWindowCountsTheServerTotalLessTheRowsItDropped() = runTest {
         val model =
             CloudSearchModel(TestScope(StandardTestDispatcher(testScheduler)), { today }) { _, path ->

@@ -42,6 +42,7 @@ internal fun CloudSearchHeader(
     servers: List<Folder>,
     onServer: (Folder) -> Unit,
     onText: (String) -> Unit,
+    onSubmit: (String) -> Unit,
     onDate: (SearchDatePreset?) -> Unit,
     onPerson: (String) -> Unit,
     onPlace: (String) -> Unit,
@@ -66,7 +67,7 @@ internal fun CloudSearchHeader(
             singleLine = true,
             leadingIcon = { Icon(Icons.Outlined.Search, null) },
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-            keyboardActions = KeyboardActions(onSearch = { onText(text) }),
+            keyboardActions = KeyboardActions(onSearch = { onSubmit(text) }),
         )
         if (servers.size > 1)
             ChipRow("Server") {
@@ -99,6 +100,8 @@ internal fun CloudSearchHeader(
                 fontSize = 12.sp,
             )
             if (search.loading) CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 1.5.dp, color = MapleColors.primary)
+            if (search.error != null && !search.loading)
+                TextButton({ onSubmit(text) }, Modifier.testTag("cloud-search-retry")) { Text("Retry") }
             if (search.canLoadMore && !search.loading)
                 TextButton(onMore, Modifier.testTag("cloud-search-more")) { Text("Show more") }
         }

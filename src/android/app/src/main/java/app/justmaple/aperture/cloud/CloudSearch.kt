@@ -175,6 +175,12 @@ internal class CloudSearchModel(
 
     fun setText(text: String) = update(mutable.value.query.copy(text = text), debounceMillis = 350)
 
+    /** The keyboard's Search action and the Retry button: runs the current query now, even an unchanged one that failed. */
+    fun submit(text: String) {
+        mutable.update { it.copy(query = it.query.copy(text = text)) }
+        restart(0)
+    }
+
     fun setDate(date: SearchDatePreset?) = update(mutable.value.query.copy(date = date))
 
     fun togglePerson(name: String) =
