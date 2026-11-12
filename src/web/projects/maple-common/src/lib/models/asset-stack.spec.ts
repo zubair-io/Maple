@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { sameStack, stackFromWire, stackTiles } from './asset-stack';
+import { sameStack, stackFromSearchWire, stackFromWire, stackTiles } from './asset-stack';
 import type { Asset } from './asset';
 
 const JPEG = { id: 'lib:IMG_1.JPG', name: 'IMG_1.JPG', ext: 'jpg', size: 4 };
@@ -13,6 +13,28 @@ const plain: Pick<Asset, 'id' | 'filename' | 'stack'> = {
   id: 'lib:IMG_2.CR3',
   filename: 'IMG_2.CR3',
 };
+
+describe('stackFromSearchWire (#5849)', () => {
+  const companion = {
+    id: 'jpeg-asset-id',
+    name: 'IMG_1.JPG',
+    path: '/lib/IMG_1.JPG',
+    size: 4,
+    mtime: '2026-01-01T00:00:00.000Z',
+    ext: 'jpg',
+  };
+
+  it('keys a search hit’s companion by its address, as the listing does', () => {
+    expect(stackFromSearchWire({ companion: { ...companion, address: 'lib:IMG_1.JPG' } })).toEqual({
+      stack: { companion: JPEG },
+    });
+  });
+
+  it('drops a companion with no address, which no file action could reach', () => {
+    expect(stackFromSearchWire({ companion: { ...companion, address: null } })).toEqual({});
+    expect(stackFromSearchWire(undefined)).toEqual({});
+  });
+});
 
 describe('stackFromWire', () => {
   it('maps the listing companion address to an asset id', () => {

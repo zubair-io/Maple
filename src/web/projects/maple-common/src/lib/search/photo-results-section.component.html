@@ -46,6 +46,16 @@
                 />
               </span>
             }
+            @if (r.stack) {
+              <span
+                data-testid="stack-badge"
+                role="img"
+                aria-label="RAW and JPEG"
+                class="absolute left-1 top-1 flex h-[14px] px-1 items-center justify-center rounded-[3px] border-[0.5px] border-white/20 bg-black/60 backdrop-blur-[4px] text-[8px] font-semibold text-white"
+              >
+                RAW+JPEG
+              </span>
+            }
           </button>
         </li>
       }

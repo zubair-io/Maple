@@ -42,6 +42,27 @@ export function stackFromWire(wire: StackWire | undefined): Partial<Pick<Asset, 
     : {};
 }
 
+/**
+ * Wire shape of `SearchResult.stack` (#5849): the listing companion's fields plus the JPEG's
+ * asset `id`, with `address` null when its library has no slug.
+ */
+export interface SearchStackWire {
+  readonly companion: Omit<StackWire['companion'], 'address'> & {
+    readonly id: string;
+    readonly address: string | null;
+    readonly path: string;
+    readonly mtime: string;
+  };
+}
+
+/** A timeline or search hit's stack, keyed by the companion's address as the listing's is. */
+export function stackFromSearchWire(
+  wire: SearchStackWire | undefined,
+): Partial<Pick<Asset, 'stack'>> {
+  const address = wire?.companion.address;
+  return wire && address ? stackFromWire({ companion: { ...wire.companion, address } }) : {};
+}
+
 export function sameStack(a: Asset['stack'], b: Asset['stack']): boolean {
   return (
     a?.companion.id === b?.companion.id &&
