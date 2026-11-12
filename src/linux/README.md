@@ -410,12 +410,16 @@ conditional upload's 412 is not the end: the journal reads the current server
 version, applies the edit on top of it with the same shared `reconcile_xmp` merge
 as local saves (based on the last synchronized version, recording the server's
 state as an `external` history entry), publishes the merge to the private local
-sidecar and retries against the new ETag, at most three times. The editor adopts
-the merged document when no newer edit is waiting. A newer local save made while
-the merge ran supersedes it and merges in its own synchronization. A server
-sidecar removed by another client, a rejected merge, or a server that keeps
-changing still refuses with local edits retained; explicit Reload XMP adopts the
-server version.
+sidecar and retries against the new ETag, at most three times. Before publishing
+that copy, the journal durably records the server version it is relative to, so a
+retry that fails or a restart resumes against that version and never treats the
+imported server values as local edits. The copy and every local save compare and
+rename under one process-wide sidecar publication lock. The editor adopts the
+merged document (and rebases its undo and redo states onto it) when no newer edit
+is waiting. A newer local save made while the merge ran supersedes it and merges
+in its own synchronization. A server sidecar removed by another client, a
+rejected merge, or a server that keeps changing still refuses with local edits
+retained; explicit Reload XMP adopts the server version.
 
 The cloud tests exercise actual HTTP requests against a loopback protocol
 fixture, including PKCE state validation, refresh rotation/rejection/retry,

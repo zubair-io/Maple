@@ -4,7 +4,7 @@ use maple_linux::{
         resume_pending, CloudClient, CloudEntry, DownloadedPhoto, EditJournal, RemoteXmp, Server,
     },
     controls::Control,
-    sidecar::{SidecarDocument, SidecarStore},
+    sidecar::{publication_lock, SidecarDocument, SidecarStore},
 };
 use std::{
     fs,
@@ -370,4 +370,127 @@ fn a_newer_local_save_supersedes_the_merge_and_a_moving_server_is_bounded() {
     assert!(journal.synchronize(&mut connection, &document).is_err());
     server.join().unwrap();
     assert!(journal.pending().unwrap());
+}
+
+fn remote_vibrance_50() -> String {
+    remote_vibrance().replace("crs:Vibrance=\"25\"", "crs:Vibrance=\"50\"")
+}
+
+/// After the merge onto server Vibrance 25 failed to upload (`interrupted`
+/// rewrites the journal as a crash would have left it), Maple restarts while
+/// another client has set Vibrance 50. Returns what the resumed sync uploads.
+fn resume_after_an_unacknowledged_merge(
+    attempt_recorded: bool,
+    interrupted: impl FnOnce(&Path),
+) -> SidecarDocument {
+    let base = tempfile::tempdir().unwrap();
+    let (sent, uploaded) = std::sync::mpsc::channel();
+    let mut handlers: Vec<Handler> = vec![
+        conditional_save("someone-else", "e2"),
+        remote_read(remote_vibrance(), "e2"),
+        Box::new(|head, _| {
+            assert!(head.contains("if-match: \"e2\""), "{head}");
+            Some((503, Vec::new(), String::new()))
+        }),
+    ];
+    if attempt_recorded {
+        // Resumed: the recorded attempt did not land, the server moved on.
+        handlers.push(remote_read(remote_vibrance_50(), "e4"));
+    }
+    handlers.push(conditional_save("e4", "never"));
+    handlers.push(remote_read(remote_vibrance_50(), "e4"));
+    handlers.push(Box::new(move |head, body| {
+        assert!(head.contains("if-match: \"e4\""), "{head}");
+        sent.send(body.to_owned()).unwrap();
+        Some((200, versioned("e5"), body.to_owned()))
+    }));
+    let (url, server) = serve(handlers);
+    let mut connection = client(&url);
+    let (mut journal, document) = pending_edit(base.path(), connection.server_url());
+    assert!(journal.synchronize(&mut connection, &document).is_err());
+    let directory = journal.directory().to_owned();
+    drop(journal);
+    interrupted(&directory);
+
+    let mut journal = EditJournal::open(base.path(), connection.server_url(), &entry()).unwrap();
+    let (_, local) = SidecarStore::open(&journal.path().unwrap()).unwrap();
+    assert_eq!((local.model.exposure, local.model.vibrance), (1.0, 25.0));
+    journal.synchronize(&mut connection, &local).unwrap();
+    server.join().unwrap();
+    SidecarDocument::parse(&uploaded.recv().unwrap()).unwrap()
+}
+
+#[test]
+fn a_merge_left_unacknowledged_resumes_against_the_version_it_was_merged_onto() {
+    // #5864 review: the imported Vibrance 25 is not a local edit, so it must
+    // not overwrite the other client's 50.
+    let stored = resume_after_an_unacknowledged_merge(true, |_| {});
+    assert_eq!((stored.model.exposure, stored.model.vibrance), (1.0, 50.0));
+}
+
+#[test]
+fn a_crash_between_publishing_the_merge_and_recording_it_still_resumes_against_it() {
+    let stored = resume_after_an_unacknowledged_merge(false, |directory| {
+        // The private sidecar holds the merge, the record still names the
+        // older baseline and the pending merge's lineage.
+        let path = directory.join("remote.json");
+        let mut record: serde_json::Value =
+            serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+        let merged = record["attempt"].take();
+        let merged_onto = record["baseline"].take();
+        record["merged_local"] = serde_json::json!({ "baseline": merged_onto, "xml": merged });
+        record["baseline"] = serde_json::json!({
+            "xml": BASELINE,
+            "etag": "\"e1\"",
+            "supports_preconditions": true,
+        });
+        record["attempt"] = serde_json::Value::Null;
+        fs::write(&path, serde_json::to_vec(&record).unwrap()).unwrap();
+    });
+    assert_eq!((stored.model.exposure, stored.model.vibrance), (1.0, 50.0));
+}
+
+#[test]
+fn local_saves_and_the_cloud_merge_publish_under_one_lock() {
+    // #5864 review: the cloud worker's final comparison and rename cannot
+    // interleave with a local save on the editor's I/O worker.
+    let wait = || thread::sleep(std::time::Duration::from_millis(300));
+    let directory = tempfile::tempdir().unwrap();
+    let original = directory.path().join("photo.dng");
+    fs::write(&original, FIXTURE).unwrap();
+    let (mut store, mut document) = SidecarStore::open(&original).unwrap();
+    Control::Exposure.set(&mut document.model, 1.0).unwrap();
+    let sidecar = store.path().to_owned();
+    let publishing = publication_lock();
+    let save = thread::spawn(move || store.save(&document).map(|_| ()).map_err(|e| e.to_string()));
+    wait();
+    assert!(!save.is_finished() && !sidecar.exists(), "the save waits");
+    drop(publishing);
+    save.join().unwrap().unwrap();
+    assert_eq!(SidecarStore::open(&original).unwrap().1.model.exposure, 1.0);
+
+    let base = tempfile::tempdir().unwrap();
+    let (url, server) = serve(vec![
+        conditional_save("someone-else", "e2"),
+        remote_read(remote_vibrance(), "e2"),
+        conditional_save("e2", "e3"),
+    ]);
+    let mut connection = client(&url);
+    let (mut journal, document) = pending_edit(base.path(), connection.server_url());
+    let local = journal.path().unwrap().with_extension("xmp");
+    let before = fs::read_to_string(&local).unwrap();
+    let publishing = publication_lock();
+    let sync = thread::spawn(move || {
+        let merged = journal.synchronize(&mut connection, &document);
+        merged
+            .map(|merged| merged.is_some())
+            .map_err(|e| e.to_string())
+    });
+    wait();
+    assert!(!sync.is_finished(), "the merge waits to publish");
+    assert_eq!(fs::read_to_string(&local).unwrap(), before);
+    drop(publishing);
+    assert!(sync.join().unwrap().unwrap());
+    server.join().unwrap();
+    assert_ne!(fs::read_to_string(&local).unwrap(), before);
 }
