@@ -95,7 +95,7 @@ describe('retryImport — what the next worker claims', () => {
 
     expect(await retryImport(fileless._id, undefined, db)).toBe(true);
 
-    const claim = await claimImport('w-rescan', 60_000, undefined, db);
+    const claim = await claimImport(fileless._id, 'w-rescan', 60_000, undefined, db);
     expect(claim!._id.toHexString()).toBe(fileless._id.toHexString());
     // Without the flag on the claim the worker copies the empty file list
     // instead of re-walking `source_root`.

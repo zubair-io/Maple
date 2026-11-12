@@ -1,8 +1,9 @@
 /**
- * The worker tier's link to Temporal: one connection, the worker that executes
- * Maple's workflows and activities on it, and the relay that hands job rows
- * over. It follows the saved settings without a restart and keeps trying while
- * the server is away, publishing what it sees for Settings → Workers.
+ * The worker tier's link to Temporal: one connection, one worker per lane (jobs
+ * and imports) executing Maple's workflows and activities on it, and the relay
+ * that hands each lane's rows over. It follows the saved settings without a
+ * restart and keeps trying while the server is away, publishing what it sees
+ * for Settings → Workers.
  */
 
 import { setTimeout as sleep } from 'node:timers/promises';
@@ -10,10 +11,9 @@ import { fileURLToPath } from 'node:url';
 import { Client } from '@temporalio/client';
 import { bundleWorkflowCode, NativeConnection, Runtime, Worker } from '@temporalio/worker';
 import { child as childLogger } from '../log.ts';
-import type { ExecuteJobOptions } from '../job-runner/execute-job.ts';
-import { createJobActivities } from '../job-runner/job-activity.ts';
-import { reconcileHeldJobs, relayNextJob } from '../job-runner/job-relay.ts';
-import { JOB_TASK_QUEUE } from '../job-runner/job-workflow.ts';
+import { importLane } from '../imports/import-queue.ts';
+import { jobLane } from '../job-runner/job-queue.ts';
+import { reconcileHeld, relayNext, type TemporalLane } from './row-queue.ts';
 import {
   loadTemporalSettings,
   reportTemporalConnection,
@@ -28,7 +28,7 @@ const REFRESH_MS_DEFAULT = 10_000;
 const RETRY_MS_DEFAULT = 5_000;
 
 export interface TemporalHostOptions {
-  jobs?: ExecuteJobOptions;
+  lanes: TemporalLane[];
   relayMs?: number;
   /** Settings re-read, connection probe and status report share one cadence. */
   refreshMs?: number;
@@ -75,21 +75,45 @@ function errorMessage(error: unknown): string {
 const sameTarget = (a: TemporalSettings, b: TemporalSettings): boolean =>
   a.address === b.address && a.namespace === b.namespace;
 
+/** Imports and jobs each get a worker of their own, so neither waits on the other. */
+export const defaultTemporalLanes = (): TemporalLane[] => [jobLane(), importLane()];
+
+interface LaneRun {
+  worker: Worker;
+  ended: boolean;
+  failure?: unknown;
+  done: Promise<void>;
+}
+
+function runLane(worker: Worker, endSession: () => void): LaneRun {
+  const lane: LaneRun = { worker, ended: false, done: Promise.resolve() };
+  lane.done = worker
+    .run()
+    .catch((error: unknown) => {
+      lane.failure = error;
+    })
+    .finally(() => {
+      lane.ended = true;
+      endSession();
+    });
+  return lane;
+}
+
 export class TemporalHost {
   private readonly relayMs: number;
   private readonly refreshMs: number;
   private readonly retryMs: number;
-  private readonly jobs: ExecuteJobOptions;
+  private readonly lanes: TemporalLane[];
 
   private abort = new AbortController();
   private loop: Promise<void> | null = null;
   private lastLogged: string | null = null;
 
-  constructor(options: TemporalHostOptions = {}) {
+  constructor(options: TemporalHostOptions) {
     this.relayMs = options.relayMs ?? RELAY_MS_DEFAULT;
     this.refreshMs = options.refreshMs ?? REFRESH_MS_DEFAULT;
     this.retryMs = options.retryMs ?? RETRY_MS_DEFAULT;
-    this.jobs = options.jobs ?? {};
+    this.lanes = options.lanes;
   }
 
   start(): void {
@@ -98,7 +122,7 @@ export class TemporalHost {
     this.loop = this.run();
   }
 
-  /** Resolves once the worker has drained, which waits for a job that is mid-run. */
+  /** Resolves once every worker has drained, which waits for a job or import that is mid-run. */
   async stop(): Promise<void> {
     this.abort.abort();
     await this.loop;
@@ -148,45 +172,38 @@ export class TemporalHost {
 
   private async serve(settings: TemporalSettings): Promise<Served> {
     const connection = await NativeConnection.connect({ address: settings.address });
+    const session = new AbortController();
+    const endSession = () => session.abort();
+    this.abort.signal.addEventListener('abort', endSession, { once: true });
+    if (this.stopping) endSession();
+    const running: LaneRun[] = [];
     try {
-      const worker = await Worker.create({
-        connection,
-        namespace: settings.namespace,
-        taskQueue: JOB_TASK_QUEUE,
-        workflowBundle: await bundledWorkflows(),
-        activities: createJobActivities(this.jobs),
-        // Exports and stitches saturate the native pool on their own, and pano
-        // admission counts on a preview never running beside a stitch.
-        maxConcurrentActivityTaskExecutions: 1,
-        // A cancel made in Temporal reaches a handler on a heartbeat reply, and
-        // handlers heartbeat whenever they report progress or ask about cancel.
-        maxHeartbeatThrottleInterval: '5 seconds',
-      });
-      const client = new Client({ connection, namespace: settings.namespace });
-      const session = new AbortController();
-      const endSession = () => session.abort();
-      this.abort.signal.addEventListener('abort', endSession, { once: true });
-      if (this.stopping) endSession();
-      const run: { ended: boolean; failure?: unknown } = { ended: false };
-      const ended = worker
-        .run()
-        .catch((error: unknown) => {
-          run.failure = error;
-        })
-        .finally(() => {
-          run.ended = true;
-          endSession();
+      const bundle = await bundledWorkflows();
+      for (const lane of this.lanes) {
+        const worker = await Worker.create({
+          connection,
+          namespace: settings.namespace,
+          taskQueue: lane.queue.taskQueue,
+          workflowBundle: bundle,
+          activities: lane.activities,
+          // Exports and stitches saturate the native pool on their own, and pano
+          // admission counts on a preview never running beside a stitch.
+          maxConcurrentActivityTaskExecutions: 1,
+          // A cancel made in Temporal reaches a handler on a heartbeat reply, and
+          // handlers heartbeat whenever they report progress or ask about cancel.
+          maxHeartbeatThrottleInterval: '5 seconds',
         });
-      try {
-        const served = await this.supervise(settings, client, session.signal);
-        if (run.ended) throw run.failure ?? new Error('The Temporal worker stopped');
-        return served;
-      } finally {
-        this.abort.signal.removeEventListener('abort', endSession);
-        if (worker.getState() === 'RUNNING') worker.shutdown();
-        await ended;
+        running.push(runLane(worker, endSession));
       }
+      const client = new Client({ connection, namespace: settings.namespace });
+      const served = await this.supervise(settings, client, session.signal);
+      const ended = running.find((lane) => lane.ended);
+      if (ended) throw ended.failure ?? new Error('The Temporal worker stopped');
+      return served;
     } finally {
+      this.abort.signal.removeEventListener('abort', endSession);
+      for (const lane of running) if (lane.worker.getState() === 'RUNNING') lane.worker.shutdown();
+      await Promise.all(running.map((lane) => lane.done));
       await connection.close();
     }
   }
@@ -207,7 +224,7 @@ export class TemporalHost {
     while (!session.aborted) {
       const refreshing = Date.now() >= refreshAt;
       if (refreshing) health = await failureOf(() => this.check(client, settings));
-      const error = health ?? (await failureOf(() => relayNextJob(client)));
+      const error = health ?? (await failureOf(() => this.relay(client)));
       const message = error === null ? null : errorMessage(error);
       if (refreshing || message !== reported) {
         reported = message;
@@ -222,9 +239,13 @@ export class TemporalHost {
     return 'stopped';
   }
 
+  private async relay(client: Client): Promise<void> {
+    for (const lane of this.lanes) await relayNext(client, lane.queue);
+  }
+
   private async check(client: Client, settings: TemporalSettings): Promise<void> {
     await client.workflowService.describeNamespace({ namespace: settings.namespace });
-    await reconcileHeldJobs(client);
+    for (const lane of this.lanes) await reconcileHeld(client, lane.queue);
   }
 }
 
@@ -233,7 +254,7 @@ let singleton: TemporalHost | null = null;
 export function startTemporalHost(): void {
   if (singleton) return;
   installTemporalRuntime();
-  singleton = new TemporalHost();
+  singleton = new TemporalHost({ lanes: defaultTemporalLanes() });
   singleton.start();
 }
 

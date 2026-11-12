@@ -12,19 +12,20 @@
  *
  * ## Layout
  *
- *   - `imports.sql.ts`    every statement, and the claim's shared predicate
+ *   - `imports.sql.ts`    every statement, and the held-import predicate
  *   - `imports.rows.ts`   row shapes and row → document conversions
  *   - `imports.repo.ts`   the verbs the routes and the worker call (this file)
  *   - `imports.retry.ts`  the one accessor with real branching
  *
  * ## The `imports` row is the work queue
  *
- * Claim and lease live on the row, exactly as they did on the document, and
- * {@link claimImport} is the one place that needs care. A Mongo
- * `findOneAndUpdate` with a sort is a compare-and-swap that only one caller can
- * win; SQLite's pool has no primitive that both writes and returns rows, so the
- * same guarantee is obtained by re-checking the claimable predicate in the
- * `UPDATE`'s own `WHERE` and reading the row count. See {@link claimImport}.
+ * The row is the record and the queue; Temporal is the schedule. A route
+ * inserts or resets a `pending` row, the worker tier relays the oldest one to a
+ * workflow ({@link nextImportId}, {@link markImportDispatched}) once nothing
+ * else is held, and that workflow's activity calls {@link claimImport} for
+ * exactly that row. The lease on the row is still renewed while an import runs,
+ * but nothing reclaims on it any more: Temporal's heartbeat timeout decides when
+ * an attempt is gone.
  *
  * ## Three places this is stricter than the Mongo original
  *
@@ -66,14 +67,17 @@ import {
   type ImportRow,
 } from './imports.rows.ts';
 import {
-  CLAIM_CANDIDATES_SQL,
   CLAIM_IMPORT_SQL,
+  HELD_IMPORTS_SQL,
   IMPORT_BY_ID_SQL,
   IMPORT_FILES_SQL,
   INSERT_IMPORT_SQL,
   insertFileStatements,
   listImportsSql,
+  MARK_IMPORT_DISPATCHED_SQL,
+  NEXT_IMPORT_SQL,
 } from './imports.sql.ts';
+import { DISPATCHED_MARKER } from './jobs.sql.ts';
 import { toHex } from './values.ts';
 
 export type { SqliteDb } from './db-handle.ts';
@@ -213,49 +217,53 @@ export async function listImports(
 }
 
 /**
- * Atomic claim: a `pending` import with no lock, or a `running` one whose
- * lease expired because the previous worker died mid-copy.
- *
- * The exclusivity comes from the `UPDATE`'s own `WHERE`, not from the read
- * above it. Mongo gets this from `findOneAndUpdate`, which matches and writes
- * in one server-side step; the SQLite pool has no primitive that writes and
- * returns rows, so the candidate ids are read first and then each one is
- * claimed with the claimable predicate repeated in the `WHERE`. A row count of
- * one means this caller won it. A row count of zero means a sibling runner took
- * it in between, and the next candidate is tried — which is why the read asks
- * for several rather than one.
- *
- * Exclusivity is PER IMPORT, not global, exactly as it was on Mongo: only one
- * runner ever processes a given import, but two *different* pending imports may
- * run concurrently. That is safe by construction — copies are no-clobber
- * (`imports/copy.ts`) and per-file dedup is an atomic lookup — so concurrent
- * imports into the same library never lose a file.
+ * Claim the import Temporal just delivered, for one activity attempt. `null`
+ * when the import has already finished or does not exist.
  */
 export async function claimImport(
+  id: ObjectId,
   workerId: string,
   leaseMs: number,
   now: () => Date = () => new Date(),
   dbOverride?: SqliteDb,
 ): Promise<ClaimedImport | null> {
   const db = sqliteDb(dbOverride);
-  const nowDate = now();
-  const nowIso = nowDate.toISOString();
-  const leaseExpiresAt = new Date(nowDate.getTime() + leaseMs).toISOString();
+  const { hex, nowIso, leaseExpiresAt } = leaseStamps(id, leaseMs, now);
+  const result = await db.write(CLAIM_IMPORT_SQL, [workerId, leaseExpiresAt, nowIso, hex]);
+  if (result.changes === 0) return null;
+  const row = await readImportRow(db, hex);
+  return row === null ? null : toClaimedImport(row);
+}
 
-  const candidates = await db.read<{ id: string }>(CLAIM_CANDIDATES_SQL, [nowIso]);
-  for (const candidate of candidates) {
-    const result = await db.write(CLAIM_IMPORT_SQL, [
-      workerId,
-      leaseExpiresAt,
-      nowIso,
-      candidate.id,
-      nowIso,
-    ]);
-    if (result.changes === 0) continue;
-    const row = await readImportRow(db, candidate.id);
-    if (row !== null) return toClaimedImport(row);
-  }
-  return null;
+export async function nextImportId(dbOverride?: SqliteDb): Promise<string | null> {
+  const rows = await sqliteDb(dbOverride).read<{ id: string }>(NEXT_IMPORT_SQL, []);
+  return rows[0]?.id ?? null;
+}
+
+export async function heldImportIds(dbOverride?: SqliteDb): Promise<string[]> {
+  const rows = await sqliteDb(dbOverride).read<{ id: string }>(HELD_IMPORTS_SQL, []);
+  return rows.map((row) => row.id);
+}
+
+export async function markImportDispatched(id: string, dbOverride?: SqliteDb): Promise<void> {
+  await sqliteDb(dbOverride).write(MARK_IMPORT_DISPATCHED_SQL, [DISPATCHED_MARKER, id]);
+}
+
+/**
+ * Settle an import whose workflow was stopped in Temporal. Copied files stay
+ * where they landed; only a pending or running import moves.
+ */
+export async function cancelUnfinishedImport(
+  id: ObjectId,
+  now: () => Date = () => new Date(),
+  dbOverride?: SqliteDb,
+): Promise<void> {
+  await sqliteDb(dbOverride).write(
+    `UPDATE imports SET status = 'cancelled', cancel_requested = 1,
+            locked_by = NULL, lease_expires_at = NULL, updated_at = ?
+      WHERE id = ? AND status IN ('pending', 'running')`,
+    [now().toISOString(), toHex(id)],
+  );
 }
 
 /**
@@ -278,7 +286,7 @@ export async function getImportFiles(
 /**
  * Populate an Auto Import's files after the worker's deferred scan: replace
  * any rows a prior scan left behind, set `progress.total`, clear
- * `scan_pending`, and renew the lease because a large scan takes a while.
+ * `scan_pending`, and renew the lease.
  *
  * `progress.current` goes back to zero with them. A re-scan replaces the file
  * rows wholesale, so the previous attempt's per-file counter no longer refers
@@ -312,7 +320,7 @@ export async function setImportFiles(
 /**
  * Persist one file's outcome and renew the lease. `index` is the file's `idx`;
  * `current` is the count processed so far. Counts are recomputed by the caller
- * and written wholesale so a re-claim after a crash cannot double-count.
+ * and written wholesale so a redelivered attempt cannot double-count.
  *
  * Both writes are one transaction, and the import-level update carries the
  * file row's existence in its own `WHERE`. That is what makes the throw below
@@ -370,8 +378,8 @@ export async function updateImportProgress(
 
 /**
  * Extend the claim's lease without recording file progress. Called on a timer
- * so a single long file copy (a large movie) cannot outlive the lease and let a
- * sibling runner reclaim the import mid-copy.
+ * while a single long file copy (a large movie) runs, so `lease_expires_at`
+ * keeps reporting a live holder.
  */
 export async function renewImportLease(
   id: ObjectId,
@@ -387,7 +395,11 @@ export async function renewImportLease(
   );
 }
 
-/** The three terminal transitions differ only in status and payload. */
+/**
+ * The three terminal transitions differ only in status and payload. Only an
+ * unfinished import moves: an attempt still copying after its workflow was
+ * terminated must not overwrite the cancel that termination recorded.
+ */
 async function finishImport(
   db: SqliteDb,
   hex: string,
@@ -397,7 +409,7 @@ async function finishImport(
 ): Promise<void> {
   await db.write(
     `UPDATE imports SET ${assignments}, locked_by = NULL, lease_expires_at = NULL, updated_at = ?
-      WHERE id = ?`,
+      WHERE id = ? AND status IN ('pending', 'running')`,
     [...params, nowIso, hex],
   );
 }

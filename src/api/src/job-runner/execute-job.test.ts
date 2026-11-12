@@ -12,37 +12,15 @@ import { describe, expect, test } from 'bun:test';
 import { ObjectId } from '../db/object-id.ts';
 import type { JobHandler, JobHandlerContext } from './handlers/index.ts';
 import { claimJob, createJob, getJob, requestCancel } from './jobs.repo.ts';
-import {
-  executeJob,
-  JobAttemptSuperseded,
-  UnknownJobError,
-  type AttemptStop,
-  type JobAttempt,
-} from './execute-job.ts';
+import { executeJob } from './execute-job.ts';
+import { AttemptSuperseded, UnknownRowError } from '../temporal/activity-attempt.ts';
+import { recordedAttempt as attemptNamed } from '../temporal/recorded-attempt.test-helpers.ts';
 import { createLiveTestDatabase } from '../db/sqlite/test-sqlite.test-helpers.ts';
 
 const EXPORT_PAYLOAD = { assetIds: [], outputDir: '/tmp', quality: 80 };
 
 async function queueExportJob() {
   return createJob({ kind: 'batch_jpeg_export', payload: EXPORT_PAYLOAD });
-}
-
-interface RecordedAttempt extends JobAttempt {
-  beats: { current: number; total: number }[];
-  stop: AttemptStop | null;
-}
-
-function attemptNamed(identity: string): RecordedAttempt {
-  const recorded: RecordedAttempt = {
-    identity,
-    beats: [],
-    stop: null,
-    heartbeat: (progress) => {
-      recorded.beats.push(progress);
-    },
-    stopReason: () => recorded.stop,
-  };
-  return recorded;
 }
 
 const exportHandlers = (run: JobHandler['run']) => ({ batch_jpeg_export: { run } });
@@ -190,7 +168,7 @@ describe('executeJob', () => {
 
     const run = executeJob(new ObjectId().toHexString(), attemptNamed('a1'), { handlers: {} });
 
-    await expect(run).rejects.toBeInstanceOf(UnknownJobError);
+    await expect(run).rejects.toBeInstanceOf(UnknownRowError);
     await expect(run).rejects.toThrow('its own Temporal namespace');
   });
 
@@ -250,7 +228,7 @@ describe('executeJob', () => {
       }),
     });
 
-    await expect(run).rejects.toBeInstanceOf(JobAttemptSuperseded);
+    await expect(run).rejects.toBeInstanceOf(AttemptSuperseded);
     const after = (await getJob(job._id))!;
     expect(after.status).toBe('running');
     expect(after.locked_by).toBe('paused');

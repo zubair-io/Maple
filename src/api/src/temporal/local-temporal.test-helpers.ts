@@ -1,7 +1,7 @@
 import { setTimeout as sleep } from 'node:timers/promises';
 import { TestWorkflowEnvironment } from '@temporalio/testing';
 import { saveTemporalSettings } from './temporal-config.ts';
-import { TemporalHost } from './temporal-host.ts';
+import { defaultTemporalLanes, TemporalHost } from './temporal-host.ts';
 
 /**
  * Pinned so every machine runs the same server, and so the binary CI fetches
@@ -34,7 +34,7 @@ export interface LocalTemporal {
 export async function startLocalTemporal(): Promise<LocalTemporal> {
   const env = await startLocalTemporalServer();
   await saveTemporalSettings({ address: env.address, namespace: env.namespace ?? 'default' });
-  const host = new TemporalHost({ relayMs: 20 });
+  const host = new TemporalHost({ relayMs: 20, lanes: defaultTemporalLanes() });
   host.start();
   return {
     env,

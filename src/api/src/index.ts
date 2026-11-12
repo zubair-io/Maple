@@ -475,7 +475,7 @@ async function shutdown(signal: string): Promise<void> {
     log.warn({ err: e }, 'error stopping APNs push trigger');
   }
   // Terminate the worker child process. Its own SIGTERM handler drains all
-  // stages, discover, enrichment workers, job/import runners, and FFI pool
+  // stages, discover, enrichment workers, the Temporal host, and FFI pool
   // before exiting. Best-effort — worker may already be dead or not yet spawned.
   try {
     stopWorkerSupervisor();

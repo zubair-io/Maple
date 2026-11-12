@@ -24,6 +24,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { ImportRunner } from './worker.ts';
+import { recordedAttempt } from '../temporal/recorded-attempt.test-helpers.ts';
 import { groupFiles } from './group-files.ts';
 import type { ImportFileEntry } from '../db/schema.ts';
 import { createLiveTestDatabase, insertFolder } from '../db/sqlite/test-sqlite.test-helpers.ts';
@@ -125,7 +126,7 @@ function seedLibraryAt(db: Database, root: string): ObjectId {
   return new ObjectId(insertFolder(db, { path: root }));
 }
 
-describe('ImportRunner.tick', () => {
+describe('ImportRunner.run', () => {
   it('auto import: the worker scans the source and copies (scan_pending)', async () => {
     using live = await createLiveTestDatabase();
     const src = await stageSources('auto', ['IMG.dng', 'IMG.xmp']);
@@ -145,7 +146,6 @@ describe('ImportRunner.tick', () => {
 
     let handed = 0;
     const runner = new ImportRunner({
-      workerId: 'w-auto',
       deps: {
         assetExistsForHash: async () => false,
         handleEvent: async () => {
@@ -153,7 +153,9 @@ describe('ImportRunner.tick', () => {
         },
       },
     });
-    expect((await runner.tick()).kind).toBe('done');
+    expect((await runner.run(created._id.toHexString(), recordedAttempt('w-auto'))).outcome).toBe(
+      'done',
+    );
 
     // Worker scanned + filed everything under the default <year>/misc/<source folder>/.
     expect(await fs.readFile(path.join(lib, '2024/misc/src/IMG.dng'), 'utf8')).toBe(
@@ -188,14 +190,13 @@ describe('ImportRunner.tick', () => {
     });
 
     const runner = new ImportRunner({
-      workerId: 'w-auto-empty',
       deps: {
         assetExistsForHash: async () => false,
         handleEvent: async () => {},
       },
     });
-    const res = await runner.tick();
-    expect(res.kind).toBe('failed');
+    const res = await runner.run(created._id.toHexString(), recordedAttempt('w-auto-empty'));
+    expect(res.outcome).toBe('failed');
 
     const doc = await repo.getImport(created._id);
     expect(doc!.status).toBe('failed');
@@ -211,7 +212,7 @@ describe('ImportRunner.tick', () => {
     const lib = path.join(tmp, 'happy', 'lib');
     const libId = seedLibraryAt(live.db, lib);
 
-    await repo.createImport({
+    const created = await repo.createImport({
       source_root: path.join(tmp, 'happy', 'src'),
       library_id: libId,
       library_root: lib,
@@ -224,7 +225,6 @@ describe('ImportRunner.tick', () => {
 
     const handed: { absPath: string; folderId: string }[] = [];
     const runner = new ImportRunner({
-      workerId: 'w-happy',
       deps: {
         assetExistsForHash: async () => false,
         handleEvent: async (ev, folderId) => {
@@ -236,8 +236,8 @@ describe('ImportRunner.tick', () => {
       },
     });
 
-    const res = await runner.tick();
-    expect(res.kind).toBe('done');
+    const res = await runner.run(created._id.toHexString(), recordedAttempt('w-happy'));
+    expect(res.outcome).toBe('done');
 
     // All three landed on disk.
     expect(await fs.readFile(path.join(lib, '2024/03/IMG.dng'), 'utf8')).toBe(
@@ -266,7 +266,7 @@ describe('ImportRunner.tick', () => {
     const src = await stageSources('dup', ['IMG.dng', 'IMG.xmp']);
     const lib = path.join(tmp, 'dup', 'lib');
 
-    await repo.createImport({
+    const created = await repo.createImport({
       source_root: path.join(tmp, 'dup', 'src'),
       library_id: seedLibraryAt(live.db, lib),
       library_root: lib,
@@ -278,7 +278,6 @@ describe('ImportRunner.tick', () => {
 
     let handed = 0;
     const runner = new ImportRunner({
-      workerId: 'w-dup',
       deps: {
         assetExistsForHash: async () => true, // already in the library
         handleEvent: async () => {
@@ -286,8 +285,8 @@ describe('ImportRunner.tick', () => {
         },
       },
     });
-    const res = await runner.tick();
-    expect(res.kind).toBe('done');
+    const res = await runner.run(created._id.toHexString(), recordedAttempt('w-dup'));
+    expect(res.outcome).toBe('done');
 
     // Nothing copied; no indexer hand-off.
     await expect(fs.stat(path.join(lib, '2024/03/IMG.dng'))).rejects.toThrow();
@@ -305,7 +304,7 @@ describe('ImportRunner.tick', () => {
     await fs.mkdir(path.join(lib, '2024/03'), { recursive: true });
     await fs.writeFile(path.join(lib, '2024/03/IMG.dng'), 'a different photo');
 
-    await repo.createImport({
+    const created = await repo.createImport({
       source_root: path.join(tmp, 'collide', 'src'),
       library_id: seedLibraryAt(live.db, lib),
       library_root: lib,
@@ -317,7 +316,6 @@ describe('ImportRunner.tick', () => {
 
     const handed: string[] = [];
     const runner = new ImportRunner({
-      workerId: 'w-collide',
       deps: {
         assetExistsForHash: async () => false,
         handleEvent: async (ev) => {
@@ -325,7 +323,9 @@ describe('ImportRunner.tick', () => {
         },
       },
     });
-    expect((await runner.tick()).kind).toBe('done');
+    expect(
+      (await runner.run(created._id.toHexString(), recordedAttempt('w-collide'))).outcome,
+    ).toBe('done');
 
     // Image renamed to IMG-1.dng; the sidecar follows to IMG-1.xmp, NOT IMG.xmp.
     expect(await fs.readFile(path.join(lib, '2024/03/IMG-1.dng'), 'utf8')).toBe(
@@ -354,7 +354,6 @@ describe('ImportRunner.tick', () => {
     });
 
     const runner = new ImportRunner({
-      workerId: 'w-cancel',
       deps: {
         assetExistsForHash: async () => false,
         // After the first image is handed off, request cancel — the second
@@ -365,8 +364,8 @@ describe('ImportRunner.tick', () => {
       },
     });
 
-    const res = await runner.tick();
-    expect(res.kind).toBe('cancelled');
+    const res = await runner.run(created._id.toHexString(), recordedAttempt('w-cancel'));
+    expect(res.outcome).toBe('cancelled');
 
     // First image copied and stays; second never copied.
     expect(await fs.readFile(path.join(lib, '2024/03/A.dng'), 'utf8')).toBe('bytes-cancel-A.dng');
@@ -403,14 +402,13 @@ describe('ImportRunner.tick', () => {
     });
 
     const runner = new ImportRunner({
-      workerId: 'w-prefailed',
       deps: {
         assetExistsForHash: async () => false,
         handleEvent: async () => {},
       },
     });
-    const res = await runner.tick();
-    expect(res.kind).toBe('done');
+    const res = await runner.run(created._id.toHexString(), recordedAttempt('w-prefailed'));
+    expect(res.outcome).toBe('done');
 
     const doc = await repo.getImport(created._id);
     expect(doc!.status).toBe('done');
@@ -446,7 +444,6 @@ describe('ImportRunner.tick', () => {
     let indexed = false;
     const rearmed: string[] = [];
     const runner = new ImportRunner({
-      workerId: 'w-retry-sidecar',
       deps: {
         assetExistsForHash: async () => indexed,
         handleEvent: async () => {
@@ -457,7 +454,9 @@ describe('ImportRunner.tick', () => {
         },
       },
     });
-    expect((await runner.tick()).kind).toBe('done');
+    expect(
+      (await runner.run(created._id.toHexString(), recordedAttempt('w-retry-sidecar'))).outcome,
+    ).toBe('done');
     expect((await repo.getImport(created._id))!.counts).toEqual({
       copied: 1,
       skipped: 0,
@@ -467,7 +466,9 @@ describe('ImportRunner.tick', () => {
     await fs.rename(stashed, src['IMG.xmp']);
     expect(rearmed).toEqual([]);
     expect(await retryImport(created._id)).toBe(true);
-    expect((await runner.tick()).kind).toBe('done');
+    expect(
+      (await runner.run(created._id.toHexString(), recordedAttempt('w-retry-sidecar'))).outcome,
+    ).toBe('done');
 
     expect(await fs.readFile(path.join(lib, '2024/03/IMG.xmp'), 'utf8')).toBe(
       'bytes-retry-sidecar-IMG.xmp',
@@ -502,14 +503,13 @@ describe('ImportRunner.tick', () => {
     });
 
     const runner = new ImportRunner({
-      workerId: 'w-allfailed',
       deps: {
         assetExistsForHash: async () => false,
         handleEvent: async () => {},
       },
     });
-    const res = await runner.tick();
-    expect(res.kind).toBe('failed');
+    const res = await runner.run(created._id.toHexString(), recordedAttempt('w-allfailed'));
+    expect(res.outcome).toBe('failed');
 
     const doc = await repo.getImport(created._id);
     expect(doc!.status).toBe('failed');
