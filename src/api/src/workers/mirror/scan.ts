@@ -5,7 +5,7 @@
  * where it sits), resolves each one's mirror target(s), and enqueues a
  * `mirror_queue` row for any that are missing or stale on the mirror. It never
  * copies — the mirror copy worker drains the queue. Decoupled from the discover
- * sweep so it can't slow indexing, and independently throttled.
+ * sweep so it can't slow indexing, and scheduled hourly on its own.
  *
  * Mount guard: a mirror root whose directory isn't present this pass is treated
  * as offline and SKIPPED — an unmounted backup disk must not enqueue every file
@@ -24,7 +24,6 @@ import { child as childLogger } from '../../log.ts';
 
 const log = childLogger('mirror-scan');
 
-const DEFAULT_INTERVAL_MS = 3_600_000; // hourly
 const DEFAULT_MAX_ENQUEUE = 10_000; // safety cap per pass
 
 /** Live locations fetched per round trip. Large enough that a library of a
@@ -82,7 +81,7 @@ export interface MirrorScanSummary {
   errors: number;
 }
 
-/** One detection pass. Exported for tests + driven by the interval loop. */
+/** One detection pass; scheduled hourly as the `mirror-scan` maintenance task. */
 export async function runMirrorScanOnce(opts: MirrorScanOptions = {}): Promise<MirrorScanSummary> {
   const maxEnqueue = opts.maxEnqueue ?? DEFAULT_MAX_ENQUEUE;
   const summary: MirrorScanSummary = {
@@ -179,36 +178,4 @@ export async function runMirrorScanOnce(opts: MirrorScanOptions = {}): Promise<M
 
   if (summary.scanned > 0) log.info(summary, 'mirror-scan pass complete');
   return summary;
-}
-
-export interface MirrorScanHandle {
-  stop: () => void;
-}
-
-/** Start the detection loop. Fires once on boot, then on the interval. */
-export function startMirrorScan(
-  opts: MirrorScanOptions & { intervalMs?: number } = {},
-): MirrorScanHandle {
-  const intervalMs = opts.intervalMs ?? DEFAULT_INTERVAL_MS;
-  let stopped = false;
-  let inFlight = false;
-  const tick = async () => {
-    if (stopped || inFlight || !isMirroringActive()) return;
-    inFlight = true;
-    try {
-      await runMirrorScanOnce(opts);
-    } catch (err) {
-      log.error({ err: err instanceof Error ? err.message : err }, 'mirror-scan pass crashed');
-    } finally {
-      inFlight = false;
-    }
-  };
-  const timer = setInterval(() => void tick(), intervalMs);
-  void tick();
-  return {
-    stop: () => {
-      stopped = true;
-      clearInterval(timer);
-    },
-  };
 }

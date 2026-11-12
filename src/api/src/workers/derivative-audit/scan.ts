@@ -1,9 +1,10 @@
 /**
- * Derivative-audit worker — the interval-loop detector that verifies each live
+ * Derivative-audit worker — the scheduled detector that verifies each live
  * asset's thumb/preview/description on disk and its thumbnail in R2, and
  * re-arms the owning stage when a derivative has drifted (see the design doc,
  * `docs/superpowers/specs/2026-07-22-derivative-reconcile-worker-design.md`).
- * Modeled on `mirror/scan.ts`. It NEVER renders/uploads — it only issues the
+ * Scheduled as the `derivative-audit` maintenance task, modeled on
+ * `mirror/scan.ts`. It NEVER renders/uploads — it only issues the
  * canonical 5-field stage reset so the existing stages regenerate.
  *
  * That reset used to be five `$set` paths this module spelled out itself; it is
@@ -30,13 +31,13 @@ import {
 import { thumbExistsInR2 } from '../../cloudflare/r2-client.ts';
 import { child as childLogger } from '../../log.ts';
 import { evaluateAsset, type AuditDeps, type AuditResult } from './checks.ts';
-import {
-  DEFAULT_DERIVATIVE_AUDIT_CONFIG,
-  loadDerivativeAuditConfig,
-  type DerivativeAuditConfig,
-} from './config.repo.ts';
+import { loadDerivativeAuditConfig, type DerivativeAuditConfig } from './config.repo.ts';
 import { createR2Health, FailureDigest, type R2Health } from './r2-health.ts';
-import { emptySummary, setDerivativeAuditProgress } from './progress.ts';
+import {
+  emptySummary,
+  getDerivativeAuditProgress,
+  setDerivativeAuditProgress,
+} from './progress.ts';
 import type { DerivativeAuditSummary } from './types.ts';
 import type { ImageDoc } from '../run-stage.ts';
 
@@ -55,9 +56,9 @@ const CANDIDATE_PAGE_SIZE = 500;
  * after a full interval (6 h by default). */
 export const ABORTED_PASS_RETRY_MS = 15 * 60_000;
 
-/** Single-flight lock shared by the interval loop AND the manual /run route, so
- * a manual kick can never overlap a scheduled pass (double R2 load, racing
- * resets, and a clobbered progress summary). */
+/** Single-flight lock for the manual /run route, so a double-clicked kick never
+ * starts two passes in one process. Scheduled passes don't overlap each other
+ * because the schedule skips a run while the previous one is still going. */
 let passInFlight = false;
 
 interface AssetUpdatePlan {
@@ -199,8 +200,8 @@ function logPassFailures({ r2Health, rowFailures, summary }: PassContext): void 
   if (rowFailures.count > 0) log.warn(rowFailures.fields(), 'audit rows failed');
 }
 
-/** One audit pass. Exported for tests + driven by the interval loop. NOT guarded
- * itself — the single-flight lock lives in `startAuditPass()`. */
+/** One audit pass. NOT guarded itself — the manual route's single-flight lock
+ * lives in `startAuditPass()`. */
 export async function runDerivativeAuditOnce(
   override: Partial<DerivativeAuditConfig> = {},
 ): Promise<DerivativeAuditSummary> {
@@ -246,71 +247,31 @@ export async function runDerivativeAuditOnce(
   return summary;
 }
 
-/** Start one pass in the background under the shared single-flight lock. Returns
- * synchronously whether it started. Both the interval loop and the manual /run
- * route go through this, so at most one pass ever runs at a time. */
+/** Start one pass in the background under the single-flight lock. Returns
+ * synchronously whether it started. */
 export function startAuditPass(): { started: boolean; reason?: string } {
-  const { started, reason } = launchAuditPass();
-  return started ? { started } : { started, reason };
-}
-
-/** `finished` resolves with the pass summary, or `null` when the pass crashed. */
-function launchAuditPass(): {
-  started: boolean;
-  reason?: string;
-  finished: Promise<DerivativeAuditSummary | null>;
-} {
-  if (passInFlight) {
-    return { started: false, reason: 'already-running', finished: Promise.resolve(null) };
-  }
+  if (passInFlight) return { started: false, reason: 'already-running' };
   passInFlight = true;
-  const finished = runDerivativeAuditOnce()
+  void runDerivativeAuditOnce()
     .catch((err) => {
       log.error({ err: err instanceof Error ? err.message : err }, 'derivative-audit pass crashed');
-      return null;
     })
     .finally(() => {
       passInFlight = false;
     });
-  return { started: true, finished };
+  return { started: true };
 }
 
-export interface DerivativeAuditHandle {
-  stop(): void;
+/**
+ * How long the `derivative-audit` schedule waits between passes: the
+ * configured interval, or {@link ABORTED_PASS_RETRY_MS} while the last pass in
+ * this process gave up on an unreachable R2.
+ */
+export function derivativeAuditEveryMs(cfg: DerivativeAuditConfig): number {
+  return getDerivativeAuditProgress().abortedReason ? ABORTED_PASS_RETRY_MS : cfg.interval_ms;
 }
 
-/** Run one cycle (a pass when enabled) and return how long to wait before the next. */
-async function runCycle(): Promise<number> {
-  try {
-    const cfg = await loadDerivativeAuditConfig();
-    const pass = cfg.enabled ? launchAuditPass() : null;
-    const summary = pass?.started ? await pass.finished : null;
-    return summary?.abortedReason ? ABORTED_PASS_RETRY_MS : cfg.interval_ms;
-  } catch (err) {
-    log.error({ err: err instanceof Error ? err.message : err }, 'derivative-audit tick failed');
-    return DEFAULT_DERIVATIVE_AUDIT_CONFIG.interval_ms;
-  }
-}
-
-/** Start the interval loop. Fires once on boot, then self-reschedules once the
- * pass ends: after `ABORTED_PASS_RETRY_MS` when it gave up on an unreachable R2,
- * otherwise after the live `interval_ms` from config (so the operator's cadence
- * and enable toggle both take effect without a restart). */
-export function startDerivativeAudit(): DerivativeAuditHandle {
-  let stopped = false;
-  let timer: ReturnType<typeof setTimeout> | null = null;
-  const runTick = async () => {
-    if (stopped) return;
-    const delayMs = await runCycle();
-    if (stopped) return;
-    timer = setTimeout(() => void runTick(), delayMs);
-    timer.unref?.();
-  };
-  void runTick();
-  return {
-    stop: () => {
-      stopped = true;
-      if (timer) clearTimeout(timer);
-    },
-  };
+/** One scheduled pass, unless the audit was disabled after the run was already on its way. */
+export async function runDerivativeAuditPass(): Promise<void> {
+  if ((await loadDerivativeAuditConfig()).enabled) await runDerivativeAuditOnce();
 }

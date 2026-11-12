@@ -217,7 +217,7 @@ bun run dev                   # Elysia on http://localhost:3000
 ./src/api/scripts/build-raw-ffi.sh
 ```
 
-The API serves the pre-built `src/web` Angular bundle for a complete Self Hosted deploy. Pipeline stages, user jobs and folder imports run on a Temporal server, `127.0.0.1:7233` unless Settings → Workers says otherwise; `temporal server start-dev` is enough for development, and `bun test` starts its own. There is no database service to start: the whole library index is one SQLite file at `./data/maple.sqlite` (override via `MAPLE_SQLITE_PATH`), which the server creates and migrates on its first boot.
+The API serves the pre-built `src/web` Angular bundle for a complete Self Hosted deploy. Pipeline stages, the discover sweep, user jobs, folder imports and scheduled maintenance run on a Temporal server, `127.0.0.1:7233` unless Settings → Workers says otherwise; `temporal server start-dev` is enough for development, and `bun test` starts its own. There is no database service to start: the whole library index is one SQLite file at `./data/maple.sqlite` (override via `MAPLE_SQLITE_PATH`), which the server creates and migrates on its first boot.
 
 ## Build & test — Rust core
 

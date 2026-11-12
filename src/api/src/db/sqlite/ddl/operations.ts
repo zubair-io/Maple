@@ -161,7 +161,7 @@ CREATE INDEX discover_frontier_claim
  * Every configurable field is nullable, which is the shape the repository
  * actually writes rather than the shape `WorkerConfig` declares.
  * `WorkerConfigRepo.patch` upserts a *partial* config:
- * `registerPausableWorker` (`workers/pause-control.ts`) persists `{ paused }`
+ * `pausableWorker` (`workers/pause-control.ts`) persists `{ paused }`
  * and nothing else, against a row that need not exist yet, so a row routinely
  * holds a name and one field. The four fields TypeScript marks required are
  * required of a merged, *loaded* config — `bootConfig` substitutes the stage's

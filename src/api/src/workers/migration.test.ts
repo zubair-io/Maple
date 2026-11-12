@@ -2,7 +2,7 @@
  * Migration worker tests.
  *
  *  - Registration / control surface: the worker's registry entry and its
- *    pause/resume round trip.
+ *    pause/resume round trip, and whether its schedule has work to run.
  *  - Enable-transition: pure logic, no database.
  *  - End-to-end `runMigrationTickOnce`: seeds a backup-origin asset and a real
  *    temp file, drives one tick, and checks both the on-disk move and the
@@ -22,11 +22,19 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import type { Database } from 'bun:sqlite';
 import { stageRegistry } from './registry.ts';
-import { startMigration, MIGRATION_WORKER_NAME, runMigrationTickOnce } from './migration.ts';
+import {
+  MIGRATION_WORKER_NAME,
+  migrationHasWork,
+  registerMigration,
+  runMigrationPass,
+  runMigrationTickOnce,
+} from './migration.ts';
+import { MIGRATIONS } from './migration/index.ts';
 import {
   computeEnabledTransition,
   defaultMigrationState,
   loadMigrationState,
+  patchMigrationState,
   resetMigrationState,
   setMigrationEnabled,
 } from './migration-config.repo.ts';
@@ -51,9 +59,10 @@ afterEach(() => {
   live.close();
 });
 
-describe('startMigration — registration & control', () => {
-  it('registers under the migration name and reports idle by default', () => {
-    const handle = startMigration({ intervalMs: 60_000 });
+describe('registerMigration — registration & control', () => {
+  it('registers under the migration name and reports idle by default', async () => {
+    const handle = registerMigration();
+    await handle.ready;
     try {
       expect(stageRegistry.has(MIGRATION_WORKER_NAME)).toBe(true);
       const s = stageRegistry.statuses()[MIGRATION_WORKER_NAME];
@@ -65,7 +74,7 @@ describe('startMigration — registration & control', () => {
   });
 
   it('pause / resume flip the reported status and stop() unregisters', async () => {
-    const handle = startMigration({ intervalMs: 60_000 });
+    const handle = registerMigration();
     await handle.ready;
     await stageRegistry.pause(MIGRATION_WORKER_NAME);
     expect(stageRegistry.statuses()[MIGRATION_WORKER_NAME]?.status).toBe('paused');
@@ -73,6 +82,36 @@ describe('startMigration — registration & control', () => {
     expect(stageRegistry.statuses()[MIGRATION_WORKER_NAME]?.status).toBe('idle');
     handle.stop();
     expect(stageRegistry.has(MIGRATION_WORKER_NAME)).toBe(false);
+  });
+});
+
+describe('migrationHasWork', () => {
+  const someMigration = MIGRATIONS[0]!.id;
+
+  test('nothing to do until a migration is enabled', async () => {
+    expect(await migrationHasWork()).toBe(false);
+    await setMigrationEnabled(someMigration, true, new Date().toISOString());
+    expect(await migrationHasWork()).toBe(true);
+  });
+
+  test('a paused worker has nothing to do, whatever is enabled', async () => {
+    await setMigrationEnabled(someMigration, true, new Date().toISOString());
+    run(live.db, `INSERT INTO worker_config (name, paused) VALUES (?, 1)`, MIGRATION_WORKER_NAME);
+    expect(await migrationHasWork()).toBe(false);
+  });
+
+  test('a finished migration leaves nothing to do', async () => {
+    await setMigrationEnabled(someMigration, true, new Date().toISOString());
+    await patchMigrationState(someMigration, { status: 'done' });
+    expect(await migrationHasWork()).toBe(false);
+  });
+
+  test('a paused worker leaves an enabled migration untouched', async () => {
+    await setMigrationEnabled(someMigration, true, new Date().toISOString());
+    run(live.db, `INSERT INTO worker_config (name, paused) VALUES (?, 1)`, MIGRATION_WORKER_NAME);
+    const before = await loadMigrationState(someMigration);
+    await runMigrationPass();
+    expect(await loadMigrationState(someMigration)).toEqual(before);
   });
 });
 

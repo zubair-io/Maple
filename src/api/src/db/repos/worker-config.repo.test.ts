@@ -61,7 +61,7 @@ describe('load', () => {
   test('a field no write has set reads as absent, not as a default', async () => {
     using handle = await createTestDatabase();
     const repo = new WorkerConfigRepo(testSqliteDb(handle.db));
-    // What `registerPausableWorker` does on a worker that has never booted.
+    // What `pausableWorker` does on a worker that has never booted.
     await repo.patch('deduplicate', { paused: true });
     const loaded = await repo.load('deduplicate');
     expect(loaded?.paused).toBe(true);

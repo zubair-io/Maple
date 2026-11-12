@@ -51,7 +51,7 @@ async function main(): Promise<void> {
   // and the mirror silently drifts — and the mirror-scan/copy reconcile that
   // should catch the drift is itself gated off (`isMirroringActive()` is false).
   // The API process loads this in index.ts; the worker tier must do the same.
-  // After this initial load, `startMaintenanceJobs` re-reads the config on an
+  // After this initial load, `startMaintenanceSupport` re-reads the config on an
   // interval, so a failure here self-heals (and later config changes propagate)
   // without a worker restart.
   try {

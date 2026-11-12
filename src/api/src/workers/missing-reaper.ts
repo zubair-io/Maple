@@ -13,7 +13,7 @@
  *      modified-content guard dual-flags an orphaned entry. Tagging is the only
  *      automatic step. A tagged entry is non-live, so the asset drops out of
  *      reads + stage claims the moment its LAST live entry is tagged.
- *   2. REAP. This worker scans assets with any tagged location each tick,
+ *   2. REAP. This worker scans assets with any tagged location each pass,
  *      re-stats each tagged location, and either recovers it (clear the tag),
  *      removes it once aged past the prune window, or — when that removal would
  *      leave the asset with no location at all — soft-deletes the record
@@ -35,7 +35,7 @@
  *   - Controlled like every other worker. Its paused state lives in
  *     `worker_config.paused`; pause/resume persist it, so a pause STICKS across
  *     restarts. But "paused" suspends ONLY the record soft-delete —
- *     recovery and sibling-prune of SURVIVING rows keep running every tick, so
+ *     recovery and sibling-prune of SURVIVING rows keep running every pass, so
  *     a moved/re-copied file reconciles even while paused. On boot it stays
  *     paused only until the stored state is read, so a config-store blip can't
  *     run a sweep against an operator's prior pause.
@@ -76,9 +76,9 @@
  *
  * Registered into the in-process `stageRegistry` so the existing
  * `/api/workers/missing-reaper/{status,pause,resume}` surface controls it,
- * the same as every pipeline stage. It is NOT a version-claim stage, so it
- * runs its own interval loop (mirrors `trash-gc`) rather than `runStage()`.
- * Started from `src/index.ts`.
+ * the same as every pipeline stage. It is NOT a version-claim stage: its
+ * passes run every minute as the `missing-reaper` maintenance task
+ * (`workers/maintenance/`), not through `runStage()`.
  */
 
 import * as path from 'node:path';
@@ -86,8 +86,6 @@ import { listMissingTagged, type MissingTaggedAsset } from '../db/repos/assets.s
 import { loadLibraryRoots } from '../indexer/libraries.cache.ts';
 import type { FileInfo } from '../db/schema.ts';
 import { child as childLogger } from '../log.ts';
-import { stageRegistry } from './registry.ts';
-import { ThroughputWindow } from './run-stage.ts';
 import { loadPruneWindowHours } from './missing-reaper-config.repo.ts';
 import {
   BREAKER_FRACTION,
@@ -102,16 +100,14 @@ import {
   type StatKind,
 } from './missing-reaper.helpers.ts';
 import { reapRow, reconcileSurvivor } from './missing-reaper.reconcile.ts';
-import { makePausedPoller } from './paused-poller.ts';
 import { IgnoreVerdictMemo } from '../fs/mapleignore.ts';
-import { registerPausableWorker } from './pause-control.ts';
+import { pausableWorker, type RegisteredWorker } from './pause-control.ts';
 
 const log = childLogger('missing-reaper');
 
 /** Registry / route key. Matches `/api/workers/missing-reaper/...`. */
 export const MISSING_REAPER_NAME = 'missing-reaper';
 
-const DEFAULT_INTERVAL_MS = 60_000;
 const DEFAULT_BATCH = 200;
 /** Upper bound on pages examined per pass (#2171): pagination lets recovery
  * reach rows behind an undrainable (paused/cooldown/offline) oldest-first
@@ -124,19 +120,19 @@ export interface RunMissingReaperOptions {
   /**
    * Soft-delete (reap) an all-gone row only if its `missing_since` is strictly
    * before this ISO timestamp — i.e. it has been missing for at least the
-   * prune window. The interval loop passes `now - pruneWindowHours`.
+   * prune window. A scheduled pass passes `now - pruneWindowHours`.
    * Recovery/prune of rows whose file is still present is NOT gated by this.
    */
   deleteBeforeIso: string;
   /**
    * When false, eligible reaps are skipped (counted `skippedPaused`) but
    * recovery/prune still runs — so a re-found file reconciles even while the
-   * reaper is "paused". The loop passes `!paused`. Defaults to true.
+   * reaper is "paused". A scheduled pass passes `!paused`. Defaults to true.
    */
   allowDelete?: boolean;
 }
 
-/** One reap pass. Exported for tests + driven by the interval loop. */
+/** One reap pass. Exported for tests + driven by `runMissingReaperPass`. */
 export async function runMissingReaperOnce(
   opts: RunMissingReaperOptions,
 ): Promise<MissingReaperSummary> {
@@ -297,7 +293,7 @@ export async function runMissingReaperOnce(
   // scanned is more likely a systemic mis-detection than that many real
   // deletions. Since #2977 the reap is a recoverable soft delete, so the
   // pass PROCEEDS — but the trip is logged loudly and surfaced as a worker
-  // error (see tick()) until a clean pass follows.
+  // error (see runMissingReaperPass) until a clean pass follows.
   if (toDelete.length > BREAKER_MIN && toDelete.length > summary.scanned * BREAKER_FRACTION) {
     summary.breakerTripped = true;
     log.error(
@@ -404,104 +400,41 @@ async function taggedEntryKind(
   return verdict === 'ignored' ? 'excluded' : 'present';
 }
 
-export interface MissingReaperHandle {
-  stop: () => void;
-  /** Resolves once the persisted pause state has been read on boot. Tests await
-   * this so they observe the adopted state; production ignores it. */
-  ready: Promise<void>;
-}
+const reaper = pausableWorker({
+  name: MISSING_REAPER_NAME,
+  log,
+  unreadablePaused: true,
+  defaultPaused: false,
+  messages: {
+    loadFailed: 'missing-reaper: could not load persisted pause state — staying paused',
+    paused: 'missing-reaper paused',
+    resumed:
+      'missing-reaper RESUMED — aged-out missing rows are now eligible for soft delete (recoverable until the trash retention window expires)',
+  },
+  resumedLevel: 'warn',
+});
 
-export interface StartMissingReaperOptions {
-  intervalMs?: number;
-  batchSize?: number;
-}
+/** Puts the reaper on Settings → Workers, where pause/resume persist in `worker_config`. */
+export const registerMissingReaper = (): RegisteredWorker => reaper.register();
+
+const breakerProblem = (summary: MissingReaperSummary): string | undefined =>
+  summary.breakerTripped
+    ? `circuit breaker: reaped ${summary.reaped} of ${summary.scanned} scanned rows in one pass — review the Trash view; reaped rows are recoverable until the trash retention window expires`
+    : undefined;
 
 /**
- * Start the reaper's interval loop and register it with the stage registry.
- *
- * Controlled exactly like every other worker: paused state persists in
- * `worker_config.paused` via pause/resume, so it RUNS by default and a pause
- * sticks across restarts. The returned handle's `stop()` cancels the loop and
- * unregisters; `ready` resolves once the persisted state has been adopted.
+ * One scheduled pass. It runs while paused too: recovery and sibling-prune of
+ * re-found files must keep working, and only the soft-delete is held back.
  */
-export function startMissingReaper(opts: StartMissingReaperOptions = {}): MissingReaperHandle {
-  const intervalMs = opts.intervalMs ?? DEFAULT_INTERVAL_MS;
-  const batchSize = opts.batchSize ?? DEFAULT_BATCH;
-
-  let running = false;
-  let stopped = false;
-  const throughput = new ThroughputWindow();
-
-  // Persisted pause/resume, the same surface every other worker uses. Paused
-  // only until the persisted control state is read — a config-store blip on
-  // boot must not run a destructive sweep against an operator's prior pause.
-  const control = registerPausableWorker({
-    name: MISSING_REAPER_NAME,
-    log,
-    initialPaused: true,
-    defaultPaused: false, // default running on first boot
-    getInFlight: () => (running ? 1 : 0),
-    getThroughput: () => throughput.countInWindow(),
-    messages: {
-      loadFailed: 'missing-reaper: could not load persisted pause state — staying paused',
-      paused: 'missing-reaper paused',
-      resumed:
-        'missing-reaper RESUMED — aged-out missing rows are now eligible for soft delete (recoverable until the trash retention window expires)',
-    },
-    resumedLevel: 'warn',
+export async function runMissingReaperPass(batchSize = DEFAULT_BATCH): Promise<void> {
+  await reaper.runPass(async () => {
+    const paused = await reaper.readPaused();
+    const pruneWindowHours = await loadPruneWindowHours();
+    const summary = await runMissingReaperOnce({
+      batchSize,
+      deleteBeforeIso: new Date(Date.now() - pruneWindowHours * 3_600_000).toISOString(),
+      allowDelete: !paused,
+    });
+    return { processed: summary.reaped, problem: breakerProblem(summary) };
   });
-  // Resolves once the persisted control state has been adopted after boot.
-  const { ready } = control;
-
-  // Throttled cross-process pause poller (2s interval). See paused-poller.ts.
-  const pollPaused = makePausedPoller(MISSING_REAPER_NAME, control.paused);
-
-  const tick = async (): Promise<void> => {
-    // Runs even when paused — recovery/prune (re-found files) must keep working;
-    // only the reap (soft-delete) is gated by `allowDelete: !paused` below.
-    if (stopped || running) return;
-    running = true;
-    try {
-      control.paused = await pollPaused();
-      const pruneWindowHours = await loadPruneWindowHours();
-      const deleteBeforeIso = new Date(Date.now() - pruneWindowHours * 3_600_000).toISOString();
-      const summary = await runMissingReaperOnce({
-        batchSize,
-        deleteBeforeIso,
-        allowDelete: !control.paused,
-      });
-      for (let i = 0; i < summary.reaped; i++) throughput.record(new Date());
-      if (summary.breakerTripped) {
-        stageRegistry.recordError(
-          MISSING_REAPER_NAME,
-          `circuit breaker: reaped ${summary.reaped} of ${summary.scanned} scanned rows in one pass — review the Trash view; reaped rows are recoverable until the trash retention window expires`,
-        );
-      } else {
-        stageRegistry.clearError(MISSING_REAPER_NAME);
-      }
-    } catch (err) {
-      stageRegistry.recordError(
-        MISSING_REAPER_NAME,
-        err instanceof Error ? err.message : String(err),
-      );
-      log.error({ err }, 'missing-reaper pass crashed');
-    } finally {
-      running = false;
-    }
-  };
-
-  const timer = setInterval(() => {
-    void tick();
-  }, intervalMs);
-
-  log.info({ intervalMs }, 'missing-reaper started');
-
-  return {
-    stop: () => {
-      stopped = true;
-      clearInterval(timer);
-      stageRegistry.unregister(MISSING_REAPER_NAME);
-    },
-    ready,
-  };
 }

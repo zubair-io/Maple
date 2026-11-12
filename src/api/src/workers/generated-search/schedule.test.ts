@@ -23,7 +23,7 @@ import {
   loadRunRecords,
   type LibraryRunRecord,
 } from './run-state.repo.ts';
-import { generatedSearchTick, MAX_ATTEMPTS_PER_DAY, startGeneratedSearch } from './schedule.ts';
+import { generatedSearchTick, MAX_ATTEMPTS_PER_DAY } from './schedule.ts';
 
 const LIBRARY = 'lib-a';
 const MINUTE = 60_000;
@@ -435,27 +435,5 @@ describe('generated-search schedule — one pass per claim across processes', ()
     expect(
       await claimLibraryRun(next, { force: false, expectedStartedAt: record.started_at }, NOW),
     ).toBe(true);
-  });
-});
-
-describe('startGeneratedSearch', () => {
-  it('checks once shortly after boot, then on every tick, never overlapping', async () => {
-    let checks = 0;
-    let release: () => void = () => {};
-    const handle = startGeneratedSearch({
-      bootDelayMs: 0,
-      tickMs: 5,
-      tick: async () => {
-        checks += 1;
-        await new Promise<void>((resolve) => (release = resolve));
-      },
-    });
-    await new Promise((resolve) => setTimeout(resolve, 30));
-    expect(checks).toBe(1);
-    release();
-    await new Promise((resolve) => setTimeout(resolve, 30));
-    handle.stop();
-    release();
-    expect(checks).toBeGreaterThanOrEqual(2);
   });
 });

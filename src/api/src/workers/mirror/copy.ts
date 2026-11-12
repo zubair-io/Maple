@@ -6,12 +6,11 @@
  * does the copying, on its own interval and throttle, so a slow/network mirror
  * never blocks an edit or the indexer.
  *
- * Interval-fired like `trash-gc` (not a version-claim stage). Started from
- * `maintenance.ts` and gated on mirroring being configured.
+ * Scheduled every 30 seconds as the `mirror-copy` maintenance task (not a
+ * version-claim stage), paused while no library has a mirror configured.
  */
 
 import { child as childLogger } from '../../log.ts';
-import { isMirroringActive } from '../../fs/mirror-registry.ts';
 import {
   claimNextMirrorCopy,
   completeMirrorCopy,
@@ -21,7 +20,6 @@ import { copyFileToMirror, needsReplication, statOrNull } from './replicate.ts';
 
 const log = childLogger('mirror-copy');
 
-const DEFAULT_INTERVAL_MS = 30_000;
 const DEFAULT_BATCH = 50;
 const DEFAULT_LEASE_MS = 120_000;
 const DEFAULT_MAX_ATTEMPTS = 5;
@@ -56,7 +54,7 @@ export interface MirrorCopySummary {
   failed: number;
 }
 
-/** One drain pass. Exported for tests + driven by the interval loop. */
+/** One drain pass, scheduled as the `mirror-copy` maintenance task and run by the manual reconcile. */
 export async function runMirrorCopyOnce(opts: MirrorCopyOptions = {}): Promise<MirrorCopySummary> {
   const batchSize = opts.batchSize ?? DEFAULT_BATCH;
   const leaseMs = opts.leaseMs ?? DEFAULT_LEASE_MS;
@@ -106,37 +104,4 @@ export async function runMirrorCopyOnce(opts: MirrorCopyOptions = {}): Promise<M
 
   if (summary.claimed > 0) log.info(summary, 'mirror-copy pass complete');
   return summary;
-}
-
-export interface MirrorCopyHandle {
-  stop: () => void;
-}
-
-/** Start the drain loop. No-op passes are cheap when the queue is empty or
- * mirroring is unconfigured, so the timer always runs once mirroring may be on. */
-export function startMirrorCopyWorker(
-  opts: MirrorCopyOptions & { intervalMs?: number } = {},
-): MirrorCopyHandle {
-  const intervalMs = opts.intervalMs ?? DEFAULT_INTERVAL_MS;
-  let stopped = false;
-  let inFlight = false;
-  const tick = async () => {
-    if (stopped || inFlight || !isMirroringActive()) return;
-    inFlight = true;
-    try {
-      await runMirrorCopyOnce(opts);
-    } catch (err) {
-      log.error({ err: err instanceof Error ? err.message : err }, 'mirror-copy pass crashed');
-    } finally {
-      inFlight = false;
-    }
-  };
-  const timer = setInterval(() => void tick(), intervalMs);
-  void tick();
-  return {
-    stop: () => {
-      stopped = true;
-      clearInterval(timer);
-    },
-  };
 }

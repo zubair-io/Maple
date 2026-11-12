@@ -21,14 +21,15 @@
  * stream — the one outcome a client cannot detect.
  *
  * Invariants:
- * 1. Library-wide, interval-fired job in `maintenance.ts` (mirrors `trash-gc.ts`).
+ * 1. Library-wide daily maintenance task (`workers/maintenance/`, beside `trash-gc.ts`).
  * 2. Deletes in bounded batches, yielding between batches so HTTP handlers are never starved,
  *    and so the single SQLite writer is never held for longer than one batch.
  * 3. The retention window is a DB-backed setting with a control on Settings → Workers,
  *    defaulting to 30 days to match trash-gc.
  * 4. `server_state` cursor stays monotonic; pruning NEVER rewinds it.
- * 5. Cooperative cancellation, single-flight guard, and per-pass batch cap prevent
- *    event-loop starvation and runaway sweeps.
+ * 5. Cooperative cancellation, the schedule skipping a run while a pass is
+ *    still going, and a per-pass batch cap prevent event-loop starvation and
+ *    runaway sweeps.
  *
  * This module decides *when* and *how much*; every statement it drives lives
  * beside the table in `db/repos/changes.retention.ts`, including the
@@ -46,7 +47,6 @@ import { loadChangeLogGcConfig, recordChangeLogGcRun } from './change-log-gc-con
 
 const log = childLogger('change-log-gc');
 const DAY_MS = 86_400_000;
-const DEFAULT_INTERVAL_MS = DAY_MS;
 const BATCH_SIZE = 5_000;
 const BATCH_PAUSE_MS = 25;
 const MAX_BATCHES_PER_PASS = 20_000;
@@ -72,7 +72,7 @@ export interface ChangeLogGcSummary {
   retentionDays: number;
 }
 
-/** One pass. Exported for tests + callable from setInterval. */
+/** One pass; runs daily as the `change-log-gc` maintenance task, which stops it mid-sweep through `shouldStop`. */
 // fallow-ignore-next-line complexity
 export async function runChangeLogGcOnce(
   opts: ChangeLogGcOptions = {},
@@ -188,48 +188,5 @@ export async function runChangeLogGcOnce(
     durationMs,
     remaining,
     retentionDays,
-  };
-}
-
-export interface ChangeLogGcHandle {
-  stop: () => void;
-}
-
-/** Start the background loop. Returns a handle whose `stop()` cancels it —
- * including mid-sweep, via the cooperative `shouldStop` check. */
-export function startChangeLogGc(
-  opts: ChangeLogGcOptions & { intervalMs?: number } = {},
-): ChangeLogGcHandle {
-  const intervalMs = opts.intervalMs ?? DEFAULT_INTERVAL_MS;
-  let stopped = false;
-  let inFlight = false;
-  const tick = async () => {
-    // A backlog sweep can outlive the interval. Single-flight so two passes
-    // never race each other over the same rows.
-    if (stopped || inFlight) return;
-    inFlight = true;
-    try {
-      await runChangeLogGcOnce({ ...opts, shouldStop: () => stopped });
-    } catch (err) {
-      log.error({ err: err instanceof Error ? err.message : err }, 'change-log-gc pass crashed');
-    } finally {
-      inFlight = false;
-    }
-  };
-  const timer = setInterval(() => {
-    void tick();
-  }, intervalMs);
-  timer.unref?.();
-
-  // Fire once on startup so a freshly-booted server doesn't wait 24h for its
-  // first sweep. Errors are swallowed by tick() so a stray failure can't crash
-  // boot.
-  void tick();
-
-  return {
-    stop: () => {
-      stopped = true;
-      clearInterval(timer);
-    },
   };
 }

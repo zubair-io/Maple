@@ -35,10 +35,10 @@
  *     kept copy regenerates them at its location (the serving route 404s on a
  *     cache miss; it does not lazily render).
  *
- * Not a per-asset version-claim stage: it runs its own interval loop (mirrors
- * `missing-reaper` / `migration`) and registers into the in-process
- * `stageRegistry` so the standard `/api/workers/deduplicate/{status,pause,resume}`
- * surface controls it. Started from `workers/maintenance.ts`.
+ * Not a per-asset version-claim stage: its passes run every five minutes as the
+ * `deduplicate` maintenance task (`workers/maintenance/`), and it registers
+ * into the in-process `stageRegistry` so the standard
+ * `/api/workers/deduplicate/{status,pause,resume}` surface controls it.
  */
 
 import { loadLibraryRoots } from '../indexer/libraries.cache.ts';
@@ -46,10 +46,7 @@ import { isLiveFileInfo } from '../indexer/images.repo.ts';
 import { recordAndPublishAssetChange } from '../db/repos/changes.repo.ts';
 import { listDuplicateCandidates, type DuplicateCandidate } from '../db/repos/assets.sweeps.ts';
 import { child as childLogger } from '../log.ts';
-import { stageRegistry } from './registry.ts';
-import { ThroughputWindow } from './run-stage.ts';
-import { makePausedPoller } from './paused-poller.ts';
-import { registerPausableWorker } from './pause-control.ts';
+import { pausableWorker, type RegisteredWorker } from './pause-control.ts';
 import { loadDeDuplicateConfig, DEFAULT_BATCH_SIZE } from './dedupe-config.repo.ts';
 import { emptySummary, type DeDuplicateSummary } from './dedupe.helpers.ts';
 import {
@@ -65,12 +62,6 @@ const log = childLogger('deduplicate');
 /** Registry / route key. Matches `/api/workers/deduplicate/...`. */
 export const DEDUPLICATE_NAME = 'deduplicate';
 
-/** How long to sleep between completed work passes when not paused. */
-const DEFAULT_INTERVAL_MS = 300_000;
-/** How often to re-check the pause state when the worker is paused or idle.
- * Keeps the resume-to-first-pass latency under this value (≤5 s). */
-const PAUSED_POLL_MS = 5_000;
-
 export interface RunDeDuplicateOptions {
   /** Max assets (rows with ≥2 live locations) to examine in one pass. */
   batchSize?: number;
@@ -78,7 +69,7 @@ export interface RunDeDuplicateOptions {
   dryRun?: boolean;
 }
 
-/** One dedupe pass. Exported for tests + driven by the interval loop. */
+/** One dedupe pass. Exported for tests + driven by `runDeDuplicatePass`. */
 export async function runDeDuplicateOnce(
   opts: RunDeDuplicateOptions = {},
 ): Promise<DeDuplicateSummary> {
@@ -216,107 +207,34 @@ async function processAsset(
   });
 }
 
-export interface DeDuplicateHandle {
-  stop: () => void;
-  /** Resolves once the persisted pause state has been read on boot. Tests await
-   * this so they observe the adopted state; production ignores it. */
-  ready: Promise<void>;
-}
+const deduplicate = pausableWorker({
+  name: DEDUPLICATE_NAME,
+  log,
+  unreadablePaused: true,
+  defaultPaused: true,
+  messages: {
+    loadFailed: 'deduplicate: could not load persisted pause state — staying paused',
+    paused: 'deduplicate paused',
+    resumed: 'deduplicate RESUMED — duplicate originals will be moved into _duplicates/',
+  },
+  resumedLevel: 'warn',
+});
 
-export interface StartDeDuplicateOptions {
-  intervalMs?: number;
-}
+/** Puts the worker on Settings → Workers. It is paused until an operator resumes it, because it relocates originals. */
+export const registerDeDuplicate = (): RegisteredWorker => deduplicate.register();
+
+/** The stored pause state; paused on first boot and whenever it can't be read. */
+export const deDuplicatePaused = (): Promise<boolean> => deduplicate.readPaused();
 
 /**
- * Start the worker's interval loop and register it with the stage registry.
- *
- * Boots PAUSED. Unlike `missing-reaper`/`migration` (which default to running),
- * this worker relocates user originals, so its first-boot default is paused —
- * `loadPaused` adopts `worker_config.paused ?? true`. An operator resumes it via
- * `POST /api/workers/deduplicate/resume`. The persisted pause state then sticks
- * across restarts exactly like every other worker.
+ * One scheduled pass. The schedule is paused along with the worker, but a run
+ * already on its way when the operator pauses still finds it paused here.
  */
-export function startDeDuplicate(opts: StartDeDuplicateOptions = {}): DeDuplicateHandle {
-  const intervalMs = opts.intervalMs ?? DEFAULT_INTERVAL_MS;
-
-  let running = false;
-  let stopped = false;
-  const throughput = new ThroughputWindow();
-
-  // Paused until the persisted state is read AND paused-by-default on first boot.
-  const control = registerPausableWorker({
-    name: DEDUPLICATE_NAME,
-    log,
-    initialPaused: true,
-    defaultPaused: true, // default PAUSED on first boot (opt-in)
-    getInFlight: () => (running ? 1 : 0),
-    getThroughput: () => throughput.countInWindow(),
-    messages: {
-      loadFailed: 'deduplicate: could not load persisted pause state — staying paused',
-      paused: 'deduplicate paused',
-      resumed: 'deduplicate RESUMED — duplicate originals will be moved into _duplicates/',
-    },
-    resumedLevel: 'warn',
+export async function runDeDuplicatePass(): Promise<void> {
+  await deduplicate.runPass(async () => {
+    if (await deduplicate.readPaused()) return { processed: 0 };
+    const cfg = await loadDeDuplicateConfig();
+    const summary = await runDeDuplicateOnce({ batchSize: cfg.batch_size, dryRun: cfg.dry_run });
+    return { processed: summary.deduped };
   });
-  const { ready } = control;
-
-  // Throttled cross-process pause poller (2s) — a pause written by the API
-  // process takes effect on the next tick with no IPC. Same as missing-reaper.
-  const pollPaused = makePausedPoller(DEDUPLICATE_NAME, control.paused);
-
-  /** One unit of work: re-check pause state, then run a pass if not paused.
-   * Returns how long the loop should sleep before the next call — PAUSED_POLL_MS
-   * while paused (so a resume is seen within ~5 s), intervalMs after a pass. */
-  const tick = async (): Promise<number> => {
-    if (stopped || running) return PAUSED_POLL_MS;
-    running = true;
-    try {
-      control.paused = await pollPaused();
-      if (control.paused) return PAUSED_POLL_MS; // `finally` still clears `running`
-      const cfg = await loadDeDuplicateConfig();
-      const summary = await runDeDuplicateOnce({
-        batchSize: cfg.batch_size,
-        dryRun: cfg.dry_run,
-      });
-      for (let i = 0; i < summary.deduped; i++) throughput.record(new Date());
-      stageRegistry.clearError(DEDUPLICATE_NAME);
-      return intervalMs;
-    } catch (err) {
-      stageRegistry.recordError(DEDUPLICATE_NAME, err instanceof Error ? err.message : String(err));
-      log.error({ err }, 'deduplicate tick crashed');
-      return intervalMs; // back off after an error just like after a normal pass
-    } finally {
-      running = false;
-    }
-  };
-
-  // Adaptive loop: poll at PAUSED_POLL_MS while paused (≤5 s resume latency),
-  // sleep intervalMs between actual work passes. Fires immediately on startup
-  // (after loadPaused resolves) so a resumed worker doesn't wait the full
-  // interval before its first pass.
-  let loopTimer: ReturnType<typeof setTimeout> | null = null;
-  const loop = async (): Promise<void> => {
-    if (stopped) return;
-    const delay = await tick();
-    if (!stopped) loopTimer = setTimeout(() => void loop(), delay);
-  };
-  // Delay the first tick until the persisted pause state has been adopted,
-  // so the very first pass already knows whether the worker is paused.
-  void ready.then(() => {
-    if (!stopped) loopTimer = setTimeout(() => void loop(), 0);
-  });
-
-  log.info(
-    { intervalMs },
-    'deduplicate worker started (paused by default — resume from /settings/workers)',
-  );
-
-  return {
-    stop: () => {
-      stopped = true;
-      if (loopTimer !== null) clearTimeout(loopTimer);
-      stageRegistry.unregister(DEDUPLICATE_NAME);
-    },
-    ready,
-  };
 }

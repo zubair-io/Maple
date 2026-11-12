@@ -4,7 +4,7 @@
  *
  * DB-backed (not env vars) per the CLAUDE.md "configure via the settings system"
  * rule — both knobs are operator-editable at runtime via
- * `PATCH /api/workers/deduplicate/config` and re-read on the next tick, so a
+ * `PATCH /api/workers/deduplicate/config` and re-read on the next pass, so a
  * change takes effect with no restart:
  *
  *   - `batch_size` — assets examined per pass. Bounds how many duplicate files

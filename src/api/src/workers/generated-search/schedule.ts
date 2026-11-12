@@ -7,8 +7,9 @@
  * timer reset each time and the pass never came due — no set was produced for
  * ten days and nothing showed it.
  *
- * Now a short tick, plus one check shortly after boot, asks the database
- * whether each library still owes today's pass:
+ * Now a check every 15 minutes — the `generated-search` maintenance task, a
+ * Temporal schedule that survives restarts — asks the database whether each
+ * library still owes today's pass:
  *
  *   1. Today's set already exists in `generated_searches` → done. A restart on
  *      such a day does nothing, which keeps the old intent that a restart must
@@ -42,8 +43,6 @@ import { loadRunRecords, STALE_RUNNING_MS, type LibraryRunRecord } from './run-s
 const log = childLogger('generated-search');
 
 const MINUTE_MS = 60_000;
-const TICK_MS = 15 * MINUTE_MS;
-const BOOT_DELAY_MS = 2 * MINUTE_MS;
 const RETRY_BASE_MS = 60 * MINUTE_MS;
 export const MAX_ATTEMPTS_PER_DAY = 3;
 
@@ -133,47 +132,4 @@ export async function generatedSearchTick(deps: ScheduleDeps = defaultDeps): Pro
   });
   log.info({ ...summary, day: dayKey(now) }, 'scheduled pass finished');
   return owed;
-}
-
-export interface GeneratedSearchHandle {
-  stop(): void;
-}
-
-export interface ScheduleTiming {
-  tickMs?: number;
-  bootDelayMs?: number;
-  tick?: () => Promise<unknown>;
-}
-
-/** Start the schedule. `maintenance.ts` owns the single instance. A tick that
- * lands while the previous one is still running is skipped, so a pass longer
- * than the tick never overlaps itself. */
-export function startGeneratedSearch(timing: ScheduleTiming = {}): GeneratedSearchHandle {
-  const tick = timing.tick ?? (() => generatedSearchTick());
-  let inFlight = false;
-  const check = (): void => {
-    if (inFlight) return;
-    inFlight = true;
-    void tick()
-      .catch((err: unknown) => {
-        log.warn(
-          { err: err instanceof Error ? err.message : String(err) },
-          'schedule check failed',
-        );
-      })
-      .finally(() => {
-        inFlight = false;
-      });
-  };
-  const boot = setTimeout(check, timing.bootDelayMs ?? BOOT_DELAY_MS);
-  const interval = setInterval(check, timing.tickMs ?? TICK_MS);
-  // Neither timer should hold the process open on its own.
-  boot.unref?.();
-  interval.unref?.();
-  return {
-    stop(): void {
-      clearTimeout(boot);
-      clearInterval(interval);
-    },
-  };
 }
