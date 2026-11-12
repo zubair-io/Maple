@@ -42,5 +42,6 @@ fn resume(
     journal.validate_original(&client.stat_entry(entry)?)?;
     let (_, document) = SidecarStore::open(&journal.path()?)
         .map_err(|error| CloudError::Protocol(error.to_string()))?;
-    Ok(Some(journal.synchronize(client, &document)))
+    // A merge is already published to the private sidecar the editor opens.
+    Ok(Some(journal.synchronize(client, &document).map(|_| ())))
 }

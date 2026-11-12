@@ -99,27 +99,46 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     assert!(journal.pending()?);
     journal.synchronize(&mut client, &document)?;
     assert!(!journal.pending()?);
+    // Another client changes the server XMP: the stale upload merges onto it.
     let acknowledged = std::fs::read_to_string(&sidecar)?;
-    let external_again = acknowledged.replace("Exposure2012=\"0.75\"", "Exposure2012=\"3.00\"");
+    let external_again = acknowledged.replace(
+        "Exposure2012=\"0.75\"",
+        "Exposure2012=\"3.00\" crs:Vibrance=\"25\"",
+    );
     assert_ne!(external_again, acknowledged);
     std::fs::write(&sidecar, &external_again)?;
     Control::Exposure.set(&mut document.model, -2.0)?;
     store.save(&document)?;
+    let merged = journal
+        .synchronize(&mut client, &document)?
+        .ok_or("the changed server XMP was not merged")?
+        .document;
+    assert!(!journal.pending()?);
+    let server_xml = std::fs::read_to_string(&sidecar)?;
+    assert_eq!(merged.serialize()?, server_xml);
+    let stored = SidecarDocument::parse(&server_xml)?;
+    assert_eq!((stored.model.exposure, stored.model.vibrance), (-2.0, 25.0));
+    assert!(server_xml.contains("Changed outside Maple"));
+    // A server sidecar removed by another client cannot be merged onto.
+    std::fs::remove_file(&sidecar)?;
+    let mut adopted = merged;
+    Control::Contrast.set(&mut adopted.model, 10.0)?;
+    store.save(&adopted)?;
     assert!(matches!(
-        journal.synchronize(&mut client, &document),
+        journal.synchronize(&mut client, &adopted),
         Err(CloudError::Conflict)
     ));
     assert!(journal.pending()?);
     drop(journal);
     let mut resumed = EditJournal::open(journal_root.path(), &line, &entry)?;
     assert!(resumed.pending()?);
-    assert_eq!(SidecarStore::open(&local)?.1.model.exposure, -2.0);
-    assert_eq!(std::fs::read_to_string(&sidecar)?, external_again);
+    assert_eq!(SidecarStore::open(&local)?.1.model.contrast, 10.0);
+    assert!(!sidecar.exists());
     resumed.reload(&mut client)?;
     assert!(!resumed.pending()?);
-    assert_eq!(SidecarStore::open(&local)?.1.model.exposure, 3.0);
+    assert_eq!(SidecarStore::open(&local)?.1.model.contrast, 0.0);
     assert_eq!(std::fs::read(&local)?, raw);
     assert_eq!(std::fs::read(original)?, raw);
-    println!("Cloud transaction passed: real RAW download, conditional save, conflict preservation, truncated-download rejection, durable resume, explicit reload and unchanged originals.");
+    println!("Cloud transaction passed: real RAW download, conditional save, conflict preservation, truncated-download rejection, shared reconcile of a changed server XMP, removed-sidecar refusal, durable resume, explicit reload and unchanged originals.");
     Ok(())
 }

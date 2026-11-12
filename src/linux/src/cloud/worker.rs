@@ -16,7 +16,9 @@ pub enum Command {
     Disconnect,
     Download(u64, CloudEntry),
     Reload(u64, std::path::PathBuf),
+    /// Session, edit revision, original path and the document to upload.
     Sync(
+        u64,
         u64,
         std::path::PathBuf,
         Box<crate::sidecar::SidecarDocument>,
@@ -29,7 +31,13 @@ pub enum Event {
     Derivative(u64, String, bool, Result<egui::ColorImage, String>),
     EditReady(u64, crate::library::Photo, CloudEntry, bool),
     Reloaded(u64, crate::library::Photo),
-    Synced(u64, Result<(), String>),
+    /// Session, edit revision, and the merge when the server's XMP had
+    /// changed and the edit was reconciled onto it.
+    Synced(
+        u64,
+        u64,
+        Result<Option<Box<crate::sidecar::Merged>>, String>,
+    ),
     Resumed(Vec<String>, Vec<String>),
     Waiting,
     Disconnected,
@@ -127,7 +135,7 @@ impl Worker {
                                 edit.reload(connection).map_err(|e| e.to_string())?;
                                 return Ok(Some(Event::Reloaded(id, photo_at(path)?)));
                             }
-                            Command::Sync(id, path, document) => {
+                            Command::Sync(id, revision, path, document) => {
                                 let result = (|| {
                                     let connection =
                                         client.as_mut().ok_or("Cloud session is disconnected")?;
@@ -142,9 +150,10 @@ impl Worker {
                                         .map_err(|e| e.to_string())?;
                                     edit.verify_original(&live).map_err(|e| e.to_string())?;
                                     edit.synchronize(connection, &document)
+                                        .map(|merged| merged.map(Box::new))
                                         .map_err(|e| e.to_string())
                                 })();
-                                return Ok(Some(Event::Synced(id, result)));
+                                return Ok(Some(Event::Synced(id, revision, result)));
                             }
                             Command::Connect(url) => {
                                 journal = None;
