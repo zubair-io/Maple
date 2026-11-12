@@ -233,9 +233,7 @@ function windowOf(pass: WindowPass, depth: number): RankedWindow {
 export function ftsWindowSql(where: SearchWhere, depth: number, lookahead = 0): BoundStatement {
   if (where.match.kind !== 'match') throw new Error('ftsWindowSql: not a text query');
   const narrowing = monthNarrowing(where);
-  // The window folds RAW+JPEG stacks in memory (`foldRankedStacks`): only there is it known
-  // whether the RAW also ranked.
-  const rest = searchWhereSql({ ...where, match: { kind: 'none' }, foldStacks: false });
+  const rest = searchWhereSql(rankedFilters(where));
   const probed =
     lookahead > 0
       ? {
@@ -399,6 +397,27 @@ export function inGivenOrder<T>(
 }
 
 /**
+ * `where` as a ranked window filters its hits: without the text, which the engine matched, and
+ * unfolded, because the window folds RAW+JPEG stacks in memory (`foldRankedStacks`), where it is
+ * known whether the RAW also ranked. One part of the fold cannot wait for that: a hidden RAW
+ * hides its stack (`stackFold` in `search.where.ts`), and the hidden RAW never reaches the
+ * window to say so. So under the default visibility a JPEG whose RAW is hidden is left out here,
+ * whether or not the RAW ranked, which also keeps the window prefix-stable.
+ */
+function rankedFilters(where: SearchWhere): SearchWhere {
+  const unfolded: SearchWhere = { ...where, match: { kind: 'none' }, foldStacks: false };
+  if (where.foldStacks !== true || where.hidden !== 0) return unfolded;
+  return {
+    ...unfolded,
+    clauses: [
+      ...where.clauses,
+      `(+assets.stack_primary_id IS NULL OR NOT EXISTS (SELECT 1 FROM assets AS stack_raw
+          WHERE stack_raw.id = assets.stack_primary_id AND stack_raw.hidden = 1))`,
+    ],
+  };
+}
+
+/**
  * The rows behind a set of `maple_id`s that pass every filter of `where` but its text. The index
  * is named because the planner cannot see how short the id list is: with statistics that favour a
  * filter's index it walked the whole live set instead of probing a few thousand ids.
@@ -409,7 +428,7 @@ export function mapleIdRowsSql(where: SearchWhere, mapleIds: readonly string[]):
      assets.stack_primary_id AS stack_primary_id,
      assets.captured_at AS captured_at, assets.media_kind AS media_kind,
      ${LIVE_FILENAME_SQL} AS filename`,
-    { ...where, match: { kind: 'none' }, foldStacks: false },
+    rankedFilters(where),
     '',
     {
       sql: 'assets.maple_id IS NOT NULL AND assets.maple_id IN (SELECT value FROM json_each(?))',
