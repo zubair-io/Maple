@@ -17,10 +17,10 @@ import {
 } from '../db/sqlite/test-sqlite.test-helpers.ts';
 import { publishSidecarCas, publishSidecarIfAbsent } from './sidecar-cas.ts';
 
-/** These sends never meet a shared sidecar or a merged send. */
+/** These sends never meet a shared sidecar or a kept send. */
 const noLedger = {
   keepAside: async () => undefined,
-  sentOf: async () => null,
+  sentFor: async () => [],
   recordSent: async () => undefined,
 };
 const noBase = { kind: 'digest', sha256: null } as const;

@@ -1,14 +1,16 @@
 /**
  * A backup send is placed on the edit history by what the device actually sent
  * (#5796): a digest base merges from the sent document even when the server
- * reconciled it into something else, a repeated digest names its latest send,
- * and a first send keeps the authoring record (history and named snapshots)
- * the device published into the file.
+ * reconciled it into something else (also after the photo moved), a repeated
+ * digest names its latest send, a send acknowledged as unchanged stays a base
+ * its digest names, and a first send keeps the authoring record (history and
+ * named snapshots) the device published into the file.
  *
  * Real temp library files, real XMP documents and a private SQLite database.
  */
 import { describe, test, expect } from 'bun:test';
 import { callNative } from 'maple';
+import { relocateAsset } from '../src/library/relocate-asset.ts';
 import { xmpSidecarPath } from '../src/fs/xmp.ts';
 import {
   history,
@@ -29,6 +31,20 @@ async function native(
   const result = await callNative(method, args);
   if (!result.ok) throw Error(result.error);
   return result.value;
+}
+
+/** `document` as the device publishes it: with its own `papp:Workflow` record. */
+async function withDeviceRecord(document: string): Promise<string> {
+  const entry = {
+    id: '00000000-0000-5000-8000-0000000000aa',
+    createdAtMs: 1,
+    action: 'adjustment',
+    label: 'Device edit',
+    parentId: '',
+    writer: 'apple',
+    adjustmentXmp: await native('workflowCheckpointXmp', [document]),
+  };
+  return native('workflowCommitXmp', [document, JSON.stringify(entry)]);
 }
 
 describe('backup sends are reconciled from what the device sent (#5796)', () => {
@@ -52,6 +68,47 @@ describe('backup sends are reconciled from what the device sent (#5796)', () => 
     await post(target, xmp('D', { exposure: '0', contrast: '0' }), sha256(next));
     const reverted = await onDisk(target.relPath);
     expect([property(reverted, 'exposure'), property(reverted, 'contrast')]).toEqual(['1', '0']);
+  });
+
+  test('a send acknowledged as unchanged stays a base its digest names', async () => {
+    const target = await seedUpload('unchanged-lineage');
+    const v1 = xmp('v1', { exposure: '0', contrast: '0' });
+    const first = await firstSend(target, v1);
+    // Same adjustments, different workflow metadata: nothing to write.
+    const same = await withDeviceRecord(v1);
+    const ack = (await (await post(target, same, sha256(v1))).json()) as { unchanged?: boolean };
+    expect(ack.unchanged).toBe(true);
+    await post(target, xmp('other', { exposure: '1', contrast: '0' }), undefined, first.head);
+
+    const res = await post(target, xmp('v2', { exposure: '0', contrast: '5' }), sha256(same));
+    expect(res.status).toBe(200);
+    const stored = await onDisk(target.relPath);
+    expect([property(stored, 'exposure'), property(stored, 'contrast')]).toEqual(['1', '5']);
+  });
+
+  test('the sent document stays the merge base after the photo is moved', async () => {
+    const target = await seedUpload('moved');
+    const v1 = xmp('v1', { exposure: '0', contrast: '0' });
+    const first = await firstSend(target, v1);
+    await post(target, xmp('other', { exposure: '1', contrast: '0' }), undefined, first.head);
+    const stale = xmp('B', { exposure: '0', contrast: '5' });
+    expect((await post(target, stale, sha256(v1))).status).toBe(200);
+
+    const moved = await relocateAsset({
+      id: target.assetId,
+      mode: 'move',
+      collision: 'auto-suffix',
+      destinationPath: '2024/MOVED',
+    });
+    if (moved.kind !== 'relocated') throw Error(`relocate: ${moved.kind}`);
+    const there = { ...target, relPath: `${moved.newPath}/${moved.newFilename}` };
+    expect(property(await onDisk(there.relPath), 'exposure')).toBe('1');
+
+    expect(
+      (await post(there, xmp('C', { exposure: '0', contrast: '6' }), sha256(stale))).status,
+    ).toBe(200);
+    const stored = await onDisk(there.relPath);
+    expect([property(stored, 'exposure'), property(stored, 'contrast')]).toEqual(['1', '6']);
   });
 
   test('a repeated digest names its latest send, so A → B → A → B lands every step', async () => {

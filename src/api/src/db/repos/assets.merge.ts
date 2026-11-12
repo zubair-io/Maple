@@ -184,8 +184,9 @@ export async function mergeIntoSurvivor(args: {
       params: [args.survivorId, args.condemnedId],
     },
     {
-      // The merge bases of the duplicate's backup sends (#5796) follow its sidecars.
-      sql: `UPDATE backup_sidecar_sends SET asset_id=? WHERE asset_id=?`,
+      // The duplicate's backup sends (#5796) follow its sidecars; a send both kept is
+      // the same content, so the survivor's row stands.
+      sql: `UPDATE OR IGNORE backup_sidecar_sends SET asset_id=? WHERE asset_id=?`,
       params: [args.survivorId, args.condemnedId],
     },
     {
