@@ -269,7 +269,10 @@ extension AppShell {
         // call goes out, all callers wait on the same continuation.
         let httpClient = makeAuthenticatedHTTPClient(server: serverID)
         let effectiveServer = LocalNetworkResolver.shared.effectiveURL(for: serverID)
-        let searchClient = CloudSearchClient(server: effectiveServer, httpClient: httpClient)
+        let searchClient = CloudSearchClient(
+          server: effectiveServer, httpClient: httpClient,
+          stacksRawJpeg: ServerRawJpegStackPreference.reader(
+            identity: serverID, server: effectiveServer, httpClient: httpClient))
         // Scope the Timeline to whatever the user picked in the
         // sidebar — the library root, or a subfolder when they pick
         // deeper. The server matches pathPrefix against

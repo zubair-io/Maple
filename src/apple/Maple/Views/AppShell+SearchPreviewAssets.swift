@@ -30,7 +30,9 @@ extension AppShell {
       folderID: catalog.folderID,
       libraryPath: parentPath,
       httpClient: makeAuthenticatedHTTPClient(server: server))
-    guard let listing = try? await source.listDir(absPath: parentPath) else { return [ref] }
+    let stacksPairs = await source.stacksRawJpegPairs()
+    guard let listing = try? await source.listDir(absPath: parentPath, stackRawJpeg: stacksPairs)
+    else { return [ref] }
     let siblings = listing.images.map { image in
       Self.folderSiblingAssetRef(image, folderID: catalog.folderID, server: server, source: source)
     }

@@ -21,8 +21,9 @@ public struct RawJpegStack: Hashable, Sendable {
   public enum Location: Hashable, Sendable {
     case local(URL)
     case smb(ImageRef)
-    /// `id` is nil until the server has indexed the companion.
-    case cloud(address: String, path: String, id: String?)
+    /// `id` is nil until the server has indexed the companion; `address` is nil when the JPEG's
+    /// library has no slug (a timeline or search hit), and the server is then addressed by `id`.
+    case cloud(address: String?, path: String, id: String?)
   }
 
   public let primary: File

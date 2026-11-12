@@ -70,17 +70,15 @@ public enum RawJpegStacking {
     }
   }
 
-  /// The stack a Self Hosted timeline or search hit reported on a RAW (#5849). A companion with
-  /// no address (its library has no slug) is left off, as on Web, since a cloud stack locates its
-  /// JPEG by address.
+  /// The stack a Self Hosted timeline or search hit reported on a RAW (#5849). The JPEG is
+  /// carried by its asset `id`; an `address` is optional (a library without a slug has none), so a
+  /// hit the server folded is never left with a JPEG that move, rename or trash would skip.
   public static func cloudStack(for asset: SearchAsset) -> RawJpegStack? {
-    guard let companion = asset.stack?.companion, let address = companion.address else {
-      return nil
-    }
+    guard let companion = asset.stack?.companion else { return nil }
     return RawJpegStack(
       primary: .init(name: asset.filename, size: asset.size),
       companion: .init(name: companion.name, size: companion.size),
-      location: .cloud(address: address, path: companion.path, id: companion.id))
+      location: .cloud(address: companion.address, path: companion.path, id: companion.id))
   }
 
   private static func fileSize(_ url: URL) -> Int64? {

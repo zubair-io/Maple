@@ -10,10 +10,25 @@ import Foundation
 public actor CloudSearchClient {
   public nonisolated let server: URL
   private let httpClient: AuthenticatedHTTPClient
+  /// Whether this client's view folds each RAW+JPEG pair into the RAW's hit (#5849): when it
+  /// answers true, `/api/search`, `/api/search/buckets` and `/api/search/facets` are sent with
+  /// `stack=1`. Only the stack-aware Timeline and search pass it, reading the user's per-server
+  /// preference; every other caller (TV, widgets, Top Shelf, light table) keeps unfolded results.
+  private let stacksRawJpeg: (@Sendable () async -> Bool)?
 
-  public init(server: URL, httpClient: AuthenticatedHTTPClient) {
+  public init(
+    server: URL, httpClient: AuthenticatedHTTPClient,
+    stacksRawJpeg: (@Sendable () async -> Bool)? = nil
+  ) {
     self.server = server
     self.httpClient = httpClient
+    self.stacksRawJpeg = stacksRawJpeg
+  }
+
+  /// `stack=1` when this view folds RAW+JPEG pairs and the user's preference is on.
+  private func stackQuery() async -> [URLQueryItem] {
+    guard let stacksRawJpeg, await stacksRawJpeg() else { return [] }
+    return [URLQueryItem(name: "stack", value: "1")]
   }
 
   /// Sample client for SwiftUI `#Preview` blocks. Points at an unreachable
@@ -49,6 +64,7 @@ public actor CloudSearchClient {
     if let ownerID, !ownerID.isEmpty {
       items.append(URLQueryItem(name: "ownerId", value: ownerID))
     }
+    items += await stackQuery()
     let url = makeURL(path: "/api/search/buckets", query: items)
     let (data, resp) = try await httpClient.data(for: URLRequest(url: url))
     try Self.checkOK(resp, data: data)
@@ -109,6 +125,7 @@ public actor CloudSearchClient {
     if let ownerID, !ownerID.isEmpty {
       items.append(URLQueryItem(name: "ownerId", value: ownerID))
     }
+    items += await stackQuery()
     let url = makeURL(path: "/api/search", query: items)
     let (data, resp) = try await httpClient.data(for: URLRequest(url: url))
     try Self.checkOK(resp, data: data)
@@ -144,7 +161,8 @@ public actor CloudSearchClient {
   ) async throws -> SearchResponse {
     let url = makeURL(
       path: "/api/search",
-      query: params.listQueryItems(page: page, limit: limit, cursor: cursor, rankPin: rankPin))
+      query: params.listQueryItems(page: page, limit: limit, cursor: cursor, rankPin: rankPin)
+        + (await stackQuery()))
     let (data, resp) = try await httpClient.data(for: URLRequest(url: url))
     if Self.isRankEngineChanged(resp, data: data) { throw SearchPagingError.rankEngineChanged }
     try Self.checkOK(resp, data: data)
@@ -166,7 +184,8 @@ public actor CloudSearchClient {
     _ params: SearchParams, page: Int? = nil, limit: Int? = nil
   ) async throws -> SearchFacets {
     let url = makeURL(
-      path: "/api/search/facets", query: params.facetQueryItems(page: page, limit: limit))
+      path: "/api/search/facets",
+      query: params.facetQueryItems(page: page, limit: limit) + (await stackQuery()))
     let (data, resp) = try await httpClient.data(for: URLRequest(url: url))
     try Self.checkOK(resp, data: data)
     do {
