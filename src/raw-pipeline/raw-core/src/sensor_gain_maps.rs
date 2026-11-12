@@ -165,6 +165,14 @@ impl SensorGainMaps {
             .any(|s| matches!(s, SensorStep::Transfer(_)))
     }
 
+    /// Whether a declared transfer covers `plane` anywhere in the image.
+    pub(crate) fn has_transfer_for(&self, plane: u32) -> bool {
+        self.steps.iter().any(|s| match s {
+            SensorStep::Transfer(p) => plane >= p.plane && plane - p.plane < p.planes,
+            SensorStep::Gain(_) => false,
+        })
+    }
+
     /// A masked-margin sample carries the data of the nearest same-phase
     /// active sample (`masked_margin`), so it takes that sample's gains too
     /// (#4657) instead of a step at the active edge.

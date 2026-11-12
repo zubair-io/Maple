@@ -53,7 +53,8 @@ fn render_at(
         profile.scene_cct
     );
 
-    if !matches!(source, dcp::ProfileSource::RawlerFallback) {
+    if !raw.keeps_post_dcp_white_balance() && !matches!(source, dcp::ProfileSource::RawlerFallback)
+    {
         let frame = wb_camera::SliderFrame::resolve(raw, &profile);
         println!(
             "  scene_cct (as-shot, slider frame): {:.1} K",

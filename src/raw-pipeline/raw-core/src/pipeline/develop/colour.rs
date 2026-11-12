@@ -131,7 +131,10 @@ fn creative_of(input: ColourInput<'_>) -> (CreativeStage, Rest<'_>) {
         chain,
         cancel,
     } = input;
-    let calibrated = !matches!(profile_source, dcp::ProfileSource::RawlerFallback);
+    // `RawlerFallback` and 8-bit lossy LinearRaw keep the post-DCP CAT16
+    // white balance (`RawImage::keeps_post_dcp_white_balance`).
+    let calibrated = !raw.keeps_post_dcp_white_balance()
+        && !matches!(profile_source, dcp::ProfileSource::RawlerFallback);
     let frame = calibrated.then(|| wb_camera::SliderFrame::resolve(raw, &profile));
     (
         CreativeStage {

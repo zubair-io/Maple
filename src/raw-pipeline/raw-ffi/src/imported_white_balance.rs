@@ -70,8 +70,8 @@ pub unsafe extern "C" fn maple_resolve_imported_white_balance_file(
                     return raw_core::stages::imported_auto_wb::estimate(&raw, token);
                 }
                 let (profile, source) = raw_core::color::dcp::profile_for_with_source(&raw)?;
-                let fallback =
-                    matches!(source, raw_core::color::dcp::ProfileSource::RawlerFallback);
+                let fallback = raw.keeps_post_dcp_white_balance()
+                    || matches!(source, raw_core::color::dcp::ProfileSource::RawlerFallback);
                 let pair = if fallback {
                     raw_core::stages::white_balance::resolve_wb(&model)
                 } else {
