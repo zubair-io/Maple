@@ -224,6 +224,34 @@ class CloudDocumentWritesTest {
     }
 
     @Test
+    fun aServerFileIsNotRenamedOntoANameOnlyWaitingToUpload() {
+        api.page("2026", files = listOf("a.txt"))
+        val store = store()
+        store.children(folder)
+        val waiting = ready("ann", "2026/b.txt")
+        assertThrows(IllegalStateException::class.java) { writes(store).rename(file("a.txt"), "b.txt") }
+        assertTrue("The server never sees the colliding rename", api.requests.none { it.endsWith("/file/relocate") })
+        assertEquals("2026/b.txt", uploads.all(account("ann")).single { it.token == waiting.token }.path)
+        writes(store).schedule(server)
+        assertEquals(listOf("2026/b.txt"), api.uploads)
+    }
+
+    @Test
+    fun aRejectedReplacementOfAServerFileShowsOnItsRow() {
+        api.page("2026", files = listOf("notes.txt"))
+        staged("notes.txt")
+        api.status = { 413 }
+        val store = store()
+        writes(store).schedule(server)
+        assertTrue(uploads.due(account("ann")).isEmpty())
+        val listed = store.children(folder).rows.single()
+        assertEquals("notes.txt", listed.name)
+        assertTrue(listed.summary!!.startsWith("Not uploaded:"))
+        assertTrue(writable(listed))
+        assertTrue(store.row(file("notes.txt")).summary!!.startsWith("Not uploaded:"))
+    }
+
+    @Test
     fun renamingAFolderMovesTheDocumentsWaitingInIt() {
         api.page("2026")
         ready("ann", "2026/a.txt")
