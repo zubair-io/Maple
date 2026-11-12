@@ -1,14 +1,17 @@
 /**
  * A backup send is placed on the edit history by what the device actually sent
  * (#5796): a digest base merges from the sent document even when the server
- * reconciled it into something else (also after the photo moved), a repeated
- * digest names its latest send, a send acknowledged as unchanged stays a base
- * its digest names, and a first send keeps the authoring record (history and
- * named snapshots) the device published into the file.
+ * reconciled it into something else (also after the photo moved, and after a
+ * publish that failed), a repeated digest names its latest send, a send
+ * acknowledged as unchanged stays a base its digest names, and the named
+ * snapshots a device publishes into the file are kept, on its first send and
+ * on every later one.
  *
  * Real temp library files, real XMP documents and a private SQLite database.
  */
 import { describe, test, expect } from 'bun:test';
+import fs from 'node:fs/promises';
+import path from 'node:path';
 import { callNative } from 'maple';
 import { relocateAsset } from '../src/library/relocate-asset.ts';
 import { xmpSidecarPath } from '../src/fs/xmp.ts';
@@ -45,6 +48,37 @@ async function withDeviceRecord(document: string): Promise<string> {
     adjustmentXmp: await native('workflowCheckpointXmp', [document]),
   };
   return native('workflowCommitXmp', [document, JSON.stringify(entry)]);
+}
+
+/** `document` with a named snapshot of its own adjustments, as the device takes one. */
+async function withSnapshot(document: string, n: number): Promise<{ xmp: string; id: string }> {
+  const id = `00000000-0000-5000-8000-${n.toString(16).padStart(12, '0')}`;
+  const snapshot = {
+    id,
+    name: `Look ${n}`,
+    createdAtMs: n,
+    adjustmentXmp: await native('workflowCheckpointXmp', [document]),
+  };
+  return { xmp: await native('workflowSnapshotXmp', [document, JSON.stringify(snapshot)]), id };
+}
+
+async function snapshotIds(document: string): Promise<string[]> {
+  const record: { snapshots: { id: string }[] } = JSON.parse(
+    await native('workflowReadXmp', [document]),
+  );
+  return record.snapshots.map((snapshot) => snapshot.id);
+}
+
+interface SidecarReply {
+  head?: string;
+  unchanged?: boolean;
+}
+
+async function replyOf(response: Promise<Response>): Promise<SidecarReply> {
+  const res = await response;
+  expect(res.status).toBe(200);
+  const body: SidecarReply = await res.json();
+  return body;
 }
 
 describe('backup sends are reconciled from what the device sent (#5796)', () => {
@@ -169,5 +203,70 @@ describe('backup sends are reconciled from what the device sent (#5796)', () => 
     expect(record.history[0]).toEqual(authored);
     expect(record.history[1]).toMatchObject({ id: first.head, writer: 'backup', parentId: '' });
     expect(property(first.stored, 'exposure')).toBe('0.5');
+  });
+
+  test('a snapshot taken after the first send is backed up with the next one', async () => {
+    const target = await seedUpload('later-snapshot');
+    const v1 = xmp('v1', { exposure: '0' });
+    await firstSend(target, v1);
+    const kept = await withSnapshot(v1, 1);
+
+    expect((await replyOf(post(target, kept.xmp, sha256(v1)))).unchanged).toBeUndefined();
+    expect(await snapshotIds(await onDisk(target.relPath))).toEqual([kept.id]);
+    // A retry finds its own entry and adds nothing twice.
+    expect((await replyOf(post(target, kept.xmp, sha256(v1)))).unchanged).toBe(true);
+    expect(await snapshotIds(await onDisk(target.relPath))).toEqual([kept.id]);
+  });
+
+  test('a snapshot sent with a reconciled edit is kept beside the stored ones', async () => {
+    const target = await seedUpload('reconciled-snapshot');
+    const v1 = xmp('v1', { exposure: '0', contrast: '0' });
+    const first = await firstSend(target, v1);
+    const server = await withSnapshot(await onDisk(target.relPath), 2);
+    await fs.writeFile(path.join(lib.tmpLib, xmpSidecarPath(target.relPath)), server.xmp);
+    await post(target, xmp('other', { exposure: '1', contrast: '0' }), undefined, first.head);
+
+    const device = await withSnapshot(xmp('B', { exposure: '0', contrast: '5' }), 3);
+    await replyOf(post(target, device.xmp, sha256(v1)));
+    const stored = await onDisk(target.relPath);
+    expect([property(stored, 'exposure'), property(stored, 'contrast')]).toEqual(['1', '5']);
+    expect(await snapshotIds(stored)).toEqual([server.id, device.id]);
+  });
+
+  test('a publish that fails keeps the sent documents of the history still on disk', async () => {
+    const target = await seedUpload('failed-compaction');
+    const v1 = xmp('v1', { exposure: '0', contrast: '0' });
+    const first = await firstSend(target, v1);
+    const other = async (n: number, base: string) => {
+      const body = xmp(`other ${n}`, { exposure: '1', contrast: '5', n: `${n}` });
+      return (await replyOf(post(target, body, undefined, base))).head!;
+    };
+    await other(0, first.head);
+    const stale = xmp('B', { exposure: '0', contrast: '5' });
+    const merged = (await replyOf(post(target, stale, sha256(v1)))).head!;
+    // 31 more entries retire the two before it: the merged send is now the oldest.
+    let head = merged;
+    for (let n = 1; n <= 31; n++) head = await other(n, head);
+    const rows = await history(await onDisk(target.relPath));
+    expect([rows.length, rows[0]!.id]).toEqual([32, merged]);
+
+    // The next entry would retire it, but the publish fails.
+    const dir = path.dirname(path.join(lib.tmpLib, target.relPath));
+    await fs.chmod(dir, 0o555);
+    try {
+      const res = await post(
+        target,
+        xmp('lost', { exposure: '1', contrast: '9' }),
+        undefined,
+        head,
+      );
+      expect(res.status).toBe(500);
+    } finally {
+      await fs.chmod(dir, 0o755);
+    }
+
+    await replyOf(post(target, xmp('C', { exposure: '0', contrast: '6' }), sha256(stale)));
+    const stored = await onDisk(target.relPath);
+    expect([property(stored, 'exposure'), property(stored, 'contrast')]).toEqual(['1', '6']);
   });
 });

@@ -17,7 +17,11 @@
  */
 import { createHash } from 'node:crypto';
 import { nativeValue, record } from '../fs/workflow-variants';
-import type { WorkflowHistoryEntry } from '../generated/workflow.generated';
+import type {
+  SidecarWorkflow,
+  WorkflowHistoryEntry,
+  WorkflowSnapshot,
+} from '../generated/workflow.generated';
 
 export type SidecarBase =
   | { kind: 'head'; head: string | null }
@@ -208,19 +212,41 @@ function acknowledged(
   return { kind: 'unchanged', head, sends: { retained: retainedBy(history), sent } };
 }
 
-/** The sends to keep once a send landed as `landed`: its own when the merge made it
- * something other than the send applied as is (`reconcile_xmp` from `current` itself,
- * so both sides carry the same record layout). */
+/** The sends to keep once a send landed as `landed` over `history`: its own when the
+ * merge made it something other than the send applied as is (`reconcile_xmp` from
+ * `current` itself, so both sides carry the same record layout). The rows of `history`
+ * stay too, since a publish that fails leaves that history on disk. */
 async function sentUpdate(
   send: BackupSidecarSend,
-  landed: { xmp: string; head: string; adjustments: string },
+  history: readonly WorkflowHistoryEntry[],
+  landed: { xmp: string; adjustments: string },
   sent: SentRecord,
 ): Promise<SentUpdate> {
   const { current, incoming, now } = send;
   const applied = await nativeValue('workflowReconcileXmp', [current, current, incoming, `${now}`]);
   const merged = landed.adjustments !== (await checkpointOf(applied));
-  const retained = retainedBy((await record(landed.xmp))?.history ?? []);
-  return { retained, sent: merged ? sent : null };
+  const after = (await record(landed.xmp))?.history ?? [];
+  return { retained: retainedBy([...history, ...after]), sent: merged ? sent : null };
+}
+
+/** The named snapshots the device sent that the stored record lacks. Snapshots are
+ * immutable and keyed by id, so one already stored is never replaced, and none is
+ * removed: snapshot creation never discards another (`xmp-canonical-format.md`). */
+async function sentSnapshots(
+  incoming: string,
+  stored: SidecarWorkflow | null,
+): Promise<WorkflowSnapshot[]> {
+  const known = new Set(stored?.snapshots.map((snapshot) => snapshot.id));
+  const sent = (await record(incoming))?.snapshots ?? [];
+  return sent.filter((snapshot) => !known.has(snapshot.id));
+}
+
+/** `xmp` with `added` after the named snapshots it holds. */
+async function withSnapshots(xmp: string, added: readonly WorkflowSnapshot[]): Promise<string> {
+  const landed = await record(xmp);
+  if (added.length === 0 || landed === null) return xmp;
+  const snapshots = [...landed.snapshots, ...added];
+  return nativeValue('workflowEmbedXmp', [JSON.stringify({ ...landed, snapshots }), xmp]);
 }
 
 /** What publishing `incoming` over the stored `current` does. */
@@ -230,7 +256,8 @@ export async function reconcileBackupSidecar(
   const { current, incoming, now } = send;
   const sentSha256 = sha256Hex(incoming);
   const currentSha256 = sha256Hex(current);
-  const history = (await record(current))?.history ?? [];
+  const stored = await record(current);
+  const history = stored?.history ?? [];
   const head = history.at(-1)?.id ?? null;
   const sent = await checkpointOf(incoming);
   if (currentSha256 === sentSha256) return acknowledged(history, sentSha256, sent);
@@ -238,7 +265,10 @@ export async function reconcileBackupSidecar(
   const parent = await sendParent(history, send, currentSha256);
   const ownEntry = backupEntryId(parent.id, sentSha256);
   if (history.some((entry) => entry.id === ownEntry)) return { kind: 'unchanged', head: ownEntry };
-  if (sent === (await checkpointOf(current))) return acknowledged(history, sentSha256, sent);
+  const added = await sentSnapshots(incoming, stored);
+  if (added.length === 0 && sent === (await checkpointOf(current))) {
+    return acknowledged(history, sentSha256, sent);
+  }
 
   const merged = await nativeValue('workflowReconcileXmp', [
     parent.ancestor,
@@ -253,7 +283,8 @@ export async function reconcileBackupSidecar(
     (parent.known?.id === head && parent.exact && !(await capturedOutsideEdit(merged, history)));
   if (!fresh && send.shared) return { kind: 'shared' };
   const landed = await commitBackupEntry(merged, parent.id, sentSha256, now);
+  const xmp = await withSnapshots(landed.xmp, added);
   const own = { sha256: sentSha256, entryId: landed.head, checkpoint: sent };
-  const sends = await sentUpdate(send, landed, own);
-  return { kind: 'publish', xmp: landed.xmp, head: landed.head, reconciled: !fresh, sends };
+  const sends = await sentUpdate(send, history, { xmp, adjustments: landed.adjustments }, own);
+  return { kind: 'publish', xmp, head: landed.head, reconciled: !fresh, sends };
 }
