@@ -43,11 +43,14 @@ internal fun PhotoCanvas(
     badgeStartPadding: Dp = 12.dp,
     badgeBottomPadding: Dp = 12.dp,
     showCropOverlay: Boolean = false,
+    showMaskOverlay: Boolean = false,
 ) {
     DisposableEffect(model, showCropOverlay) {
         model.setCropToolActive(showCropOverlay)
         onDispose { model.setCropToolActive(false) }
     }
+    // Arming the mask tool snaps to fit so every handle is reachable; zoom stays live after.
+    LaunchedEffect(showMaskOverlay) { if (showMaskOverlay) zoomState.reset() }
     var view by remember { mutableStateOf<SurfaceView?>(null) }
     var surfaceVersion by remember { mutableIntStateOf(0) }
     val sampler = remember(state.selected?.key) { HistogramSampler() }
@@ -224,6 +227,14 @@ internal fun PhotoCanvas(
                     .offset { IntOffset(left.roundToInt(), top.roundToInt()) }
                     .requiredSize((frame.region.width * scale / density).dp, (frame.region.height * scale / density).dp)
                     .testTag("native-detail-preview"))
+        }
+        // Above the native detail patch, in the same zoomed box as the image, so the
+        // handles and tint follow pinch and pan and stay visible over refined pixels.
+        if (state.mode == PhotoMode.Edit && showMaskOverlay) {
+            val width = minOf(maxWidth, maxHeight * aspect)
+            Box(Modifier.size(width, width / aspect).then(zoomModifier)) {
+                MaskOverlay(model, state, zoom = if (zoomState.isZoomed) zoomFactor else 1f)
+            }
         }
         if (state.mode == PhotoMode.Edit && state.comparingBefore) {
             Surface(

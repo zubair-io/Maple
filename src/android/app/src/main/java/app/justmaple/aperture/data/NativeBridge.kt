@@ -56,6 +56,23 @@ object NativeBridge {
     external fun runAutoWhiteBalance(work: Long): String
     external fun closeAutoWhiteBalance(work: Long)
 
+    /** `{"layers": [...]}` of the mask containers described by [input] (see `mask_document.rs`). */
+    external fun masksRead(input: String): String
+
+    /** Replacement mask containers for [input]'s containers and layers (see `mask_write.rs`). */
+    external fun masksWrite(input: String): String
+
+    /** `width × height` weights (`0…255`) of a JSON layer's mask over the full frame. */
+    external fun maskWeights(layer: String, width: Int, height: Int): ByteArray
+
+    /** `[a, b, tx, c, d, ty]` taking a point on the cropped presentation to the full frame. */
+    external fun maskFrame(width: Int, height: Int, top: Float, left: Float, bottom: Float,
+        right: Float, angle: Float): DoubleArray
+
+    external fun createMaskRange(handle: Long, xml: String): Long
+    external fun runMaskRange(work: Long, x: Float, y: Float): String
+    external fun closeMaskRange(work: Long)
+
     external fun setField(handle: Long, index: Int, value: Float)
 
     external fun setModel(handle: Long, xml: String)

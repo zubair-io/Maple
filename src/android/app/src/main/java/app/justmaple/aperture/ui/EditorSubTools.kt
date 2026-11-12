@@ -88,6 +88,7 @@ fun subToolsFor(group: EditorGroup): List<EditorSubTool> =
                 EditorSubTool("basic", "Basic"),
                 EditorSubTool("crop", "Crop"),
                 EditorSubTool("geometry", "Geometry"),
+                EditorSubTool("mask", "Mask"),
             )
     }
 
@@ -97,7 +98,7 @@ fun fieldsForSubTool(
     fullInspector: Boolean = false,
 ): List<AdjustmentField> =
     when {
-        group == EditorGroup.Detail && subToolId == "crop" -> emptyList()
+        group == EditorGroup.Detail && (subToolId == "crop" || subToolId == "mask") -> emptyList()
         group == EditorGroup.Light && subToolId == "curve" -> toneCurveFields
         group == EditorGroup.Detail && subToolId == "geometry" -> geometryFields
         fullInspector -> group.fields

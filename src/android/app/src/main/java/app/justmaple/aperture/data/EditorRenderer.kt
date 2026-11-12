@@ -280,6 +280,19 @@ class EditorRenderer(library: PhotoLibrary, private val onPresented: (Int) -> Un
             )
     }
 
+    override suspend fun sampleMaskRange(document: String, x: Float, y: Float): String =
+        analysisLock.withLock {
+            withContext(NonCancellable) {
+                val work = withContext(dispatcher) {
+                    check(handle != 0L) { "Open a RAW photo before sampling a colour" }
+                    NativeBridge.createMaskRange(handle, document)
+                }
+                withContext(Dispatchers.Default) {
+                    try { NativeBridge.runMaskRange(work, x, y) } finally { NativeBridge.closeMaskRange(work) }
+                }
+            }
+        }
+
     private fun release() {
         nativeDetail.clear()
         if (handle != 0L) NativeBridge.close(handle)

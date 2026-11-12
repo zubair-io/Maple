@@ -28,6 +28,22 @@ interface PreviewRenderer : Closeable {
         NativeImageSize.unpack(NativeBridge.presentationDimensions(size.width, size.height,
             crop.top, crop.left, crop.bottom, crop.right, crop.angle))
 
+    /** raw-core's reading of the mask containers [input] describes (`XmpDocument.maskInput`). */
+    fun readMasks(input: String): String = NativeBridge.masksRead(input)
+
+    /** raw-core's canonical containers for [input]'s edited `layers`. */
+    fun writeMasks(input: String): String = NativeBridge.masksWrite(input)
+
+    /** The layer's weight over the full frame from raw-core's evaluator, `0…255` per cell. */
+    fun maskWeights(layer: String, width: Int, height: Int): ByteArray = NativeBridge.maskWeights(layer, width, height)
+
+    /** `[a, b, tx, c, d, ty]` from the cropped presentation onto the full frame masks live in. */
+    fun maskFrame(size: NativeImageSize, crop: app.justmaple.aperture.ui.CropRect): DoubleArray =
+        NativeBridge.maskFrame(size.width, size.height, crop.top, crop.left, crop.bottom, crop.right, crop.angle)
+
+    /** The colour-range seed (or refusal) at a full-frame point of the open RAW under [document]. */
+    suspend fun sampleMaskRange(document: String, x: Float, y: Float): String
+
     fun recordSurface(
         next: Surface?,
         w: Int,

@@ -124,7 +124,7 @@ class EditorSubToolsTest {
     fun groupsExposeExpectedSubToolsAndFullInspectorFields() {
         assertEquals(listOf("basic", "presets"), subToolsFor(EditorGroup.Effects).map { it.id })
         assertEquals(
-            listOf("basic", "crop", "geometry"),
+            listOf("basic", "crop", "geometry", "mask"),
             subToolsFor(EditorGroup.Detail).map { it.id },
         )
         assertEquals(
@@ -133,6 +133,7 @@ class EditorSubToolsTest {
         )
         assertTrue(fieldsForSubTool(EditorGroup.Detail, "crop", fullInspector = false).isEmpty())
         assertTrue(fieldsForSubTool(EditorGroup.Detail, "crop", fullInspector = true).isEmpty())
+        assertTrue(fieldsForSubTool(EditorGroup.Detail, "mask", fullInspector = true).isEmpty())
         assertEquals(
             geometryFieldNames,
             fieldsForSubTool(EditorGroup.Detail, "geometry", fullInspector = false).map { it.name },

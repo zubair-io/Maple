@@ -80,6 +80,7 @@ fn main() -> std::io::Result<()> {
     let kotlin = root.join("src/android/app/src/main/java/app/justmaple/aperture/generated");
     write_slider_gradients(&root, &kotlin)?;
     write_white_balance_presets(&kotlin)?;
+    write_local_mask_controls(&kotlin)?;
     write_canvas_zoom_abi(&root, &kotlin)?;
     write_xmp_subject(&kotlin)?;
     let mut colors =
@@ -209,6 +210,48 @@ fn write_slider_gradients(root: &Path, kotlin: &Path) -> std::io::Result<()> {
     android.push_str("}\n");
     write(&root.join("src/apple/Packages/MapleCore/Sources/MapleCore/Generated/GradientCatalog+Generated.swift"), swift)?;
     write(&kotlin.join("SliderGradients.kt"), android)
+}
+
+/// Local-control and colour-range slider domains plus the range the enable
+/// toggle arms, from raw-core's one table (`local_adjustment::controls`).
+fn write_local_mask_controls(kotlin: &Path) -> std::io::Result<()> {
+    use raw_core::types::local_adjustment::controls::{LOCAL_CONTROLS, RANGE_CONTROLS};
+    use raw_core::types::{RangeRefinement, SKIN_TONE_RANGE};
+    let mut body = format!("{HEADER}package app.justmaple.aperture.generated\n\ndata class LocalMaskControl(val name: String, val label: String, val minimum: Float, val maximum: Float, val step: Float)\n\nobject LocalMaskControls {{\n");
+    for (list, table) in [
+        ("adjustments", &LOCAL_CONTROLS[..]),
+        ("range", &RANGE_CONTROLS[..]),
+    ] {
+        body.push_str(&format!("    val {list} = listOf(\n"));
+        for control in table {
+            body.push_str(&format!(
+                "        LocalMaskControl(\"{}\", \"{}\", {:?}f, {:?}f, {:?}f),\n",
+                control.name, control.label, control.min, control.max, control.step
+            ));
+        }
+        body.push_str("    )\n");
+    }
+    let RangeRefinement::Color {
+        hue_deg,
+        hue_half_width_deg,
+        chroma_min,
+        l_min,
+        l_max,
+        feather,
+    } = SKIN_TONE_RANGE;
+    body.push_str("    val defaultRange = mapOf(\n");
+    for (name, value) in [
+        ("hue_deg", hue_deg),
+        ("hue_half_width_deg", hue_half_width_deg),
+        ("chroma_min", chroma_min),
+        ("l_min", l_min),
+        ("l_max", l_max),
+        ("feather", feather),
+    ] {
+        body.push_str(&format!("        \"{name}\" to {value:?}f,\n"));
+    }
+    body.push_str("    )\n}\n");
+    write(&kotlin.join("LocalMaskControls.kt"), body)
 }
 
 fn write_white_balance_presets(kotlin: &Path) -> std::io::Result<()> {

@@ -1410,6 +1410,7 @@ dependencies = [
  "half",
  "image",
  "moxcms",
+ "quick-xml",
  "raw-core",
  "raw-gpu",
  "serde_json",

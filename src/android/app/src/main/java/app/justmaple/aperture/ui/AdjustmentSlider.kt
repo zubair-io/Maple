@@ -23,6 +23,7 @@ internal fun AdjustmentSlider(
     enabled: Boolean,
     onChange: (Float) -> Unit,
     onCommit: () -> Unit,
+    description: String = "${fieldLabel(field)} adjustment",
 ) {
     val change by rememberUpdatedState(onChange)
     val commit by rememberUpdatedState(onCommit)
@@ -34,7 +35,7 @@ internal fun AdjustmentSlider(
             .height(44.dp)
             .padding(horizontal = 8.dp)
             .semantics {
-                contentDescription = "${fieldLabel(field)} adjustment"
+                contentDescription = description
                 progressBarRangeInfo = ProgressBarRangeInfo(value, field.minimum..field.maximum)
                 if (!enabled) disabled()
                 setProgress { next ->
