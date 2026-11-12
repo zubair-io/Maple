@@ -16,6 +16,7 @@
 
 <div class="flex flex-col gap-4">
   <app-info-filename-row [asset]="asset()" />
+  <app-info-stack-files [asset]="asset()" />
   @if (sidecarError(); as error) {
     <p
       role="alert"

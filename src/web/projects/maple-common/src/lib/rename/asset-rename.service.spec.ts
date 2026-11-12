@@ -23,6 +23,7 @@ describe('AssetRenameService', () => {
   let renameAssetSpy: ReturnType<typeof vi.fn>;
   let stateRenameSpy: ReturnType<typeof vi.fn>;
   let navigateSpy: ReturnType<typeof vi.fn>;
+  let refreshSpy: ReturnType<typeof vi.fn>;
   let service: AssetRenameService;
 
   function setup(
@@ -31,12 +32,15 @@ describe('AssetRenameService', () => {
     renameAssetSpy = vi.fn();
     stateRenameSpy = vi.fn();
     navigateSpy = vi.fn();
+    refreshSpy = vi.fn();
 
     const fakeApi = { renameAsset: renameAssetSpy };
     const fakeState = {
       backend: opts.backend ?? 'self-hosted',
       focusedAssetId: () => (opts.focusedAssetId === undefined ? null : opts.focusedAssetId),
       renameAsset: stateRenameSpy,
+      selectedSourceId: () => 'library:2026',
+      refreshFolderListing: refreshSpy,
     };
     const fakeRouter = { url: '/browse/library', navigate: navigateSpy };
 
@@ -210,5 +214,70 @@ describe('AssetRenameService', () => {
     service.commit(ASSET, 'IMG_0002.CR3');
 
     expect(navigateSpy).not.toHaveBeenCalled();
+  });
+
+  describe('RAW+JPEG stack (#5846)', () => {
+    const STACKED: Asset = {
+      ...ASSET,
+      stack: {
+        companion: { id: 'library:2026/IMG_0001.JPG', name: 'IMG_0001.JPG', ext: 'jpg', size: 1 },
+      },
+    };
+    const renamed = (newFilename: string) =>
+      of({
+        kind: 'renamed',
+        newAbsPath: `/lib/2026/${newFilename}`,
+        newPath: '2026',
+        newFilename,
+        renamedOnCollision: false,
+        extensionChanged: false,
+      });
+
+    it('renames the JPEG to the RAW’s new stem, then closes the field and re-pulls the listing', () => {
+      renameAssetSpy.mockImplementation((_id: string, name: string) => renamed(name));
+      service.startEditing(STACKED);
+      service.commit(STACKED, 'Trip_01.CR3');
+
+      expect(renameAssetSpy.mock.calls).toEqual([
+        [STACKED.id, 'Trip_01.CR3', 'skip'],
+        ['library:2026/IMG_0001.JPG', 'Trip_01.JPG', 'skip'],
+      ]);
+      expect(refreshSpy).toHaveBeenCalledWith('library:2026');
+      expect(service.editingAssetId()).toBeNull();
+      expect(service.error()).toBeNull();
+    });
+
+    it('does not touch the JPEG when the RAW rename collides', () => {
+      renameAssetSpy.mockReturnValue(of({ kind: 'skipped', reason: 'collision' }));
+      service.startEditing(STACKED);
+      service.commit(STACKED, 'Trip_01.CR3');
+
+      expect(renameAssetSpy).toHaveBeenCalledTimes(1);
+      expect(service.collision()).toEqual({ assetId: STACKED.id, filename: 'Trip_01.CR3' });
+    });
+
+    it('reports a JPEG that cannot follow and keeps the field open', () => {
+      renameAssetSpy
+        .mockReturnValueOnce(renamed('Trip_01.CR3'))
+        .mockReturnValueOnce(of({ kind: 'skipped', reason: 'collision' }));
+      service.startEditing(STACKED);
+      service.commit(STACKED, 'Trip_01.CR3');
+
+      expect(service.error()).toBe('IMG_0001.JPG could not be renamed to Trip_01.JPG: collision');
+      expect(service.editingAssetId()).toBe(STACKED.id);
+      expect(service.busy()).toBe(false);
+      expect(refreshSpy).toHaveBeenCalledWith('library:2026');
+    });
+
+    it('reports a JPEG rename that fails outright', () => {
+      renameAssetSpy
+        .mockReturnValueOnce(renamed('Trip_01.CR3'))
+        .mockReturnValueOnce(throwError(() => new Error('disk full')));
+      service.startEditing(STACKED);
+      service.commit(STACKED, 'Trip_01.CR3');
+
+      expect(service.error()).toContain('IMG_0001.JPG could not be renamed to Trip_01.JPG');
+      expect(service.error()).toContain('disk full');
+    });
   });
 });

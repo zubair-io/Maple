@@ -31,6 +31,7 @@
 import { Injectable, inject, signal } from '@angular/core';
 import { Router } from '@angular/router';
 import { Asset, AssetId } from '../models/asset';
+import { companionFilenameFor, type StackCompanion } from '../models/asset-stack';
 import {
   BunApiBackendService,
   ApiCollisionPolicy,
@@ -182,12 +183,45 @@ export class AssetRenameService implements AssetRenameCapability {
           return;
         }
         this._applyRenamed(asset, outcome, wasFocused, currentUrl);
-        this.cancel();
+        if (asset.stack)
+          this._renameCompanion(asset.stack.companion, outcome.newFilename, collision);
+        else this.cancel();
       },
       error: (err) => {
         if (generation !== this._requestGeneration) return;
         this.busy.set(false);
         this.error.set(errorMessage(err));
+      },
+    });
+  }
+
+  /** A stacked RAW's JPEG follows it to the RAW's new stem (#5050) so the pair
+   * stays one stack; the listing is re-pulled because the companion's address
+   * is part of the RAW's tile. A companion that cannot follow is reported in
+   * the open field, and the re-pulled listing then shows the two as separate
+   * tiles, which is what is on disk. */
+  private _renameCompanion(
+    companion: StackCompanion,
+    rawNewFilename: string,
+    collision: ApiCollisionPolicy,
+  ): void {
+    const generation = this._requestGeneration;
+    const target = companionFilenameFor(companion.name, rawNewFilename);
+    this.busy.set(true);
+    this.api.renameAsset(companion.id, target, collision).subscribe({
+      next: (outcome) => {
+        if (generation !== this._requestGeneration) return;
+        this.busy.set(false);
+        this.state.refreshFolderListing(this.state.selectedSourceId());
+        if (outcome.kind === 'renamed') this.cancel();
+        else
+          this.error.set(`${companion.name} could not be renamed to ${target}: ${outcome.reason}`);
+      },
+      error: (err) => {
+        if (generation !== this._requestGeneration) return;
+        this.busy.set(false);
+        this.state.refreshFolderListing(this.state.selectedSourceId());
+        this.error.set(`${companion.name} could not be renamed to ${target}: ${errorMessage(err)}`);
       },
     });
   }

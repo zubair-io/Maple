@@ -12,6 +12,7 @@ import { HttpErrorResponse } from '@angular/common/http';
 import { DestroyRef, Injectable, effect, inject } from '@angular/core';
 import { FOLDER_LISTING_CACHE } from '../api/folder-listing-cache';
 import { Asset, AssetId, ColorLabel, Flag } from '../models/asset';
+import { sameStack, stackFromWire } from '../models/asset-stack';
 import { GridFolderItem, SidebarEntry } from '../models/folder';
 import { AdjustmentModel, defaultAdjustmentModel } from '../models/adjustment-model';
 import type { ApiFolder } from '../api/bun-api-backend.service';
@@ -95,7 +96,9 @@ const sameLivePhoto = (a: Asset['livePhoto'], b: Asset['livePhoto']): boolean =>
   a?.role === b?.role && a?.partnerId === b?.partnerId;
 
 const assetsEqualForRender = (a: Asset, b: Asset): boolean =>
-  shallowEqualByKeys(a, b, ASSET_RENDER_KEYS) && sameLivePhoto(a.livePhoto, b.livePhoto);
+  shallowEqualByKeys(a, b, ASSET_RENDER_KEYS) &&
+  sameLivePhoto(a.livePhoto, b.livePhoto) &&
+  sameStack(a.stack, b.stack);
 
 /** Preserve the indexed fields already present in the Self-Hosted folder response. */
 export function selfHostedAssetFromImage(img: ImageEntry, sourceId: string): Asset {
@@ -120,6 +123,8 @@ export function selfHostedAssetFromImage(img: ImageEntry, sourceId: string): Ass
           },
         }
       : {}),
+    ...(img.size != null ? { size: img.size } : {}),
+    ...stackFromWire(img.stack),
     ...selfHostedCameraFields(img.exif),
     ...selfHostedExposureFields(img.exif),
     ...(img.exif?.gps ? { gps: { lat: img.exif.gps.lat, lon: img.exif.gps.lng } } : {}),

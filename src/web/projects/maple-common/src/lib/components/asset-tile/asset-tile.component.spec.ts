@@ -11,13 +11,8 @@
 // a REAL component with a stub that invokes the callback synchronously
 // (the empty-stub mock used elsewhere would mask an NG0600 regression).
 //
-// Every `render()` call awaits `TestBed.compileComponents()` first, and
-// every enclosing `it()` is `async` (#2706 web-build bundle-size fix): the
-// template has an `@defer (on interaction(renameTrigger))` block, and
-// Angular's JIT compiler (used in tests) resolves a deferred block's
-// dependencies asynchronously even with `deferBlockBehavior: Manual`.
 
-import { TestBed, DeferBlockBehavior } from '@angular/core/testing';
+import { TestBed } from '@angular/core/testing';
 import { signal } from '@angular/core';
 import { describe, it, expect, beforeEach } from 'vitest';
 
@@ -43,11 +38,7 @@ function configure(
 ) {
   TestBed.resetTestingModule();
   TestBed.configureTestingModule({
-    // `imports` (not just `providers`) is required so TestBed queues
-    // AssetTileComponent's async defer-block metadata BEFORE
-    // `compileComponents()` runs below.
     imports: [AssetTileComponent],
-    deferBlockBehavior: DeferBlockBehavior.Manual,
     providers: [
       {
         provide: LibraryStateService,
@@ -369,15 +360,11 @@ describe('AssetTileComponent — accessible name and selection state (#2414)', (
     expect(button.querySelector('.thumb-ring')).not.toBeNull();
   });
 
-  it('the rename trigger button is NOT a descendant of the interactive overlay button (nested-interactive safety)', async () => {
-    const fixture = await render('a.jpg');
+  it('shows no filename caption on the tile (#5846): the name lives in the Info pane', async () => {
+    const fixture = await render('IMG_0099.dng', 'blob:loaded');
     fixture.detectChanges();
-    const button = wrapper(fixture);
-    const renameTrigger = fixture.nativeElement.querySelector(
-      '.filename-bar:not(.editing)',
-    ) as HTMLElement;
-    expect(renameTrigger).not.toBeNull();
-    expect(button.contains(renameTrigger)).toBe(false);
+    expect(fixture.nativeElement.querySelector('.filename-bar')).toBeNull();
+    expect(fixture.nativeElement.textContent).not.toContain('IMG_0099.dng');
   });
 
   it('thumbClick emits the underlying MouseEvent (for modifier-key multi-select)', async () => {
@@ -498,5 +485,35 @@ describe('AssetTileComponent — Live Photo badge and clip playback', () => {
     fixture.detectChanges();
     expect(query(fixture, 'live-clip-player')).toBeNull();
     expect(clicks).toBe(0);
+  });
+});
+
+describe('AssetTileComponent — RAW+JPEG stack badge (#5846)', () => {
+  async function render(stack: Asset['stack']) {
+    configure(syncStub(undefined));
+    await TestBed.compileComponents();
+    const fixture = TestBed.createComponent(AssetTileComponent);
+    fixture.componentRef.setInput('asset', {
+      ...makeAsset('lib:2026/IMG_1.CR3', 'IMG_1.CR3'),
+      ...(stack ? { stack } : {}),
+    });
+    fixture.detectChanges();
+    return fixture;
+  }
+
+  const badge = (fixture: Awaited<ReturnType<typeof render>>) =>
+    fixture.nativeElement.querySelector('[data-testid="stack-badge"]') as HTMLElement | null;
+
+  it('badges a stacked RAW as one tile', async () => {
+    const fixture = await render({
+      companion: { id: 'lib:2026/IMG_1.JPG', name: 'IMG_1.JPG', ext: 'jpg', size: 10 },
+    });
+    expect(badge(fixture)?.textContent?.trim()).toBe('RAW+JPEG');
+    expect(badge(fixture)?.getAttribute('aria-label')).toBe('RAW and JPEG');
+    expect(fixture.nativeElement.querySelectorAll('.mui-media-cell.overlay')).toHaveLength(1);
+  });
+
+  it('shows no badge for an unstacked asset', async () => {
+    expect(badge(await render(undefined))).toBeNull();
   });
 });

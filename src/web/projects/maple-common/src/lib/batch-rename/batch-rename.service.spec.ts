@@ -213,4 +213,104 @@ describe('BatchRenameService', () => {
       ],
     });
   });
+
+  describe('RAW+JPEG stacks (#5846)', () => {
+    const options = { template: 'Trip-{n}', sequenceStart: 1, sequencePadWidth: 2 };
+    const stacked = {
+      address: 'lib1:IMG_1.CR3',
+      filename: 'IMG_1.CR3',
+      id: 'id-raw',
+      companion: { address: 'lib1:IMG_1.JPG', filename: 'IMG_1.JPG' },
+    };
+
+    function flushRawRename(newFilename: string) {
+      http.expectOne('/api/assets/batch-rename').flush({
+        summary: { total: 1, relocated: 1, skipped: 0, failed: 0 },
+        results: [
+          {
+            id: 'id-raw',
+            kind: 'relocated',
+            old_filename: 'IMG_1.CR3',
+            new_filename: newFilename,
+            renamed_on_collision: false,
+            extension_changed: false,
+          },
+        ],
+      });
+    }
+
+    it('carries the companion address through resolveIds', () => {
+      let out: unknown;
+      svc
+        .resolveIds([
+          { address: stacked.address, filename: stacked.filename, companion: stacked.companion },
+        ])
+        .subscribe((r) => (out = r));
+      http.expectOne(`/api/assets/by-address?address=${stacked.address}`).flush(detail('id-raw'));
+      expect(out).toEqual([
+        {
+          address: stacked.address,
+          filename: stacked.filename,
+          id: 'id-raw',
+          companion: stacked.companion,
+        },
+      ]);
+    });
+
+    it('renames each relocated RAW’s JPEG to the RAW’s resulting stem and counts it as a file', () => {
+      let out: BatchRenameApplyResult | undefined;
+      svc.apply([stacked], options, 'auto-suffix').subscribe((r) => (out = r));
+      flushRawRename('Trip-01.CR3');
+
+      http.expectOne('/api/assets/by-address?address=lib1:IMG_1.JPG').flush(detail('id-jpg'));
+      const rename = http.expectOne('/api/assets/id-jpg/rename');
+      expect(rename.request.body).toMatchObject({
+        new_filename: 'Trip-01.JPG',
+        collision: 'auto-suffix',
+        source_address: 'lib1:IMG_1.JPG',
+      });
+      rename.flush({
+        new_abs_path: '/lib/Trip-01.JPG',
+        new_path: '',
+        new_filename: 'Trip-01.JPG',
+        renamed_on_collision: false,
+        extension_changed: false,
+      });
+
+      expect(out?.summary).toEqual({ total: 2, relocated: 2, skipped: 0, failed: 0 });
+      expect(out?.results.at(-1)).toEqual({
+        address: 'lib1:IMG_1.JPG',
+        kind: 'relocated',
+        oldFilename: 'IMG_1.JPG',
+        newFilename: 'Trip-01.JPG',
+        renamedOnCollision: false,
+        extensionChanged: false,
+      });
+    });
+
+    it('reports a JPEG that cannot be renamed as a failed file', () => {
+      let out: BatchRenameApplyResult | undefined;
+      svc.apply([stacked], options, 'skip').subscribe((r) => (out = r));
+      flushRawRename('Trip-01.CR3');
+
+      http.expectOne('/api/assets/by-address?address=lib1:IMG_1.JPG').flush(detail('id-jpg'));
+      http
+        .expectOne('/api/assets/id-jpg/rename')
+        .flush({ error: 'nope' }, { status: 500, statusText: 'Server Error' });
+
+      expect(out?.summary).toEqual({ total: 2, relocated: 1, skipped: 0, failed: 1 });
+      expect(out?.results.at(-1)).toMatchObject({ address: 'lib1:IMG_1.JPG', kind: 'error' });
+    });
+
+    it('leaves the JPEG alone when its RAW was skipped', () => {
+      let out: BatchRenameApplyResult | undefined;
+      svc.apply([stacked], options, 'skip').subscribe((r) => (out = r));
+      http.expectOne('/api/assets/batch-rename').flush({
+        summary: { total: 1, relocated: 0, skipped: 1, failed: 0 },
+        results: [{ id: 'id-raw', kind: 'skipped', reason: 'collision' }],
+      });
+
+      expect(out?.summary).toEqual({ total: 1, relocated: 0, skipped: 1, failed: 0 });
+    });
+  });
 });

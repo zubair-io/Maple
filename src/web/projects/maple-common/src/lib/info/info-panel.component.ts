@@ -58,6 +58,7 @@ import { SERVER_LIBRARY_IO } from '../workspace/server-library-io';
 import { LibraryStateService } from '../state/library-state.service';
 import { ExifReaderService } from '../addressing/exif-reader.service';
 import { InfoFilenameRowComponent } from './info-filename-row.component';
+import { InfoStackFilesComponent } from './info-stack-files.component';
 import {
   HOSTED_INFO_EXIF_ENABLED,
   HOSTED_INFO_EXIF_TAGS,
@@ -85,6 +86,7 @@ import type { MuiRatingFlagState } from '../ui/rating-flags/mui-rating-flags.com
   imports: [
     MuiTextComponent,
     InfoFilenameRowComponent,
+    InfoStackFilesComponent,
     MuiButtonComponent,
     MuiRatingFlagsComponent,
     MuiHistogramComponent,

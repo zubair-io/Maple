@@ -17,6 +17,13 @@ export interface ApiFolder {
   connected?: boolean;
 }
 
+/** `GET/PUT /api/display/config`; a PUT carries only the fields it changes. */
+export interface ApiDisplayConfig {
+  show_hidden_images: boolean;
+  /** One tile for a same-stem RAW+JPEG pair (#5050). */
+  stack_raw_jpeg: boolean;
+}
+
 export interface ApiHistogram {
   /** Unnormalised server-computed RGB bins; each channel has 256 entries. */
   r: number[];
@@ -35,7 +42,7 @@ export interface ServerLibraryIo {
     onProgress?: (progress: DownloadProgress) => void,
   ): Observable<ArrayBuffer>;
   getHistogram(assetId: string): Observable<ApiHistogram>;
-  getDisplayConfig(): Observable<{ show_hidden_images: boolean }>;
+  getDisplayConfig(): Observable<ApiDisplayConfig>;
 }
 
 export const SERVER_LIBRARY_IO = new InjectionToken<ServerLibraryIo | null>('SERVER_LIBRARY_IO');

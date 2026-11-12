@@ -30,6 +30,7 @@ import { BunApiBackendService, type ApiCollisionPolicy } from '../api/bun-api-ba
 import { FolderCrudService } from '../api/folder-crud.service';
 import { LibraryStateService } from '../state/library-state.service';
 import type { AssetId } from '../models/asset';
+import { withStackCompanions } from '../models/asset-stack';
 import type { SidebarEntry } from '../models/folder';
 import { childAddress, parseAddress } from '../addressing/maple-address';
 import { errorMessage } from '../util/errors';
@@ -113,11 +114,13 @@ export class DragMoveService implements DragMoveCapability {
     // Only real `slug:relPath`-addressed assets have a server-managed
     // location to relocate — legacy `fs:` ids and memory-only sessions
     // don't (same exclusion `AssetRenameService.disabledReason` applies).
-    const assets = assetIds
-      .map((id) => this.state.assets().find((a) => a.id === id))
-      .filter(
-        (a): a is NonNullable<typeof a> => !!a && a.id.includes(':') && !a.id.startsWith('fs:'),
-      );
+    const assets = withStackCompanions(
+      assetIds
+        .map((id) => this.state.assets().find((a) => a.id === id))
+        .filter(
+          (a): a is NonNullable<typeof a> => !!a && a.id.includes(':') && !a.id.startsWith('fs:'),
+        ),
+    );
 
     // Grid sub-folders (#2976). Move-mode only — the capability doc rules
     // folders out of copy (no recursive-copy server primitive), and the one

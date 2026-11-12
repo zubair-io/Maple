@@ -26,6 +26,7 @@ import type { LensCorrectionCapability } from './library-store-lens-corrections'
 import type { AutoFitOutcome } from '../raw-pipeline/auto-fit-outcome';
 import { LibrarySelection } from './library-selection.service';
 import { LibraryCache } from './library-cache.service';
+import { FOLDER_LISTING_CACHE } from '../api/folder-listing-cache';
 import { LibraryFetch } from './library-fetch.service';
 import { LibraryStatusService } from './library-status.service';
 import { BrowsePreferencesService } from './browse-preferences.service';
@@ -44,6 +45,7 @@ export class LibraryStateService {
   private readonly selection = inject(LibrarySelection);
   private readonly cache_ = inject(LibraryCache);
   private readonly fetch_ = inject(LibraryFetch);
+  private readonly listingCache = inject(FOLDER_LISTING_CACHE);
   private readonly status = inject(LibraryStatusService);
   private readonly prefs = inject(BrowsePreferencesService);
   private readonly previewPersist = inject(EditPreviewPersistService);
@@ -195,6 +197,16 @@ export class LibraryStateService {
    * module doc (#2644). */
   refreshFolderListing(sourceId: string): void {
     this.fetch_.refreshFolderListing(sourceId);
+  }
+
+  /** Drop every cached listing and re-pull the open folder. The listing's
+   * shape follows server display settings (e.g. RAW+JPEG stacking, #5846), so
+   * a changed setting must not be answered from a listing cached under the
+   * old one. */
+  reloadListings(): void {
+    void this.listingCache
+      .clear()
+      .then(() => this.fetch_.refreshFolderListing(this.selection.selectedSourceId()));
   }
 
   refreshFolderChildren(sourceId: string): void {
