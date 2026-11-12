@@ -75,6 +75,7 @@ val stageTestFixtures by
             rootProject.file("../../test-fixtures/android/wide-p3.avif"),
             rootProject.file("../../test-fixtures/android/large-48mp.heic"),
             rootProject.file("../../test-fixtures/raster-metadata/avif-10.avif"),
+            rootProject.file("../../test-fixtures/raster-metadata/progressive-444.jpg"),
         )
         outputDirectory.set(layout.buildDirectory.dir("generated/test-fixtures"))
     }
