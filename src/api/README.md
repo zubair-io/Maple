@@ -15,7 +15,7 @@ Architecture: `docs/api.md`, `docs/server-api.md`, `docs/indexer-enrichment.md`.
 
 There is no database to install. Maple keeps its entire library index in one SQLite file, which the server creates for itself the first time it starts.
 
-Without a reachable Temporal server the API still starts and serves the library, but new or changed files are not discovered or processed, jobs, operations and imports stay queued, and maintenance does not run, until one appears. Clustering, folder scans and rescans answer 504 after 90 seconds of waiting. Settings → Workers shows whether the server can be reached and lets you change its address and namespace without a restart.
+Without a reachable Temporal server the API still starts and serves the library, but new or changed files are not discovered or processed, jobs, operations and imports stay queued, and maintenance does not run, until one appears. Clustering, folder scans and rescans answer 504 after 90 seconds of waiting. Settings → Workers shows whether the server can be reached and lets you change its address and namespace without a restart. [docs/temporal.md](../../docs/temporal.md) covers the lanes, outages, crash recovery, and why each Maple server needs its own namespace.
 
 ### 1. (Optional) Build the native RAW thumbnail library
 
@@ -178,7 +178,7 @@ cd src/api && MAPLE_DEV=1 bun src/index.ts
 ```bash
 cd src/api
 
-# Start the Maple server and the Temporal server it runs its jobs on
+# Start the Maple server and the Temporal server it runs its background work on
 docker compose --profile app up -d
 
 # View logs

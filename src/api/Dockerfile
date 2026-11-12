@@ -20,7 +20,7 @@
 #     -v maple_config:/app/config \
 #     maple
 #
-# Maple runs its background jobs on a Temporal server, which this image does
+# Maple runs all its background work on a Temporal server, which this image does
 # not contain. docker-compose.yml starts one next to it; with a bare
 # `docker run`, point MAPLE_TEMPORAL_ADDRESS (or Settings → Workers) at yours.
 #

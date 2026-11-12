@@ -314,7 +314,7 @@ Anything that exists in two languages is single-sourced. Color matrices, the adj
 | `process.env.X = …` at test module scope               | `withTestEnv`                                |
 | Raw SQL in a route handler                             | a `*.repo.ts` function                       |
 | A new environment variable for a feature toggle        | a DB-backed setting with a Settings control  |
-| A JobRunner job for ongoing per-asset work             | a `defineStage()` stage                      |
+| A job (`job-runner/`) for ongoing per-asset work       | a `defineStage()` stage                      |
 | `unwrap()` in Rust library code                        | `Result<T, E>`                               |
 | An unguarded `await` writing into observed Swift state | a generation-counter guard                   |
 | Hand-editing a file under a `generated/` directory     | edit the Rust source, run `tools/codegen.sh` |

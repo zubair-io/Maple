@@ -9,7 +9,7 @@ version: '3.9'
 #
 # Maple keeps its whole library index in one SQLite file, so there is no
 # database service here. The `app` profile starts two containers: the Maple
-# server, and the Temporal server Maple runs its background jobs on. A plain
+# server, and the Temporal server Maple runs its background work on. A plain
 # `docker compose up -d` has no work to do.
 #
 # For development, skip Compose entirely and run the Bun server natively from
@@ -64,15 +64,16 @@ services:
         condition: service_started
 
   # ---------------------------------------------------------------------------
-  # Temporal — the server Maple runs its background jobs on (exports, batch
-  # edits, panorama stitches, restores). This is Temporal's single-binary
-  # server with its state in one SQLite file, which suits one Maple server; to
-  # use a Temporal cluster you already run, delete this service and point
-  # Settings → Workers at it.
+  # Temporal — the server Maple runs all its background work on: pipeline
+  # stages, the discover sweep, maintenance, jobs and imports (docs/temporal.md).
+  # This is Temporal's single-binary server with its state in one SQLite file,
+  # which suits one Maple server; to use a Temporal cluster you already run,
+  # delete this service and point Settings → Workers at it, with a namespace no
+  # other Maple server uses.
   #
   # Nothing is published to the host: only the `maple` container needs to reach
   # port 7233. Temporal's own web UI is on 8233 — add `ports: ['8233:8233']` if
-  # you want to browse job history, and keep it LAN-only, it has no login.
+  # you want to browse workflow history, and keep it LAN-only, it has no login.
   # ---------------------------------------------------------------------------
   temporal:
     profiles: ['app']

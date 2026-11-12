@@ -50,7 +50,7 @@ The Windows build and published app include the shared `.mlut` files beside the 
 
 ## Durable publication
 
-The API runs exports as jobs, including claim renewal and a Temporal heartbeat during long native renders, and ownership-fenced checkpoints. The ledger records the unique staging path before native encoding starts, then the prepared output's SHA-256 before publication. Native publication uses an exclusive hard link for error/skip policies or an atomic rename for explicit replacement. Mirror-aware filesystem operations replicate the committed output.
+The API runs exports as jobs, including a periodic fenced progress write and a Temporal heartbeat during long native renders, and ownership-fenced checkpoints. The ledger records the unique staging path before native encoding starts, then the prepared output's SHA-256 before publication. Native publication uses an exclusive hard link for error/skip policies or an atomic rename for explicit replacement. Mirror-aware filesystem operations replicate the committed output.
 
 Browser folder delivery journals the destination's before/after hashes before opening a writable stream. The browser commits that stream on close. On recovery, a matching after-hash acknowledges an already-published output; unchanged before-bytes may be rendered again, while a conflicting file is reported for review. A crash during initial file creation can leave an empty destination that requires review/removal before an error-policy retry. Browser Downloads uses the separate uncertain-handoff rule above.
 
