@@ -96,8 +96,8 @@ def load_owner(owner_path, size) -> np.ndarray:
         arr = arr[..., 0]
     owner = arr.astype(np.int64) - 1
     if (owner.shape[1], owner.shape[0]) != size:
-        im2 = Image.fromarray(
-            (np.clip(owner + 1, 0, 65535)).astype(np.uint16), mode="I;16")
+        # 2-D uint16 infers mode I;16; Pillow 13 rejects an explicit mode=.
+        im2 = Image.fromarray((np.clip(owner + 1, 0, 65535)).astype(np.uint16))
         im2 = im2.resize(size, Image.NEAREST)
         owner = np.asarray(im2).astype(np.int64) - 1
     return owner
@@ -129,7 +129,9 @@ def seam_step_checks(check) -> None:
     planted = Image.fromarray((np.clip(syn, 0, 1) * 255).astype(np.uint8))
     with tempfile.TemporaryDirectory() as tmp:
         owner_png = os.path.join(tmp, "owner.png")
-        Image.fromarray((syn_owner + 1).astype(np.uint16), mode="I;16").save(owner_png)
+        # Owner map at the candidate's full size: load_owner resamples it.
+        owner_full = np.repeat(np.repeat(syn_owner + 1, 2, axis=0), 2, axis=1)
+        Image.fromarray(owner_full.astype(np.uint16)).save(owner_png)
         c_step = candidate_seam_step(planted.resize((400, 240)), owner_png, 200)
     check("seam-step-candidate-only",
           c_step["seam_step_hard"] is not None
