@@ -9,6 +9,7 @@ import { Observable } from 'rxjs';
 import { API_BASE_URL } from './api-base-url.token';
 import type { ColorLabelValue } from '../models/color-label';
 import type { SearchStackWire } from '../models/asset-stack';
+import { StackPreferenceService } from '../stack/stack-preference.service';
 
 export type SearchSort = 'captured_desc' | 'captured_asc' | 'name' | 'rating';
 export type SearchFlag = 'pick' | 'reject' | 'none';
@@ -338,22 +339,24 @@ function paramsFrom(p: SearchParams): HttpParams {
 export class SearchService {
   private readonly http = inject(HttpClient);
   private readonly base = inject(API_BASE_URL);
+  private readonly stackPreference = inject(StackPreferenceService);
 
-  /** GET /api/search — paginated, sorted result list. */
+  /** GET /api/search — paginated, sorted result list; `stack=1` when the user
+   * stacks RAW+JPEG pairs (docs/server-api.md, the `stack` query parameter). */
   search(params: SearchParams): Observable<SearchResponse> {
-    return this.http.get<SearchResponse>(`${this.base}/search`, {
-      params: paramsFrom(params),
-    });
+    return this.stackPreference.withStackParam(paramsFrom(params), (query) =>
+      this.http.get<SearchResponse>(`${this.base}/search`, { params: query }),
+    );
   }
 
   /** GET /api/search/facets — counts/ranges scoped to the same filter set.
    * A free-text search's facets count the list's ranked window, so the
    * list's current `page` and `limit` ride along (#4514); `sort` and
-   * `cursor` do not affect them. */
+   * `cursor` do not affect them. Folded like the list it counts. */
   facets(params: Omit<SearchParams, 'sort' | 'cursor'>): Observable<SearchFacets> {
-    return this.http.get<SearchFacets>(`${this.base}/search/facets`, {
-      params: paramsFrom(params),
-    });
+    return this.stackPreference.withStackParam(paramsFrom(params), (query) =>
+      this.http.get<SearchFacets>(`${this.base}/search/facets`, { params: query }),
+    );
   }
 
   // Note: this client does not wrap GET /api/search/buckets. The web
