@@ -904,33 +904,6 @@ export interface DerivativeAuditStageMark {
 export type AssetWithId = WithId<AssetDoc>;
 
 // ---------------------------------------------------------------------------
-// Stage handler registry
-// ---------------------------------------------------------------------------
-
-/**
- * Per-stage handler routing. One row per stage that is allowed to be routed
- * to an external implementation. Today only `ai` is wired into the pipeline
- * (see `pipeline.runAi`); other stages ignore any rows that target them.
- *
- * `impl` is `"builtin"` to use the in-process default, or `"http"` to dispatch
- * the contract payload to an external endpoint (see
- * `src/api/src/handler-registry/`). All fields are snake_case to match the
- * rest of the schema.
- */
-export interface StageHandlerDoc {
-  /** Stage name. Today only "ai" is honoured. */
-  stage: string;
-  /** Implementation kind. */
-  impl: 'builtin' | 'http';
-  /** Required when impl === "http". POSTed the contract input. */
-  url?: string;
-  /** Override transport timeout. Defaults to 30 000 ms when absent. */
-  timeout_ms?: number;
-  /** When false, treated as if the row did not exist. */
-  enabled: boolean;
-}
-
-// ---------------------------------------------------------------------------
 // Enrichment subdocument — `docs/indexer-enrichment.md` §2
 // ---------------------------------------------------------------------------
 

@@ -166,22 +166,22 @@ database is a single SQLite file, reached through a worker-backed connection
 pool and the domain repositories in `db/repos/`. The worker tier and
 native decode processes have separate lifetimes.
 
-| Unit                                              | Responsibility                                                                                 | Quality / ownership observation                                          |
-| ------------------------------------------------- | ---------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
-| `routes`, `middleware`                            | HTTP contracts, request limits, authentication integration, UI serving                         | Large route composition and per-field validation are complexity hotspots |
-| `auth`, `apns`                                    | Sessions/passkeys/native handoff and push notifications                                        | Security-sensitive; this audit does not certify security                 |
-| `db`                                              | Collections, schemas, indexes and boot migrations                                              | Large central files; confirmed dependency cycle through people migration |
-| `indexer`                                         | Asset discovery records, stable IDs, EXIF and indexing helpers                                 | Legacy repository refers to a deleted channel module                     |
-| `workers`                                         | Per-asset claiming, concurrency, retries, status and supervision                               | Generic stage machinery is a strength; registration remains repeated     |
-| `workers/stages`                                  | EXIF, derivatives, face analysis, descriptions, geocode, search sync, transcription, edge sync | Names/definitions/starters are independently listed                      |
-| `job-runner`, `imports`, `export`, `pano`         | Bounded user-requested jobs and imports/exports                                                | Distinct from eventual per-asset enrichment                              |
-| `enrichment`, `people`                            | Vision, OCR, embeddings, search indexing and person clustering                                 | Significant test investment, but complexity and dependency cycles remain |
-| `fs`, `library`, `backup`                         | Filesystem access/mirroring, library addressing, upload and organization                       | Shared helpers exist, with some route-local duplicates still present     |
-| `ffi`, `thumbs`, `render`                         | Native process pool, thumbnail/preview production, render configuration                        | Crash isolation differs from the public package's thread pool            |
-| `xmp`, `metadata`, `presets`, `lens-profiles`     | Sidecar metadata and reusable editing resources                                                | Client/core schema tables are sometimes copied with parity tests         |
-| `cloudflare`, `video`, `audio`                    | Edge-cache upload/cleanup and media extraction                                                 | External service/process boundaries                                      |
-| `runtime`, `process`, `network`, `observability`  | Child lifecycle, runtime diagnostics, networking and telemetry                                 | Infrastructure should stay separate from feature rules                   |
-| `map`, `display`, `handler-registry`, `generated` | Map configuration, display helpers, handler discovery and generated DTOs                       | Smaller modules are enumerated in the module inventory                   |
+| Unit                                             | Responsibility                                                                                 | Quality / ownership observation                                          |
+| ------------------------------------------------ | ---------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| `routes`, `middleware`                           | HTTP contracts, request limits, authentication integration, UI serving                         | Large route composition and per-field validation are complexity hotspots |
+| `auth`, `apns`                                   | Sessions/passkeys/native handoff and push notifications                                        | Security-sensitive; this audit does not certify security                 |
+| `db`                                             | Collections, schemas, indexes and boot migrations                                              | Large central files; confirmed dependency cycle through people migration |
+| `indexer`                                        | Asset discovery records, stable IDs, EXIF and indexing helpers                                 | Legacy repository refers to a deleted channel module                     |
+| `workers`                                        | Per-asset claiming, concurrency, retries, status and supervision                               | Generic stage machinery is a strength; registration remains repeated     |
+| `workers/stages`                                 | EXIF, derivatives, face analysis, descriptions, geocode, search sync, transcription, edge sync | Names/definitions/starters are independently listed                      |
+| `job-runner`, `imports`, `export`, `pano`        | Bounded user-requested jobs and imports/exports                                                | Distinct from eventual per-asset enrichment                              |
+| `enrichment`, `people`                           | Vision, OCR, embeddings, search indexing and person clustering                                 | Significant test investment, but complexity and dependency cycles remain |
+| `fs`, `library`, `backup`                        | Filesystem access/mirroring, library addressing, upload and organization                       | Shared helpers exist, with some route-local duplicates still present     |
+| `ffi`, `thumbs`, `render`                        | Native process pool, thumbnail/preview production, render configuration                        | Crash isolation differs from the public package's thread pool            |
+| `xmp`, `metadata`, `presets`, `lens-profiles`    | Sidecar metadata and reusable editing resources                                                | Client/core schema tables are sometimes copied with parity tests         |
+| `cloudflare`, `video`, `audio`                   | Edge-cache upload/cleanup and media extraction                                                 | External service/process boundaries                                      |
+| `runtime`, `process`, `network`, `observability` | Child lifecycle, runtime diagnostics, networking and telemetry                                 | Infrastructure should stay separate from feature rules                   |
+| `map`, `display`, `generated`                    | Map configuration, display helpers and generated DTOs                                          | Smaller modules are enumerated in the module inventory                   |
 
 ## Windows: WinUI is the product shell
 
