@@ -69,6 +69,8 @@ pub(crate) fn write_scene_linear_buf_f32(
             wb_frame_render_cct_warm: wb_frame.render_cct_warm,
             wb_frame_render_fm_cold: flatten_matrix(wb_frame.render_fm_cold),
             wb_frame_render_fm_warm: flatten_matrix(wb_frame.render_fm_warm),
+            wb_frame_render_individual_cold: flatten_matrix(wb_frame.render_individual_cold),
+            wb_frame_render_individual_warm: flatten_matrix(wb_frame.render_individual_warm),
             ae_gain,
             whites_anchor_ev,
             nr_sampling_scale,
