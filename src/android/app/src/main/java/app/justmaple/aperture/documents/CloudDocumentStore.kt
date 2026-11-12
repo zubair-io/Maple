@@ -25,10 +25,13 @@ internal class CloudDocumentStore(
 
     fun servers() = credentials.servers()
 
-    /** A removed connection is an error for every document under it, never an empty folder. */
+    /**
+     * A removed connection is an error for every document under it, never an empty folder.
+     * Not a FileNotFoundException: DocumentsProvider.query turns that into a null cursor.
+     */
     fun origin(server: String): String =
         credentials.servers().find { it.id == server }?.origin
-            ?: throw FileNotFoundException(
+            ?: throw IllegalStateException(
                 "This Maple Cloud server is no longer connected. Sign in again from Maple."
             )
 
