@@ -35,8 +35,9 @@ import { loadDerivativeAuditConfig, type DerivativeAuditConfig } from './config.
 import { createR2Health, FailureDigest, type R2Health } from './r2-health.ts';
 import {
   emptySummary,
-  getDerivativeAuditProgress,
-  setDerivativeAuditProgress,
+  loadDerivativeAuditProgress,
+  saveDerivativeAuditProgress,
+  throttledProgressSaver,
 } from './progress.ts';
 import type { DerivativeAuditSummary } from './types.ts';
 import type { ImageDoc } from '../run-stage.ts';
@@ -55,11 +56,6 @@ const CANDIDATE_PAGE_SIZE = 500;
 /** After a pass gave up on an unreachable R2, look again this soon rather than
  * after a full interval (6 h by default). */
 export const ABORTED_PASS_RETRY_MS = 15 * 60_000;
-
-/** Single-flight lock for the manual /run route, so a double-clicked kick never
- * starts two passes in one process. Scheduled passes don't overlap each other
- * because the schedule skips a run while the previous one is still going. */
-let passInFlight = false;
 
 interface AssetUpdatePlan {
   /** Per-stage cooldown marks to write, one JSON key each. */
@@ -200,9 +196,11 @@ function logPassFailures({ r2Health, rowFailures, summary }: PassContext): void 
   if (rowFailures.count > 0) log.warn(rowFailures.fields(), 'audit rows failed');
 }
 
-/** One audit pass. NOT guarded itself — the manual route's single-flight lock
- * lives in `startAuditPass()`. A stop takes effect between chunks; every
- * re-arm already made is written, and the next pass walks again. */
+/**
+ * One audit pass, publishing its progress as it goes (`progress.ts`). Not
+ * guarded itself: the maintenance activity runs one pass of a task at a time.
+ * A stop takes effect between chunks; every re-arm already made is written.
+ */
 export async function runDerivativeAuditOnce(
   override: Partial<DerivativeAuditConfig> = {},
   signal?: AbortSignal,
@@ -211,7 +209,8 @@ export async function runDerivativeAuditOnce(
   const summary = emptySummary();
   summary.startedAt = new Date().toISOString();
   summary.running = true;
-  setDerivativeAuditProgress({ ...summary });
+  await saveDerivativeAuditProgress(summary);
+  const publish = throttledProgressSaver(summary);
 
   const r2Health = createR2Health();
   const ctx: PassContext = {
@@ -231,6 +230,7 @@ export async function runDerivativeAuditOnce(
   const flush = async () => {
     await Promise.all(chunk.map((d) => auditAsset(d, ctx)));
     chunk = [];
+    await publish();
   };
   for await (const doc of auditCandidates()) {
     chunk.push(doc);
@@ -244,36 +244,31 @@ export async function runDerivativeAuditOnce(
   logPassFailures(ctx);
   summary.finishedAt = new Date().toISOString();
   summary.running = false;
-  setDerivativeAuditProgress({ ...summary });
+  await saveDerivativeAuditProgress(summary);
   if (summary.scanned > 0) log.info(summary, 'derivative-audit pass complete');
   return summary;
 }
 
-/** Start one pass in the background under the single-flight lock. Returns
- * synchronously whether it started. */
-export function startAuditPass(): { started: boolean; reason?: string } {
-  if (passInFlight) return { started: false, reason: 'already-running' };
-  passInFlight = true;
-  void runDerivativeAuditOnce()
-    .catch((err) => {
-      log.error({ err: err instanceof Error ? err.message : err }, 'derivative-audit pass crashed');
-    })
-    .finally(() => {
-      passInFlight = false;
-    });
-  return { started: true };
+/**
+ * How long the `derivative-audit` schedule waits between passes: the
+ * configured interval, or {@link ABORTED_PASS_RETRY_MS} while the last pass
+ * gave up on an unreachable R2.
+ */
+export async function derivativeAuditEveryMs(cfg: DerivativeAuditConfig): Promise<number> {
+  const { summary } = await loadDerivativeAuditProgress();
+  return summary.abortedReason ? ABORTED_PASS_RETRY_MS : cfg.interval_ms;
 }
 
 /**
- * How long the `derivative-audit` schedule waits between passes: the
- * configured interval, or {@link ABORTED_PASS_RETRY_MS} while the last pass in
- * this process gave up on an unreachable R2.
+ * One pass of the `derivative-audit` task. A scheduled pass is skipped if the
+ * audit was disabled after the run was on its way; an operator's Run now
+ * (`force`) runs whatever the switch says, as the button always has.
  */
-export function derivativeAuditEveryMs(cfg: DerivativeAuditConfig): number {
-  return getDerivativeAuditProgress().abortedReason ? ABORTED_PASS_RETRY_MS : cfg.interval_ms;
-}
-
-/** One scheduled pass, unless the audit was disabled after the run was already on its way. */
-export async function runDerivativeAuditPass(signal?: AbortSignal): Promise<void> {
-  if ((await loadDerivativeAuditConfig()).enabled) await runDerivativeAuditOnce({}, signal);
+export async function runDerivativeAuditPass(
+  signal?: AbortSignal,
+  options: { force?: boolean } = {},
+): Promise<void> {
+  if (options.force || (await loadDerivativeAuditConfig()).enabled) {
+    await runDerivativeAuditOnce({}, signal);
+  }
 }

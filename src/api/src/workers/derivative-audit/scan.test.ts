@@ -18,6 +18,7 @@ import { insertAsset, insertLocation, run } from '../../db/sqlite/test-sqlite.te
 import { addLibrary, createLiveTestDatabase } from './test-support.ts';
 import { saveCloudflareConfig } from '../../cloudflare/cloudflare-config.repo.ts';
 import { R2_TRIP_AFTER_CONSECUTIVE_FAILURES } from './r2-health.ts';
+import { loadDerivativeAuditProgress } from './progress.ts';
 import {
   ABORTED_PASS_RETRY_MS,
   derivativeAuditEveryMs,
@@ -348,5 +349,27 @@ describe('runDerivativeAuditPass', () => {
     await runDerivativeAuditPass();
 
     expect(stageVersion(live.db, assetId, 'thumb')).toBe(0);
+  });
+
+  it("runs an operator's forced pass even while the audit is disabled", async () => {
+    using live = await createLiveTestDatabase();
+    const assetId = seedMovedAsset(live.db);
+    await saveDerivativeAuditConfig({ enabled: false });
+
+    await runDerivativeAuditPass(undefined, { force: true });
+
+    expect(stageVersion(live.db, assetId, 'thumb')).toBe(0);
+  });
+
+  it('leaves its finished summary where another process can read it', async () => {
+    using live = await createLiveTestDatabase();
+    seedMovedAsset(live.db);
+
+    await runDerivativeAuditPass();
+
+    const { summary, savedAt } = await loadDerivativeAuditProgress();
+    expect(summary).toMatchObject({ running: false, scanned: 1 });
+    expect(summary.finishedAt).not.toBeNull();
+    expect(savedAt).not.toBeNull();
   });
 });

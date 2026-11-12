@@ -54,7 +54,6 @@ export async function maintenanceRunRequest(taskId: string): Promise<Maintenance
   return (await pendingMaintenanceRuns()).find((request) => request.taskId === taskId) ?? null;
 }
 
-// fallow-ignore-next-line unused-export -- the yes/no form the #5822 run-now routes read
 export async function maintenanceRunRequested(taskId: string): Promise<boolean> {
   return (await maintenanceRunRequest(taskId)) !== null;
 }

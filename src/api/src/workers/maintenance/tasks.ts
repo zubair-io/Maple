@@ -20,6 +20,7 @@ import { runChangeLogGcOnce } from '../change-log-gc.ts';
 import { deDuplicatePaused, runDeDuplicatePass } from '../dedupe.ts';
 import { loadDerivativeAuditConfig } from '../derivative-audit/config.repo.ts';
 import { derivativeAuditEveryMs, runDerivativeAuditPass } from '../derivative-audit/scan.ts';
+import { runGeneratedSearchNow } from '../generated-search/run-now.ts';
 import { generatedSearchTick } from '../generated-search/schedule.ts';
 import { migrationHasWork, runMigrationPass } from '../migration.ts';
 import { drainMirrorCopyQueue } from '../mirror/copy.ts';
@@ -107,15 +108,17 @@ export const MAINTENANCE_TASKS: readonly MaintenanceTask[] = [
     id: 'derivative-audit',
     desired: async () => {
       const cfg = await loadDerivativeAuditConfig();
-      return { everyMs: derivativeAuditEveryMs(cfg), paused: !cfg.enabled };
+      return { everyMs: await derivativeAuditEveryMs(cfg), paused: !cfg.enabled };
     },
-    run: (signal) => runDerivativeAuditPass(signal),
+    run: (signal, options) => runDerivativeAuditPass(signal, options),
   },
   {
     id: 'generated-search',
     desired: always(15 * MINUTE_MS),
-    run: async (signal) => {
-      await generatedSearchTick(undefined, signal);
+    run: async (signal, options) => {
+      await (options.force
+        ? runGeneratedSearchNow(signal)
+        : generatedSearchTick(undefined, signal));
     },
   },
   {
