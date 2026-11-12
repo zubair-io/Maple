@@ -226,13 +226,13 @@ enum ChangeObserverWiring {
       (try? await state.cursor(deviceId: deviceId)) ?? BackupCursor(deviceId: deviceId)
     let fullLibraryAccess = PhotoKitLibrary.authorizationStatus() == .authorized
     let fingerprint = settingsFingerprint(settings, fullLibraryAccess: fullLibraryAccess)
-    // A replay counts the library as this session last saw it. Without that
-    // baseline, and with something excluded, the local rows would count
-    // excluded photos, so the walk lists the library once.
+    // A replay counts the library as this session last saw it. A launch has no
+    // such baseline, and the local rows alone cannot say which photos the
+    // listing leaves out (a setting, a hidden photo, limited access), so the
+    // first walk of a session lists the library.
     let discovery = cursor.discovery(
       settingsFingerprint: fingerprint, retryFailed: retryFailed, forceFullScan: forceFullScan,
-      hasEligibleBaseline: !lastSeenPhids.isEmpty
-        || !settingsExcludePhotos(settings, fullLibraryAccess: fullLibraryAccess))
+      hasEligibleBaseline: !lastSeenPhids.isEmpty)
     let hasWalked = progress.lastWalkSummary != nil
     if discovery == .fullScan || !hasWalked {
       progress.setWalkPhase(.enumerating)

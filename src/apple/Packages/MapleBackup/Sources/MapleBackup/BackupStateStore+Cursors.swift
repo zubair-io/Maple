@@ -54,8 +54,8 @@ extension BackupCursor {
   /// settings change, a retry of failures, the safety walk and a week without
   /// a full scan all list the whole library. So does a walk without an
   /// `hasEligibleBaseline`: a replay counts the library as the session last
-  /// saw it, and the local rows alone cannot say which photos the settings
-  /// exclude.
+  /// saw it, and the local rows alone cannot say which photos the listing
+  /// leaves out (a setting, a hidden photo, limited access).
   public func discovery(
     settingsFingerprint fingerprint: String, retryFailed: Bool, forceFullScan: Bool,
     hasEligibleBaseline: Bool = true, now: Date = Date()
