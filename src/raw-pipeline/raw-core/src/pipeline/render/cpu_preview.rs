@@ -45,18 +45,22 @@ impl CpuPreview {
             CancelToken::never(),
             true,
         )?;
-        // Auto2's canonical pinned-default route applies only its baked LUT;
-        // edited models and engaged film LUTs replay the curve, including identity rounding.
-        // Derive this route once, without constructing default models per tick.
-        let pinned = super::auto_fit_model::fit_develop_model(&model);
-        let pinned_amounts = (pinned.sharpen_amount, pinned.nr_luminance, pinned.nr_color);
-        let uncurved_details = (!auto_profile::apply_pipeline::auto1_enabled_by_env()
-            && super::auto_fit_model::uses_pinned_fit_pixels(
-                &upstream_key(context.active_model.clone()),
-                upstream_key(pinned),
-                film,
-            ))
-        .then_some(pinned_amounts);
+        // Auto2's canonical pinned route applies only its baked LUT; edited
+        // models and engaged film LUTs replay the curve, including identity
+        // rounding. The route is the one the render that built this preview
+        // took, from the fit model it measured (#5791), derived once.
+        let uncurved_details = context
+            .fit_model
+            .as_ref()
+            .filter(|pinned| {
+                !auto_profile::apply_pipeline::auto1_enabled_by_env()
+                    && super::auto_fit_model::uses_pinned_fit_pixels(
+                        &upstream_key(context.active_model.clone()),
+                        upstream_key((*pinned).clone()),
+                        film,
+                    )
+            })
+            .map(|pinned| (pinned.sharpen_amount, pinned.nr_luminance, pinned.nr_color));
         let mut session = Self {
             prefix: prefix.expect("capture requested"),
             working,

@@ -11,10 +11,12 @@
 //!
 //! So the share is measured. With `Y` the scene luminance a sensor cell
 //! recorded and `g` the bundled gain there, a preview carrying share `s` is
-//! `F(ln Y + s·ln g)` for one tone response `F`. The right `s` is the one
-//! for which preview luma is most nearly a function of that sum: cells of
-//! equal scene luminance at different radii then agree. `F` is the mean per
-//! quantile bin, so no tone model is assumed.
+//! `F(ln Y + ln(1 + s·(g − 1)))` for one tone response `F`: the develop
+//! applies a share as that linear blend of the gain, so the share is weighed
+//! the way it will be applied. The right `s` is the one for which preview
+//! luma is most nearly a function of that sum: cells of equal scene
+//! luminance at different radii then agree. `F` is the mean per quantile
+//! bin, so no tone model is assumed.
 //!
 //! `Y` is read from linearized sensor samples, so the measurement needs no
 //! develop and the fit develops once, at the measured scale. It shares
@@ -71,11 +73,11 @@ impl Reading {
     }
 
     /// The lens vignetting scale (the model's `0..=100`, in steps of 5) this
-    /// reading stands for.
+    /// reading stands for, exact so it can equal a slider value.
     pub fn scale(&self) -> f32 {
         let authored = AdjustmentModel::default().lens_correction_vignetting;
         if self.is_decisive() {
-            authored * self.share
+            authored * (self.share * STEPS as f32).round() / STEPS as f32
         } else {
             authored
         }
@@ -110,14 +112,15 @@ pub fn read(raw: &RawImage, preview: &ExtractedPreview) -> Option<Reading> {
         return None;
     }
     let (lo, hi) = cells.iter().fold((f32::MAX, f32::MIN), |(lo, hi), c| {
-        (lo.min(c.ln_gain), hi.max(c.ln_gain))
+        (lo.min(c.gain), hi.max(c.gain))
     });
-    if hi - lo < MIN_LN_GAIN_SPREAD {
+    if hi.ln() - lo.ln() < MIN_LN_GAIN_SPREAD {
         return None;
     }
     let mut order: Vec<u32> = (0..cells.len() as u32).collect();
+    let mut keys = vec![0.0f32; cells.len()];
     let scatter: Vec<f64> = (0..=STEPS)
-        .map(|step| scatter(&cells, step as f32 / STEPS as f32, &mut order))
+        .map(|step| scatter(&cells, step as f32 / STEPS as f32, &mut order, &mut keys))
         .collect();
     let best = (0..=STEPS).min_by(|a, b| scatter[*a].total_cmp(&scatter[*b]))?;
     Some(Reading {
@@ -130,18 +133,21 @@ pub fn read(raw: &RawImage, preview: &ExtractedPreview) -> Option<Reading> {
 /// One sensor cell paired with the preview pixel over it.
 struct Cell {
     ln_luma: f32,
-    ln_gain: f32,
+    gain: f32,
     preview_luma: f32,
 }
 
 /// Mean squared deviation of preview luma from its per-bin mean, the cells
-/// ordered by `ln Y + share·ln g`.
-fn scatter(cells: &[Cell], share: f32, order: &mut [u32]) -> f64 {
-    let key = |i: u32| {
-        let cell = &cells[i as usize];
-        cell.ln_luma + share * cell.ln_gain
-    };
-    order.sort_unstable_by(|a, b| key(*a).total_cmp(&key(*b)).then(a.cmp(b)));
+/// ordered by `ln Y + ln(1 + share·(g − 1))`.
+fn scatter(cells: &[Cell], share: f32, order: &mut [u32], keys: &mut [f32]) -> f64 {
+    for (key, cell) in keys.iter_mut().zip(cells) {
+        *key = cell.ln_luma + (1.0 + share * (cell.gain - 1.0)).ln();
+    }
+    order.sort_unstable_by(|a, b| {
+        keys[*a as usize]
+            .total_cmp(&keys[*b as usize])
+            .then(a.cmp(b))
+    });
     let n = order.len();
     let mut total = 0.0f64;
     for bin in 0..BINS {
@@ -181,10 +187,6 @@ impl Field {
             .lens_metadata
             .active_area
             .unwrap_or(ActiveAreaRect::full(raw.width, raw.height));
-        let rgb = match raw.cfa {
-            CfaPattern::LinearRgb => Some(linearize::linearraw_to_camera_rgb(raw).ok()?),
-            _ => None,
-        };
         // (ln Y, ln g) per cell; `None` where the block is clipped, dark or
         // outside the calibrated area.
         let cells: Vec<Option<(f32, f32)>> = (0..width * height)
@@ -196,9 +198,10 @@ impl Field {
                 if x + block > raw.width || y + block > raw.height {
                     return None;
                 }
-                let means = match &rgb {
-                    Some(image) => rgb_block(image, x, y, block),
-                    None => mosaic_block(raw, x, y, block),
+                let means = if raw.cfa == CfaPattern::LinearRgb {
+                    rgb_block(&linearize::linearraw_region(raw, x, y, block, block).ok()?)
+                } else {
+                    mosaic_block(raw, x, y, block)
                 }?;
                 let luma = luminance(means, raw.as_shot_neutral)?;
                 let centre = [
@@ -264,7 +267,7 @@ impl Field {
             // either rail, says nothing about the tone response.
             (pair.maple[2] > 0.999 && preview_luma > 0.02 && preview_luma < 0.98).then(|| Cell {
                 ln_luma: LN_LUMA.0 + pair.maple[0] * (LN_LUMA.1 - LN_LUMA.0),
-                ln_gain: self.ln_gain.0 + pair.maple[1] * (self.ln_gain.1 - self.ln_gain.0),
+                gain: (self.ln_gain.0 + pair.maple[1] * (self.ln_gain.1 - self.ln_gain.0)).exp(),
                 preview_luma,
             })
         })
@@ -290,20 +293,17 @@ fn mosaic_block(raw: &RawImage, x: u32, y: u32, block: u32) -> Option<[f32; 3]> 
 }
 
 /// Per-channel means of a demosaiced block; `None` when any sample is clipped.
-fn rgb_block(image: &Image, x: u32, y: u32, block: u32) -> Option<[f32; 3]> {
+fn rgb_block(block: &Image) -> Option<[f32; 3]> {
     let mut sum = [0.0f32; 3];
-    for row in y..y + block {
-        let start = (row * image.width + x) as usize;
-        for pixel in &image.pixels[start..start + block as usize] {
-            if pixel.iter().any(|v| *v >= CLIPPED) {
-                return None;
-            }
-            for (total, value) in sum.iter_mut().zip(pixel) {
-                *total += value;
-            }
+    for pixel in &block.pixels {
+        if pixel.iter().any(|v| *v >= CLIPPED) {
+            return None;
+        }
+        for (total, value) in sum.iter_mut().zip(pixel) {
+            *total += value;
         }
     }
-    means(sum, [block * block; 3])
+    means(sum, [block.pixels.len() as u32; 3])
 }
 
 fn means(sum: [f32; 3], count: [u32; 3]) -> Option<[f32; 3]> {

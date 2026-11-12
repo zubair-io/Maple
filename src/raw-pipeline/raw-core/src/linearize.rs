@@ -154,7 +154,20 @@ pub fn sensor_linearize_region(
 /// already 3-channel RGB. Caller dispatches on
 /// `raw.cfa == CfaPattern::LinearRgb`. See ticket #07.
 pub fn linearraw_to_camera_rgb(raw: &RawImage) -> crate::Result<Image> {
+    linearraw_region(raw, 0, 0, raw.width, raw.height)
+}
+
+/// [`linearraw_to_camera_rgb`] over one rectangle of the frame, so a sampler
+/// reading a few blocks does not materialise the whole RGB plane.
+pub fn linearraw_region(
+    raw: &RawImage,
+    rect_x: u32,
+    rect_y: u32,
+    rect_w: u32,
+    rect_h: u32,
+) -> crate::Result<Image> {
     debug_assert_eq!(raw.cfa, CfaPattern::LinearRgb);
+    debug_assert!(rect_x + rect_w <= raw.width && rect_y + rect_h <= raw.height);
     let w = raw.width as usize;
     let h = raw.height as usize;
     let expected = 3 * w * h;
@@ -189,10 +202,11 @@ pub fn linearraw_to_camera_rgb(raw: &RawImage) -> crate::Result<Image> {
     let transfers = crate::sensor_gain_maps::transfers_apply(raw);
     let corrections = raw.sensor_gain_maps.as_ref();
 
-    let mut img = Image::new(raw.width, raw.height, ColorSpace::CameraNativeLinearRgb);
+    let mut img = Image::new(rect_w, rect_h, ColorSpace::CameraNativeLinearRgb);
+    let rw = rect_w as usize;
     img.pixels.par_iter_mut().enumerate().for_each(|(idx, px)| {
-        let off = idx * 3;
-        let (x, y) = ((idx % w) as u32, (idx / w) as u32);
+        let (x, y) = (rect_x + (idx % rw) as u32, rect_y + (idx / rw) as u32);
+        let off = (y as usize * w + x as usize) * 3;
         let encoded = [
             ((raw.raw_data[off] as f32 - bl_r) / denom_r).clamp(0.0, 1.0),
             ((raw.raw_data[off + 1] as f32 - bl_g) / denom_g).clamp(0.0, 1.0),

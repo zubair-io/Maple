@@ -27,6 +27,9 @@ pub struct DetailContext {
     pub(super) profile_curve: Option<auto_profile::curve::ProfileCurve>,
     pub(super) profile_lut: Option<auto_profile::lut::ColorLut>,
     pub(super) auto_guard: bool,
+    /// The pinned model the Auto fit developed at (#1085, #5791), so a
+    /// resident preview routes its ticks as the render that built it did.
+    pub(super) fit_model: Option<AdjustmentModel>,
 }
 
 pub struct DetailRenderOptions<'a> {
