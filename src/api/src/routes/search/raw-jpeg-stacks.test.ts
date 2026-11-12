@@ -78,6 +78,7 @@ interface Result {
 interface Page {
   total: number;
   results: Result[];
+  rankPin?: string;
 }
 interface Histogram {
   total: number;
@@ -275,5 +276,35 @@ describe('RAW+JPEG stacks in search and the timeline #5849', () => {
     // Without stack=1 the visible JPEG is an ordinary result.
     setInProcessSearchForTests(fakeInProcessSearch(['jpeg', 'lone', 'raw']));
     expect(filenames(await get<Page>('/?placeQuery=harbour'))).toEqual(['IMG_1.JPG', 'IMG_2.JPG']);
+  });
+
+  it('pinned pages that widen past a RAW ranked behind its JPEG serve the stack once', async () => {
+    const lone = Array.from({ length: 498 }, (_, index) => `many-${index}`);
+    for (const mapleId of lone) {
+      seedSearchAsset(live.db, libraryId, {
+        mapleId,
+        path: 'many',
+        filename: `${mapleId}.DNG`,
+        searchBlob: `harbour ${mapleId}`,
+      });
+    }
+    // The JPEG ranks first and its RAW 401st: page 0 pins the 400-deep step, page 3 widens. With
+    // no capture time on the JPEG, the shot rule cannot tell the two halves are one photograph.
+    run(live.db, `UPDATE assets SET exif = json_remove(exif, '$.captured_at') WHERE id = ?`, jpeg);
+    const order = ['jpeg', ...lone.slice(0, 399), 'raw', ...lone.slice(399), 'lone'];
+    setInProcessSearchForTests(fakeInProcessSearch(order));
+
+    const pages: Page[] = [];
+    for (let index = 0; index <= 5; index++) {
+      const pin = pages.at(-1)?.rankPin;
+      const pinned = pin === undefined ? '' : `&rankPin=${encodeURIComponent(pin)}`;
+      pages.push(await get<Page>(`/?placeQuery=harbour&stack=1&limit=100&page=${index}${pinned}`));
+    }
+
+    const served = pages.flatMap((page) => page.results.map((result) => result._id));
+    expect(new Set(served).size).toBe(served.length);
+    expect(served.filter((id) => id === raw || id === jpeg)).toEqual([jpeg]);
+    expect(served).toHaveLength(500);
+    expect(pages.at(-1)?.total).toBe(500);
   });
 });
