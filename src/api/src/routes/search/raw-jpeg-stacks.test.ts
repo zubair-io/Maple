@@ -324,4 +324,53 @@ describe('RAW+JPEG stacks in search and the timeline #5849', () => {
     expect(served).toHaveLength(500);
     expect(pages.at(-1)?.total).toBe(500);
   });
+
+  it("a stack keeps its JPEG owner's shot, so a copy collapsed early stays collapsed", async () => {
+    // An uploaded JPEG and a re-upload of it share an owner; a library scan found the RAW for
+    // another. The copy ranks second, the RAW 401st, past the step that serves pages 0-2.
+    const [uploader, scanner] = [new ObjectId().toHexString(), new ObjectId().toHexString()];
+    for (const owner of [uploader, scanner]) {
+      run(
+        live.db,
+        `INSERT INTO users (id, email, email_key, role, created_at) VALUES (?, ?, ?, 'member', ?)`,
+        owner,
+        `${owner}@example.com`,
+        `${owner}@example.com`,
+        new Date().toISOString(),
+      );
+    }
+    const copy = seedSearchAsset(live.db, libraryId, {
+      mapleId: 'copy',
+      path: 'uploads',
+      filename: 'IMG_1(2).JPG',
+      capturedAt: '2024-06-01T10:00:01.000Z',
+      searchBlob: 'harbour copy',
+    });
+    const lone = Array.from({ length: 497 }, (_, index) => `many-${index}`);
+    for (const mapleId of lone) {
+      seedSearchAsset(live.db, libraryId, {
+        mapleId,
+        path: 'many',
+        filename: `${mapleId}.DNG`,
+        searchBlob: `harbour ${mapleId}`,
+      });
+    }
+    run(live.db, `UPDATE assets SET owner_id = ? WHERE id IN (?, ?)`, uploader, jpeg, copy);
+    run(live.db, `UPDATE assets SET owner_id = ? WHERE id = ?`, scanner, raw);
+    const order = ['jpeg', 'copy', ...lone.slice(0, 398), 'raw', ...lone.slice(398), 'lone'];
+    setInProcessSearchForTests(fakeInProcessSearch(order));
+
+    const pages: Page[] = [];
+    for (let index = 0; index <= 5; index++) {
+      const pin = pages.at(-1)?.rankPin;
+      const pinned = pin === undefined ? '' : `&rankPin=${encodeURIComponent(pin)}`;
+      pages.push(await get<Page>(`/?placeQuery=harbour&stack=1&limit=100&page=${index}${pinned}`));
+    }
+
+    const served = pages.flatMap((page) => page.results.map((result) => result._id));
+    expect(new Set(served).size).toBe(served.length);
+    expect(served).not.toContain(copy);
+    expect(served.filter((id) => id === raw || id === jpeg)).toEqual([jpeg]);
+    expect(served).toHaveLength(499);
+  });
 });
