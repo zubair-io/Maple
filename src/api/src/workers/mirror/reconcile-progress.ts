@@ -8,7 +8,7 @@
 
 import type { JobWithId } from '../../db/schema.ts';
 
-export interface MirrorReconcileError {
+interface MirrorReconcileError {
   path: string;
   error: string;
   at: string;
