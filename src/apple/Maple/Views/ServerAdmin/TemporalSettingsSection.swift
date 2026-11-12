@@ -1,44 +1,38 @@
 // TemporalSettingsSection.swift — the "Job server" section of the Workers
 // page (#5826). Mirrors TemporalSettingsComponent
-// (src/web/.../workers/temporal-settings.component.ts): where the server
-// finds Temporal, whether the worker tier can reach it, and — for the owner
-// only — a form to point it somewhere else.
-//
-// Polling: every 2 s while the worker tier has not reported on the saved
-// target, then every 10 s (`TemporalSettings.nextPollDelay`). A save restarts
-// the watch so the faster cadence applies straight away.
+// (src/web/.../workers/temporal-settings.component.ts); loading, polling and
+// saving live in TemporalSettingsModel.
 
 import MapleCore
 import MapleUI
 import SwiftUI
 
 struct TemporalSettingsSection: View {
-  let client: WorkersAdminClient
-  let isOwner: Bool
+  @State private var model: TemporalSettingsModel
 
-  @State private var form = TemporalSettingsForm()
-  @State private var loadError: String?
-  @State private var saveState: ServerAdminActionState = .idle
-  @State private var watchEpoch = 0
+  init(client: WorkersAdminClient) {
+    _model = State(initialValue: TemporalSettingsModel(client: client))
+  }
 
   var body: some View {
     Section("Job server") {
+      // Lifecycle modifiers sit on this one row, not on the Section: inside a
+      // Form a Section's modifiers are applied to each of its rows, which
+      // would start one polling loop per row.
       Text(
         "Maple runs its background jobs on a Temporal server, and this is where it finds that server."
       )
       .font(.caption)
       .foregroundStyle(.secondary)
+      .onAppear { model.start() }
+      .onDisappear { model.stop() }
 
-      if let settings = form.settings {
+      if let settings = model.settings {
         loadedBody(settings)
-      } else if let loadError {
+      } else if let loadError = model.loadError {
         MuiBanner(
           variant: .error, message: "Failed to load Temporal settings: \(loadError)",
-          actionLabel: "Retry",
-          actionPressed: {
-            self.loadError = nil
-            watchEpoch += 1
-          }
+          actionLabel: "Retry", actionPressed: { model.retry() }
         )
         .accessibilityIdentifier("workers.temporal.loadError")
       } else {
@@ -50,19 +44,14 @@ struct TemporalSettingsSection: View {
       }
     }
     .listRowBackground(MapleTokens.surface)
-    .task(id: watchEpoch) { await watch() }
-    .onChange(of: form.target) {
-      if saveState == .succeeded { saveState = .idle }
-    }
   }
 
   @ViewBuilder
   private func loadedBody(_ settings: TemporalSettings) -> some View {
     LabeledContent("Address") {
       MuiInput(
-        value: $form.address, accessibilityLabel: "Temporal address",
-        placeholder: "127.0.0.1:7233", readOnly: !isOwner, monospaced: true,
-        autocorrectionDisabled: true
+        value: $model.address, accessibilityLabel: "Temporal address",
+        placeholder: "127.0.0.1:7233", monospaced: true, autocorrectionDisabled: true
       )
       .accessibilityIdentifier("workers.temporal.address")
     }
@@ -73,9 +62,8 @@ struct TemporalSettingsSection: View {
 
     LabeledContent("Namespace") {
       MuiInput(
-        value: $form.namespace, accessibilityLabel: "Temporal namespace",
-        placeholder: "default", readOnly: !isOwner, monospaced: true,
-        autocorrectionDisabled: true
+        value: $model.namespace, accessibilityLabel: "Temporal namespace",
+        placeholder: "default", monospaced: true, autocorrectionDisabled: true
       )
       .accessibilityIdentifier("workers.temporal.namespace")
     }
@@ -92,25 +80,25 @@ struct TemporalSettingsSection: View {
     .accessibilityElement(children: .combine)
     .accessibilityIdentifier("workers.temporal.connection")
 
-    if let detail = settings.connection.detail {
-      Text(detail)
-        .font(.caption)
-        .foregroundStyle(.secondary)
-        .accessibilityIdentifier("workers.temporal.connectionDetail")
-    }
+    Text(settings.connectionDetail)
+      .font(.caption)
+      .foregroundStyle(.secondary)
+      .accessibilityIdentifier("workers.temporal.connectionDetail")
 
-    if isOwner {
-      serverAdminActionButton(
-        "Save changes", variant: .primary, state: saveState, successText: "Saved.",
-        identifier: "workers.temporal.save",
-        disabled: form.target == nil,
-        action: { Task { await save() } }
-      )
-    } else {
-      Text("Only the server owner can change where Maple finds Temporal.")
-        .font(.caption)
-        .foregroundStyle(.secondary)
-        .accessibilityIdentifier("workers.temporal.ownerOnly")
+    serverAdminActionButton(
+      "Save changes", variant: .primary, state: actionState, successText: "Saved.",
+      identifier: "workers.temporal.save",
+      disabled: !model.canSave,
+      action: { Task { await model.save() } }
+    )
+  }
+
+  private var actionState: ServerAdminActionState {
+    switch model.saveState {
+    case .idle: return .idle
+    case .running: return .running
+    case .succeeded: return .succeeded
+    case .failed(let message): return .failed(message)
     }
   }
 
@@ -120,43 +108,5 @@ struct TemporalSettingsSection: View {
     case .unreachable: return .red
     case .unknown: return .orange
     }
-  }
-
-  // @MainActor — see WorkersSettingsView's note: `.task` takes a @Sendable
-  // closure, so these would otherwise publish @State from the cooperative pool.
-
-  @MainActor
-  private func watch() async {
-    if form.settings == nil {
-      let token = form.generation
-      do {
-        form.adopt(try await client.temporal(), token: token)
-      } catch {
-        if !Task.isCancelled { loadError = error.localizedDescription }
-        return
-      }
-    }
-    while let settings = form.settings {
-      do { try await Task.sleep(for: settings.nextPollDelay) } catch { return }
-      // A read issued mid-save could return the old target's state after the
-      // save's own response has landed.
-      guard saveState != .running else { continue }
-      let token = form.generation
-      if let next = try? await client.temporal() { form.adopt(next, token: token) }
-    }
-  }
-
-  @MainActor
-  private func save() async {
-    guard isOwner, let target = form.target, saveState != .running else { return }
-    let token = form.beginSave()
-    saveState = .running
-    do {
-      form.adopt(try await client.saveTemporal(target), token: token)
-      saveState = .succeeded
-    } catch {
-      saveState = .failed(error.localizedDescription)
-    }
-    watchEpoch += 1
   }
 }

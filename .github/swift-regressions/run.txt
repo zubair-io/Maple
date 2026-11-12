@@ -552,8 +552,9 @@ WorkingSetSeedBoundTests
 # indexed photos serve their server thumbnail.
 FileProviderRootPlacementTests
 
-# Temporal job-server settings (#5826): pure decoding/form rules and a
-# stubbed HTTP client.
+# Temporal job-server settings (#5826): pure decoding/form rules, a stubbed
+# HTTP client, and poll/save sequencing on an injected clock.
 TemporalSettingsDecodingTests
 TemporalSettingsFormTests
 TemporalSettingsClientTests
+TemporalSettingsModelTests

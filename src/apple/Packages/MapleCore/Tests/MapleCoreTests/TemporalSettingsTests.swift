@@ -81,6 +81,16 @@ final class TemporalSettingsDecodingTests: XCTestCase {
     XCTAssertNil(settings(state: .connected).connection.detail)
   }
 
+  func test_connectionDetail_namesTheSavedTarget() {
+    XCTAssertEqual(
+      settings(address: "temporal:7233", namespace: "maple", state: .connected).connectionDetail,
+      "temporal:7233 · maple")
+    XCTAssertEqual(
+      settings(address: "temporal:7233", namespace: "maple", state: .unreachable, error: "refused")
+        .connectionDetail,
+      "temporal:7233 · maple — refused")
+  }
+
   func test_pollDelay_fastWhileUnreported_slowOnceSettled() {
     XCTAssertEqual(settings(state: .unknown).nextPollDelay, .seconds(2))
     XCTAssertEqual(settings(state: .connected).nextPollDelay, .seconds(10))
@@ -102,7 +112,7 @@ final class TemporalSettingsFormTests: XCTestCase {
 
   func test_firstAdoptSeedsDraft() {
     var form = TemporalSettingsForm()
-    XCTAssertTrue(form.adopt(settings(address: "temporal:7233", namespace: "maple"), token: 0))
+    form.adopt(settings(address: "temporal:7233", namespace: "maple"), token: 0)
     XCTAssertEqual(form.address, "temporal:7233")
     XCTAssertEqual(form.namespace, "maple")
   }
@@ -122,8 +132,9 @@ final class TemporalSettingsFormTests: XCTestCase {
     form.adopt(settings(state: .connected), token: 0)
     let staleToken = form.generation
     let saveToken = form.beginSave()
-    XCTAssertFalse(form.adopt(settings(address: "old:7233", state: .connected), token: staleToken))
-    XCTAssertTrue(form.adopt(settings(address: "new:7233", state: .unknown), token: saveToken))
+    form.adopt(settings(address: "old:7233", state: .connected), token: staleToken)
+    XCTAssertEqual(form.settings?.address, "127.0.0.1:7233")
+    form.adopt(settings(address: "new:7233", state: .unknown), token: saveToken)
     XCTAssertEqual(form.settings?.address, "new:7233")
     XCTAssertEqual(form.settings?.connection.state, .unknown)
   }
