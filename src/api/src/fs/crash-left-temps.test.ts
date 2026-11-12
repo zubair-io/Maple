@@ -221,27 +221,33 @@ await replaceIfHolds(dest, Buffer.from('old edits'), tmp, async () => {});
 `;
 
 describe('a sidecar replacement killed while the old sidecar is moved aside', () => {
-  test('the old edits come back as a conflict copy: the sidecar name is gone and the edits are the only copy', async () => {
-    await write('dst/IMG.xmp', 'old edits');
-    await write('dst/staged', 'new edits');
-    const script = abs('crash-replace.ts');
-    await fs.writeFile(script, REPLACE_SCRIPT);
-    const child = Bun.spawn([process.execPath, script, abs('dst/IMG.xmp'), abs('dst/staged')], {
-      stdout: 'ignore',
-      stderr: 'pipe',
+  // `IMG.001.xmp` belongs to `IMG.001.CR3`; `clip.mov.xmp` to the video `clip.mov`.
+  for (const stem of ['IMG', 'IMG.001', 'clip.mov']) {
+    test(`the old edits of ${stem}.xmp come back as a conflict copy: the sidecar name is gone and the edits are the only copy`, async () => {
+      await write(`dst/${stem}.xmp`, 'old edits');
+      await write('dst/staged', 'new edits');
+      const script = abs('crash-replace.ts');
+      await fs.writeFile(script, REPLACE_SCRIPT);
+      const child = Bun.spawn(
+        [process.execPath, script, abs(`dst/${stem}.xmp`), abs('dst/staged')],
+        {
+          stdout: 'ignore',
+          stderr: 'pipe',
+        },
+      );
+      await child.exited;
+      expect(child.signalCode, await new Response(child.stderr).text()).toBe('SIGKILL');
+      expect(await names('dst')).toEqual([
+        expect.stringMatching(/\.xmp\.tmp\..*\.keep$/),
+        'staged',
+      ]);
+
+      expect(await sweep('dst')).toEqual({ removed: 0, surfaced: 1 });
+
+      expect(await names('dst')).toEqual([`${stem} (conflict from move).xmp`, 'staged']);
+      expect(await read(`dst/${stem} (conflict from move).xmp`)).toBe('old edits');
     });
-    await child.exited;
-    expect(child.signalCode, await new Response(child.stderr).text()).toBe('SIGKILL');
-    expect(await names('dst')).toEqual([
-      expect.stringMatching(/^IMG\.xmp\.tmp\..*\.keep$/),
-      'staged',
-    ]);
-
-    expect(await sweep('dst')).toEqual({ removed: 0, surfaced: 1 });
-
-    expect(await names('dst')).toEqual(['IMG (conflict from move).xmp', 'staged']);
-    expect(await read('dst/IMG (conflict from move).xmp')).toBe('old edits');
-  });
+  }
 });
 
 describe('what the sweep never touches', () => {

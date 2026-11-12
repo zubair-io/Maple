@@ -23,8 +23,10 @@ export async function surfaceDisplaced(file: string, original: string): Promise<
 async function publishUnderVisibleName(file: string, original: string): Promise<boolean> {
   const dir = path.dirname(file);
   if (path.extname(original).toLowerCase() === '.xmp') {
-    const photo = path.join(dir, path.basename(original, path.extname(original)));
-    return publishConflictBytes(photo, await fs.readFile(file));
+    // The sidecar's own name, not a guessed photo name: the conflict name keeps
+    // everything before `.xmp`, so `IMG.001.xmp` (of `IMG.001.CR3`) and
+    // `clip.mov.xmp` (of a video) both pair back to their photo.
+    return publishConflictBytes(path.join(dir, original), await fs.readFile(file));
   }
   const { name, ext } = path.parse(original);
   for (let attempt = 1; attempt <= NAME_ATTEMPTS; attempt++) {
