@@ -239,11 +239,16 @@ impl MapleApp {
                 }
                 Event::Saved(id, result) => {
                     let saved = self.save_documents.pop_front();
+                    let merged = result.as_ref().ok().cloned().flatten();
+                    if let (Some(merged), Some((saved_id, revision, _))) = (&merged, &saved) {
+                        self.adopt_merged(*saved_id, *revision, merged);
+                    }
                     match result {
-                        Ok(()) if id == self.session && self.cloud_editor.is_some() => {
+                        Ok(_) if id == self.session && self.cloud_editor.is_some() => {
                             match (&self.selected, saved) {
-                                (Some(photo), Some((saved_id, document))) if saved_id == id => {
-                                    self.cloud.synchronize(id, photo, document);
+                                (Some(photo), Some((saved_id, _, document))) if saved_id == id => {
+                                    let published = merged.map_or(document, |merged| *merged);
+                                    self.cloud.synchronize(id, photo, published);
                                     self.status = "Synchronizing XMP…".into();
                                 }
                                 _ => {
@@ -255,10 +260,12 @@ impl MapleApp {
                                 }
                             }
                         }
-                        Ok(()) => {
+                        Ok(_) => {
                             self.saving = self.saving.saturating_sub(1);
                             self.save_failed = false;
-                            self.status = "Saved to XMP".into();
+                            if merged.is_none() {
+                                self.status = "Saved to XMP".into();
+                            }
                             self.invalidate_thumbnails();
                         }
                         Err(error) => {
@@ -291,6 +298,25 @@ impl MapleApp {
         }
         if self.dirty.is_some() {
             context.request_repaint_after(Duration::from_millis(100));
+        }
+    }
+
+    /// The editor takes the merged document only when nothing newer is
+    /// waiting to be saved; a newer edit is merged on top by its own save.
+    fn adopt_merged(&mut self, session: u64, revision: u64, merged: &SidecarDocument) {
+        if session != self.session {
+            return;
+        }
+        let idle = revision == self.edit_revision
+            && self.saving <= 1
+            && self.dirty.is_none()
+            && self.before_edit.is_none();
+        if idle {
+            self.document = Some(merged.clone());
+            self.render();
+            self.status = "Merged changes made outside Maple".into();
+        } else {
+            self.status = "Merged changes made outside Maple; newer edits save on top".into();
         }
     }
 }

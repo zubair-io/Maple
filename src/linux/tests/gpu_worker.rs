@@ -81,7 +81,7 @@ fn native_worker_publishes_resident_frames_and_saves_without_touching_raw() {
         _ => panic!("Combined geometry fallback did not produce CPU pixels"),
     }
     worker.send(Command::Save(1, document));
-    assert!(matches!(receive(&worker), Event::Saved(1, Ok(()))));
+    assert!(matches!(receive(&worker), Event::Saved(1, Ok(None))));
     worker.finish();
     assert_eq!(std::fs::read(path).unwrap(), bytes);
     let saved =

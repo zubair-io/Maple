@@ -81,7 +81,7 @@ fn paused_detail_does_not_block_real_gpu_preview_or_xmp_save() {
         "GPU must complete while detail is still paused"
     );
     assert!(
-        matches!(receive(&worker), Event::Saved(91, Ok(()))),
+        matches!(receive(&worker), Event::Saved(91, Ok(None))),
         "save must complete while detail is still paused"
     );
     let stored = SidecarStore::open(&photo.path).unwrap().1;

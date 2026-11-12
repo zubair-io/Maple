@@ -79,18 +79,18 @@ fn imported_foreign_attributes_children_and_unexposed_edits_survive() {
 }
 
 #[test]
-fn refuses_external_changes_and_deletions() {
+fn unmergeable_outside_changes_and_deletions_refuse() {
     let temp = TempDir::new().unwrap();
     let original = temp.path().join("photo.nef");
     fs::write(&original, b"original").unwrap();
     let (mut store, document) = SidecarStore::open(&original).unwrap();
     fs::write(store.path(), "external edit").unwrap();
-    assert!(matches!(store.save(&document), Err(SidecarError::Conflict)));
+    assert!(matches!(store.save(&document), Err(SidecarError::Merge(_))));
     assert_eq!(fs::read_to_string(store.path()).unwrap(), "external edit");
     fs::remove_file(store.path()).unwrap();
     store.save(&document).unwrap();
     fs::remove_file(store.path()).unwrap();
-    assert!(matches!(store.save(&document), Err(SidecarError::Conflict)));
+    assert!(matches!(store.save(&document), Err(SidecarError::Removed)));
 }
 
 #[test]

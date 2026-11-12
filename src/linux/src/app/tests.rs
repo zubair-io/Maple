@@ -304,6 +304,30 @@ fn an_edit_made_while_a_save_is_in_flight_survives_the_deferred_navigation() {
 }
 
 #[test]
+fn a_save_after_an_outside_edit_merges_and_the_editor_adopts_it() {
+    let (directory, path) = fixture();
+    let mut app = MapleApp::from_context(egui::Context::default());
+    app.open_folder(directory.path().into());
+    pump(&mut app, |app| app.folder.is_some());
+    app.select(app.folder.as_ref().unwrap().photos[0].clone());
+    pump(&mut app, |app| app.texture.is_some());
+    let outside = r#"<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description rdf:about="" xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/" crs:Vibrance="30"/></rdf:RDF></x:xmpmeta>"#;
+    std::fs::write(path.with_extension("xmp"), outside).unwrap();
+    Control::Exposure
+        .set(&mut app.document.as_mut().unwrap().model, 1.0)
+        .unwrap();
+    app.changed();
+    app.flush();
+    pump(&mut app, |app| app.saving == 0);
+    assert!(!app.save_failed, "{:?}", app.error);
+    let adopted = &app.document.as_ref().unwrap().model;
+    assert_eq!((adopted.exposure, adopted.vibrance), (1.0, 30.0));
+    assert!(app.dirty.is_none(), "adoption schedules no save");
+    let (_, saved) = crate::sidecar::SidecarStore::open(&path).unwrap();
+    assert_eq!(saved.model, *adopted);
+}
+
+#[test]
 fn pending_cloud_handoff_exposes_recovery_without_a_new_save_failure() {
     let (_directory, path) = fixture();
     let (mut store, mut document) = crate::sidecar::SidecarStore::open(&path).unwrap();

@@ -37,7 +37,8 @@ pub struct MapleApp {
     zoom: zoom::ZoomCanvas,
     cloud: cloud::CloudState,
     cloud_editor: Option<crate::cloud::CloudEntry>,
-    save_documents: std::collections::VecDeque<(u64, SidecarDocument)>,
+    /// Queued saves: session, edit revision and the exact document sent.
+    save_documents: std::collections::VecDeque<(u64, u64, SidecarDocument)>,
     pending_navigation: Option<Navigation>,
     worker: Worker,
     thumbnails: ThumbnailWorker,
@@ -295,7 +296,7 @@ impl MapleApp {
         if self.dirty.take().is_some() {
             if let Some(document) = &self.document {
                 self.save_documents
-                    .push_back((self.session, document.clone()));
+                    .push_back((self.session, self.edit_revision, document.clone()));
                 self.saving += 1;
                 self.worker
                     .send(Command::Save(self.session, document.clone()));
