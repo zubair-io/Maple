@@ -294,3 +294,54 @@ fn generated_scalar_access_validates_ranges_and_marks_manual_wb() {
     assert!(model.temperature_seen && model.tint_seen);
     assert_eq!(model.wb_source, raw_core::types::WbSource::Manual);
 }
+
+/// A repair spot is a decode-product edit (#5904): the model the Android
+/// writer's XML reloads through `maple_android_model` asks for a CPU
+/// preparation, which re-decodes the capture with the spot applied.
+#[test]
+fn a_repair_spot_reload_re_decodes_the_capture() {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../../test-fixtures/batch-transfer/source.dng");
+    let identity = "<rdf:Description xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"/>";
+    let repaired = r#"<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+  <rdf:Description rdf:about="" xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/" xmlns:papp="http://ns.justmaple.app/photo/1.0/" papp:RetouchFrameVersion="2">
+    <crs:RetouchAreas><rdf:Seq><rdf:li><rdf:Description crs:SpotType="clone" crs:SourceX="0.200000" crs:SourceY="0.200000" crs:Opacity="1.000000" crs:Feather="0.000000">
+      <crs:Masks><rdf:Seq><rdf:li crs:What="Mask/CircularGradient" crs:MaskValue="1" crs:X="0.700000" crs:Y="0.700000" crs:Radius="0.150000"/></rdf:Seq></crs:Masks>
+    </rdf:Description></rdf:li></rdf:Seq></crs:RetouchAreas>
+  </rdf:Description>
+</rdf:RDF></x:xmpmeta>"#;
+    let mut session = Session::open(path.to_str().unwrap(), identity, 2048).unwrap();
+    let render = |session: &mut Session| {
+        session.update().unwrap();
+        session
+            .live
+            .render_to_buffer(&session.ctx, &session.inputs, &CancelToken::new())
+            .unwrap()
+            .unwrap()
+    };
+    let plain = render(&mut session);
+    assert!(session.preparation().is_none());
+    let xml = std::ffi::CString::new(repaired).unwrap();
+    let handle = (&mut session as *mut Session).cast::<std::ffi::c_void>();
+    assert_eq!(
+        unsafe { crate::maple_android_model(handle, xml.as_ptr()) },
+        0
+    );
+    assert_eq!(session.model.retouch_spots.len(), 1);
+    let mut work = std::ptr::null_mut();
+    assert_eq!(
+        unsafe { crate::maple_android_preparation_new(handle, &mut work) },
+        0
+    );
+    assert!(!work.is_null(), "A changed spot list needs a re-decode");
+    unsafe { crate::maple_android_preparation_free(work) };
+    let healed = render(&mut session);
+    assert_eq!(session.prefix.retouch_spots, session.model.retouch_spots);
+    assert!(session.preparation().is_none());
+    let changed = plain
+        .iter()
+        .zip(&healed)
+        .filter(|(a, b)| a.abs_diff(**b) > 4)
+        .count();
+    assert!(changed > 0, "The cloned disc changes the rendered photo");
+}

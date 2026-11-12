@@ -7,7 +7,7 @@ import org.junit.Test
 class EditorSubToolsTest {
     @Test
     fun lightExposesBasicAndToneCurveSubTools() {
-        val subTools = subToolsFor(EditorGroup.Light)
+        val subTools = subToolsFor(EditorGroup.Light, raw = true)
         assertEquals(listOf("basic", "curve"), subTools.map { it.id })
         assertEquals(listOf("Basic", "Tone Curve"), subTools.map { it.label })
     }
@@ -35,7 +35,7 @@ class EditorSubToolsTest {
 
     @Test
     fun colorExposesBasicWbPresetsAndHslSubTools() {
-        val subTools = subToolsFor(EditorGroup.Color)
+        val subTools = subToolsFor(EditorGroup.Color, raw = true)
         assertEquals(listOf("basic", "wb", "hsl"), subTools.map { it.id })
     }
 
@@ -122,11 +122,20 @@ class EditorSubToolsTest {
 
     @Test
     fun groupsExposeExpectedSubToolsAndFullInspectorFields() {
-        assertEquals(listOf("basic", "presets"), subToolsFor(EditorGroup.Effects).map { it.id })
+        assertEquals(listOf("basic", "presets"), subToolsFor(EditorGroup.Effects, raw = true).map { it.id })
         assertEquals(
-            listOf("basic", "crop", "geometry", "mask"),
-            subToolsFor(EditorGroup.Detail).map { it.id },
+            listOf("basic", "crop", "geometry", "mask", "heal"),
+            subToolsFor(EditorGroup.Detail, raw = true).map { it.id },
         )
+        assertEquals(
+            "Repair spots are RAW-only, so a raster photo is not offered Heal",
+            listOf("basic", "crop", "geometry", "mask"),
+            subToolsFor(EditorGroup.Detail, raw = false).map { it.id },
+        )
+        assertEquals(CanvasTool.Heal, canvasToolFor(true, EditorGroup.Detail, "heal", raw = true))
+        assertNull(canvasToolFor(true, EditorGroup.Detail, "heal", raw = false))
+        assertEquals(CanvasTool.Mask, canvasToolFor(true, EditorGroup.Detail, "mask", raw = false))
+        assertNull(canvasToolFor(false, EditorGroup.Detail, "mask", raw = true))
         assertEquals(
             EditorGroup.Detail.fields.map { it.name },
             fieldsForSubTool(EditorGroup.Detail, "basic", fullInspector = true).map { it.name },
@@ -134,6 +143,8 @@ class EditorSubToolsTest {
         assertTrue(fieldsForSubTool(EditorGroup.Detail, "crop", fullInspector = false).isEmpty())
         assertTrue(fieldsForSubTool(EditorGroup.Detail, "crop", fullInspector = true).isEmpty())
         assertTrue(fieldsForSubTool(EditorGroup.Detail, "mask", fullInspector = true).isEmpty())
+        assertTrue(fieldsForSubTool(EditorGroup.Detail, "heal", fullInspector = true).isEmpty())
+        assertTrue(fieldsForSubTool(EditorGroup.Detail, "heal", fullInspector = false).isEmpty())
         assertEquals(
             geometryFieldNames,
             fieldsForSubTool(EditorGroup.Detail, "geometry", fullInspector = false).map { it.name },

@@ -53,6 +53,12 @@ data class MapleState(
     val maskSampling: Boolean = false,
     /** The mask panel's message line (a refused pick, an unreadable mask). */
     val maskMessage: String? = null,
+    /** The repair spot the Heal panel and overlay address; selection adds no history. */
+    val healSelection: Int? = null,
+    /** The Heal brush: seeds the next spot and follows the selected one. */
+    val healBrush: RepairBrush = RepairBrush(),
+    /** The Heal panel's message line (an unreadable or unwritable repair list). */
+    val healMessage: String? = null,
 ) {
     val navigationPhotos: List<Photo> get() = previewOrder ?: photos
 

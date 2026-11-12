@@ -28,9 +28,11 @@ internal fun ControlsInspector(
     onSubToolChange: ((String) -> Unit)? = null,
 ) {
     var filmsOpen by remember { mutableStateOf(false) }
-    val subTools = remember(group) { subToolsFor(group) }
+    val raw = state.values["_raw"] == 1f
+    val subTools = remember(group, raw) { subToolsFor(group, raw) }
     var internalSubTool by remember(group) { mutableStateOf(subTools.first().id) }
-    val subTool = activeSubTool ?: internalSubTool
+    // A RAW-only tool falls back to the group's first tool when the photo is not a RAW.
+    val subTool = (activeSubTool ?: internalSubTool).takeIf { id -> subTools.any { it.id == id } } ?: subTools.first().id
     val setSubTool: (String) -> Unit = {
         internalSubTool = it
         onSubToolChange?.invoke(it)
@@ -142,6 +144,10 @@ internal fun ControlsInspector(
         if (group == EditorGroup.Detail && subTool == "mask")
             Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).testTag("editor-mask-scroll")) {
                 MaskPanel(model, state, Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
+            }
+        else if (group == EditorGroup.Detail && subTool == "heal")
+            Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).testTag("editor-heal-scroll")) {
+                HealPanel(model, state, Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
             }
         else InspectorSliders(model, state, group, subTool, band, curveFamily, filmId, monochrome)
     }

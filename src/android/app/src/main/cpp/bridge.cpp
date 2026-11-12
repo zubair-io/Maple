@@ -64,6 +64,8 @@ bool maple_android_mask_frame(uint32_t, uint32_t, float, float, float, float, fl
 void *maple_android_mask_range_new(void *, const char *);
 char *maple_android_mask_range_run(const void *, float, float);
 void maple_android_mask_range_free(void *);
+char *maple_android_retouch_read(const char *);
+char *maple_android_retouch_write(const char *);
 }
 
 namespace {
@@ -369,6 +371,16 @@ extern "C" JNIEXPORT jstring JNICALL Java_app_justmaple_aperture_data_NativeBrid
     Utf8 x(env, input);
     if (env->ExceptionCheck()) return nullptr;
     return takeString(env, maple_android_masks_write(x.get()));
+}
+extern "C" JNIEXPORT jstring JNICALL Java_app_justmaple_aperture_data_NativeBridge_retouchRead(JNIEnv *env, jobject, jstring input) {
+    Utf8 x(env, input);
+    if (env->ExceptionCheck()) return nullptr;
+    return takeString(env, maple_android_retouch_read(x.get()));
+}
+extern "C" JNIEXPORT jstring JNICALL Java_app_justmaple_aperture_data_NativeBridge_retouchWrite(JNIEnv *env, jobject, jstring input) {
+    Utf8 x(env, input);
+    if (env->ExceptionCheck()) return nullptr;
+    return takeString(env, maple_android_retouch_write(x.get()));
 }
 extern "C" JNIEXPORT jbyteArray JNICALL Java_app_justmaple_aperture_data_NativeBridge_maskWeights(JNIEnv *env, jobject, jstring layer, jint width, jint height) {
     Utf8 x(env, layer);

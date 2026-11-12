@@ -1,0 +1,19 @@
+<?xpacket begin="" id="W5M0MpCehiHzreSzNTczkc9d"?>
+<x:xmpmeta xmlns:x="adobe:ns:meta/">
+ <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+  <rdf:Description rdf:about=""
+    xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/"
+    xmlns:vnd="urn:example:vendor"
+    crs:Version="6.7"
+    crs:ProcessVersion="6.7">
+   <crs:RetouchInfo>
+    <rdf:Seq>
+     <rdf:li>centerX = 0.250000, centerY = 0.300000, radius = 0.020000, sourceState = sourceSetExplicitly, sourceX = 0.300000, sourceY = 0.300000, spotType = heal</rdf:li>
+     <rdf:li>centerX = 0.600000, centerY = 0.650000, radius = 0.030000, sourceState = sourceSetExplicitly, sourceX = 0.600000, sourceY = 0.750000, spotType = clone</rdf:li>
+    </rdf:Seq>
+   </crs:RetouchInfo>
+   <vnd:Keep>outside the repair list</vnd:Keep>
+  </rdf:Description>
+ </rdf:RDF>
+</x:xmpmeta>
+<?xpacket end="w"?>

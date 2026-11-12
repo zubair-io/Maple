@@ -16,6 +16,9 @@ mod native_detail;
 mod platform_raster;
 mod point_curve;
 mod preview;
+mod retouch_document;
+mod retouch_jni;
+mod retouch_write;
 mod scopes;
 mod transfer;
 mod xml_carry;
@@ -489,3 +492,5 @@ pub unsafe extern "C" fn maple_android_stage_bitmap(
 mod adjustment_transfer_tests;
 #[cfg(test)]
 mod export_tests;
+#[cfg(test)]
+mod sidecar_tests;

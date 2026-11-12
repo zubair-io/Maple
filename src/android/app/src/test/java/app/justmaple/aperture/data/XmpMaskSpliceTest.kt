@@ -108,7 +108,7 @@ class XmpMaskSpliceTest {
                 output(listOf(element(source, "crs:MaskGroupBasedCorrections"), element(source, "crs:CircularGradientBasedCorrections")))
             )
         assertEquals(document, same)
-        assertNull(same.masks)
+        assertTrue(same.edits.isEmpty())
         assertEquals(document.serialize(), same.serialize())
     }
 

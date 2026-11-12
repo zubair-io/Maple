@@ -1,5 +1,26 @@
 package app.justmaple.aperture.data
 
+import org.json.JSONObject
+
+/** The primary-description children a native writer rewrites, by canonical name. */
+enum class ChildFamily(internal val names: Set<String>) {
+    /** `mask_document.rs` / `mask_write.rs`. */
+    Masks(MASK_CONTAINERS),
+    /** `retouch_document.rs`; Lightroom's legacy string list converts on the first edit. */
+    Repairs(setOf("crs:RetouchAreas", "crs:RetouchInfo")),
+}
+
+/**
+ * A family's containers rewritten by its native writer: [containers] replaces the source
+ * document's container at each index (`""` removes it) and [appended] are new containers
+ * written as the last children of the last primary description.
+ */
+data class ChildEdit(val containers: List<String>, val appended: List<String>)
+
+/** One container's source text and the namespaces in force where it sits. */
+internal fun childSource(scope: Map<String, String>, xml: String): JSONObject =
+    JSONObject().put("scope", JSONObject(scope)).put("xml", xml)
+
 /** A primary `rdf:Description` start tag, its source range and in-scope prefixes; the
  * default namespace in force there, if any, is kept apart from the prefixes. */
 internal class DescriptionTag(

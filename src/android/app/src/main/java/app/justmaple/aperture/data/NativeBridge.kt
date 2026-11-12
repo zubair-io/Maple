@@ -62,6 +62,12 @@ object NativeBridge {
     /** Replacement mask containers for [input]'s containers and layers (see `mask_write.rs`). */
     external fun masksWrite(input: String): String
 
+    /** `{"spots": [...]}` of the repair containers described by [input] (see `retouch_document.rs`). */
+    external fun retouchRead(input: String): String
+
+    /** Replacement repair containers for [input]'s containers and `spots` (see `retouch_document.rs`). */
+    external fun retouchWrite(input: String): String
+
     /** `width × height` weights (`0…255`) of a JSON layer's mask over the full frame. */
     external fun maskWeights(layer: String, width: Int, height: Int): ByteArray
 

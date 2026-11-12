@@ -8,7 +8,7 @@
 use crate::mask_model::{authorable, AuthoredLayer};
 use crate::mask_order::parse_key;
 use crate::mask_xml::{self, Element, Scopes, RDF};
-use raw_core::types::{local_adjustment, LocalAdjustment, Mask};
+use raw_core::types::{local_adjustment, AdjustmentModel, LocalAdjustment, Mask};
 use serde_json::Value;
 use std::collections::BTreeMap;
 
@@ -85,7 +85,9 @@ pub fn declarations(scope: &Bindings) -> String {
         .collect()
 }
 
-fn single_layer(piece: &str, scope: &Bindings) -> Result<Vec<LocalAdjustment>, String> {
+/// raw-core's reading of `piece` (one or more containers) placed directly in
+/// a primary description that declares `scope`.
+pub fn parse_piece(piece: &str, scope: &Bindings) -> Result<AdjustmentModel, String> {
     let declarations: String = scope
         .iter()
         .filter(|(prefix, _)| prefix.as_deref() != Some("rdf"))
@@ -94,9 +96,53 @@ fn single_layer(piece: &str, scope: &Bindings) -> Result<Vec<LocalAdjustment>, S
     let xml = format!(
         "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF xmlns:rdf=\"{RDF}\"><rdf:Description rdf:about=\"\"{declarations}>{piece}</rdf:Description></rdf:RDF></x:xmpmeta>"
     );
-    Ok(raw_core::xmp::parse_namespaced(&xml)
-        .map_err(|e| e.to_string())?
-        .local_adjustments)
+    raw_core::xmp::parse_namespaced(&xml).map_err(|e| e.to_string())
+}
+
+fn single_layer(piece: &str, scope: &Bindings) -> Result<Vec<LocalAdjustment>, String> {
+    Ok(parse_piece(piece, scope)?.local_adjustments)
+}
+
+/// One container from the Kotlin reader (`{"scope": {...}, "xml": "..."}`):
+/// the text it is parsed in (wrapped so its inherited namespaces resolve),
+/// its element, the scopes inside it and the scope it sits in.
+pub fn parse_container(source: &Value) -> Result<(String, Element, Scopes, Bindings), String> {
+    let scope = bindings(source.get("scope"))?;
+    let xml = source
+        .get("xml")
+        .and_then(Value::as_str)
+        .ok_or("Container has no XML")?;
+    let text = format!("<_maple_scope{}>{xml}</_maple_scope>", declarations(&scope));
+    let mut roots = mask_xml::parse(&text)?;
+    let wrapper = roots
+        .pop()
+        .filter(|w| roots.is_empty() && !w.mixed && w.children.len() == 1)
+        .ok_or("A container must be one element")?;
+    let scopes = mask_xml::scopes(std::slice::from_ref(&wrapper));
+    let root = wrapper
+        .children
+        .into_iter()
+        .next()
+        .ok_or("Empty container")?;
+    Ok((text, root, scopes, scope))
+}
+
+/// `root`'s text with only `item` left inside its sequence.
+pub fn single_item(
+    text: &str,
+    root: &Element,
+    seq: &Element,
+    item: &Element,
+) -> Result<String, String> {
+    let close = text[..seq.span.end]
+        .rfind("</")
+        .ok_or("Malformed sequence")?;
+    Ok(format!(
+        "{}{}{}",
+        &text[root.start.start..seq.start.end],
+        &text[item.span.clone()],
+        &text[close..root.span.end]
+    ))
 }
 
 fn layer_key(description: &Element) -> Option<f64> {
@@ -156,7 +202,7 @@ fn component_count(mask: &Mask) -> usize {
     }
 }
 
-fn clean_sequence(root: &Element) -> Option<Element> {
+pub fn clean_sequence(root: &Element) -> Option<Element> {
     if root.has_attributes() || root.mixed || root.children.len() != 1 {
         return None;
     }
@@ -192,23 +238,7 @@ impl Document {
     }
 
     fn add_container(&mut self, source: &Value) -> Result<(), String> {
-        let scope = bindings(source.get("scope"))?;
-        let xml = source
-            .get("xml")
-            .and_then(Value::as_str)
-            .ok_or("Mask container has no XML")?;
-        let text = format!("<_maple_scope{}>{xml}</_maple_scope>", declarations(&scope));
-        let mut roots = mask_xml::parse(&text)?;
-        let wrapper = roots
-            .pop()
-            .filter(|w| roots.is_empty() && !w.mixed && w.children.len() == 1)
-            .ok_or("A mask container must be one element")?;
-        let scopes = mask_xml::scopes(std::slice::from_ref(&wrapper));
-        let root = wrapper
-            .children
-            .into_iter()
-            .next()
-            .ok_or("Empty mask container")?;
+        let (text, root, scopes, scope) = parse_container(source)?;
         let rank = root
             .canonical()
             .and_then(|name| CONTAINERS.iter().position(|c| *c == name));
@@ -217,19 +247,11 @@ impl Document {
         let mut opaque = 0;
         match (&seq, rank) {
             (Some(seq), Some(rank)) => {
-                let close = text[..seq.span.end]
-                    .rfind("</")
-                    .ok_or("Malformed sequence")?;
                 // raw-core drops a whole brush container when any one stroke is unreadable.
                 let whole =
                     rank != 2 || !single_layer(&text[root.span.clone()], &scope)?.is_empty();
                 for (item_index, item) in seq.children.iter().enumerate() {
-                    let piece = format!(
-                        "{}{}{}",
-                        &text[root.start.start..seq.start.end],
-                        &text[item.span.clone()],
-                        &text[close..root.span.end]
-                    );
+                    let piece = single_item(&text, &root, seq, item)?;
                     let layers = single_layer(&piece, &scope)?;
                     let structure = authored_structure(item);
                     let key = structure
