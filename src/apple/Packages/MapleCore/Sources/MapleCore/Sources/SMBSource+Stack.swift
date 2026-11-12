@@ -37,14 +37,28 @@ extension SMBSource {
       collision: collision, companionCollision: companionCollision)
   }
 
-  /// Trash the JPEG, then the RAW: a RAW that then fails to trash is still whole.
+  /// Trash the RAW and the JPEG into `.maple/trash` under one stem free for the RAW, the JPEG and
+  /// their sidecar: trashed one call each, a JPEG could land beside an older trashed RAW that took
+  /// its stem. A JPEG that cannot follow puts the RAW back, so the tile is never left half trashed.
   public func trashAsset(_ ref: ImageRef, companion: ImageRef) async throws -> RelocateOutcome {
-    let companionOutcome = try await trashAsset(companion)
-    let primary = try await trashAsset(ref)
+    let primaryPath = try mutationPath(for: ref)
+    let trashDir = try SMBFileOperations.trashDestinationDir(for: primaryPath, shareRoot: "/")
+    let outcome = try await relocateStack(
+      ref, companion: companion, to: trashDir, primaryName: Self.lastComponent(primaryPath),
+      mode: .move, collision: .autoSuffix, companionCollision: .fail)
+    let trashed = [outcome.primary.primaryPath, outcome.companion.primaryPath]
+    if let client {
+      for path in trashed {
+        await SMBFileOperations.removeTrashedMarker(forItemAt: path, transport: client)
+        await SMBFileOperations.writeTrashedMarker(forItemAt: path, transport: client)
+      }
+    }
+    forgetAssets(at: trashed)
     return RelocateOutcome(
-      primaryPath: primary.primaryPath, sidecarPath: primary.sidecarPath,
-      renamedDueToCollision: primary.renamedDueToCollision,
-      sidecarFollowed: primary.sidecarFollowed, companionPath: companionOutcome.primaryPath)
+      primaryPath: outcome.primary.primaryPath, sidecarPath: outcome.primary.sidecarPath,
+      renamedDueToCollision: outcome.primary.renamedDueToCollision,
+      sidecarFollowed: outcome.primary.sidecarFollowed,
+      companionPath: outcome.companion.primaryPath)
   }
 
   private func relocateStack(

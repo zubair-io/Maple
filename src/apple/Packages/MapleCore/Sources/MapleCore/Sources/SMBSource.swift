@@ -242,6 +242,11 @@ public actor SMBSource {
     return outcome
   }
 
+  /// Drop the files a stacked trash moved to `paths` from the listing, as `trashAsset` does.
+  func forgetAssets(at paths: [String]) {
+    _assets.removeAll { paths.contains($0.path) }
+  }
+
   /// Every item currently sitting in this share's `.maple/trash` — backs
   /// the in-app Trash browser for SMB sources.
   public func listTrash() async throws -> [TrashedItem] {
