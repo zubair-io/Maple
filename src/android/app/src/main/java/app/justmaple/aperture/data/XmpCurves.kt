@@ -8,9 +8,11 @@ import org.xmlpull.v1.XmlPullParser
 data class CurveKnot(val x: Float, val y: Float)
 
 /**
- * The eight point tone curves in canonical emit order: Maple's scene-linear
- * family (`papp:`) and the display-referred `crs:ToneCurvePV2012` family
- * (`docs/xmp-canonical-format.md` § "Tone curves").
+ * The knot curves in canonical emit order: the eight point tone curves, Maple's
+ * scene-linear family (`papp:`) and the display-referred `crs:ToneCurvePV2012`
+ * family (`docs/xmp-canonical-format.md` § "Tone curves"), then the six Oklab
+ * colour curves, which share the same `rdf:Seq` wire form. Android edits only the
+ * tone curves; the colour curves travel with Copy / Paste settings.
  */
 enum class PointCurve(val element: String) {
     SceneLuma("papp:SceneLinearToneCurve"),
@@ -20,7 +22,13 @@ enum class PointCurve(val element: String) {
     DisplayLuma("crs:ToneCurvePV2012"),
     DisplayRed("crs:ToneCurvePV2012Red"),
     DisplayGreen("crs:ToneCurvePV2012Green"),
-    DisplayBlue("crs:ToneCurvePV2012Blue");
+    DisplayBlue("crs:ToneCurvePV2012Blue"),
+    HueVsHue("papp:ColorCurveHueVsHue"),
+    HueVsSat("papp:ColorCurveHueVsSat"),
+    HueVsLuma("papp:ColorCurveHueVsLuma"),
+    LumaVsSat("papp:ColorCurveLumaVsSat"),
+    SatVsSat("papp:ColorCurveSatVsSat"),
+    SatVsLuma("papp:ColorCurveSatVsLuma");
 
     companion object {
         val byElement = entries.associateBy { it.element }

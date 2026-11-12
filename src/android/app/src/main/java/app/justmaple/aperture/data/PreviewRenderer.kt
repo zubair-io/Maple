@@ -15,6 +15,9 @@ interface PreviewRenderer : Closeable {
 
     suspend fun open(path: String, document: String, edge: Int, generation: Int): Map<String, Float>
 
+    /** Loads [document] into the open photo's model and returns its slider values, as [open] does. */
+    suspend fun modelValues(document: String): Map<String, Float>
+
     suspend fun autoWhiteBalance(document: String): app.justmaple.aperture.WhiteBalanceRecommendation
 
     suspend fun nativeDimensions(photo: Photo): NativeImageSize?

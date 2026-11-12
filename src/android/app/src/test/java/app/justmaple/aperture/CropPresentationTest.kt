@@ -27,6 +27,7 @@ class CropPresentationTest {
         override fun invalidateModel() {}
         override suspend fun open(path: String, document: String, edge: Int, generation: Int) =
             mapOf("exposure" to 1f, "_raw" to 1f, "_uncropped_aspect" to 1.5f, "_aspect" to 1f)
+        override suspend fun modelValues(document: String): Map<String, Float> = error("Settings paste is not exercised by this test")
         override suspend fun autoWhiteBalance(document: String): WhiteBalanceRecommendation = error("Not expected")
         override suspend fun nativeDimensions(photo: app.justmaple.aperture.data.Photo): app.justmaple.aperture.data.NativeImageSize? = null
         override suspend fun nativeDetail(request: app.justmaple.aperture.data.NativeDetailRequest): android.graphics.Bitmap = error("Native detail is not requested by this fixture")

@@ -55,6 +55,7 @@ class ToneCurvePanelTest {
         override fun invalidateModel() {}
         override suspend fun open(path: String, document: String, edge: Int, generation: Int) =
             mapOf("exposure" to 0f, "_raw" to 1f, "parametric_shadows" to 0f)
+        override suspend fun modelValues(document: String): Map<String, Float> = error("Settings paste is not exercised by this test")
         override suspend fun autoWhiteBalance(document: String): app.justmaple.aperture.WhiteBalanceRecommendation = error("White balance analysis is not expected in this test")
         override suspend fun nativeDimensions(photo: Photo): NativeImageSize? = null
         override suspend fun nativeDetail(request: NativeDetailRequest): android.graphics.Bitmap = error("Native detail is not requested by this fixture")

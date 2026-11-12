@@ -478,4 +478,6 @@ pub unsafe extern "C" fn maple_android_stage_bitmap(
 }
 
 #[cfg(test)]
+mod adjustment_transfer_tests;
+#[cfg(test)]
 mod export_tests;

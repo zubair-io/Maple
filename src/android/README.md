@@ -17,8 +17,9 @@ use a sources column, image area, and controls or Info inspector, with a vertica
 filmstrip. Search currently searches names in the open folder. Maple Cloud/self-hosted
 connections support the iPad server-domain sign-in flow, registered libraries,
 nested folders, remote previews, and editing with conditional XMP saves. Device-library
-backup, server search/map/admin, masks, clone/heal, copy/paste settings and the other
-remaining specialized editor surfaces are not implemented; the per-surface status is
+backup, server search/map/admin, masks, clone/heal, Browse multi-select (and with it
+paste onto a selection) and the other remaining specialized editor surfaces are not
+implemented; the per-surface status is
 the audit on #4623, which remains open. Android delegates
 SMB access to OS document providers through the existing folder picker; a direct
 SMB client and credential manager are outside the Android scope.
@@ -47,6 +48,27 @@ raw-core's import, only `rdf:`/`crs:`/`papp:` leaves inside a curve are knots: a
 foreign or `papp:Workflow` element is opaque with everything inside it. Curves nested
 in a Lightroom `crs:Look` and all other foreign bytes are kept, and restoring the loaded
 knots leaves the saved bytes untouched (`docs/xmp-canonical-format.md` § "Tone curves").
+
+## Copy / Paste settings
+
+More photo actions → Copy settings keeps the open photo's sidecar as the serializer
+writes it, so implied values (the Auto profile, the white-balance scale) travel
+explicitly. In the editor, Paste settings… opens a group picker with raw-core's six
+groups (White Balance, Tone, Color, Detail, Effects, Geometry); each checked group lists
+the fields the paste changes on this photo as current → incoming. Paste writes the
+checked groups as one undo entry. Copy is absolute: each field's XMP attributes and
+knot curves come from the generated transfer table (`generated/AdjustmentTransfer.kt`,
+emitted by `tools/codegen.sh` from `raw-core`'s `transfer_mode`,
+`TRANSFER_XMP_ATTRIBUTES` and `TRANSFER_XMP_ELEMENTS`), and a key the source omits is
+removed from the target. White balance also carries `crs:WhiteBalance`. Relative
+white balance is not offered, because it needs each target's As Shot baseline. Fields
+marked Unsupported never move, so local adjustments, repair spots, inpaint removals and
+white-balance sample coordinates stay as the target had them. Every other attribute and
+element, foreign bytes included, is kept. On a JPEG/PNG/TIFF/WebP target the RAW-only
+fields raw-core rejects for rasters (`AdjustmentFields.rasterRestricted`) are skipped.
+After a paste the slider values come from the native model for the pasted XMP
+(`PreviewRenderer.modelValues`), so white balance reads on the target camera's scale.
+There is no Browse multi-select on Android yet, so paste applies to the open photo only.
 
 ## Build
 
