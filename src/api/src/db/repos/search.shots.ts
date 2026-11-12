@@ -20,6 +20,11 @@
  */
 export interface ShotFields {
   owner_id?: string | null;
+  /**
+   * The owner of the shot when it is not the row's own: a RAW+JPEG stack is served as its RAW but
+   * keeps the shot of the JPEG that ranked first (#5849), owner included.
+   */
+  shot_owner_id?: string | null;
   captured_at: string | null;
   media_kind: string;
   filename: string | null;
@@ -63,7 +68,8 @@ export function shotKey(row: ShotFields): string | null {
   if (row.captured_at.length < CAPTURE_SECOND_LENGTH) return null;
   const stem = shotStem(row.filename);
   const second = row.captured_at.slice(0, CAPTURE_SECOND_LENGTH);
-  return stem.length > 0 ? [row.owner_id ?? '', second, row.media_kind, stem].join('\u0000') : null;
+  const owner = row.shot_owner_id === undefined ? row.owner_id : row.shot_owner_id;
+  return stem.length > 0 ? [owner ?? '', second, row.media_kind, stem].join('\u0000') : null;
 }
 
 /**

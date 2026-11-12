@@ -19,13 +19,15 @@ function row(
   r: number,
   id: string,
   stackPrimaryId: string | null = null,
-  shot: Pick<WindowRow, 'captured_at' | 'filename'> = { captured_at: null, filename: null },
+  shot: Partial<Pick<WindowRow, 'captured_at' | 'filename' | 'owner_id'>> = {},
 ): WindowRow {
   return {
     r,
     id,
     maple_id: id,
     owner_id: null,
+    captured_at: null,
+    filename: null,
     stack_primary_id: stackPrimaryId,
     media_kind: 'image',
     ...shot,
@@ -106,6 +108,24 @@ describe('ranked RAW+JPEG fold #5849', () => {
     const served = [...narrow.slice(0, 300), ...wide.slice(300, 400)];
     // Hits 2-399, then the RAW's own rank folds away and hit 401 follows.
     expect(served).toEqual(['jpeg', ...ids(WITH_COPY.slice(2, 402)).filter((id) => id !== 'raw')]);
+  });
+
+  it('the stack keeps the owner of the half that ranked first in its shot, not the RAW owner', async () => {
+    // An uploaded JPEG and its copy beside a RAW another owner's library scan found.
+    const owned = WITH_COPY.map((entry) =>
+      entry.id === 'jpeg' || entry.id === 'copy'
+        ? { ...entry, owner_id: 'alice' }
+        : entry.id === 'raw'
+          ? { ...entry, owner_id: 'bob' }
+          : entry,
+    );
+    const narrow = await windowRows(owned, 300, 400);
+    const wide = await rankWindow(rankerOf(owned), 400);
+
+    expect(narrow).not.toContain('copy');
+    expect(ids(wide!.rows)).not.toContain('copy');
+    // The stack is served as the RAW, so its document keeps the RAW's owner.
+    expect(wide!.rows[0]).toMatchObject({ id: 'raw', owner_id: 'bob' });
   });
 
   it('the stack leader remembers the JPEG that folded into it, whichever half ranked first', () => {
