@@ -2,7 +2,8 @@
 //
 // Note these routes are `requireAuth` only, NOT `requireOwner`
 // (src/api/src/workers/routes-main.ts) — unlike /api/cloudflare. Hiding the
-// Workers page from members is a presentation choice, not a boundary.
+// Workers page from members is a presentation choice, not a boundary. The one
+// exception is `PUT /api/workers/temporal`, which is owner-only.
 
 import Foundation
 
@@ -124,6 +125,25 @@ public actor WorkersAdminClient {
     request.httpBody = try JSONEncoder().encode(command)
     let (data, resp) = try await httpClient.data(for: request)
     if let error = ServerAdminError.from(data: data, response: resp) { throw error }
+  }
+
+  // MARK: - Temporal (#5826)
+
+  public func temporal() async throws -> TemporalSettings {
+    try await get(server.appending(path: "/api/workers/temporal"), as: TemporalSettings.self)
+  }
+
+  /// Owner only: unlike the rest of /api/workers this is `requireOwner`
+  /// server-side, so a member gets a 403 `ServerAdminError`. An address that
+  /// isn't host:port comes back as a 400 carrying the server's explanation.
+  public func saveTemporal(_ target: TemporalTarget) async throws -> TemporalSettings {
+    var request = URLRequest(url: server.appending(path: "/api/workers/temporal"))
+    request.httpMethod = "PUT"
+    request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+    request.httpBody = try JSONEncoder().encode(target)
+    let (data, resp) = try await httpClient.data(for: request)
+    if let error = ServerAdminError.from(data: data, response: resp) { throw error }
+    return try JSONDecoder().decode(TemporalSettings.self, from: data)
   }
 
   // MARK: - Transport
