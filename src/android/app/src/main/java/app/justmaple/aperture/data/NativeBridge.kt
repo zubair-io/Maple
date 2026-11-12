@@ -20,6 +20,14 @@ object NativeBridge {
 
     external fun parametricCurve(xml: String): String
 
+    /** Points the shared crop overlay surface extends past the viewport on every side (#5715). */
+    external fun cropOverlayOverscan(): Double
+
+    /** Rasterizes the shared crop overlay into an RGBA_8888 [bitmap]; see `crop_overlay.rs`. */
+    external fun cropOverlay(bitmap: Bitmap, params: DoubleArray, active: Int)
+
+    external fun cropHandleCenters(params: DoubleArray): DoubleArray
+
     external fun openNativeDetail(path: String): Long
     external fun copyNativeDetail(handle: Long): Long
     external fun closeNativeDetail(source: Long)

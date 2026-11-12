@@ -393,6 +393,15 @@ disclosure, parent/back navigation and original bytes.
 Advanced editor tools, remaining Settings destinations, canvas gestures and exact
 platform glass treatment remain tracked in #4623.
 
+The Crop tool's overlay comes from the shared Rust overlay surface (#5715), as on
+Apple: raw-core's `crop_overlay` (mask outside the crop, frame with the dragged
+handle's edges emphasised, rule-of-thirds grid, corner dots) is rasterized over JNI
+(`crop_overlay.rs`) into its own bitmap layer, overscanned past the viewport so edge
+dots draw whole, above the photo surface, so a handle drag never re-renders the
+photo. Each of the eight handles is an accessible element placed at raw-core's
+`crop_handle_centers`. The native test checks the Android entry against the shared
+reference bytes.
+
 Portrait canvases fit both viewport axes, including when error banners change
 the available height. `PortraitCanvasTest` checks the real oriented RAW surface
 bounds and captures its frames. `SafSidecarTest` grants access through the system
