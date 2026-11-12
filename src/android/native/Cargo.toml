@@ -21,6 +21,8 @@ image = { version = "=0.25.10", default-features = false, features = ["png", "jp
 
 [dev-dependencies]
 raw-core = { path = "../../raw-pipeline/raw-core", features = ["test-support"] }
+# Reads the present target and chain buffer back in the geometry gate (#5083).
+wgpu = "23"
 
 [features]
 # Runs the tests that read the gitignored test-fixtures/raws (#1082).

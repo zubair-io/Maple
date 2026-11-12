@@ -1414,6 +1414,7 @@ dependencies = [
  "raw-gpu",
  "serde_json",
  "tiff",
+ "wgpu",
 ]
 
 [[package]]
