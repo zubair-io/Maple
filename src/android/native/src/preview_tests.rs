@@ -196,6 +196,79 @@ fn raw_android_binding_matches_cpu_reference_and_reuses_pool() {
     assert_eq!(allocations, session.live.pool_alloc_count(&session.ctx));
 }
 
+/// The XML the Android writer emits for both point-curve families reaches the
+/// GPU live chain through `maple_android_model`, changes the photo, and stays
+/// within the CPU reference's byte budget.
+#[test]
+fn authored_point_curves_render_on_the_gpu_like_the_cpu_reference() {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../../test-fixtures/batch-transfer/source.dng");
+    let identity = "<rdf:Description xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"/>";
+    let curves = r#"<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+  <rdf:Description rdf:about="" xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/" xmlns:papp="http://ns.justmaple.app/photo/1.0/" papp:ToneCurveMode="RatioPreserving">
+    <papp:SceneLinearToneCurveRed>
+      <rdf:Seq>
+        <rdf:li>0, 0</rdf:li>
+        <rdf:li>63.75, 90</rdf:li>
+        <rdf:li>255, 255</rdf:li>
+      </rdf:Seq>
+    </papp:SceneLinearToneCurveRed>
+    <crs:ToneCurvePV2012>
+      <rdf:Seq>
+        <rdf:li>0, 0</rdf:li>
+        <rdf:li>128, 160</rdf:li>
+        <rdf:li>255, 255</rdf:li>
+      </rdf:Seq>
+    </crs:ToneCurvePV2012>
+  </rdf:Description>
+</rdf:RDF></x:xmpmeta>"#;
+    let mut session = Session::open(path.to_str().unwrap(), identity, 2048).unwrap();
+    let render = |session: &mut Session| {
+        session.update().unwrap();
+        session
+            .live
+            .render_to_buffer(&session.ctx, &session.inputs, &CancelToken::new())
+            .unwrap()
+            .unwrap()
+    };
+    let plain = render(&mut session);
+    let raw_xml = std::ffi::CString::new(curves).unwrap();
+    let handle = (&mut session as *mut Session).cast::<std::ffi::c_void>();
+    assert_eq!(
+        unsafe { crate::maple_android_model(handle, raw_xml.as_ptr()) },
+        0
+    );
+    assert_eq!(session.model.display_tone_curve_luma.points.len(), 3);
+    let curved = render(&mut session);
+    let raw = session.raw.as_ref().unwrap();
+    let (_, _, cpu) = raw_core::pipeline::render_from_raw_with_quality_and_source(
+        raw,
+        &session.model,
+        raw_core::pipeline::RenderQuality::Amaze,
+        Some(raw_core::pipeline::RawInput::Bytes {
+            bytes: &session.bytes,
+            ext: &session.ext,
+        }),
+    )
+    .unwrap();
+    let worst = curved
+        .iter()
+        .zip(&cpu)
+        .map(|(a, b)| a.abs_diff(*b))
+        .max()
+        .unwrap();
+    assert!(worst <= 2, "Curve CPU/GPU maximum byte difference {worst}");
+    let changed = plain
+        .iter()
+        .zip(&curved)
+        .filter(|(a, b)| a.abs_diff(**b) > 4)
+        .count();
+    assert!(
+        changed > plain.len() / 4,
+        "Curves changed only {changed} bytes"
+    );
+}
+
 #[test]
 fn generated_scalar_access_validates_ranges_and_marks_manual_wb() {
     let mut model = AdjustmentModel::default();

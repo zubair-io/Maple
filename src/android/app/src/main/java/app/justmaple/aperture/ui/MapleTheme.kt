@@ -24,6 +24,11 @@ object MapleColors {
     val primaryDim = color(UiTokens.primary_dim)
     val star = color(UiTokens.star)
     val error = color(UiTokens.error_text)
+
+    // Point-curve channel strokes; mirror Apple ProTokens.curve* and web --pro-curve-{r,g,b}.
+    val curveRed = Color(0xFFD1584A)
+    val curveGreen = Color(0xFF5AA361)
+    val curveBlue = Color(0xFF4F7FC4)
 }
 
 @Composable

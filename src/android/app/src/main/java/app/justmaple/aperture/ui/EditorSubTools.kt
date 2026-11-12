@@ -53,6 +53,10 @@ val toneCurveFieldNames =
 val toneCurveFields: List<AdjustmentField>
     get() = toneCurveFieldNames.map(AdjustmentFields.byName::getValue)
 
+/** The parametric region and split sliders shape the scene family only, as on iPad. */
+fun toneCurveSliders(family: ToneCurveFamily): List<AdjustmentField> =
+    if (family == ToneCurveFamily.Scene) toneCurveFields else emptyList()
+
 val geometryFieldNames =
     listOf(
         "perspective_vertical",

@@ -685,13 +685,25 @@ internal constructor(
     fun attribute(name: String, value: String?) = setAttributes(mapOf(name to value), commit = true)
 
     fun setAttributes(updates: Map<String, String?>, commit: Boolean = true) {
-        if (!state.value.canChangeMetadata || updates.isEmpty()) return
+        if (updates.isEmpty()) return
+        updateDocument(commit) { document ->
+            updates.entries.fold(document) { doc, (k, v) -> doc.withAttribute(k, v) }
+        }
+    }
+
+    /** Opens (or continues) an undo gesture; the caller commits it when the drag ends. */
+    fun setCurve(curve: PointCurve, knots: List<CurveKnot>) {
+        if (!state.value.canEdit || state.value.document.curve(curve) == knots) return
+        updateDocument(commit = false) { it.withCurve(curve, knots) }
+    }
+
+    private fun updateDocument(commit: Boolean, transform: (XmpDocument) -> XmpDocument) {
+        if (!state.value.canChangeMetadata) return
         cancelNativeDetail()
         val editing = state.value.mode == PhotoMode.Edit && state.value.values.isNotEmpty()
         if (editing) beginGesture()
         mutable.update { current ->
-            val nextDoc =
-                updates.entries.fold(current.document) { doc, (k, v) -> doc.withAttribute(k, v) }
+            val nextDoc = transform(current.document)
             current.copy(document = nextDoc, nativeImageSize = nativeProjection(nextDoc,
                 current.nativeSourceSize), comparingBefore = false, dirty = true)
         }

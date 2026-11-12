@@ -121,6 +121,8 @@ Apple's Color controls include **Pick white balance** on macOS, iPadOS, and iOS,
 
 Four point curves — `toneCurveLuma`, `toneCurveRed`, `toneCurveGreen`, `toneCurveBlue` — are lists of `[x, y]` control points in a 0–1 authoring domain. **The empty curve is identity**, which is what keeps a default model bit-identical on every platform. `toneCurveMode` selects `PerChannel` (three independent curves, hue shifts allowed) or `RatioPreserving` (folded through Rec.2020 luma).
 
+The Android editor's Light → Tone Curve panel edits both point-curve families (`papp:SceneLinearToneCurve*` with the mode, and `crs:ToneCurvePV2012*`) using Apple's knot rules, drawing each curve through raw-core's own evaluator (`src/android/README.md` § "Tone curves").
+
 ### Color
 
 - `vibrance`, `saturation`: −100 … 100.

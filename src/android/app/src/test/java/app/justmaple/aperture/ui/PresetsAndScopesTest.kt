@@ -155,23 +155,4 @@ class PresetsAndScopesTest {
         assertFalse(MapleState().isPresetActive(lookOnly.first()))
         assertEquals(6, vectorscopeTargetStops.size)
     }
-
-    @Test
-    fun toneCurveZoneAndRelativeDragMappingMatchCoreParametricSplits() {
-        // Default splits (25, 50, 75) on the core's logarithmic axis map to ~0.01125, 0.045, 0.18
-        assertEquals(0.01125f, parametricAxisToAuthoringX(25f), 1e-4f)
-        assertEquals(0.045f, parametricAxisToAuthoringX(50f), 1e-4f)
-        assertEquals(0.18f, parametricAxisToAuthoringX(75f), 1e-4f)
-
-        assertEquals("parametric_shadows", toneCurveZoneFieldForX(0.005f))
-        assertEquals("parametric_darks", toneCurveZoneFieldForX(0.025f))
-        assertEquals("parametric_lights", toneCurveZoneFieldForX(0.10f))
-        assertEquals("parametric_highlights", toneCurveZoneFieldForX(0.50f))
-
-        // Relative drag from starting slider value: no jump at startNy == currentNy
-        assertEquals(35f, toneCurveValueForDrag(startValue = 35f, startNy = 0.5f, currentNy = 0.5f), 1e-4f)
-        // Dragging up (smaller ny) increases value; dragging down decreases value
-        assertTrue(toneCurveValueForDrag(startValue = 0f, startNy = 0.5f, currentNy = 0.25f) > 0f)
-        assertTrue(toneCurveValueForDrag(startValue = 0f, startNy = 0.5f, currentNy = 0.75f) < 0f)
-    }
 }

@@ -1,8 +1,5 @@
 package app.justmaple.aperture.ui
 
-import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.gestures.awaitEachGesture
-import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -10,28 +7,15 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.input.pointer.positionChanged
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.justmaple.aperture.MapleState
 import app.justmaple.aperture.MapleViewModel
 import app.justmaple.aperture.generated.AdjustmentFields
-import java.util.Locale
 import kotlin.math.abs
-import kotlin.math.pow
-import kotlin.math.roundToInt
-import app.justmaple.aperture.data.NativeBridge
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -430,235 +414,5 @@ internal fun BuiltInPresetsRow(
                 TextButton(onClick = { saveDialogOpen = false }) { Text("Cancel") }
             },
         )
-    }
-}
-
-private const val PARAMETRIC_MIDGREY = 0.18f
-private const val PARAMETRIC_AXIS_MIDTONE = 50.0f
-private const val PARAMETRIC_AXIS_UNITS_PER_STOP = 12.5f
-private const val PARAMETRIC_REF_MAX = 4.0f
-private const val PARAMETRIC_AXIS_MAX = 100.0f
-private const val PARAMETRIC_MIN_SPLIT_GAP = 1.0f
-
-/**
- *Enforces ordered parametric splits with at least 1 axis unit gap, matching
- * `ordered_splits` in `src/raw-pipeline/raw-core/src/stages/tone_curves/parametric.rs`.
- */
-fun orderedParametricSplits(
-    shadowSplit: Float = 25f,
-    midtoneSplit: Float = 50f,
-    highlightSplit: Float = 75f,
-): Triple<Float, Float, Float> {
-    val midtone =
-        midtoneSplit.coerceIn(
-            2f * PARAMETRIC_MIN_SPLIT_GAP,
-            PARAMETRIC_AXIS_MAX - 2f * PARAMETRIC_MIN_SPLIT_GAP,
-        )
-    val shadow = shadowSplit.coerceIn(PARAMETRIC_MIN_SPLIT_GAP, midtone - PARAMETRIC_MIN_SPLIT_GAP)
-    val highlight =
-        highlightSplit.coerceIn(
-            midtone + PARAMETRIC_MIN_SPLIT_GAP,
-            PARAMETRIC_AXIS_MAX - PARAMETRIC_MIN_SPLIT_GAP,
-        )
-    return Triple(shadow, midtone, highlight)
-}
-
-/**
- * Maps a parametric exposure-axis position `p` in `[0, 100]` to the normalized `[0, 1]`
- * authoring coordinate `x` (where `1.0` = `REF_MAX = 4.0`), matching `axis_to_authoring_x`
- * in `src/raw-pipeline/raw-core/src/stages/tone_curves/parametric.rs`.
- */
-fun parametricAxisToAuthoringX(p: Float): Float {
-    val stops = (p - PARAMETRIC_AXIS_MIDTONE) / PARAMETRIC_AXIS_UNITS_PER_STOP
-    val luma = PARAMETRIC_MIDGREY * 2.0.pow(stops.toDouble()).toFloat()
-    return (luma / PARAMETRIC_REF_MAX).coerceIn(0f, 1f)
-}
-
-/**
- * Maps a normalized horizontal position `nx` in `[0, 1]` on the parametric tone curve plot
- * to the corresponding parametric zone field name (`parametric_shadows`, `parametric_darks`,
- * `parametric_lights`, or `parametric_highlights`) using the core's logarithmic split transform.
- */
-fun toneCurveZoneFieldForX(
-    nx: Float,
-    shadowSplit: Float = 25f,
-    midtoneSplit: Float = 50f,
-    highlightSplit: Float = 75f,
-): String {
-    val (sAxis, mAxis, hAxis) = orderedParametricSplits(shadowSplit, midtoneSplit, highlightSplit)
-    val s = parametricAxisToAuthoringX(sAxis)
-    val m = parametricAxisToAuthoringX(mAxis)
-    val h = parametricAxisToAuthoringX(hAxis)
-    return when {
-        nx < s -> "parametric_shadows"
-        nx < m -> "parametric_darks"
-        nx < h -> "parametric_lights"
-        else -> "parametric_highlights"
-    }
-}
-
-/**
- * Maps a relative vertical drag from `startNy` to `currentNy` (both in `[0, 1]`, top = 0,
- * bottom = 1) onto the starting parametric zone slider value in `[-100, +100]`.
- * Dragging up (`currentNy < startNy`) raises the zone; dragging down lowers it, without
- * jumping the slider on initial touch-down.
- */
-fun toneCurveValueForDrag(startValue: Float, startNy: Float, currentNy: Float): Float {
-    val delta = ((startNy - currentNy) * 200f).coerceIn(-200f, 200f)
-    return (startValue + delta).roundToInt().toFloat().coerceIn(-100f, 100f)
-}
-
-@Composable
-internal fun ParametricToneCurvePlot(
-    state: MapleState,
-    modifier: Modifier = Modifier,
-    model: MapleViewModel? = null,
-) {
-    val shadows = state.values["parametric_shadows"] ?: 0f
-    val darks = state.values["parametric_darks"] ?: 0f
-    val lights = state.values["parametric_lights"] ?: 0f
-    val highlights = state.values["parametric_highlights"] ?: 0f
-    val sSplit = state.values["parametric_shadow_split"] ?: 25f
-    val mSplit = state.values["parametric_midtone_split"] ?: 50f
-    val hSplit = state.values["parametric_highlight_split"] ?: 75f
-    val currentSplits by rememberUpdatedState(Triple(sSplit, mSplit, hSplit))
-    val currentValues by rememberUpdatedState(state.values)
-    val currentCanEdit by rememberUpdatedState(state.canEdit)
-    val xml = remember(shadows, darks, lights, highlights, sSplit, mSplit, hSplit) {
-        state.document.serialize()
-    }
-    val curve by produceState<Result<List<Offset>>?>(null, xml) {
-        value = null
-        value = withContext(Dispatchers.Default) {
-            runCatching {
-                val points = JSONArray(NativeBridge.parametricCurve(xml))
-                List(points.length()) { index ->
-                    val point = points.getJSONArray(index)
-                    Offset(point.getDouble(0).toFloat(), point.getDouble(1).toFloat())
-                }
-            }
-        }
-    }
-
-    Column(
-        modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 6.dp)
-            .testTag("editor-tone-curve-plot"),
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        Box(
-            Modifier.size(180.dp)
-                .pointerInput(model) {
-                    if (model == null) return@pointerInput
-                    awaitEachGesture {
-                        val down = awaitFirstDown(requireUnconsumed = false)
-                        if (!currentCanEdit) return@awaitEachGesture
-                        val w = size.width.toFloat().coerceAtLeast(1f)
-                        val h = size.height.toFloat().coerceAtLeast(1f)
-                        val (s, m, hl) = currentSplits
-                        val startNx = (down.position.x / w).coerceIn(0f, 1f)
-                        val startNy = (down.position.y / h).coerceIn(0f, 1f)
-                        val zoneField = toneCurveZoneFieldForX(startNx, s, m, hl)
-                        val startValue = currentValues[zoneField] ?: 0f
-                        var moved = false
-                        var committed = false
-                        try {
-                            do {
-                                val event = awaitPointerEvent()
-                                val change = event.changes.firstOrNull { it.pressed } ?: break
-                                if (change.positionChanged()) {
-                                    val ny = (change.position.y / h).coerceIn(0f, 1f)
-                                    val nextValue = toneCurveValueForDrag(startValue, startNy, ny)
-                                    model.setField(zoneField, nextValue)
-                                    moved = true
-                                    change.consume()
-                                }
-                            } while (event.changes.any { it.pressed })
-                            if (moved) model.commitGesture()
-                            committed = true
-                        } finally {
-                            if (moved && !committed) model.commitGesture()
-                        }
-                    }
-                }
-                .semantics {
-                    contentDescription =
-                        String.format(
-                            Locale.US,
-                            "Tone curve plot (S %.0f, D %.0f, L %.0f, H %.0f)",
-                            shadows,
-                            darks,
-                            lights,
-                            highlights,
-                        )
-                }
-                .testTag("tone-curve-canvas"),
-        ) {
-            Canvas(Modifier.fillMaxSize()) {
-                val w = size.width
-                val h = size.height
-                // Grid lines at 25%, 50%, 75%
-                for (i in 1..3) {
-                    val frac = i / 4f
-                    drawLine(
-                        color = Color.White.copy(alpha = 0.12f),
-                        start = Offset(w * frac, 0f),
-                        end = Offset(w * frac, h),
-                        strokeWidth = 1.dp.toPx(),
-                    )
-                    drawLine(
-                        color = Color.White.copy(alpha = 0.12f),
-                        start = Offset(0f, h * frac),
-                        end = Offset(w, h * frac),
-                        strokeWidth = 1.dp.toPx(),
-                    )
-                }
-                // Split point vertical markers mapped to authoring x
-                val (sAxis, mAxis, hAxis) = orderedParametricSplits(sSplit, mSplit, hSplit)
-                for (splitAxis in listOf(sAxis, mAxis, hAxis)) {
-                    val sx = parametricAxisToAuthoringX(splitAxis) * w
-                    drawLine(
-                        color = MapleColors.primary.copy(alpha = 0.25f),
-                        start = Offset(sx, 0f),
-                        end = Offset(sx, h),
-                        strokeWidth = 1.dp.toPx(),
-                    )
-                }
-                // Identity diagonal
-                drawLine(
-                    color = Color.White.copy(alpha = 0.28f),
-                    start = Offset(0f, h),
-                    end = Offset(w, 0f),
-                    strokeWidth = 1.dp.toPx(),
-                )
-                curve?.getOrNull()?.let { points ->
-                    val path = Path()
-                    points.forEachIndexed { index, point ->
-                        val px = point.x * w
-                        val py = (1f - point.y) * h
-                        if (index == 0) path.moveTo(px, py) else path.lineTo(px, py)
-                    }
-                    drawPath(path, MapleColors.primary, style = Stroke(width = 2.dp.toPx()))
-                }
-            }
-        }
-        if (curve?.isFailure == true) {
-            Text("Curve preview unavailable", color = MapleColors.muted, fontSize = 10.sp)
-        }
-        Row(
-            Modifier.fillMaxWidth().padding(top = 4.dp),
-            horizontalArrangement = Arrangement.SpaceEvenly,
-        ) {
-            for ((zone, v) in
-                listOf("S" to shadows, "D" to darks, "L" to lights, "H" to highlights)) {
-                Text(
-                    String.format(Locale.US, "%s %+.0f", zone, v),
-                    fontSize = 10.sp,
-                    color = MapleColors.muted,
-                    fontFamily = FontFamily.Monospace,
-                )
-            }
-        }
     }
 }

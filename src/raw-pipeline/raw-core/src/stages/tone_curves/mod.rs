@@ -95,6 +95,21 @@ pub fn parametric_curve_preview(model: &AdjustmentModel) -> Vec<(f32, f32)> {
         .collect()
 }
 
+/// `samples + 1` evenly spaced points of an authored point curve, evaluated
+/// by the stages' own Fritsch–Carlson interpolant in the `[0, 1]` authoring
+/// domain, so an editor plot draws the shape the pipeline renders. The empty
+/// curve is the identity and a single knot is constant, as in the stages.
+pub fn point_curve_preview(curve: &ToneCurve, samples: usize) -> Vec<(f32, f32)> {
+    let prepared = prepare_curve(curve);
+    let steps = samples.max(1);
+    (0..=steps)
+        .map(|index| {
+            let x = index as f32 / steps as f32;
+            (x, eval_curve_unit(&prepared, x))
+        })
+        .collect()
+}
+
 // ---------------------------------------------------------------------
 // Public stage entry point
 // ---------------------------------------------------------------------

@@ -12,11 +12,14 @@ class XmpDocument
 private constructor(
     private val source: ParsedSource,
     val changes: Map<String, String?>,
+    /** Point curves replaced since [original]; an empty list is the identity. */
+    val curves: Map<PointCurve, List<CurveKnot>>,
 ) {
     constructor(
         original: String = EMPTY,
         changes: Map<String, String?> = emptyMap(),
-    ) : this(ParsedSource(original), changes)
+        curves: Map<PointCurve, List<CurveKnot>> = emptyMap(),
+    ) : this(ParsedSource(original), changes, curves)
 
     val original: String
         get() = source.xml
@@ -30,13 +33,25 @@ private constructor(
                     require(it.isNotEmpty()) { "XMP has no RDF description" }
                 }
         val attributes = buildMap { tags.forEach { putAll(it.second.attributes) } }
+        val curves by lazy { readPointCurves(xml, ::canonicalPrefix) }
     }
 
     override fun equals(other: Any?): Boolean =
         this === other ||
-            (other is XmpDocument && original == other.original && changes == other.changes)
+            (other is XmpDocument && original == other.original && changes == other.changes &&
+                curves == other.curves)
 
-    override fun hashCode(): Int = 31 * original.hashCode() + changes.hashCode()
+    override fun hashCode(): Int = 31 * (31 * original.hashCode() + changes.hashCode()) + curves.hashCode()
+
+    fun curve(curve: PointCurve): List<CurveKnot> = curves[curve] ?: source.curves[curve].orEmpty()
+
+    /** Restoring the loaded knots drops the change, so the saved bytes stay untouched. */
+    fun withCurve(curve: PointCurve, knots: List<CurveKnot>): XmpDocument =
+        XmpDocument(
+            source,
+            changes,
+            if (knots == source.curves[curve].orEmpty()) curves - curve else curves + (curve to knots),
+        )
 
     fun withField(field: AdjustmentField, value: Float): XmpDocument {
         require(value.isFinite() && value in field.minimum..field.maximum)
@@ -52,7 +67,7 @@ private constructor(
                     "papp:WbSource" to "Manual",
                 )
             else emptyMap()
-        return XmpDocument(source, changes + additions + wb)
+        return XmpDocument(source, changes + additions + wb, curves)
     }
 
     val rating: Int
@@ -62,7 +77,8 @@ private constructor(
                 ?.takeIf { it.isFinite() && it in -1.0..5.0 && it == it.toInt().toDouble() }
                 ?.toInt() ?: 0
 
-    fun withAttribute(name: String, value: String?) = XmpDocument(source, changes + (name to value))
+    fun withAttribute(name: String, value: String?) =
+        XmpDocument(source, changes + (name to value), curves)
 
     fun withoutWhiteBalance(): XmpDocument =
         listOf(
@@ -121,6 +137,15 @@ private constructor(
                     "crs:Version" to (attribute("crs:Version") ?: "11.0"),
                     "crs:ProcessVersion" to (attribute("crs:ProcessVersion") ?: "11.0"),
                 )
+        val lastScope = tags.last().second
+        val (curveEdits, selfClosingTail) =
+            pointCurveEdits(
+                original,
+                tags.map { (tag, scope) -> DescriptionTag(tag.range, tag.value, scope.bindings) },
+                curves,
+                ::attributeName,
+                outputPrefixes(lastScope.bindings),
+            )
         val replacements = tags.map { (tag, scope) ->
             val stripped =
                 ATTRIBUTE.replace(tag.value) { match ->
@@ -158,18 +183,19 @@ private constructor(
                             }
                     }
                 else ""
-            tag to stripped.dropLast(suffix.length) + extra + suffix
+            val closing = if (tag == tags.last().first && selfClosingTail.isNotEmpty()) ">$selfClosingTail" else suffix
+            XmlEdit(tag.range.first, tag.range.last, stripped.dropLast(suffix.length) + extra + closing)
         }
-        val size =
-            original.length + replacements.sumOf { (tag, value) -> value.length - tag.value.length }
+        val edits = (replacements + curveEdits).sortedBy { it.start }
+        val size = original.length + edits.sumOf { it.text.length - (it.end + 1 - it.start) }
         return buildString(size) {
-                for ((index, replacement) in replacements.withIndex()) {
-                    val (tag, value) = replacement
-                    val start = replacements.getOrNull(index - 1)?.first?.range?.last?.plus(1) ?: 0
-                    append(original, start, tag.range.first)
-                    append(value)
+                var cursor = 0
+                for (edit in edits) {
+                    append(original, cursor, edit.start)
+                    append(edit.text)
+                    cursor = edit.end + 1
                 }
-                append(original, replacements.last().first.range.last + 1, original.length)
+                append(original, cursor, original.length)
             }
             .also(::validate)
     }
@@ -214,16 +240,13 @@ private constructor(
                             .first { it !in bindings }
             }
 
+        private fun canonicalPrefix(uri: String?): String? =
+            NAMESPACES.entries.firstOrNull { it.value == uri || (it.key == "papp" && uri in LEGACY_PAPP) }?.key
+
         private fun attributeName(name: String, scope: Map<String, String>): String {
             if (':' !in name) return name
             val prefix = name.substringBefore(':')
-            val uri = scope[prefix]
-            val canonical =
-                NAMESPACES.entries
-                    .firstOrNull {
-                        it.value == uri || (it.key == "papp" && uri in LEGACY_PAPP)
-                    }
-                    ?.key
+            val canonical = canonicalPrefix(scope[prefix])
             return if (canonical != null) "$canonical:${name.substringAfter(':')}"
             else if (prefix in NAMESPACES) "" else name
         }
