@@ -4,12 +4,13 @@
  * The device names the version its edit was based on: the head entry id of the
  * sidecar's edit history, or the SHA-256 of the XMP it last delivered (`none` for
  * neither). Under the shared sidecar write barrier:
- *   - nothing on disk yet → create it, with the send as the first history entry;
+ *   - nothing on disk yet → create it as sent, with the send's history entry on top;
  *   - the server already holds exactly this edit → leave it alone;
  *   - the server still holds the base version → the send replaces the adjustments;
  *   - anything else is reconciled onto the stored sidecar (`sidecar-history.ts`):
- *     the send lands on top, what it displaced stays in the history, and no
- *     separate record is kept;
+ *     the send lands on top and what it displaced stays in the history; when the
+ *     result differs from what the device sent, the sent adjustments are kept in the
+ *     ledger (`recordSent`), since the device's next send is based on them;
  *   - except when a same-stem sibling shares the sidecar (#4692): then only the
  *     named base may be replaced, and any other incoming edit is kept aside
  *     (`keepAside`) instead, so one photo never overwrites the other's edits.
@@ -29,6 +30,7 @@ import {
   firstBackupSidecar,
   reconcileBackupSidecar,
   sha256Hex,
+  type SentUpdate,
   type SidecarBase,
 } from './sidecar-history.ts';
 
@@ -69,8 +71,15 @@ export function parseSidecarBase(
  * up-front one, e.g. a parent folder was swapped for a symlink. */
 class RefusedPath extends Error {}
 
-/** Keeps an edit a shared sidecar refused to take. */
-type KeepAside = (incoming: { xmp: string; sha256: string }) => Promise<void>;
+/** What a send keeps on the server beside the sidecar itself. */
+export interface SendLedger {
+  /** Keeps an edit a shared sidecar refused to take. */
+  keepAside(incoming: { xmp: string; sha256: string }): Promise<void>;
+  /** What the device sent for a history entry the server merged into other adjustments. */
+  sentOf(entryId: string): Promise<string | null>;
+  /** Runs before a send's sidecar is written over the stored one. */
+  recordSent(update: SentUpdate): Promise<void>;
+}
 
 async function readCurrent(destination: string): Promise<string | null> {
   try {
@@ -84,7 +93,7 @@ async function readCurrent(destination: string): Promise<string | null> {
 interface Publication {
   xmp: string;
   base: SidecarBase;
-  keepAside: KeepAside;
+  ledger: SendLedger;
   shared: boolean;
 }
 
@@ -101,12 +110,14 @@ async function publishOver(
     base: send.base,
     shared: send.shared,
     now: Date.now(),
+    sentOf: (entryId) => send.ledger.sentOf(entryId),
   });
   if (applied.kind === 'unchanged') return applied;
   if (applied.kind === 'shared') {
-    await send.keepAside({ xmp: send.xmp, sha256: sha256Hex(send.xmp) });
+    await send.ledger.keepAside({ xmp: send.xmp, sha256: sha256Hex(send.xmp) });
     return applied;
   }
+  await send.ledger.recordSent(applied.sends);
   await beforeWrite();
   const written = await writeSidecarAtomic(destination, applied.xmp, 'sidecar write failed');
   if (!written.ok) return { kind: 'error', error: written.error };
@@ -193,7 +204,7 @@ export async function publishSidecarCas(
   destination: string,
   xmp: string,
   base: SidecarBase,
-  keepAside: KeepAside,
+  ledger: SendLedger,
   admissionScope: string,
   options: SidecarCasOptions = {},
 ): Promise<SidecarCasOutcome> {
@@ -208,7 +219,7 @@ export async function publishSidecarCas(
       const shared = (await options.shared?.()) ?? false;
       const outcome = await publishAt(
         target,
-        { xmp, base, keepAside, shared },
+        { xmp, base, ledger, shared },
         options.beforeWrite ?? (async () => undefined),
       );
       const landed = outcome.kind === 'written' || outcome.kind === 'reconciled';

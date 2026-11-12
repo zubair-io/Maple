@@ -22,8 +22,8 @@
  *                             no sidecar. Wins over X-Maple-Sidecar-Base.
  *   X-Maple-Sidecar-Base    — optional — the SHA-256 (hex) of the sidecar this
  *                             device last delivered, or `none` for its first
- *                             (#4719); resolved to the history entry that send
- *                             produced.
+ *                             (#4719); resolved to the latest history entry
+ *                             that send produced.
  *                             Either header present → compare-and-swap, and the
  *                             write never skips: the send replaces the adjustments
  *                             of the base version, or is reconciled onto a newer
@@ -72,12 +72,17 @@ import {
   parseSidecarBase,
   publishSidecarCas,
   publishSidecarIfAbsent,
+  type SendLedger,
 } from '../backup/sidecar-cas.ts';
 import { checkpointOf, type SidecarBase } from '../backup/sidecar-history.ts';
 import {
   hasSidecarDivergence,
   recordSidecarDivergence,
 } from '../db/repos/sidecar-divergences.repo.ts';
+import {
+  recordBackupSidecarSends,
+  sentCheckpointOf,
+} from '../db/repos/backup-sidecar-sends.repo.ts';
 import { isLiveLocationOfAsset } from '../db/repos/backup.repo.ts';
 
 const log = childLogger('backup-sidecar');
@@ -170,6 +175,21 @@ function keepAsideShared(
   };
 }
 
+/** What this send keeps beside the sidecar: an edit a shared sidecar refused, and what
+ * the device sent when the server merged it into other adjustments (#5796). */
+function sendLedger(req: BackupSidecarCasRequest): SendLedger {
+  const sidecar = {
+    assetId: req.assetId,
+    libraryId: req.libraryId,
+    sidecarRelPath: req.sidecarRelPath,
+  };
+  return {
+    keepAside: keepAsideShared(req),
+    sentOf: (entryId) => sentCheckpointOf(sidecar, entryId),
+    recordSent: (update) => recordBackupSidecarSends(sidecar, update),
+  };
+}
+
 /** The compare-and-swap branch (#4719): place the send on the sidecar's edit
  * history (#5796) and say which of the outcomes happened. */
 async function publishBackupSidecarCas(
@@ -180,7 +200,7 @@ async function publishBackupSidecarCas(
     req.finalPath,
     req.xmp,
     req.base,
-    keepAsideShared(req),
+    sendLedger(req),
     req.libraryRoot,
     {
       shared: () => sidecarStemClaimedBySibling(primary),

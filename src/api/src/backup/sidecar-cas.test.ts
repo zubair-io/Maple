@@ -17,7 +17,12 @@ import {
 } from '../db/sqlite/test-sqlite.test-helpers.ts';
 import { publishSidecarCas, publishSidecarIfAbsent } from './sidecar-cas.ts';
 
-const keepNothing = async () => undefined;
+/** These sends never meet a shared sidecar or a merged send. */
+const noLedger = {
+  keepAside: async () => undefined,
+  sentOf: async () => null,
+  recordSent: async () => undefined,
+};
 const noBase = { kind: 'digest', sha256: null } as const;
 const edit = (label: string) =>
   `<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description rdf:about="" xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/" crs:Version="${label}"/></rdf:RDF></x:xmpmeta>`;
@@ -27,16 +32,9 @@ test('a precondition that no longer holds abandons the write', async () => {
   const sidecar = path.join(library.root, 'IMG.xmp');
   await fs.writeFile(sidecar, edit('current'));
 
-  const outcome = await publishSidecarCas(
-    sidecar,
-    edit('stale'),
-    noBase,
-    keepNothing,
-    library.root,
-    {
-      precondition: async () => false,
-    },
-  );
+  const outcome = await publishSidecarCas(sidecar, edit('stale'), noBase, noLedger, library.root, {
+    precondition: async () => false,
+  });
 
   expect(outcome).toEqual({ kind: 'abandoned' });
   expect(await fs.readFile(sidecar, 'utf8')).toBe(edit('current'));
@@ -47,13 +45,13 @@ test('the after-landing hook sees the published sidecar before the next publish 
   const sidecar = path.join(library.root, 'IMG.xmp');
   const seen: string[] = [];
 
-  const first = publishSidecarCas(sidecar, edit('first'), noBase, keepNothing, library.root, {
+  const first = publishSidecarCas(sidecar, edit('first'), noBase, noLedger, library.root, {
     afterLanded: async () => {
       await new Promise((resolve) => setTimeout(resolve, 50));
       seen.push(await fs.readFile(sidecar, 'utf8'));
     },
   });
-  const second = publishSidecarCas(sidecar, edit('second'), noBase, keepNothing, library.root);
+  const second = publishSidecarCas(sidecar, edit('second'), noBase, noLedger, library.root);
   await Promise.all([first, second]);
 
   expect(seen).toHaveLength(1);
@@ -91,7 +89,7 @@ test('a sidecar published into a library reached through a symlinked root replic
       sidecar,
       edit('mirrored'),
       noBase,
-      keepNothing,
+      noLedger,
       linkedRoot,
     );
     await fs.flushPendingMirrorOps();
@@ -130,7 +128,7 @@ test('a library root retargeted after the comparison fails closed instead of wri
       path.join(linkedRoot, 'x.xmp'),
       edit('retargeted'),
       noBase,
-      keepNothing,
+      noLedger,
       linkedRoot,
       {
         beforeWrite: async () => {

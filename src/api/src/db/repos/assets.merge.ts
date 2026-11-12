@@ -184,6 +184,11 @@ export async function mergeIntoSurvivor(args: {
       params: [args.survivorId, args.condemnedId],
     },
     {
+      // The merge bases of the duplicate's backup sends (#5796) follow its sidecars.
+      sql: `UPDATE backup_sidecar_sends SET asset_id=? WHERE asset_id=?`,
+      params: [args.survivorId, args.condemnedId],
+    },
+    {
       // Moved locations may hold pre-#5021 `IMG.HEIC.xmp`; the links that qualified them go below.
       sql: `INSERT INTO backup_sidecar_name_checks (asset_id, checked)
         SELECT ?, 0 WHERE EXISTS (SELECT 1 FROM asset_phasset_links WHERE asset_id IN (?, ?))
