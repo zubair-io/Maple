@@ -101,6 +101,9 @@ namespace Maple.WinUI.ViewModels
                 DecodeCurrent(photo, preserveCurrentBase: RenderEngine.OnlyRepairDecodeInputsChanged(before, Adjustments));
                 return;
             }
+            // No decode runs, so the decode path never starts this request's estimate (#4669).
+            if (photo != null && ImportedAutoEstimates.StartsWithoutDecode(before, Adjustments))
+                _ = ResolveImportedAutoAsync(_decodeGeneration, photo, Adjustments);
             if (Adjustments.LocalAdjustments.Any(layer => layer.Mask is BrushMask))
             {
                 RehydrateCurrentBrushRasters(Adjustments, () => Renderer.RequestRender(Adjustments.Clone()));

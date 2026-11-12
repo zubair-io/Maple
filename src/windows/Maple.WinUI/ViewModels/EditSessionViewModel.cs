@@ -327,7 +327,7 @@ namespace Maple.WinUI.ViewModels
                     if (generation != _decodeGeneration)
                         return;
                     RegisterBrushRastersAndPublish(generation, photo, decoded, model);
-                    if (deferredAuto) _ = ResolveImportedAutoAfterFirstFrameAsync(generation, photo, model);
+                    if (deferredAuto) _ = ResolveImportedAutoAsync(generation, photo, model);
                 }
                 catch (Exception ex)
                 {

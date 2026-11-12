@@ -87,4 +87,44 @@ public sealed class ImportedAutoEstimatesTests
         Assert.Null(await estimates.ResolveAsync("broken.dng", NameOnly()));
         Assert.Equal(new[] { "broken.dng", "broken.dng" }, recorder.Started.ToArray());
     }
+
+    [Fact]
+    public void UnresolvedAutoBecomingActiveWithoutADecodeStartsTheEstimate()
+    {
+        // A WB-only paste (or undo/redo, sidecar reload) of name-only Auto re-decodes nothing.
+        var before = new AdjustmentState { Temperature = 4800, Tint = 3 };
+        var pasted = NameOnly();
+        before.AutoExposure = pasted.AutoExposure;
+        before.Profile = pasted.Profile;
+        Assert.True(ImportedAutoEstimates.StartsWithoutDecode(before, pasted));
+        // A decode-owned change re-decodes, and the decode path starts it instead.
+        var redecode = pasted.Clone();
+        redecode.AutoExposure = pasted.AutoExposure == ToggleMode.On ? ToggleMode.Off : ToggleMode.On;
+        Assert.False(ImportedAutoEstimates.StartsWithoutDecode(before, redecode));
+        // A photo that already holds a pair, or numeric WB, is never estimated again.
+        var landed = pasted.Clone();
+        landed.ImportedWhiteBalance = landed.ImportedWhiteBalance! with { Resolved = new(5100, 9) };
+        Assert.False(ImportedAutoEstimates.StartsWithoutDecode(before, landed));
+        Assert.False(ImportedAutoEstimates.StartsWithoutDecode(pasted, before));
+    }
+
+    [Fact]
+    public async Task ARepeatedRequestReusesItsPairAndADifferentRequestEstimatesItsOwn()
+    {
+        var recorder = new Recorder();
+        recorder.Release.Set();
+        var estimates = new ImportedAutoEstimates(recorder.Resolve);
+        estimates.Focus("a.dng");
+        var opened = await estimates.ResolveAsync("a.dng", NameOnly());
+        // Undo/redo or a re-paste of the same request on the decoded photo: no second estimate.
+        Assert.Same(opened, await estimates.ResolveAsync("a.dng", NameOnly()));
+        Assert.Equal(new[] { "a.dng" }, recorder.Started.ToArray());
+        // A pasted request in another scale must not take the opened request's pair.
+        var pasted = NameOnly();
+        pasted.ImportedWhiteBalance = pasted.ImportedWhiteBalance! with { Version = 2 };
+        var resolved = await estimates.ResolveAsync("a.dng", pasted);
+        Assert.NotSame(opened, resolved);
+        Assert.Equal(2, resolved!.ImportedWhiteBalance!.Version);
+        Assert.Equal(new[] { "a.dng", "a.dng" }, recorder.Started.ToArray());
+    }
 }

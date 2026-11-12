@@ -65,11 +65,11 @@ namespace Maple.WinUI.ViewModels
             _importedAuto.Focus(decoding);
         }
 
-        /// <summary>After the first frame is published: the focused photo's one estimate
-        /// from the shared decode, then one re-render with the pair. A Profile, AutoExposure
-        /// or lens re-decode joins the estimate in flight. Failure leaves As Shot on screen;
-        /// the next open retries (#4669).</summary>
-        private async Task ResolveImportedAutoAfterFirstFrameAsync(int generation, PhotoItem photo, AdjustmentState model)
+        /// <summary>After the first frame is published, or when a paste, undo/redo or sidecar
+        /// reload makes unresolved Auto active on the decoded photo: the focused photo's one
+        /// estimate, then one re-render with the pair. A re-decode or a repeated request joins
+        /// the estimate in flight. Failure leaves As Shot on screen; the next open retries (#4669).</summary>
+        private async Task ResolveImportedAutoAsync(int generation, PhotoItem photo, AdjustmentState model)
         {
             var resolved = await _importedAuto.ResolveAsync(photo.EditPath, model).ConfigureAwait(false);
             if (resolved == null) return;
