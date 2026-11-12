@@ -581,11 +581,15 @@ pub fn decode_bytes(bytes: &[u8], ext: &str) -> Result<RawImage> {
         map
     };
 
-    // The unit's `AnalogBalance · CameraCalibrationN` per illuminant, kept
-    // beside the reference ForwardMatrix: `dcp` resolves them together at the
-    // render white (dng_sdk `SetWhiteXY`, #5093).
-    let individual_calibrations: HashMap<CoreIlluminant, Matrix3> = forward_matrices
+    // The unit's `AnalogBalance · CameraCalibrationN` per calibration
+    // illuminant, kept beside the reference ForwardMatrix: `dcp` resolves
+    // them together at the render white (dng_sdk `SetWhiteXY`, #5093). Keyed
+    // on every calibration illuminant, not only those with a ForwardMatrix:
+    // a dual profile with one ForwardMatrix still interpolates the
+    // calibration between both `CameraCalibrationN`.
+    let individual_calibrations: HashMap<CoreIlluminant, Matrix3> = color_matrices
         .keys()
+        .chain(forward_matrices.keys())
         .map(|illum| (*illum, individual_correction(*illum)))
         .collect();
 

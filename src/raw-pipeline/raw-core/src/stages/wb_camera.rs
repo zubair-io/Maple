@@ -526,9 +526,9 @@ pub fn retargeted_render_profile(
     temperature: f32,
     tint: f32,
 ) -> DcpProfile {
-    // No retarget: a single-calibration profile, or the as-shot target.
+    // No retarget: nothing in the profile depends on the white, or the
+    // as-shot target.
     let Some(RenderRetarget {
-        endpoints: e,
         cct: render_cct,
         forward_matrix,
         ..
@@ -536,8 +536,8 @@ pub fn retargeted_render_profile(
     else {
         return profile;
     };
-    let hsm = match (&profile.hsm_endpoints, forward_matrix) {
-        (Some(h), Some(_)) => dcp::lerp_hsm_for_cct(
+    let hsm = match (&profile.hsm_endpoints, profile.cm_endpoints, forward_matrix) {
+        (Some(h), Some(e), Some(_)) => dcp::lerp_hsm_for_cct(
             Some(&h.cold),
             Some(&h.warm),
             e.cct_cold,
