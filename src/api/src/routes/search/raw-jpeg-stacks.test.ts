@@ -199,6 +199,23 @@ describe('RAW+JPEG stacks in search and the timeline #5849', () => {
     expect(page.results[0]?.stack?.companion).toMatchObject({ id: jpeg, name: 'IMG_1.JPG' });
   });
 
+  it('a ranked text search folds the facet total, but its groups count both files of a stack', async () => {
+    setInProcessSearchForTests(fakeInProcessSearch(['jpeg', 'lone', 'raw']));
+
+    const facets = await get<{
+      total: number;
+      extensions: Array<{ value: string; count: number }>;
+    }>('/facets?placeQuery=harbour&stack=1');
+
+    expect(facets.total).toBe(2);
+    expect(facets.extensions).toEqual(
+      expect.arrayContaining([
+        { value: 'jpg', count: 2 },
+        { value: 'cr3', count: 1 },
+      ]),
+    );
+  });
+
   it('a ranked map search keeps the pin of a ranked JPEG whose RAW has no GPS', async () => {
     setInProcessSearchForTests(fakeInProcessSearch(['jpeg', 'lone', 'raw']));
 

@@ -53,11 +53,11 @@ export interface WindowRow extends RankedAsset, ShotFields {
   /** The RAW a paired JPEG folds into (#5849); a ranked window folds in memory. */
   stack_primary_id?: string | null;
   /**
-   * On a stack's RAW, the `assets.rowid` of its JPEG when that ranked and passed the filters too
-   * and was folded into it ({@link foldRankedStacks}): the map places the stack by it when the RAW
-   * has no GPS in the viewport.
+   * On a stack's RAW, its JPEG (`assets.rowid` and id) when that ranked and passed the filters
+   * too and was folded into it ({@link foldRankedStacks}): the map places the stack by it when
+   * the RAW has no GPS in the viewport, and the facet groups count it, as they count files.
    */
-  stack_companion_r?: number;
+  stack_companion?: RankedAsset;
   owner_id: string | null;
 }
 
@@ -347,13 +347,13 @@ export function foldRankedStacks(where: SearchWhere, pass: WindowPass): WindowPa
       const key = row.stack_primary_id ?? row.id;
       const held = leaders.get(key);
       if (held !== undefined) {
-        if (held.id === key && row.id !== key) held.stack_companion_r = row.r;
+        if (held.id === key && row.id !== key) held.stack_companion = { r: row.r, id: row.id };
         return [];
       }
       const raw = row.stack_primary_id ? byId.get(row.stack_primary_id) : undefined;
       const { captured_at, media_kind, filename } = row;
       const leader = raw
-        ? { ...raw, captured_at, media_kind, filename, stack_companion_r: row.r }
+        ? { ...raw, captured_at, media_kind, filename, stack_companion: { r: row.r, id: row.id } }
         : { ...row };
       leaders.set(key, leader);
       return [leader];

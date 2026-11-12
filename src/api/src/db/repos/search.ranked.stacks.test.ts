@@ -115,7 +115,7 @@ describe('ranked RAW+JPEG fold #5849', () => {
     ]) {
       const folded = foldRankedStacks(FOLDING, { rows, considered: rows.length }).rows;
       expect(ids(folded)).toEqual(['raw', 'lone']);
-      expect(folded[0]?.stack_companion_r).toBe(1);
+      expect(folded[0]?.stack_companion).toEqual({ r: 1, id: 'jpeg' });
     }
   });
 
@@ -123,6 +123,6 @@ describe('ranked RAW+JPEG fold #5849', () => {
     const rows = [row(1, 'jpeg', 'raw'), row(2, 'lone')];
     const folded = foldRankedStacks(FOLDING, { rows, considered: rows.length }).rows;
     expect(ids(folded)).toEqual(['jpeg', 'lone']);
-    expect(folded[0]?.stack_companion_r).toBeUndefined();
+    expect(folded[0]?.stack_companion).toBeUndefined();
   });
 });

@@ -41,7 +41,7 @@ import { searchWhereSql, type BoundPredicate, type SearchWhere } from './search.
 export type { SqliteDb } from './db-handle.ts';
 
 /** What the map reads of a ranked window row: the asset, and the JPEG folded into it (#5849). */
-export type MapWindowRow = Pick<WindowRow, 'r' | 'stack_companion_r'>;
+export type MapWindowRow = Pick<WindowRow, 'r' | 'stack_companion'>;
 
 /** The viewport, in decimal degrees. `west > east` crosses the antimeridian. */
 export interface MapBbox {
@@ -103,7 +103,7 @@ function bboxPredicate(bbox: MapBbox): BoundPredicate {
  * groups the whole match set (#4514); without text, the translated query and the viewport. The
  * viewport is one more clause there, so a folded JPEG is only dropped when its RAW has GPS in the
  * viewport too (a RAW whose GPS did not parse leaves its JPEG's pin on the map, #5849). A window
- * says the same through its stacks: a ranked JPEG folded into its RAW (`stack_companion_r`) is
+ * says the same through its stacks: a ranked JPEG folded into its RAW (`stack_companion`) is
  * clustered in the RAW's place when the RAW has no GPS in the viewport, so a stack is one pin
  * either way.
  */
@@ -121,7 +121,7 @@ function cellScope(
     return { from: fromClause(where), bound: searchWhereSql(located) };
   }
   const companions = window.flatMap((row) =>
-    row.stack_companion_r === undefined ? [] : [row.stack_companion_r],
+    row.stack_companion === undefined ? [] : [row.stack_companion.r],
   );
   const rawLocated = viewport.sql.replace(/\bassets\./g, 'stack_raw.');
   return {
