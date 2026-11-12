@@ -1,7 +1,7 @@
 /**
  * Operational tables: the job runner, imports, the indexer and discover
- * queues, per-stage worker config and handler routing, backup/upload sessions
- * and APNs device tokens.
+ * queues, per-stage worker config, backup/upload sessions and APNs device
+ * tokens.
  *
  * These are queues and configuration, not the photo library, so the schema
  * rule that applies is a different one: claim queries need real columns for
@@ -205,6 +205,7 @@ CREATE TABLE worker_config (
 ) WITHOUT ROWID;
 `;
 
+// Frozen 0001 DDL; nothing reads handler overrides, so 0042 drops the table (#5825).
 export const STAGE_HANDLERS_TABLE_DDL = `
 CREATE TABLE stage_handlers (
   stage      TEXT NOT NULL PRIMARY KEY,

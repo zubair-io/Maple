@@ -15,6 +15,7 @@ const ID = '0041-drop-vector-fingerprint-index';
 const COLUMN = 'semantic_vector_fingerprint';
 const INDEX = 'assets_vector_fingerprint';
 const FINGERPRINT = 'f'.repeat(64);
+const THROUGH_THIS_MIGRATION = ALL_MIGRATIONS.filter((migration) => migration.id <= ID);
 
 async function migratedUpTo40(): Promise<TestDatabase> {
   const handle = createBlankTestDatabase('file');
@@ -53,7 +54,7 @@ test('the index is dropped and every other assets index survives', async () => {
     n: 1,
   });
 
-  const result = await runMigrations(handle.migrationDb, ALL_MIGRATIONS);
+  const result = await runMigrations(handle.migrationDb, THROUGH_THIS_MIGRATION);
 
   expect(result.applied).toEqual([ID]);
   expect(indexNames(handle)).toEqual(before.filter((name) => name !== INDEX));
@@ -80,7 +81,7 @@ test('a database that already lost the index migrates cleanly', async () => {
   using handle = await migratedUpTo40();
   handle.db.run(`DROP INDEX ${INDEX}`);
 
-  const result = await runMigrations(handle.migrationDb, ALL_MIGRATIONS);
+  const result = await runMigrations(handle.migrationDb, THROUGH_THIS_MIGRATION);
 
   expect(result.applied).toEqual([ID]);
   expect(indexNames(handle)).not.toContain(INDEX);
