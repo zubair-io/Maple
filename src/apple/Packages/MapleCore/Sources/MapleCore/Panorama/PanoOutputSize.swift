@@ -104,16 +104,17 @@ public enum PanoMemoryFit: Sendable, Equatable {
 ///
 /// - the head — decode, matching and refinement, which work on
 ///   full-resolution frames whatever the output size: a per-frame term
-///   (features, matches, per-frame solve state) plus one for the largest
+///   (features, matches, per-frame solve state) plus terms for the largest
 ///   frame (the banded decode and refinement windows);
-/// - the composite — the per-frame state still held, a smaller term for the
-///   largest frame (its source taps), and a term proportional to canvas
-///   *width*: the composite streams fixed-height strips whose buffers are
-///   output rows.
+/// - the composite — the per-frame state still held, terms for the largest
+///   frame (its source taps), and a term proportional to canvas *width*: the
+///   composite streams fixed-height strips whose buffers are output rows.
 ///
-/// The constants and their calibration live in raw-core's `pano_memory`,
-/// which `maple-pano` also refuses an over-limit stitch with (#5835); they
-/// reach here as `PanoMemoryConstants` through `tools/codegen.sh`. Every
+/// The model and its calibrations live in raw-core's `pano_memory`, which
+/// `maple-pano` also refuses an over-limit server stitch with (#5835); they
+/// reach here as `PanoMemoryCalibration` through `tools/codegen.sh`. The
+/// sheet uses `.apple`, fitted to the iPad (#5555); `.server` is fitted to a
+/// Mac's peak footprint and overstates an iPad about twofold (#5891). Every
 /// input frame counts toward `frameCount`, dropped or not.
 public struct PanoMemoryModel: Sendable, Equatable {
     /// Headroom for what the model does not see (allocator fragmentation,
@@ -128,9 +129,12 @@ public struct PanoMemoryModel: Sendable, Equatable {
     /// Share of available memory above which a smaller output is offered
     /// ahead of the hard limit, `nil` where only the hard limit applies.
     public let smallerDefaultFraction: Double?
+    /// The constants the model is evaluated with.
+    public let calibration: PanoMemoryCalibration
 
-    public init(smallerDefaultFraction: Double? = nil) {
+    public init(smallerDefaultFraction: Double? = nil, calibration: PanoMemoryCalibration = .apple) {
         self.smallerDefaultFraction = smallerDefaultFraction
+        self.calibration = calibration
     }
 
     public func estimatedPeakBytes(sizes: PanoStitchSizes, canvasWidth: Int) -> Int {
@@ -151,7 +155,7 @@ public struct PanoMemoryModel: Sendable, Equatable {
         let head = headBytes(sizes)
         let budgets = full > hardBudget ? [defaultBudget, hardBudget] : [defaultBudget]
         for budget in budgets where head <= budget {
-            let width = (budget - compositeBaseBytes(sizes)) / PanoMemoryConstants.compositeBytesPerCanvasColumn
+            let width = (budget - compositeBaseBytes(sizes)) / calibration.compositeBytesPerCanvasColumn
             if let canvas = sizes.fittedCanvas(width: width) {
                 return .fitted(estimatedFullBytes: full, canvas: canvas)
             }
@@ -160,17 +164,44 @@ public struct PanoMemoryModel: Sendable, Equatable {
     }
 
     func compositeBytes(_ sizes: PanoStitchSizes, canvasWidth: Int) -> Int {
-        compositeBaseBytes(sizes) + canvasWidth * PanoMemoryConstants.compositeBytesPerCanvasColumn
+        compositeBaseBytes(sizes) + canvasWidth * calibration.compositeBytesPerCanvasColumn
     }
 
     func headBytes(_ sizes: PanoStitchSizes) -> Int {
-        sizes.frameCount * PanoMemoryConstants.bytesPerFrame
-            + sizes.largestFramePixels * PanoMemoryConstants.headBytesPerLargestFramePixel
+        phaseBytes(
+            sizes,
+            perFrame: calibration.headBytesPerFrame,
+            perProxyPixel: calibration.headBytesPerFrameProxyPixel,
+            perPixel: calibration.headBytesPerLargestFramePixel,
+            perColumn: calibration.headBytesPerLargestFrameColumn)
     }
 
     private func compositeBaseBytes(_ sizes: PanoStitchSizes) -> Int {
-        sizes.frameCount * PanoMemoryConstants.bytesPerFrame
-            + sizes.largestFramePixels * PanoMemoryConstants.compositeBytesPerLargestFramePixel
+        phaseBytes(
+            sizes,
+            perFrame: calibration.compositeBytesPerFrame,
+            perProxyPixel: calibration.compositeBytesPerFrameProxyPixel,
+            perPixel: calibration.compositeBytesPerLargestFramePixel,
+            perColumn: calibration.compositeBytesPerLargestFrameColumn)
+    }
+
+    private func phaseBytes(_ sizes: PanoStitchSizes, perFrame: Int, perProxyPixel: Int, perPixel: Int, perColumn: Int)
+        -> Int
+    {
+        let proxyPixels = min(sizes.largestFramePixels, PanoMemoryCalibration.proxyPixelsMax)
+        return sizes.frameCount * (perFrame + proxyPixels * perProxyPixel)
+            + sizes.largestFramePixels * perPixel
+            + Self.frameColumns(sizes.largestFramePixels) * perColumn
+    }
+
+    /// The width of a 3:2 frame of `pixels`, as raw-core's `frame_columns`:
+    /// the integer square root of 1.5 × `pixels`.
+    static func frameColumns(_ pixels: Int) -> Int {
+        let n = pixels * 3 / 2
+        var root = Int(Double(n).squareRoot())
+        while root * root > n { root -= 1 }
+        while (root + 1) * (root + 1) <= n { root += 1 }
+        return root
     }
 }
 

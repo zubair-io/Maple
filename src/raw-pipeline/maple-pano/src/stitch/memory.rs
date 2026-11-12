@@ -1,12 +1,13 @@
 //! A stitch's memory limit (#5835): the run is refused, not attempted, when
 //! the [`raw_core::pano_memory`] model puts a phase above
-//! [`StitchOptions::memory_limit_bytes`]. The head is checked from the
+//! [`StitchOptions::memory_limit_bytes`], costed with the server's calibration
+//! (#5891): only the server sets a limit. The head is checked from the
 //! inputs' headers before any frame is decoded; the composite is checked
 //! once the canvas is solved, since its cost depends on the canvas width.
 
 use std::path::PathBuf;
 
-use raw_core::pano_memory::PanoStitchLoad;
+use raw_core::pano_memory::{PanoMemoryProfile, PanoStitchLoad};
 
 use super::{frames, StitchError, StitchOptions};
 
@@ -46,6 +47,7 @@ fn load(full_dims: impl IntoIterator<Item = (u32, u32)>, opts: &StitchOptions) -
         frame_count,
         largest_frame_px,
         ml_matcher: opts.feature_engine.is_ml(),
+        profile: PanoMemoryProfile::Server,
     }
 }
 

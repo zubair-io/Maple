@@ -16,7 +16,7 @@ use maple_pano::composite::CanvasSink;
 use maple_pano::ingest::PlanarImage;
 use maple_pano::stitch::{stitch, FeatureEngine, StitchError, StitchOptions};
 use maple_pano::PanoError;
-use raw_core::pano_memory::PanoStitchLoad;
+use raw_core::pano_memory::{PanoMemoryProfile, PanoStitchLoad};
 
 const FRAMES: u32 = 3;
 const FRAME_WIDTH: u32 = 640;
@@ -26,6 +26,7 @@ const LOAD: PanoStitchLoad = PanoStitchLoad {
     frame_count: FRAMES as u64,
     largest_frame_px: (FRAME_WIDTH * FRAME_HEIGHT) as u64,
     ml_matcher: false,
+    profile: PanoMemoryProfile::Server,
 };
 
 fn generate_ring(dir: &Path) -> Vec<PathBuf> {
