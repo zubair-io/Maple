@@ -9,6 +9,7 @@ import type { Asset } from '../../models/asset';
 import { settleFailedAutoFit } from './image-canvas.fit-failure';
 import { ImageCanvasVariantPreviews } from './image-canvas.variant-previews';
 import { MaskSessionService } from '../mask-overlay/mask-session.service';
+import { resolveImportedAutoAfterFirstFrame } from './image-canvas.imported-auto-wb';
 
 /** Branch selection shares the existing RAW/live session and invalidates late render publications. */
 export class ImageCanvasAdjustmentEffect {
@@ -45,6 +46,9 @@ export class ImageCanvasAdjustmentEffect {
           this.restartColdOpen(changed, asset.id, asset.filename);
           return;
         }
+        // Name-only Auto that becomes active on the open photo (a variant, a
+        // history restore) resolves on its session like a cold open's (#4669).
+        resolveImportedAutoAfterFirstFrame(host.state, host.pipeline, asset.id, host.currentBytes);
         this.syncFilm(asset, model);
         if (this.isCurrentRender(xmp, brushRasters)) return;
         if (changed && !host.gpuPresent.active())
