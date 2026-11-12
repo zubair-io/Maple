@@ -531,7 +531,7 @@ bun run typecheck        # tsc --noEmit — required CI gate (api.yml)
 bun run lint             # oxlint src — this IS a CI gate (cross.yml)
 ```
 
-Nothing has to be running first. The library database is a file each test makes for itself, and the tests that drive jobs through Temporal start their own throwaway server (the Temporal CLI is downloaded once and cached), so a local `bun test` proves exactly what CI's does. CI runs `bun test --timeout 30000` with a throwaway `MAPLE_JWT_SECRET` and no service containers.
+Nothing has to be running first. The library database is a file each test makes for itself, and the tests that drive jobs and imports through Temporal start their own throwaway server (the Temporal CLI is downloaded once and cached), so a local `bun test` proves exactly what CI's does. CI runs `bun test --timeout 30000` with a throwaway `MAPLE_JWT_SECRET` and no service containers.
 
 [`src/api/src/db/sqlite/test-sqlite.test-helpers.ts`](../src/api/src/db/sqlite/test-sqlite.test-helpers.ts) gives each test its own database with the schema already applied, and disposes of it when the test's block exits:
 

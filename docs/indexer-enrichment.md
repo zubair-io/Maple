@@ -59,7 +59,7 @@ automatically.
 - the FFI decode pool (`ffi/ffi-pool-bootstrap.ts`)
 - enrichment bootstraps (Nominatim health check, face-model preload, describe config)
 - enrichment config refresh (`workers/enrichment-config-refresh.ts`)
-- the Temporal host, which runs user jobs, and the import runner
+- the Temporal host, which runs user jobs and folder imports
 - maintenance jobs (`workers/maintenance.ts`)
 
 It also publishes a status snapshot into the `worker_status` table every 2 s. That is how the API process — which has an empty in-process registry — can answer `GET /api/workers/status`.
@@ -85,7 +85,7 @@ The supported extension set lives in `workers/discover/types.ts`: RAW formats de
 
 ### Per-event handling and content dedup
 
-`workers/discover/handle-event.ts` is the chokepoint every producer funnels into — the sweep, the import runner, browse indexing, the pano handler.
+`workers/discover/handle-event.ts` is the chokepoint every producer funnels into — the sweep, imports, browse indexing, the pano handler.
 
 - **created / modified** — hash the first 64 KB (`indexer/id.ts`), look up an existing row by `maple_id`, falling back to `sha1_head`. A hit **appends a location row** to the existing asset rather than inserting a duplicate; a miss inserts a fresh asset plus one `stage_state` row per registered stage at version 0. A unique-constraint collision with a concurrent insert falls back to the append path. Before either, a "modified in place to new content" guard compares the stored `sha1_head` for that exact `(library, path, filename)`; a mismatch marks the old entry `deleted_at` + `missing_since: 'content-changed'` so the stale row stops claiming the location.
 - **removed** — re-confirm the file really is absent and the library root really is mounted, then stamp `missing_since` on **that one location**, never the whole asset. A photo that also exists elsewhere stays visible and claimable on its surviving entries.
@@ -288,7 +288,7 @@ These are not per-asset version-claim stages. Each runs its own interval loop an
 `src/api/src/job-runner/` is the sibling subsystem for **user-triggered, bounded** work. A job is a row in the `jobs` table, and it runs on [Temporal](https://temporal.io):
 
 1. A route inserts the row as `queued`, in one statement with its admission fence. That row is what every client reads from then on.
-2. The worker tier relays the oldest queued row to Temporal once nothing else is running (`job-relay.ts`): one workflow per job, with the workflow id `job-<id>`.
+2. The worker tier relays the oldest queued row to Temporal once nothing else is running (`temporal/row-queue.ts`, which imports share): one workflow per job, with the workflow id `job-<id>`.
 3. The workflow runs one activity, which claims that row and hands it to the handler for its kind (`execute-job.ts`). Handlers report progress and must consult `ctx.shouldCancel()` between steps so an in-flight job can be aborted.
 4. The activity records the outcome on the row, and the workflow ends the same way: completed, or failed with the handler's message.
 
@@ -319,7 +319,9 @@ Six kinds exist (`JobKind` in `db/schema.ts`, registry in `job-runner/handlers/i
 
 `src/api/src/imports/` copies a server-local folder into a library. `scan.ts` walks the source (following symlinks, with realpath cycle detection and a re-jail check against `MAPLE_ROOTS`), classifies files, pairs `.xmp` sidecars to their parent image, and groups everything into `YEAR/MM` buckets keyed on **capture** time — EXIF `DateTimeOriginal`/`CreateDate`, falling back to file mtime — so the folder a photo lands in matches the date it is shown under everywhere else. The user reviews and edits the buckets, and the create route freezes the per-file destination list onto the import document.
 
-`imports/worker.ts` then claims pending imports one at a time. Per image it copies sidecars first, then the image, then hands the image to `handleEvent` for indexing. Dedup is decided at the image (`maple_id`, then `sha1_head`); a duplicate image _and_ its sidecars are skipped, because an orphan sidecar would be meaningless. Name collisions resolve to a free sibling, byte-identical files already present are skipped, and cancellation is observed between files with already-copied files left in place.
+Imports run on Temporal exactly the way jobs do, through the same relay (`temporal/row-queue.ts`) on a task queue of their own, `maple-imports`: the create route inserts a `pending` row, the worker tier hands the oldest one to an `import-<id>` workflow once no other import is held, and that workflow's activity claims the row and runs `imports/worker.ts` for it. Imports go one at a time in creation order, and an import never waits for a job or a job for an import. The rules in [Jobs](#jobs) carry over unchanged — a redelivery for a finished import only reports how it ended, a cancel made in Temporal ends the import like one made through the API, terminating the workflow cancels the import, a lost workflow is submitted again, and a retried import runs again under the same workflow id. An import left `running` by the release whose runner polled the table is adopted at connect.
+
+Per image it copies sidecars first, then the image, then hands the image to `handleEvent` for indexing. Dedup is decided at the image (`maple_id`, then `sha1_head`); a duplicate image _and_ its sidecars are skipped, because an orphan sidecar would be meaningless. Name collisions resolve to a free sibling, byte-identical files already present are skipped, and cancellation is observed between files with already-copied files left in place.
 
 ## Search
 
