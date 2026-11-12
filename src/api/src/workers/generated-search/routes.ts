@@ -33,9 +33,6 @@ export const generatedSearchConfigRoutes = new Elysia({ prefix: '/api/workers' }
   // Settings → Workers instead of only as an absence of new collections.
   .get('/generated-search/last-run', async () => ({ last_run: await loadLatestRunRecord() }))
 
-  // Ask the worker tier for one pass now, returning immediately. Bypasses the
-  // pause gate (see run-now.ts — that is the point of the button); refuses a
-  // second click while a run is requested or in flight.
   .post('/generated-search/run', async () => {
     if (await generatedSearchRunBusy()) return { started: false, reason: 'already-running' };
     await requestMaintenanceRun(GENERATED_SEARCH_TASK, { force: true });

@@ -97,7 +97,7 @@ export class MirrorSettingsComponent implements OnInit, OnDestroy {
   private polling = false;
 
   /** A reconcile is active when we just kicked one or the server reports a
-   * non-idle phase (scanning/copying in the API process). */
+   * non-idle phase (scanning/copying on the server's worker tier). */
   protected reconcileBusy(): boolean {
     return this.running() || (this.reconcile()?.phase ?? 'idle') !== 'idle';
   }

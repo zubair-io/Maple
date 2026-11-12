@@ -22,9 +22,8 @@
  *      enough that its process must have died mid-pass.
  *
  * Deciding is a read, so the pass itself starts only through an atomic claim
- * (`claimLibraryRun`) that requires the record to be unchanged since. Run now
- * in the API process and this schedule in the worker process can therefore
- * never both start a library's pass.
+ * (`claimLibraryRun`) that requires the record to be unchanged since. A forced
+ * Run now and a scheduled pass can therefore never both start a library's pass.
  *
  * All of that reads persisted state (`run-state.repo.ts`), never memory, so a
  * restart picks up exactly where the last process left off.

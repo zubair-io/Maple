@@ -67,7 +67,7 @@ function carried(record: Record<string, unknown> | null | undefined) {
   return typeof value === 'object' && value !== null ? (value as MirrorReconcileProgress) : null;
 }
 
-/** A run that failed outright says why at the end of its error log, as the in-process runner did. */
+/** A run that failed outright says why at the end of its error log. */
 function withFailure(progress: MirrorReconcileProgress, job: JobWithId): MirrorReconcileProgress {
   if (job.status !== 'failed' || job.error === null) return progress;
   const failure = { path: '(reconcile)', error: job.error, at: job.updated_at };
