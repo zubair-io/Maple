@@ -11,7 +11,7 @@ import {
 } from './legacy-backup-sidecar.ts';
 import { readSidecarBytes } from './sidecar-bytes.ts';
 import { publishExclusive } from './relocate-publish.ts';
-import { privateSiblingOf } from './private-sibling.ts';
+import { DISPLACED_MARKER, privateSiblingOf } from './private-sibling.ts';
 import { serializeSidecarWrite } from './sidecar-write-order.ts';
 import * as fs from './mirrored.ts';
 import type { MovedSidecar } from './relocate-sidecar-plan.ts';
@@ -134,7 +134,7 @@ async function retireIfUnchanged(
   copied: Buffer,
   movedTo: string,
 ): Promise<boolean> {
-  const aside = privateSiblingOf(legacy);
+  const aside = privateSiblingOf(legacy, DISPLACED_MARKER);
   await fs.rename(legacy, aside);
   const moved = await readSidecarBytes(aside).catch(() => null);
   if (moved?.equals(copied)) {

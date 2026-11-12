@@ -31,7 +31,7 @@ import {
   publishExclusive,
   type RelocatePublication,
 } from './relocate-publish.ts';
-import { privateSiblingOf, VERIFYING_COPY_MARKER } from './private-sibling.ts';
+import { DISPLACED_MARKER, privateSiblingOf, VERIFYING_COPY_MARKER } from './private-sibling.ts';
 
 const log = childLogger('fs/sidecar-ownership');
 
@@ -43,9 +43,9 @@ export class SidecarCollisionError extends PublishCollisionError {
 }
 
 /** The temp names relocate, restore and the XMP writers stage under —
- * `<name>.tmp.<pid>-<hex>[.copy]` or `<name>.tmp.<pid>.<hex>`. A real photo whose
+ * `<name>.tmp.<pid>-<hex>[.copy|.keep]` or `<name>.tmp.<pid>.<hex>`. A real photo whose
  * name merely contains `.tmp.` (`IMG.tmp.JPG`) still claims its stem. */
-const STAGING_NAME = /\.tmp\.\d+[-.][0-9a-f]+(\.copy)?$/;
+const STAGING_NAME = /\.tmp\.\d+[-.][0-9a-f]+(\.copy|\.keep)?$/;
 
 function comparable(p: string): string {
   return path.resolve(p).normalize('NFC').toLowerCase();
@@ -334,7 +334,7 @@ export async function replaceIfHolds(
   tmp: string,
   putBack: (aside: string, moved: Buffer | null) => Promise<void>,
 ): Promise<boolean> {
-  const aside = privateSiblingOf(dest);
+  const aside = privateSiblingOf(dest, DISPLACED_MARKER);
   const movedAside = await fs.rename(dest, aside).then(
     () => true,
     (err: unknown) => {

@@ -1,15 +1,20 @@
 /**
- * Temp files a server crash leaves beside a relocation's destination (#5136).
+ * Files a server crash leaves beside a relocation's destination (#5136, #5786).
  * The crashes are real: a child process runs the relocation and kills itself
  * with SIGKILL at the step under test, so what is left behind is exactly what a
  * dead server leaves. Real files in a temp dir.
  */
-import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, setSystemTime, test } from 'bun:test';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { sweepCrashLeftTemps } from './crash-left-temps.ts';
 import * as fs from './mirrored.ts';
-import { privateSiblingOf, VERIFYING_COPY_MARKER } from './private-sibling.ts';
+import {
+  DISPLACED_MARKER,
+  parsePrivateSibling,
+  privateSiblingOf,
+  VERIFYING_COPY_MARKER,
+} from './private-sibling.ts';
 
 let root: string;
 
@@ -17,6 +22,7 @@ beforeEach(async () => {
   root = await fs.mkdtemp(path.join(os.tmpdir(), 'crash-left-temps-'));
 });
 afterEach(async () => {
+  setSystemTime();
   await fs.rm(root, { recursive: true, force: true });
 });
 
@@ -30,12 +36,17 @@ async function write(rel: string, content: string): Promise<void> {
 const DAY_MS = 24 * 60 * 60 * 1000;
 const names = async (rel: string) => (await fs.readdir(abs(rel))).sort();
 const tempNames = async (rel: string) => (await names(rel)).filter((n) => n.includes('.tmp.'));
-const sweep = async (rel: string) =>
-  sweepCrashLeftTemps(abs(rel), await fs.readdir(abs(rel), { withFileTypes: true }));
+const deadPid = (name: string) => name.replace(String(process.pid), '99999999');
 
-async function ageTemps(rel: string, ageMs: number): Promise<void> {
-  const when = new Date(Date.now() - ageMs);
-  for (const name of await tempNames(rel)) await fs.utimes(abs(`${rel}/${name}`), when, when);
+/** Sweeps `rel` as it looks `idleFor` after the files were last touched. */
+async function sweep(rel: string, idleFor = 2 * DAY_MS) {
+  const entries = await fs.readdir(abs(rel), { withFileTypes: true });
+  setSystemTime(new Date(Date.now() + idleFor));
+  try {
+    return await sweepCrashLeftTemps(abs(rel), entries);
+  } finally {
+    setSystemTime();
+  }
 }
 
 const crashScript = () => `
@@ -46,14 +57,21 @@ const [, , step, sourceAbsPath, destAbsPath] = process.argv;
 const die = () => process.kill(process.pid, 'SIGKILL');
 const realUnlink = fs.unlink;
 const realRename = fs.rename;
-if (step === 'before-publish') spyOn(fs, 'link').mockImplementation(async () => die());
-if (step === 'after-publish') {
+const noLinks = step.endsWith('-nolinks');
+const at = step.replace('-nolinks', '');
+if (noLinks) {
+  spyOn(fs, 'link').mockImplementation(async () => {
+    throw Object.assign(new Error('no hard links here'), { code: 'EXDEV' });
+  });
+}
+if (at === 'before-publish') spyOn(fs, 'link').mockImplementation(async () => die());
+if (at === 'after-publish') {
   spyOn(fs, 'unlink').mockImplementation(async (file) => {
     if (String(file).includes('.tmp.')) die();
     return realUnlink(file);
   });
 }
-if (step === 'before-swap') {
+if (at === 'before-swap') {
   spyOn(fs, 'rename').mockImplementation(async (from, to) => {
     if (String(from).includes('.tmp.')) die();
     return realRename(from, to);
@@ -63,16 +81,16 @@ await relocateFile({
   sourceAbsPath,
   destAbsPath,
   mode: 'move',
-  collision: step.endsWith('swap') ? 'replace' : 'skip',
-  onVerified: step === 'after-swap' ? async () => die() : undefined,
+  collision: at.endsWith('swap') ? 'replace' : 'skip',
+  onVerified: at === 'after-swap' ? async () => die() : undefined,
 });
 `;
 
-async function crashRelocation(step: string): Promise<void> {
+async function crashRelocation(step: string, name = 'IMG.CR3'): Promise<void> {
   const script = abs('crash-relocation.ts');
   await fs.writeFile(script, crashScript());
   const child = Bun.spawn(
-    [process.execPath, script, step, abs('src/IMG.CR3'), abs('dst/IMG.CR3')],
+    [process.execPath, script, step, abs(`src/${name}`), abs(`dst/${name}`)],
     { stdout: 'ignore', stderr: 'pipe' },
   );
   await child.exited;
@@ -85,9 +103,8 @@ describe('a relocation killed mid-way', () => {
     await crashRelocation('before-publish');
     expect(await tempNames('dst')).toHaveLength(1);
 
-    expect(await sweep('dst')).toBe(0);
-    await ageTemps('dst', 2 * DAY_MS);
-    expect(await sweep('dst')).toBe(1);
+    expect(await sweep('dst', DAY_MS / 2)).toEqual({ removed: 0, surfaced: 0 });
+    expect(await sweep('dst')).toEqual({ removed: 1, surfaced: 0 });
 
     expect(await names('dst')).toEqual([]);
     expect(await read('src/IMG.CR3')).toBe('pixels');
@@ -99,8 +116,7 @@ describe('a relocation killed mid-way', () => {
     expect(await tempNames('dst')).toHaveLength(1);
     expect(await read('dst/IMG.CR3')).toBe('pixels');
 
-    await ageTemps('dst', 2 * DAY_MS);
-    expect(await sweep('dst')).toBe(1);
+    expect(await sweep('dst')).toEqual({ removed: 1, surfaced: 0 });
 
     expect(await names('dst')).toEqual(['IMG.CR3']);
     expect(await read('dst/IMG.CR3')).toBe('pixels');
@@ -112,50 +128,138 @@ describe('a relocation killed mid-way', () => {
     await crashRelocation('before-swap');
     expect(await tempNames('dst')).toHaveLength(2);
 
-    await ageTemps('dst', 2 * DAY_MS);
-    expect(await sweep('dst')).toBe(2);
+    expect(await sweep('dst')).toEqual({ removed: 2, surfaced: 0 });
 
     expect(await names('dst')).toEqual(['IMG.CR3']);
     expect(await read('dst/IMG.CR3')).toBe('old');
     expect(await read('src/IMG.CR3')).toBe('new');
   });
 
-  test('a Replace killed after its swap keeps the displaced photo, the only copy of it', async () => {
+  test('on a volume without hard links, a kept copy of the occupant is removed when the occupant is still there', async () => {
+    await write('src/IMG.CR3', 'new');
+    await write('dst/IMG.CR3', 'old');
+    await crashRelocation('before-swap-nolinks');
+    expect(await tempNames('dst')).toHaveLength(2);
+
+    expect(await sweep('dst')).toEqual({ removed: 2, surfaced: 0 });
+
+    expect(await names('dst')).toEqual(['IMG.CR3']);
+    expect(await read('dst/IMG.CR3')).toBe('old');
+  });
+
+  for (const links of ['', '-nolinks']) {
+    test(`a Replace killed after its swap${links ? ' without hard links' : ''} publishes the displaced photo under a visible name`, async () => {
+      await write('src/IMG.CR3', 'new');
+      await write('dst/IMG.CR3', 'old');
+      await crashRelocation(`after-swap${links}`);
+      expect(await tempNames('dst')).toHaveLength(1);
+
+      expect(await sweep('dst', DAY_MS / 2)).toEqual({ removed: 0, surfaced: 0 });
+      expect(await sweep('dst')).toEqual({ removed: 0, surfaced: 1 });
+
+      expect(await names('dst')).toEqual(['IMG (replaced).CR3', 'IMG.CR3']);
+      expect(await read('dst/IMG.CR3')).toBe('new');
+      expect(await read('dst/IMG (replaced).CR3')).toBe('old');
+      expect(await sweep('dst')).toEqual({ removed: 0, surfaced: 0 });
+    });
+  }
+
+  test('a Replace killed after its swap surfaces the displaced sidecar as a conflict copy of the photo', async () => {
+    await write('src/IMG.CR3', 'new');
+    await write('dst/IMG.CR3', 'old');
+    await write('dst/IMG.xmp', 'old edits');
+    await crashRelocation('after-swap');
+    expect(await tempNames('dst')).toHaveLength(2);
+
+    expect(await sweep('dst')).toEqual({ removed: 0, surfaced: 2 });
+
+    expect(await names('dst')).toEqual([
+      'IMG (conflict from move).xmp',
+      'IMG (replaced).CR3',
+      'IMG.CR3',
+    ]);
+    expect(await read('dst/IMG (conflict from move).xmp')).toBe('old edits');
+    expect(await read('dst/IMG (replaced).CR3')).toBe('old');
+  });
+
+  test('a displaced photo whose visible name is taken goes to the next free one, never over it', async () => {
     await write('src/IMG.CR3', 'new');
     await write('dst/IMG.CR3', 'old');
     await crashRelocation('after-swap');
-    const kept = await tempNames('dst');
-    expect(kept).toHaveLength(1);
+    await write('dst/IMG (replaced).CR3', 'someone else');
 
-    await ageTemps('dst', 30 * DAY_MS);
-    expect(await sweep('dst')).toBe(0);
+    expect(await sweep('dst')).toEqual({ removed: 0, surfaced: 1 });
 
-    expect(await read('dst/IMG.CR3')).toBe('new');
-    expect(await read(`dst/${kept[0]}`)).toBe('old');
+    expect(await names('dst')).toEqual(['IMG (replaced 2).CR3', 'IMG (replaced).CR3', 'IMG.CR3']);
+    expect(await read('dst/IMG (replaced).CR3')).toBe('someone else');
+    expect(await read('dst/IMG (replaced 2).CR3')).toBe('old');
+  });
+
+  test('a long file name keeps its extension through the short hidden form', async () => {
+    const long = `${'a'.repeat(240)}.CR3`;
+    await write(`src/${long}`, 'new');
+    await write(`dst/${long}`, 'old');
+    await crashRelocation('after-swap', long);
+    const [hidden] = await tempNames('dst');
+    expect(hidden).toMatch(/^\.tmp\..*\.keep\.CR3$/);
+
+    expect(await sweep('dst')).toEqual({ removed: 0, surfaced: 1 });
+
+    expect(await read('dst/Recovered file (replaced).CR3')).toBe('old');
+    expect(await read(`dst/${long}`)).toBe('new');
+    expect(await tempNames('dst')).toEqual([]);
+  });
+});
+
+const REPLACE_SCRIPT = `
+import { spyOn } from 'bun:test';
+import * as fs from ${JSON.stringify(path.join(import.meta.dir, 'mirrored.ts'))};
+import { replaceIfHolds } from ${JSON.stringify(path.join(import.meta.dir, 'sidecar-ownership.ts'))};
+const [, , dest, tmp] = process.argv;
+spyOn(fs, 'link').mockImplementation(async () => process.kill(process.pid, 'SIGKILL'));
+await replaceIfHolds(dest, Buffer.from('old edits'), tmp, async () => {});
+`;
+
+describe('a sidecar replacement killed while the old sidecar is moved aside', () => {
+  test('the old edits come back as a conflict copy: the sidecar name is gone and the edits are the only copy', async () => {
+    await write('dst/IMG.xmp', 'old edits');
+    await write('dst/staged', 'new edits');
+    const script = abs('crash-replace.ts');
+    await fs.writeFile(script, REPLACE_SCRIPT);
+    const child = Bun.spawn([process.execPath, script, abs('dst/IMG.xmp'), abs('dst/staged')], {
+      stdout: 'ignore',
+      stderr: 'pipe',
+    });
+    await child.exited;
+    expect(child.signalCode, await new Response(child.stderr).text()).toBe('SIGKILL');
+    expect(await names('dst')).toEqual([
+      expect.stringMatching(/^IMG\.xmp\.tmp\..*\.keep$/),
+      'staged',
+    ]);
+
+    expect(await sweep('dst')).toEqual({ removed: 0, surfaced: 1 });
+
+    expect(await names('dst')).toEqual(['IMG (conflict from move).xmp', 'staged']);
+    expect(await read('dst/IMG (conflict from move).xmp')).toBe('old edits');
   });
 });
 
 describe('what the sweep never touches', () => {
-  const longAgo = 2 * DAY_MS;
-
   test('a temp that has not been idle for a day', async () => {
     await write('dst/IMG.CR3', 'pixels');
-    await write(
-      `dst/${path.basename(privateSiblingOf(abs('dst/IMG.CR3'), VERIFYING_COPY_MARKER))}`,
-      'x',
-    );
-    await ageTemps('dst', DAY_MS / 2);
+    for (const marker of [VERIFYING_COPY_MARKER, DISPLACED_MARKER]) {
+      await write(`dst/${path.basename(privateSiblingOf(abs('dst/IMG.CR3'), marker))}`, 'x');
+    }
 
-    expect(await sweep('dst')).toBe(0);
-    expect(await tempNames('dst')).toHaveLength(1);
+    expect(await sweep('dst', DAY_MS / 2)).toEqual({ removed: 0, surfaced: 0 });
+    expect(await tempNames('dst')).toHaveLength(2);
   });
 
   test('a temp this process owns', async () => {
-    const own = path.basename(privateSiblingOf(abs('dst/IMG.CR3'), VERIFYING_COPY_MARKER));
+    const own = path.basename(privateSiblingOf(abs('dst/IMG.CR3'), DISPLACED_MARKER));
     await write(`dst/${own}`, 'in flight');
-    await ageTemps('dst', longAgo);
 
-    expect(await sweep('dst')).toBe(0);
+    expect(await sweep('dst')).toEqual({ removed: 0, surfaced: 0 });
     expect(await names('dst')).toEqual([own]);
   });
 
@@ -163,9 +267,8 @@ describe('what the sweep never touches', () => {
     await write('dst/IMG.CR3', 'new');
     await write('dst/IMG.CR3.tmp.99999999-0123456789abcdef', 'the only copy');
     await write('dst/IMG.xmp.tmp.99999999-0123456789abcdef', 'an aside, with its base gone');
-    await ageTemps('dst', longAgo);
 
-    expect(await sweep('dst')).toBe(0);
+    expect(await sweep('dst')).toEqual({ removed: 0, surfaced: 0 });
     expect(await tempNames('dst')).toHaveLength(2);
   });
 
@@ -174,36 +277,48 @@ describe('what the sweep never touches', () => {
       'IMG.tmp.JPG',
       'IMG.tmp.123.JPG',
       'IMG.JPG.tmp.99999999-xyz.copy',
+      'IMG.JPG.tmp.99999999-xyz.keep',
       'IMG.JPG.tmp.99999999.0123456789abcdef.copy',
+      'IMG.JPG.tmp.99999999.0123456789abcdef.keep',
       'IMG.JPG.tmp.copy',
+      'IMG.JPG.tmp.keep',
     ];
     for (const name of lookalikes) await write(`dst/${name}`, 'photo');
-    const when = new Date(Date.now() - longAgo);
-    for (const name of lookalikes) await fs.utimes(abs(`dst/${name}`), when, when);
 
-    expect(await sweep('dst')).toBe(0);
+    expect(await sweep('dst')).toEqual({ removed: 0, surfaced: 0 });
     expect(await names('dst')).toEqual(lookalikes.toSorted());
   });
 
   test('a marked temp that is a directory', async () => {
-    await fs.mkdir(abs('dst/IMG.CR3.tmp.99999999-0123456789abcdef.copy'), { recursive: true });
-    await write('dst/IMG.CR3.tmp.99999999-0123456789abcdef.copy/inside.txt', 'x');
-    await ageTemps('dst', longAgo);
+    for (const marker of [VERIFYING_COPY_MARKER, DISPLACED_MARKER]) {
+      const dir = `dst/IMG.CR3.tmp.99999999-0123456789abcdef${marker}`;
+      await fs.mkdir(abs(dir), { recursive: true });
+      await write(`${dir}/inside.txt`, 'x');
+    }
 
-    expect(await sweep('dst')).toBe(0);
-    expect(await read('dst/IMG.CR3.tmp.99999999-0123456789abcdef.copy/inside.txt')).toBe('x');
+    expect(await sweep('dst')).toEqual({ removed: 0, surfaced: 0 });
+    expect(await read('dst/IMG.CR3.tmp.99999999-0123456789abcdef.keep/inside.txt')).toBe('x');
   });
 });
 
-describe('a verifying copy of a long file name', () => {
-  test('is the short hidden form and is removed once abandoned', async () => {
-    const long = `${'a'.repeat(250)}.CR3`;
-    const hidden = path.basename(privateSiblingOf(abs(`dst/${long}`), VERIFYING_COPY_MARKER));
-    expect(hidden.startsWith('.tmp.')).toBe(true);
-    await write(`dst/${hidden.replace(String(process.pid), '99999999')}`, 'partial');
-    await ageTemps('dst', 2 * DAY_MS);
+describe('a private name of a long file name', () => {
+  const long = `${'a'.repeat(240)}.CR3`;
+  const hiddenName = (marker?: string) =>
+    deadPid(path.basename(privateSiblingOf(abs(`dst/${long}`), marker)));
 
-    expect(await sweep('dst')).toBe(1);
+  test('a verifying copy is the short hidden form and is removed once abandoned', async () => {
+    expect(hiddenName(VERIFYING_COPY_MARKER).startsWith('.tmp.')).toBe(true);
+    await write(`dst/${hiddenName(VERIFYING_COPY_MARKER)}`, 'partial');
+
+    expect(await sweep('dst')).toEqual({ removed: 1, surfaced: 0 });
     expect(await names('dst')).toEqual([]);
+  });
+
+  test('an extension that reads as a marker is not kept, so an unmarked name is never taken for a marked one', () => {
+    for (const extension of ['.copy', '.keep']) {
+      const hidden = path.basename(privateSiblingOf(abs(`dst/${'a'.repeat(250)}${extension}`)));
+      expect(hidden.startsWith('.tmp.')).toBe(true);
+      expect(parsePrivateSibling(deadPid(hidden))?.kind).toBe('unmarked');
+    }
   });
 });

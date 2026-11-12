@@ -5,7 +5,7 @@ import { recordVerifiedPrimaryRollback } from './primary-replacement-admission';
 import { randomBytes } from 'node:crypto';
 import * as fs from './mirrored.ts';
 import { filesIdentical } from './file-bytes.ts';
-import { privateSiblingOf, VERIFYING_COPY_MARKER } from './private-sibling.ts';
+import { DISPLACED_MARKER, privateSiblingOf, VERIFYING_COPY_MARKER } from './private-sibling.ts';
 import { child as childLogger } from '../log.ts';
 
 const log = childLogger('fs/relocate-publish');
@@ -121,7 +121,7 @@ async function abortIfOccupantChanged(
  * back: a hard link, or a copy where links aren't supported. `null` when
  * nothing is there to replace. */
 async function keepOccupant(destination: string): Promise<string | null> {
-  const kept = privateSiblingOf(destination);
+  const kept = privateSiblingOf(destination, DISPLACED_MARKER);
   try {
     await fs.link(destination, kept);
     return kept;
@@ -145,7 +145,7 @@ export async function setAsideUntilCommit(
   file: string,
   publications: RelocatePublication[],
 ): Promise<void> {
-  const aside = privateSiblingOf(file);
+  const aside = privateSiblingOf(file, DISPLACED_MARKER);
   try {
     await fs.rename(file, aside);
   } catch (err) {
@@ -325,7 +325,7 @@ async function withdrawUnidentified(target: fs.FileHandle, destination: string):
 }
 
 async function moveAside(name: string): Promise<string | null> {
-  const aside = privateSiblingOf(name);
+  const aside = privateSiblingOf(name, DISPLACED_MARKER);
   try {
     await fs.rename(name, aside);
     return aside;
