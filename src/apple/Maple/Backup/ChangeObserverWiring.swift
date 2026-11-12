@@ -418,8 +418,8 @@ enum ChangeObserverWiring {
       await writeInBatches(
         reconcile.enqueue,
         { batch, written in
-          try await state.upsert(batch)
-          await queue.enqueue(batch, priority: .background)
+          let created = try await state.insertMissing(batch)
+          await queue.enqueue(created, priority: .background)
           progress.setWalkPhase(.reconciling(checked: written, total: reconcile.enqueue.count))
         })
     else { return }

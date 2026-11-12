@@ -78,6 +78,42 @@ extension BackupStateStore {
     }
   }
 
+  /// Creates the rows a walk found missing, leaving any row that exists by the
+  /// time it writes alone: the live observer or a worker may have inserted or
+  /// advanced it since the walk's snapshot, and replacing it would reset an
+  /// upload in flight, restart its retry budget or drop its companions-owed
+  /// mark. A row left alone only gains a capture date it lacked. Returns the
+  /// tasks actually created, the only ones the caller should queue.
+  public func insertMissing(_ tasks: [BackupTask]) throws -> [BackupTask] {
+    try dbQueue.write { db in
+      try tasks.filter { task in
+        try db.execute(
+          sql: """
+            INSERT INTO tasks
+              (device_id, phasset_local_id, state, priority, retry_count, last_error,
+               enqueued_at, captured_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(device_id, phasset_local_id) DO NOTHING
+            """,
+          arguments: [
+            task.id.deviceId, task.id.phassetLocalId, task.state.rawValue,
+            task.priority.rawValue, task.retryCount, task.lastError,
+            task.enqueuedAt.timeIntervalSince1970, task.capturedAt?.timeIntervalSince1970,
+          ])
+        if db.changesCount > 0 { return true }
+        try db.execute(
+          sql: """
+            UPDATE tasks SET captured_at = ?
+             WHERE device_id = ? AND phasset_local_id = ? AND captured_at IS NULL
+            """,
+          arguments: [
+            task.capturedAt?.timeIntervalSince1970, task.id.deviceId, task.id.phassetLocalId,
+          ])
+        return false
+      }
+    }
+  }
+
   /// Records that the photo's Live Photo video or edited render has yet to
   /// reach the server. Set before the original is sent, so an original that
   /// lands without its response reaching us still leaves the mark.
