@@ -49,6 +49,9 @@ internal fun CloudSearchHeader(
 ) {
     var text by rememberSaveable { mutableStateOf(search.query.text) }
     LaunchedEffect(servers.map { it.uri }) {
+        // After a process death the box restores its text but the new model's query is empty:
+        // hand it the text before the server selection searches, never an unfiltered library.
+        if (text != search.query.text) onText(text)
         if (search.server == null || servers.none { it.uri == search.server.uri }) servers.firstOrNull()?.let(onServer)
     }
     Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp).testTag("cloud-search")) {
