@@ -32,7 +32,7 @@ printf '%s' '<x:xmpmeta xmlns:x="adobe:ns:meta/"/>' >"$library/2026/raw.xmp"
 printf 'Maple provider fixture\n' >"$library/notes.txt"
 # Large enough to cancel mid-transfer; sparse, so it costs no host disk.
 mkdir -p "$library/large"
-python3 -c 'import sys; open(sys.argv[1], "wb").truncate(128 << 20)' "$library/large/large.bin"
+python3 -c 'import sys; open(sys.argv[1], "wb").truncate(512 << 20)' "$library/large/large.bin"
 mkdir -p "$library/2026/.maple/thumbs"
 sleep 1
 for name in raw.dng photo.jpg; do

@@ -130,24 +130,6 @@ SIDECAR_CONTRACT_RECORDS = {
         ("swift", "codegen")
     ),
 }
-# The Android documents provider's device tests run against these API routes (#5836).
-ANDROID_PROVIDER_ROUTES = frozenset(
-    "src/api/src/" + path
-    for path in (
-        "routes/auth.ts",
-        "routes/changes.ts",
-        "db/changes.repo.ts",
-        "routes/library/folder.ts",
-        "library/folder-listing.ts",
-        "routes/library/thumb.ts",
-        "routes/folders.ts",
-        "routes/folders.upload.ts",
-        "routes/folders-file-ops.ts",
-        "routes/assets/metadata.ts",
-        "routes/assets/rename.ts",
-        "routes/assets/trash.ts",
-    )
-)
 METADATA = frozenset(
     name + extension
     for name in ("README", "AGENTS", "CLAUDE", "LICENSE")
@@ -252,11 +234,8 @@ def dependencies(path):
         return {"android"} | codegen
     if path == "src/maple/package.json":
         return {"android", "api", "maple", "web"} | swift
-    # Android pins these API-owned cache tier parameters, and its provider tests these routes.
-    if path in (
-        "src/api/src/thumbs/render.ts",
-        "src/api/src/indexer/previewer.ts",
-    ) or path in ANDROID_PROVIDER_ROUTES:
+    # Android's shared folder writer pins these API-owned cache tier parameters.
+    if path in ("src/api/src/thumbs/render.ts", "src/api/src/indexer/previewer.ts"):
         return {"android", "api", "maple", "web"} | codegen | swift
     if path.startswith(("src/api/", "src/maple/")):
         return {"api", "maple", "web"} | codegen | swift

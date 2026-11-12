@@ -105,17 +105,24 @@ class CloudDocumentsProviderTest {
             rows(resolver.query(childrenUri(library["id"] as String), null, null, null, null))
                 .single { it["name"] == "large" }
         val file = rows(resolver.query(childrenUri(large["id"] as String), null, null, null, null)).single()
-        assertEquals(128L shl 20, file["size"])
+        assertEquals(512L shl 20, file["size"])
         val cache = File(api.context.cacheDir, "documents-provider/originals/${api.server.id}")
         val signal = CancellationSignal()
-        val canceller = Executors.newSingleThreadScheduledExecutor()
+        val canceller = Executors.newSingleThreadExecutor()
         try {
-            canceller.schedule({ signal.cancel() }, 150, TimeUnit.MILLISECONDS)
+            // Cancel only once bytes are demonstrably arriving, so a fast link cannot finish first.
+            canceller.execute {
+                val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(30)
+                while (System.nanoTime() < deadline &&
+                    cache.listFiles().orEmpty().none { it.name.endsWith(".tmp") && it.length() > 0 })
+                    Thread.sleep(1)
+                signal.cancel()
+            }
             val started = System.nanoTime()
             assertThrows(OperationCanceledException::class.java) {
                 resolver.openFileDescriptor(documentUri(file["id"] as String), "r", signal)
             }
-            assertTrue(System.nanoTime() - started < TimeUnit.SECONDS.toNanos(20))
+            assertTrue(System.nanoTime() - started < TimeUnit.SECONDS.toNanos(40))
         } finally {
             canceller.shutdownNow()
         }
