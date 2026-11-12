@@ -28,6 +28,9 @@ object NativeBridge {
 
     external fun cropHandleCenters(params: DoubleArray): DoubleArray
 
+    /** Outputs at `x = i / samples` for interleaved `[x, y]` knots, from raw-core's evaluator. */
+    external fun pointCurve(knots: FloatArray, samples: Int): FloatArray
+
     external fun openNativeDetail(path: String): Long
     external fun copyNativeDetail(handle: Long): Long
     external fun closeNativeDetail(source: Long)

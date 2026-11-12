@@ -14,6 +14,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -40,8 +41,10 @@ internal fun PhoneEditorControls(
     var internalSubTool by remember(group) { mutableStateOf(subTools.first().id) }
     val subTool = activeSubTool ?: internalSubTool
     var band by remember(group) { mutableStateOf(HslBand.Red) }
+    var curveFamily by rememberSaveable { mutableStateOf(ToneCurveFamily.Scene) }
     fun sliderFields(tool: String) =
         if (group == EditorGroup.Color && tool == "hsl") hslBandFields(band)
+        else if (group == EditorGroup.Light && tool == "curve") toneCurveSliders(curveFamily)
         else fieldsForSubTool(group, tool)
     val setSubTool: (String) -> Unit = { nextSubTool ->
         internalSubTool = nextSubTool
@@ -81,6 +84,15 @@ internal fun PhoneEditorControls(
                 subTool,
                 setSubTool,
                 Modifier.padding(horizontal = 8.dp),
+            )
+        if (group == EditorGroup.Light && subTool == "curve")
+            ToneCurvePanel(
+                model,
+                state,
+                curveFamily,
+                { curveFamily = it },
+                Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+                plotSize = 160.dp,
             )
         if (group == EditorGroup.Color && subTool == "wb")
             WbPresetChips(

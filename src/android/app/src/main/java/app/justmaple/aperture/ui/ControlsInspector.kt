@@ -7,6 +7,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
@@ -35,6 +36,7 @@ internal fun ControlsInspector(
         onSubToolChange?.invoke(it)
     }
     var band by remember(group) { mutableStateOf(HslBand.Red) }
+    var curveFamily by rememberSaveable { mutableStateOf(ToneCurveFamily.Scene) }
     val filmId = state.document.attribute("papp:FilmLook").orEmpty()
     val bw = state.document.attribute("crs:ConvertToGrayscale")
     val monochrome = bw == "1" || bw.equals("True", ignoreCase = true)
@@ -113,7 +115,13 @@ internal fun ControlsInspector(
                 Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
             )
         if (group == EditorGroup.Light && subTool == "curve")
-            ParametricToneCurvePlot(state, model = model)
+            ToneCurvePanel(
+                model,
+                state,
+                curveFamily,
+                { curveFamily = it },
+                Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+            )
         if (group == EditorGroup.Color && subTool == "wb")
             WbPresetChips(
                 wbPresets,
@@ -134,6 +142,7 @@ internal fun ControlsInspector(
         val sliderFields =
             when {
                 group == EditorGroup.Color && subTool == "hsl" -> hslBandFields(band)
+                group == EditorGroup.Light && subTool == "curve" -> toneCurveSliders(curveFamily)
                 else -> fieldsForSubTool(group, subTool, fullInspector = true)
             }
         key(group, subTool, band) {

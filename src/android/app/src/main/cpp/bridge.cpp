@@ -4,6 +4,7 @@
 #include <android/data_space.h>
 #include <memory>
 #include <string>
+#include <vector>
 #include <cstdint>
 #include "generated/canvas_zoom_abi.h"
 
@@ -30,6 +31,7 @@ char *maple_android_parametric_curve(const char *);
 double maple_android_crop_overlay_overscan();
 bool maple_android_crop_overlay(const double *, int32_t, uint32_t, uint32_t, size_t, uint8_t *, size_t);
 bool maple_android_crop_handle_centers(const double *, double *);
+bool maple_android_point_curve(const float *, size_t, size_t, float *);
 char *maple_android_scope(const uint32_t *, size_t, uint32_t, uint32_t);
 void *maple_android_auto_wb_new(void *, const char *);
 char *maple_android_auto_wb_run(const void *);
@@ -295,6 +297,24 @@ extern "C" JNIEXPORT jstring JNICALL Java_app_justmaple_aperture_data_NativeBrid
     if (!value) { check(env, -1); return nullptr; }
     jstring result = env->NewStringUTF(value);
     maple_android_free_string(value);
+    return result;
+}
+extern "C" JNIEXPORT jfloatArray JNICALL Java_app_justmaple_aperture_data_NativeBridge_pointCurve(JNIEnv *env, jobject, jfloatArray knots, jint samples) {
+    if (!knots || samples <= 0 || env->ExceptionCheck()) return nullptr;
+    const jsize count = env->GetArrayLength(knots);
+    if (count % 2 != 0) {
+        env->ThrowNew(env->FindClass("java/lang/IllegalArgumentException"), "Tone curve knots are [x, y] pairs");
+        return nullptr;
+    }
+    std::vector<float> points(static_cast<size_t>(count));
+    env->GetFloatArrayRegion(knots, 0, count, points.data());
+    std::vector<float> outputs(static_cast<size_t>(samples) + 1);
+    if (!maple_android_point_curve(points.data(), points.size() / 2, static_cast<size_t>(samples), outputs.data())) {
+        check(env, -1);
+        return nullptr;
+    }
+    jfloatArray result = env->NewFloatArray(static_cast<jsize>(outputs.size()));
+    if (result) env->SetFloatArrayRegion(result, 0, static_cast<jsize>(outputs.size()), outputs.data());
     return result;
 }
 extern "C" JNIEXPORT jlong JNICALL Java_app_justmaple_aperture_data_NativeBridge_createAutoWhiteBalance(JNIEnv *env, jobject, jlong handle, jstring xml) {

@@ -36,6 +36,36 @@ fn monotonic_cubic_matches_the_cross_platform_parity_anchor() {
     }
 }
 
+#[test]
+fn point_curve_preview_samples_the_parity_anchor() {
+    let preview = point_curve_preview(&ToneCurve::new(PARITY_KNOTS.to_vec()), 10);
+    assert_eq!(preview.len(), PARITY_SAMPLES.len());
+    for (i, ((x, y), expected)) in preview.iter().zip(PARITY_SAMPLES).enumerate() {
+        assert!((x - i as f32 / 10.0).abs() < 1e-6);
+        assert!(
+            (y - expected).abs() < 1e-5,
+            "x={x}: expected {expected}, got {y}"
+        );
+    }
+}
+
+#[test]
+fn point_curve_preview_matches_the_stage_for_degenerate_curves() {
+    let identity = point_curve_preview(&ToneCurve::default(), 4);
+    assert_eq!(
+        identity,
+        vec![
+            (0.0, 0.0),
+            (0.25, 0.25),
+            (0.5, 0.5),
+            (0.75, 0.75),
+            (1.0, 1.0)
+        ]
+    );
+    let constant = point_curve_preview(&ToneCurve::new(vec![(0.3, 0.6)]), 2);
+    assert!(constant.iter().all(|&(_, y)| y == 0.6));
+}
+
 fn fresh_img(value: [f32; 3]) -> Image {
     let mut img = Image::new(2, 2, ColorSpace::SceneLinearRec2020);
     for p in &mut img.pixels {

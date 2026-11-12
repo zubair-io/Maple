@@ -7,6 +7,7 @@ mod fields;
 mod film;
 mod native_detail;
 mod platform_raster;
+mod point_curve;
 mod preview;
 mod scopes;
 mod transfer;
