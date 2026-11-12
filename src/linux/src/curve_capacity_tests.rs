@@ -60,7 +60,7 @@ fn oversized_imported_curves_fall_back_save_exact_points_and_keep_worker_live() 
             "an unsupported edit must not disable the GPU for the session"
         );
         worker.send(Command::Save(1, document));
-        assert!(matches!(receive(&worker), Event::Saved(1, Ok(()))));
+        assert!(matches!(receive(&worker), Event::Saved(1, Ok(None))));
         let (_, saved) = SidecarStore::open(&path).unwrap();
         let saved_points = if display {
             &saved.model.display_tone_curve_red.points

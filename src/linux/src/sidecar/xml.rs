@@ -39,6 +39,11 @@ fn descriptions<'a, 'input>(doc: &'a Document<'input>) -> Vec<Node<'a, 'input>> 
         .unwrap_or_default()
 }
 
+pub(super) fn description_count(source: &str) -> Result<usize, SidecarError> {
+    let doc = Document::parse(source).map_err(|error| SidecarError::Invalid(error.to_string()))?;
+    Ok(descriptions(&doc).len())
+}
+
 fn replace(source: &str, mut changes: Vec<(Range<usize>, String)>) -> String {
     changes.sort_by_key(|(range, _)| range.start);
     let mut result = String::new();

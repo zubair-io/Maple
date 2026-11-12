@@ -328,12 +328,24 @@ an explicit error; they never fall back to an unrequested ungraded render.
 
 Serialized saves run outside the UI thread after a 750ms idle interval, before
 navigation and before closing. A failed save keeps the edited document open.
-Retry Save XMP or explicitly reload XMP to discard those edits and read external
-changes. `SidecarStore` rejects malformed XML, sidecar symlinks and detected
-external changes. Saves sync a temporary file, retain existing permissions,
-rename in the same folder and sync the directory. Optimistic comparison does
-not provide a filesystem-wide lock against uncooperative external writers
-racing the rename. Originals are never written.
+Retry Save XMP or explicitly reload XMP to discard those edits.
+
+A sidecar changed outside Maple since the editor read or last published it is
+not refused (#4983): `SidecarStore` runs the shared
+`raw_core::workflow::SidecarWorkflow::reconcile_xmp` with the revision the edit
+was based on, publishes the merge and records the outside state as an `external`
+history entry. A property only one side changed keeps that side's value; one both
+changed takes Maple's. The editor adopts the merged document when no newer edit is
+waiting, without scheduling another save. A save queued before adoption, and an
+undo or redo state, applies only its own changes relative to what Maple last meant
+to publish, so it never reverts the outside change. A sidecar removed outside
+Maple, malformed outside XML, more than one `rdf:Description`, or a merge the
+shared code rejects still refuses and keeps the edit. `SidecarStore` also rejects
+sidecar symlinks. Saves sync a temporary file, retain existing permissions,
+re-read the sidecar immediately before renaming in the same folder and sync the
+directory; a change landing in that window is refused, and saving again merges
+it. This optimistic comparison is not a filesystem-wide lock against
+uncooperative writers racing the rename. Originals are never written.
 
 The writer owns the controls exposed by this shell, Profile, culling and required
 bookkeeping. Other attributes and nested XML are retained from the imported

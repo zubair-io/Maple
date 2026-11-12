@@ -42,7 +42,7 @@ fn native_worker_opens_renders_and_persists_real_raw_without_touching_original()
     };
     assert!(before.size[0] > 0 && before.size[1] > 0);
     worker.send(Command::Save(7, document));
-    assert!(matches!(receive(&worker), Event::Saved(7, Ok(()))));
+    assert!(matches!(receive(&worker), Event::Saved(7, Ok(None))));
     let photo = Folder::scan(root.path()).unwrap().photos.remove(0);
     worker.send(Command::Open(8, photo));
     let document = match receive(&worker) {
@@ -116,7 +116,7 @@ fn rapid_slider_ticks_keep_latest_preview_and_preserve_save_order() {
                 previews += 1;
                 latest = Some((generation, image));
             }
-            Event::Saved(1, Ok(())) => break,
+            Event::Saved(1, Ok(None)) => break,
             _ => panic!("slider/save worker failed"),
         }
     }
@@ -230,7 +230,7 @@ fn raster_worker_edits_saves_reopens_and_exports_without_modifying_source() {
         assert_eq!((decoded.width, decoded.height), (8, 6));
         assert!(decoded.data.iter().all(|v| *v > 80));
         worker.send(Command::Save(1, document));
-        assert!(matches!(receive(&worker), Event::Saved(1, Ok(()))));
+        assert!(matches!(receive(&worker), Event::Saved(1, Ok(None))));
         worker.send(Command::Open(2, photo));
         let document = match receive(&worker) {
             Event::Opened(2, Ok((document, _))) => *document,
@@ -335,7 +335,7 @@ fn imported_film_preview_and_export_match_shared_core_without_touching_raw() {
     let mut edited = document;
     Control::Exposure.set(&mut edited.model, 1.0).unwrap();
     worker.send(Command::Save(2, edited));
-    assert!(matches!(receive(&worker), Event::Saved(2, Ok(()))));
+    assert!(matches!(receive(&worker), Event::Saved(2, Ok(None))));
     let saved = raw_core::xmp::parse(&std::fs::read_to_string(path.with_extension("xmp")).unwrap())
         .unwrap();
     assert_eq!(saved.exposure, 1.0);
