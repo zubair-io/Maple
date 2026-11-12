@@ -143,6 +143,37 @@ fn lossy_linear_raw_is_decoded_by_its_declared_transfers() {
     assert!(ClipGainContext::new(&raw, (0, 0), 1).is_some());
 }
 
+/// An 8-bit LinearRaw plane no declared transfer covers keeps the legacy
+/// gamma 2.4 decode instead of rendering un-linearized: with no OpcodeList2,
+/// and on the plane whose required transfer was skipped as malformed (the
+/// other planes still run theirs). High-bit-depth data without a transfer is
+/// linear (DNG spec) and passes through.
+#[test]
+fn an_8bit_plane_without_an_executed_transfer_keeps_the_gamma_fallback() {
+    let encoded = 128f32 / 255.;
+    let bare = linearraw_to_camera_rgb(&as_linear_raw(decode_with_list2(&[]), 255)).unwrap();
+    assert!(bare.pixels.iter().all(|p| *p == [encoded.powf(2.4); 3]));
+
+    let malformed_red = [
+        polynomial_entry([0, 0, 64, 64], 0, 1, &[0.; 10]),
+        polynomial_entry([0, 0, 64, 64], 1, 1, &GREEN),
+        polynomial_entry([0, 0, 64, 64], 2, 1, &RED_BLUE),
+    ];
+    let raw = as_linear_raw(decode_with_list2(&malformed_red), 255);
+    assert_eq!(raw.skipped_required_opcodes().len(), 1);
+    let image = linearraw_to_camera_rgb(&raw).unwrap();
+    let expected = [
+        encoded.powf(2.4),
+        polynomial(&GREEN).evaluate(encoded),
+        polynomial(&RED_BLUE).evaluate(encoded),
+    ];
+    assert!(image.pixels.iter().all(|p| *p == expected));
+
+    let high_bit = linearraw_to_camera_rgb(&as_linear_raw(decode_with_list2(&[]), 4095)).unwrap();
+    let linear = 2048f32 / 4095.;
+    assert!(high_bit.pixels.iter().all(|p| *p == [linear; 3]));
+}
+
 #[test]
 fn high_bit_linear_raw_applies_each_plane_transfer_only_inside_its_area() {
     let declared = [

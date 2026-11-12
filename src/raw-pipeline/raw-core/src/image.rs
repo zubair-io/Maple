@@ -316,6 +316,18 @@ impl RawImage {
         crate::sensor_gain_maps::skipped_required(self)
     }
 
+    /// 8-bit LinearRaw (Adobe DNG Converter's lossy output) keeps its white
+    /// balance on the post-DCP CAT16 tier: no camera-space slider frame,
+    /// exactly like `RawlerFallback`. It decodes through its declared
+    /// transfer and is pre-gained like any LinearRaw, but every stored
+    /// white-balance pair for such a file was authored on that tier, and the
+    /// camera-space frame reads the same pair differently (#5081: mean
+    /// ΔE2000 up to 23.6 on `test_0006.DNG`). Adopting the frame needs a
+    /// `WbScaleVersion` stamp and a converter (#5924).
+    pub fn keeps_post_dcp_white_balance(&self) -> bool {
+        self.cfa == CfaPattern::LinearRgb && self.white_level <= 255
+    }
+
     /// Whether this RAW carries a parsed `OpcodeList3` at all — the signal
     /// the lens-correction inspector panel (#2231) uses to disable/hide
     /// itself when there is nothing for `lens_profile_enable` /
