@@ -141,11 +141,20 @@ extension RemoteCatalog {
   }
 
   /// Trash the RAW, then the JPEG. A RAW the server refuses leaves both untouched; a JPEG it then
-  /// refuses brings the trashed RAW back, so the tile is never left half trashed.
+  /// refuses brings the trashed RAW back, so the tile is never left half trashed. The server picks
+  /// each asset's trash name on its own, so with a file of the pair's stem already in the Trash of
+  /// the library `libraryFolderID` the RAW and the JPEG would land under different stems and the
+  /// JPEG's sidecar beside the older photo: that trash is refused before anything moves, until the
+  /// server can trash a pair under one stem (#5930). `primaryAbsPath` is the RAW's server path.
   public func deleteAsset(
-    assetID: String, intent: DeleteAssetIntent, stack: RawJpegStack
+    assetID: String, intent: DeleteAssetIntent, stack: RawJpegStack, libraryFolderID: String,
+    primaryAbsPath: String
   ) async throws -> DeleteAssetResult {
     let companion = try companionID(of: stack)
+    if intent == .trash {
+      try await requireTrashStemFree(
+        stack, libraryFolderID: libraryFolderID, primaryAbsPath: primaryAbsPath)
+    }
     let primary = try await deleteAsset(assetID: assetID, intent: intent)
     guard primary == .ok else { return primary }
     do {
@@ -160,6 +169,42 @@ extension RemoteCatalog {
       }
       throw error
     }
+  }
+
+  /// Throws `destinationExists` when the library's `.maple/trash/<dir>` already holds the RAW's,
+  /// the JPEG's or their sidecar's name, `<dir>` being the RAW's folder in the library (the
+  /// server's `computeTrashPath`).
+  private func requireTrashStemFree(
+    _ stack: RawJpegStack, libraryFolderID: String, primaryAbsPath: String
+  ) async throws {
+    guard let root = try await listFolders().first(where: { $0.id == libraryFolderID }),
+      let directory = Self.libraryDirectory(of: primaryAbsPath, root: root.path)
+    else {
+      throw FileOperationError.invalidDestination(
+        "\(stack.primary.name) is no longer in a library this server lists.")
+    }
+    let trash = directory.isEmpty ? ".maple/trash" : ".maple/trash/\(directory)"
+    let stem = (stack.primary.name as NSString).deletingPathExtension
+    for name in [stack.primary.name, stack.companion.name, "\(stem).xmp"] {
+      guard try await statFile(folderID: libraryFolderID, relativePath: "\(trash)/\(name)") != nil
+      else { continue }
+      throw FileOperationError.destinationExists(
+        "the server's Trash already holds \(name). Restore or delete it there first: this RAW and"
+          + " JPEG would otherwise be trashed under different names.")
+    }
+  }
+
+  /// The folder holding `absPath`, relative to the library `root` and `/`-separated ("" at the
+  /// root), or nil when `absPath` is not under `root`. A Windows-hosted server answers with
+  /// backslashes.
+  static func libraryDirectory(of absPath: String, root: String) -> String? {
+    let separator: Character = root.contains("\\") ? "\\" : "/"
+    let base = root.hasSuffix(String(separator)) ? String(root.dropLast()) : root
+    guard let cut = absPath.lastIndex(of: separator) else { return nil }
+    let folder = String(absPath[..<cut])
+    if folder == base { return "" }
+    guard folder.hasPrefix(base + String(separator)) else { return nil }
+    return String(folder.dropFirst(base.count + 1)).replacingOccurrences(of: "\\", with: "/")
   }
 
   /// `sourceAddress` (`<library>:<relative path>`) re-pointed at where a relocate put the file.

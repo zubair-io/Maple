@@ -147,7 +147,9 @@ extension AppShell {
         do {
             let result: DeleteAssetResult
             if let stack = asset.stack {
-                result = try await remote.deleteAsset(assetID: assetID, intent: .trash, stack: stack)
+                result = try await remote.deleteAsset(
+                    assetID: assetID, intent: .trash, stack: stack,
+                    libraryFolderID: catalog.folderID, primaryAbsPath: catalog.absPath)
             } else {
                 result = try await remote.deleteAsset(assetID: assetID, intent: .trash)
             }

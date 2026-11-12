@@ -13,9 +13,10 @@ struct ServerStackToggle: View {
   @State private var isOn = true
   @State private var isLoaded = false
   @State private var failure: String?
-  /// Bumped by every read and save, so only the newest one's answer lands (a slow save of an
-  /// earlier flip can never overwrite a later one).
+  /// Bumped by every read and flip, so only the newest one's answer lands in the view.
   @State private var generation = 0
+  /// The value the server last confirmed, which a failed save puts the switch back to.
+  @State private var saved = true
 
   private var client: DisplayConfigClient {
     DisplayConfigClient(
@@ -47,6 +48,7 @@ struct ServerStackToggle: View {
       let value = try await client.fetch().stackRawJpeg
       guard current == generation else { return }
       isOn = value
+      saved = value
       isLoaded = true
       failure = nil
       await ServerRawJpegStackPreference.shared.record(value, server: server)
@@ -56,21 +58,27 @@ struct ServerStackToggle: View {
     }
   }
 
+  /// Saves go through `ServerRawJpegStackPreference.save`, one at a time per server and latest
+  /// wins: two flips before the first PUT finished used to send both at once, and the earlier one
+  /// could reach the server last and keep the value the user had flipped away from.
   private func commit(_ value: Bool) {
-    let previous = isOn
     isOn = value
     generation &+= 1
     let current = generation
+    let client = client
     Task { @MainActor in
       do {
-        try await client.save(DisplayConfigPatch(stackRawJpeg: value))
+        let sent = try await ServerRawJpegStackPreference.shared.save(value, server: server) {
+          try await client.save(DisplayConfigPatch(stackRawJpeg: $0))
+        }
+        guard sent else { return }
+        saved = value
         guard current == generation else { return }
         failure = nil
-        await ServerRawJpegStackPreference.shared.record(value, server: server)
         NotificationCenter.default.post(name: RawJpegStackPreference.didChange, object: nil)
       } catch {
         guard current == generation else { return }
-        isOn = previous
+        isOn = saved
         failure = "Couldn't save this setting: \(error.localizedDescription)"
       }
     }

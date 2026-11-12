@@ -245,9 +245,29 @@ final class RawJpegStackServerTests: XCTestCase {
 
   // MARK: - Trash
 
+  private let rawAbsPath = "/srv/photos/Library/Trip/IMG_1.CR3"
+
+  /// The lookups a stacked trash makes before trashing: the library roots, and `file-meta` for the
+  /// library's Trash, which holds `inTrash`.
+  private func trashLookup(
+    _ record: Request, _ request: URLRequest, inTrash: Set<String> = []
+  ) -> (Data, HTTPURLResponse)? {
+    if record.path == "/api/folders" {
+      return respond(
+        request,
+        json: """
+          [{"id":"f1","slug":"library","path":"\(libPath)","label":"Library",
+            "last_scan":null,"file_count":1,"created_at":"2026-01-01T00:00:00Z"}]
+          """)
+    }
+    if record.path == "/api/folders/f1/file-meta" { return fileMeta(request, taken: inTrash) }
+    return nil
+  }
+
   func testTrashGoesRawFirstAndARefusedJpegBringsTheRawBack() async throws {
     let recorder = Recorder()
     let catalog = catalog(recorder) { record, request in
+      if let lookup = self.trashLookup(record, request) { return lookup }
       if record.method == "DELETE", record.path.contains(self.jpegID) {
         return self.respond(request, status: 409, json: #"{"error":"state","state":"trashed"}"#)
       }
@@ -259,11 +279,13 @@ final class RawJpegStackServerTests: XCTestCase {
       return (Data(), response)
     }
 
-    let result = try await catalog.deleteAsset(assetID: rawID, intent: .trash, stack: stack)
+    let result = try await catalog.deleteAsset(
+      assetID: rawID, intent: .trash, stack: stack, libraryFolderID: "f1",
+      primaryAbsPath: rawAbsPath)
 
     XCTAssertEqual(result, .stateMismatch(state: "trashed"))
     XCTAssertEqual(
-      recorder.requests.map { "\($0.method) \($0.path)" },
+      recorder.requests.filter { $0.method != "GET" }.map { "\($0.method) \($0.path)" },
       [
         "DELETE /api/assets/\(rawID)", "DELETE /api/assets/\(jpegID)",
         "POST /api/assets/\(rawID)/restore",
@@ -272,14 +294,62 @@ final class RawJpegStackServerTests: XCTestCase {
 
   func testARefusedRawLeavesTheJpegUntouched() async throws {
     let recorder = Recorder()
-    let catalog = catalog(recorder) { _, request in
-      self.respond(request, status: 409, json: #"{"error":"state","state":"purged"}"#)
+    let catalog = catalog(recorder) { record, request in
+      if let lookup = self.trashLookup(record, request) { return lookup }
+      return self.respond(request, status: 409, json: #"{"error":"state","state":"purged"}"#)
     }
 
-    let result = try await catalog.deleteAsset(assetID: rawID, intent: .trash, stack: stack)
+    let result = try await catalog.deleteAsset(
+      assetID: rawID, intent: .trash, stack: stack, libraryFolderID: "f1",
+      primaryAbsPath: rawAbsPath)
 
     XCTAssertEqual(result, .stateMismatch(state: "purged"))
-    XCTAssertEqual(recorder.requests.map(\.path), ["/api/assets/\(rawID)"])
+    XCTAssertEqual(
+      recorder.requests.filter { $0.method == "DELETE" }.map(\.path), ["/api/assets/\(rawID)"])
+  }
+
+  /// The server names each trashed asset on its own: with an older `IMG_1.CR3` in its Trash the
+  /// RAW became `IMG_1.1.CR3` while the JPEG landed as `IMG_1.JPG` and published `IMG_1.xmp`
+  /// beside the older RAW, both answering success. Such a trash is now refused before anything
+  /// moves, until the server trashes a pair under one stem (#5930).
+  func testTrashIsRefusedWhenTheServerTrashHoldsAFileOfThePairsStem() async throws {
+    for occupant in ["IMG_1.CR3", "IMG_1.JPG", "IMG_1.xmp"] {
+      let recorder = Recorder()
+      let catalog = catalog(recorder) { record, request in
+        if let lookup = self.trashLookup(
+          record, request, inTrash: [".maple/trash/Trip/\(occupant)"])
+        {
+          return lookup
+        }
+        let response = HTTPURLResponse(
+          url: request.url!, statusCode: 204, httpVersion: "HTTP/1.1", headerFields: nil)!
+        return (Data(), response)
+      }
+
+      do {
+        _ = try await catalog.deleteAsset(
+          assetID: rawID, intent: .trash, stack: stack, libraryFolderID: "f1",
+          primaryAbsPath: rawAbsPath)
+        XCTFail("\(occupant) in the server's Trash must refuse the stacked trash")
+      } catch FileOperationError.destinationExists(let message) {
+        XCTAssertTrue(message.contains(occupant), message)
+      }
+      XCTAssertEqual(
+        recorder.requests.filter { $0.method != "GET" }.map(\.path), [],
+        "nothing is trashed when \(occupant) is in the server's Trash")
+    }
+  }
+
+  func testTheTrashFolderIsTheRawsFolderInItsLibrary() {
+    XCTAssertEqual(
+      RemoteCatalog.libraryDirectory(of: "/srv/Library/Trip/Day 1/IMG_1.CR3", root: "/srv/Library"),
+      "Trip/Day 1")
+    XCTAssertEqual(
+      RemoteCatalog.libraryDirectory(of: "/srv/Library/IMG_1.CR3", root: "/srv/Library/"), "")
+    XCTAssertEqual(
+      RemoteCatalog.libraryDirectory(of: #"D:\Photos\Trip\IMG_1.CR3"#, root: #"D:\Photos"#), "Trip")
+    XCTAssertNil(
+      RemoteCatalog.libraryDirectory(of: "/srv/Library2/IMG_1.CR3", root: "/srv/Library"))
   }
 
   // MARK: - Display config and `stack=1`
@@ -310,6 +380,75 @@ final class RawJpegStackServerTests: XCTestCase {
 
     XCTAssertEqual([first, second, third], [false, false, true])
     XCTAssertEqual(calls.requests.count, 1)
+  }
+
+  /// The server end of `save`: each PUT waits until the test releases it.
+  private actor GatedServer {
+    private(set) var stored: [Bool] = []
+    private(set) var inFlight = 0
+    private(set) var mostInFlight = 0
+    private var gates: [CheckedContinuation<Void, Never>] = []
+
+    func put(_ value: Bool) async {
+      inFlight += 1
+      mostInFlight = max(mostInFlight, inFlight)
+      await withCheckedContinuation { gates.append($0) }
+      stored.append(value)
+      inFlight -= 1
+    }
+
+    var waiting: Int { gates.count }
+    private(set) var finished = false
+
+    func releaseOne() {
+      if !gates.isEmpty { gates.removeFirst().resume() }
+    }
+
+    func finish() { finished = true }
+  }
+
+  private func until(_ condition: @Sendable () async -> Bool) async {
+    while !(await condition()) { await Task.yield() }
+  }
+
+  /// Two flips before the first PUT finished used to send both PUTs at once, and the earlier one
+  /// could reach the server last and keep the value the user had flipped away from. Saves now go
+  /// one at a time, a save a newer one overtook while it waited is dropped, and the server and the
+  /// remembered preference end on the last value asked for.
+  func testSavesOfThePreferenceGoOneAtATimeAndTheLastValueWins() async throws {
+    let preference = ServerRawJpegStackPreference()
+    let gated = GatedServer()
+    let server = self.server
+    let key = server.absoluteString
+    let write: @Sendable (Bool) async throws -> Void = { await gated.put($0) }
+
+    let off = Task { try await preference.save(false, server: server, write: write) }
+    await until { await gated.waiting == 1 }
+    let on = Task { try await preference.save(true, server: server, write: write) }
+    await until { await preference.newestSave[key] == 2 }
+    let offAgain = Task { try await preference.save(false, server: server, write: write) }
+    await until { await preference.newestSave[key] == 3 }
+
+    let all = Task {
+      let sent = try await [off.value, on.value, offAgain.value]
+      await gated.finish()
+      return sent
+    }
+    while !(await gated.finished) {
+      await gated.releaseOne()
+      await Task.yield()
+    }
+
+    let sent = try await all.value
+    XCTAssertEqual(sent, [true, false, true], "the overtaken middle save is never sent")
+    let stored = await gated.stored
+    XCTAssertEqual(stored, [false, false])
+    let mostInFlight = await gated.mostInFlight
+    XCTAssertEqual(mostInFlight, 1, "one PUT at a time")
+    let remembered = await preference.isEnabled(server: server) {
+      DisplayConfig(showHiddenImages: false, stackRawJpeg: true)
+    }
+    XCTAssertFalse(remembered)
   }
 
   func testAnUnreachableServerDefaultsToStackingOnAndAsksAgainNextTime() async {
