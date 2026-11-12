@@ -109,6 +109,7 @@ MaskRemapRenderParityTests gpu needs a real Metal device
 MetalKernelParityTests fixture needs the gitignored RAW fixtures (skip-passes without them; the gate rejects skips)
 NativeDetailAEGainTests fixture needs the gitignored RAW fixtures (skip-passes without them; the gate rejects skips)
 NativeDetailExitForcesFreshRenderTests slow render or decode workload that costs minutes on the runner
+NativeDetailGpuCanvasHazeTests gpu opens a GpuLiveDriver session on a real Metal device (#5215)
 NativeDetailPerfTests slow render or decode workload that costs minutes on the runner
 NetworkConfigClientTests host talks to a host service (keychain, FileProvider, network, PhotoKit, server admin)
 NetworkConfigTypesTests host talks to a host service (keychain, FileProvider, network, PhotoKit, server admin)

@@ -213,6 +213,10 @@ extension EditSession {
           try Task.checkCancellation()
           return buf.pixels
         }
+        // Same MainActor slice as the open's return: the upload now holds
+        // this identity, so the native-detail patch can measure its dehaze
+        // maps from the buffer the canvas received (#5215).
+        driver.recordUploadedPrescale(targetSize, identity: uploadIdentity)
         MemoryProbe.sample("gpu-open dims=\(dims.width)x\(dims.height)")
       } catch is CancellationError {
         return true  // Superseded work must not allocate a CPU fallback either.

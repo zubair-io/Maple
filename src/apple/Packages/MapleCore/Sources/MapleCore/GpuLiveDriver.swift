@@ -85,6 +85,8 @@ public final class GpuLiveDriver {
   /// The capture decode's frame and creative stage for the uploaded pixels
   /// (#5377): every tick renders them through it, so it is set with them.
   var uploadedWbFrame: WbSliderFrame?
+  /// The prescale target of the current upload (#5215); see `canvasHazeSource`.
+  var uploadedPrescale: (targetSize: CGSize?, identity: GpuUploadIdentity)?
 
   /// The canvas layer to present into. Weak — the SwiftUI view owns it; if the
   /// view goes away the driver simply has nothing to present to.
@@ -312,6 +314,7 @@ public final class GpuLiveDriver {
     sessionDims = nil
     uploadedIdentity = nil
     uploadedWbFrame = nil
+    uploadedPrescale = nil
     autoProfileFit = nil
     let previous = sessionTeardown
     sessionTeardown = Task {

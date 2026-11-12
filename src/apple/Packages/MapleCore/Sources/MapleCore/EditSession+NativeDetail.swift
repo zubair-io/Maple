@@ -55,8 +55,8 @@ extension EditSession {
     // the chain is the one place it is applied.)
     let m = renderModel
     // Perspective warps the whole frame, so it has no patch form: the
-    // bounded whole-image refine renders it. Dehaze recovers with the whole
-    // frame's haze maps, measured from the decoded base (#3287).
+    // bounded whole-image refine renders it. Dehaze recovers with the haze
+    // maps of the canvas buffer the patch overlays (#3287, #5215).
     guard m.perspective.isIdentity else { return false }
     let publishedPatchRect = NativeDetailLOD.patchRect(
       visibleRect: viewportSourceRect,
@@ -101,10 +101,17 @@ extension EditSession {
     let filmLattice = filmLutStore.lattice(for: m.filmLook)
     let snapshot = await renderActor.snapshot(forAsset: asset, liveModel: decodeKey(m))
     guard requestID == nativeDetailRequestID, !Task.isCancelled else { return true }
-    // Dehaze measures its haze maps from the whole decode; a seeded preview
-    // or a decode for another model is not that, so the whole-image refine
-    // takes over until the real decode lands (#3287).
-    let hazeFrame = snapshot.isFresh && snapshot.profile != nil ? snapshot.image : nil
+    // Dehaze measures its haze maps from the canvas buffer the patch
+    // overlays (#5215): the GPU-live canvas's prescaled upload while that
+    // canvas is on glass with this decode, the whole decoded base otherwise.
+    // A seeded preview or a decode for another model is neither, so the
+    // whole-image refine takes over until the real decode lands (#3287).
+    let hazeSource = (snapshot.isFresh && snapshot.profile != nil ? snapshot.image : nil).map {
+      base in
+      (gpuFramePresented && !gpuPresentFailed
+        ? gpuLiveDriver?.canvasHazeSource(base: base, decodeGeneration: snapshot.decodeGeneration)
+        : nil) ?? NativeDetailHazeSource(frame: base, targetSize: nil)
+    }
     adoptDecodedWbFrame(snapshot.wbFrame)
     // #1976: the live WB delta is applied ONCE, by the windowed chain
     // below, anchored at the buffer's actual as-shot bake
@@ -164,7 +171,7 @@ extension EditSession {
         // masks, vignette and grain match the full-frame render (#5169).
         let processed = try pipeline.processSceneLinearWindow(
           decoded: decoded,
-          fullFrame: hazeFrame,
+          hazeSource: hazeSource,
           model: m,
           origin: decodeRect.origin,
           fullSize: fullSize,
