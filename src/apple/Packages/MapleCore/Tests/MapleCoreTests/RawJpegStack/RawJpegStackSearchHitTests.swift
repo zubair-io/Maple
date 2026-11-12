@@ -132,19 +132,29 @@ final class RawJpegStackSearchHitTests: XCTestCase {
     XCTAssertNil(recorder.requests[2].body["source_address"], "the JPEG is addressed by id")
   }
 
+  /// The trash first asks the library's Trash about the pair's names (#5930), found from the RAW's
+  /// path in its library, since an unaddressed JPEG names no folder.
   func testTrashingAHitsStackTrashesTheUnaddressedJpegToo() async throws {
     let recorder = Recorder()
     let catalog = RemoteCatalog(
       http: AuthenticatedHTTPClient.unauthenticated(
-        server: server, urlSession: session(recorder)),
+        server: server,
+        urlSession: session(recorder) { path in
+          path == "/api/folders"
+            ? #"[{"id":"f1","path":"/l","label":"L","file_count":2}]"# : "{}"
+        }),
       server: server)
 
     let result = try await catalog.deleteAsset(
-      assetID: rawID, intent: .trash, stack: unaddressedStack())
+      assetID: rawID, intent: .trash, stack: unaddressedStack(), libraryFolderID: "f1",
+      primaryAbsPath: "/l/Trip/IMG_3.NEF")
 
     XCTAssertEqual(result, .ok)
     XCTAssertEqual(
-      recorder.requests.map { "\($0.method) \($0.path)" },
+      recorder.requests.filter { $0.path.hasSuffix("/file-meta") }.compactMap(\.query),
+      ["IMG_3.NEF", "IMG_3.JPG", "IMG_3.xmp"].map { "path=.maple/trash/Trip/\($0)" })
+    XCTAssertEqual(
+      recorder.requests.filter { $0.method != "GET" }.map { "\($0.method) \($0.path)" },
       ["DELETE /api/assets/\(rawID)", "DELETE /api/assets/\(jpegID)"])
   }
 
