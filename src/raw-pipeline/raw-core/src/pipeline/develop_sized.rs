@@ -270,16 +270,16 @@ pub(crate) fn develop_sized_camera(
             });
             lateral_ca(&mut mosaic, raw, model, cancel)?;
             // #1637: when the requested long edge is at most half the sensor's,
-            // demosaic at HALF resolution (`half_res`, sensor/2) even for
+            // demosaic straight to HALF resolution (sensor/2) even for
             // Full/Amaze. The full-res RGB buffer (~1.4 GB on a 100 MP sensor)
             // is then never allocated — that buffer (held twice on a cold Auto
             // open: render + auto-profile fit) is what jetsam-killed iOS on
-            // large RAWs. Half-sensor still exceeds the sub-half-sensor target,
-            // but this is an approximation: reconstruction and nonlinear
-            // colour/NR stages do not commute with resizing. #3875 tracks
-            // preview/export qualification; adequate pixel dimensions alone
-            // do not prove perceptual parity. `crop_divisor` follows to 2 so the
-            // DefaultCrop coords still land on the (now half-res) buffer.
+            // large RAWs. #4373: the half-size buffer is RCD reconstructed in
+            // 64-row bands and averaged per 2×2 quad (bit-identical to full
+            // RCD then quad average), not `half_res`'s CFA-sample binning, so
+            // a bounded Full preview keeps full-quality reconstruction while
+            // only per-worker band scratch exists. `crop_divisor` follows to 2
+            // so the DefaultCrop coords still land on the half-res buffer.
             let sensor_le = mosaic.width.max(mosaic.height);
             let demosaic_half =
                 quality != RenderQuality::Preview && max_long_edge.saturating_mul(2) <= sensor_le;
@@ -288,11 +288,11 @@ pub(crate) fn develop_sized_camera(
             }
             // Kernel choice via `bayer_kernel` (#3413); see the unsized
             // variant. The `demosaic_half` short-circuit above outranks it:
-            // once the target is small enough to bin, there is no
-            // full-resolution reconstruction left for a kernel to differ on.
+            // the bounded reconstruction is RCD whatever kernel the
+            // full-resolution path would pick.
             stage("sized_demosaic", || {
                 if demosaic_half {
-                    return demosaic::half_res_cancellable(&mosaic, raw.cfa, cancel);
+                    return demosaic::rcd_quad_half_cancellable(&mosaic, raw.cfa, cancel);
                 }
                 let algo = crate::pipeline::bayer_kernel(quality, model, raw);
                 demosaic::camera_demosaic_cancellable(

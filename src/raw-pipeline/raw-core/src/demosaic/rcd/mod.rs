@@ -74,6 +74,8 @@
 mod steps;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_quad;
 
 use super::bilinear::{bilinear_cancellable, bilinear_pixel};
 use super::flatten_mosaic;
@@ -150,6 +152,78 @@ pub fn rcd_cancellable(mosaic: &Image, cfa: CfaPattern, cancel: CancelToken<'_>)
             render_band(band, band_idx * BAND, mosaic, &frame, h);
         });
     out
+}
+
+/// RCD reconstructed band by band and averaged over 2×2 quads into a
+/// half-width, half-height image (#4373): the bounded sized-develop
+/// kernel. Each output pixel is the mean of the four RCD pixels at
+/// `(2x..2x+1, 2y..2y+1)`, bit-identical to [`rcd`] followed by that quad
+/// average, so it has `half_res`'s geometry (centroid `(2x+0.5, 2y+0.5)`,
+/// odd trailing row/column dropped) with full-quality reconstruction. Only
+/// one [`BAND`]-row RGB scratch per rayon worker exists at a time; the
+/// full-resolution RGB image is never allocated. Cancellation follows
+/// [`rcd_cancellable`]: a cancelled band leaves its output rows zeroed for
+/// the develop chain to discard.
+pub fn rcd_quad_half_cancellable(
+    mosaic: &Image,
+    cfa: CfaPattern,
+    cancel: CancelToken<'_>,
+) -> Image {
+    mosaic.assert_space(ColorSpace::CameraNativeMosaic);
+    let w = mosaic.width as usize;
+    let h = mosaic.height as usize;
+    let out_w = w / 2;
+    let mut out = Image::new(
+        out_w as u32,
+        (h / 2) as u32,
+        ColorSpace::CameraNativeLinearRgb,
+    );
+    // `par_chunks_mut(0)` panics; a mosaic under 2 px on an axis has no quad.
+    if out.pixels.is_empty() {
+        return out;
+    }
+    if w < MIN_DIM || h < MIN_DIM {
+        let full = bilinear_cancellable(mosaic, cfa, cancel);
+        average_quads(&full.pixels, w, &mut out.pixels, out_w);
+        return out;
+    }
+
+    let cfa_flat = flatten_mosaic(mosaic, cfa);
+    let frame = Frame {
+        c: &cfa_flat,
+        w,
+        cfa,
+    };
+    out.pixels
+        .par_chunks_mut(out_w * (BAND / 2))
+        .enumerate()
+        .for_each_init(Vec::new, |scratch, (band_idx, out_band)| {
+            if cancel.is_cancelled() {
+                return;
+            }
+            // The same rows [`rcd_cancellable`]'s band `band_idx` owns, so
+            // the reconstruction is that band's, bit for bit.
+            let y0 = band_idx * BAND;
+            let rows = BAND.min(h - y0);
+            scratch.clear();
+            scratch.resize(w * rows, [0.0f32; 3]);
+            render_band(scratch, y0, mosaic, &frame, h);
+            average_quads(scratch, w, out_band, out_w);
+        });
+    out
+}
+
+/// Average each 2×2 quad of the `w`-wide `src` rows into the `out_w`-wide
+/// `dst` rows, one `dst` row per source row pair.
+fn average_quads(src: &[[f32; 3]], w: usize, dst: &mut [[f32; 3]], out_w: usize) {
+    for (y, row) in dst.chunks_exact_mut(out_w).enumerate() {
+        let top = &src[2 * y * w..];
+        let bottom = &src[(2 * y + 1) * w..];
+        for (x, px) in row.iter_mut().enumerate() {
+            let (a, b, c, d) = (top[2 * x], top[2 * x + 1], bottom[2 * x], bottom[2 * x + 1]);
+            *px = std::array::from_fn(|ch| (a[ch] + b[ch] + c[ch] + d[ch]) * 0.25);
+        }
+    }
 }
 
 /// Fill one band of output rows: the bilinear border ring first, then the
