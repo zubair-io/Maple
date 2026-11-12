@@ -18,7 +18,9 @@
 //!   per-site table, reduced by `crate::black_level::reduce_black_levels`
 //!   (rawler's own `as_bayer_array()` collapses anything but a 4-entry
 //!   table to `[levels[0]; 4]`, #4730); Canon's reduced CR2 RGB is already
-//!   black-referenced and decodes with black 0 (#4644). White levels:
+//!   black-referenced and decodes with black 0 (#4644), while Nikon's small
+//!   NEF (black 0) and Sony's YCbCr ARW (twice the sensor black) keep the
+//!   levels rawler reports (#5117). White levels:
 //!   `whitelevel.as_bayer_array() -> [f32; 4]`.
 //! - WB: `wb_coeffs: [f32; 4]` in RGBE order; index 1 is Green, used as the
 //!   normalising channel.
