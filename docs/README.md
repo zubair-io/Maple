@@ -52,6 +52,7 @@ cloud editor, build/package commands and current qualification limits.
 | [server-api.md](server-api.md)                 | The HTTP route reference, generated from the route sources with auth tier and parameters.                                                                                                     |
 | [sqlite-schema.md](sqlite-schema.md)           | The library schema: table layout, the key-type decision, every query pattern mapped to the index that serves it, and the migration runner.                                                    |
 | [indexer-enrichment.md](indexer-enrichment.md) | The discover sweep, the stage runner, every registered stage, the job runner, search indexing, and face clustering.                                                                           |
+| [temporal.md](temporal.md)                     | How the worker tier runs its background work on Temporal: the lanes, what the Temporal UI shows, outages, crash recovery, one namespace per server, configuration and running a server.       |
 | [windows.md](windows.md)                       | The WinUI 3 shell, its P/Invoke surface onto the Rust core, File Explorer integration, tests, and CI.                                                                                         |
 
 ## Operations and CI

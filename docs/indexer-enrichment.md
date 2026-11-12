@@ -1,8 +1,8 @@
 # Indexer, Workers and Search
 
-Everything Maple knows about a photo beyond its bytes is produced by a background pipeline that lives in the API server's worker tier. A **discover sweep** walks each registered library folder one directory at a time and keeps the `assets` table in step with the filesystem — inserting new files, deduplicating identical content, repointing renames, tagging vanished files. Every asset then flows through a set of **stages** (EXIF, thumbnail, preview, vision captioning, geocoding, faces, transcription, search indexing), each of which is a small handler plus a target version number; a generic runner claims assets whose recorded version is below target, runs the handler, and writes the result back. Bumping a stage's `targetVersion` re-queues the whole library through that stage. Alongside the stages sit interval-driven **maintenance workers** (trash purge, missing-file reaper, one-shot migrations, deduplication, mirror replication, derivative audit) and a **JobRunner** for user-triggered one-off work like a batch export or a panorama stitch, plus the operator's one-shots (mirror reconcile, face clustering, folder scans) on a lane of their own. Operators see and control all of it on Settings → Workers.
+Everything Maple knows about a photo beyond its bytes is produced by a background pipeline that lives in the API server's worker tier. A **discover sweep** walks each registered library folder one directory at a time and keeps the `assets` table in step with the filesystem — inserting new files, deduplicating identical content, repointing renames, tagging vanished files. Every asset then flows through a set of **stages** (EXIF, thumbnail, preview, vision captioning, geocoding, faces, transcription, search indexing), each of which is a small handler plus a target version number; a generic runner claims assets whose recorded version is below target, runs the handler, and writes the result back. Bumping a stage's `targetVersion` re-queues the whole library through that stage. Alongside the stages sit interval-driven **maintenance workers** (trash purge, missing-file reaper, one-shot migrations, deduplication, mirror replication, derivative audit) and **jobs** for user-triggered one-off work like a batch export or a panorama stitch, plus the operator's one-shots (mirror reconcile, face clustering, folder scans) on a lane of their own. Operators see and control all of it on Settings → Workers.
 
-The whole tier runs in a separate, `nice`d child process spawned by the HTTP server, so indexing load can never starve or crash the API.
+The whole tier runs in a separate, `nice`d child process spawned by the HTTP server, so indexing load can never starve or crash the API. The database holds what work exists; [Temporal](temporal.md) decides when each piece runs, and that page covers the lanes, outages and crash recovery common to all of them.
 
 ## AI provider connections and worker assignments
 
@@ -50,7 +50,7 @@ automatically.
 
 ## Where it runs
 
-`src/api/src/index.ts` spawns `src/api/src/workers/worker-main.ts` as a child process (`ChildProcessWorker`, niced) and auto-respawns it on death with exponential backoff (1 s → 30 s, reset once a worker has lived 60 s). Setting `MAPLE_INDEXER_AUTOSTART=0` suppresses the spawn entirely — useful for running an API-only replica. Such a replica runs no background work: the pipeline stages, the discover sweep, user jobs, folder imports and maintenance — trash purge, the missing-reaper, migrations, mirror upkeep, session clean-up and the nightly database backup — all run in the worker tier through Temporal, so some server in the deployment must run the worker tier with Temporal reachable.
+`src/api/src/index.ts` spawns `src/api/src/workers/worker-main.ts` as a child process (`ChildProcessWorker`, niced) and auto-respawns it on death with exponential backoff (1 s → 30 s, reset once a worker has lived 60 s). Setting `MAPLE_INDEXER_AUTOSTART=0` suppresses the spawn entirely — useful for running an API-only replica, which then runs no background work at all (see [Temporal](temporal.md#when-temporal-is-unreachable)).
 
 `worker-main.ts` opens its own connection pool onto the same database file, initialises OpenTelemetry, loads the mirror registry, and calls `startWorkers()` in `src/api/src/workers/start-workers.ts`, which brings up:
 
@@ -184,7 +184,7 @@ Each stage runs at most one slice at a time, even if Temporal delivers an attemp
 
 `worker_config` is re-read before every batch, at most every 2 s, and on every idle call (a paused stage still gets idle calls for exactly this), which is how a pause or resume written by the API process reaches the stage with no IPC. A pause ends the running slice before its next batch, within about 2 s plus the batch already in hand, and the workflow completes. If the lane's has-work check itself fails, the error shows on that stage's row in `/status` (Temporal stays "connected") and clears on the next successful check or slice.
 
-**While Temporal is unreachable, stages do not advance.** Nothing is lost: the rows wait in `stage_state`, and the lane picks them up once the server answers. Settings → Workers shows the connection state.
+While Temporal is unreachable, stages do not advance; the rows wait in `stage_state` (see [Temporal](temporal.md#when-temporal-is-unreachable)).
 
 ### Result shapes
 
@@ -292,7 +292,7 @@ These are not per-asset version-claim stages. Each is a task in `workers/mainten
 - **One pass at a time, no backlog.** A run that comes due while the previous one is still going is skipped. After an outage or a restart, at most one missed run per task is made up: a run missed by less than the task's interval (at least a minute) still runs, older ones are dropped. A schedule that starts running — new, or resumed — runs its first pass at once. Because schedules live in Temporal, a restart of the server no longer sets off a boot-time pass of every worker.
 - **A failed pass is a failed run.** Each run makes one attempt; the next scheduled run is the retry. Every pass stops between items or batches when the worker shuts down or the run is cancelled in Temporal, and the next run picks up where it stopped. The longest wait is one item: a single file copy for mirror-copy, one chunk of R2 lookups for derivative-audit, one library's model call for generated-search, and the snapshot step of a database backup.
 - **Run now.** The API holds no Temporal client, so a run-now is a request in the `maintenance` settings document (`workers/maintenance/run-now.repo.ts`); the worker tier starts a `maintenance-<task>-run-now` run for it, even while the schedule is paused, and then clears the request. A run-now that finds the task's pass already running waits for it and then runs, so a forced pass is never lost to a scheduled one. The derivative-audit and generated-search "Run now" buttons are forced requests of this kind: the pass runs even while the audit is disabled or generated search is paused, and the route answers `already-running` while a request is pending or a pass is under way.
-- **Without the worker tier or Temporal** nothing runs: no trash purge, reaper, migration, mirror upkeep, session clean-up or nightly backup. A server started with `MAPLE_INDEXER_AUTOSTART=0`, or one whose Temporal server is unreachable, does none of this. Passes resume when both are back, and nothing piles up meanwhile. Expired sign-in rows still stop working without the clean-up, because every read refuses them.
+- **Without the worker tier or Temporal** no pass runs, and nothing piles up meanwhile (see [Temporal](temporal.md#when-temporal-is-unreachable)). Expired sign-in rows still stop working without the clean-up, because every read refuses them.
 
 The reaper, migration and deduplicate workers also register into the in-process registry (`workers/pause-control.ts`), so the standard `/api/workers/<name>/{status,pause,resume}` surface shows and controls them.
 
@@ -317,7 +317,7 @@ The reaper, migration and deduplicate workers also register into the in-process 
 `src/api/src/job-runner/` is the sibling subsystem for **user-triggered, bounded** work. A job is a row in the `jobs` table, and it runs on [Temporal](https://temporal.io):
 
 1. A route inserts the row as `queued`, in one statement with its admission fence. That row is what every client reads from then on.
-2. The worker tier relays the oldest queued row to Temporal once nothing else is running (`temporal/row-queue.ts`, which imports share): one workflow per job, with the workflow id `job-<id>`.
+2. The worker tier relays the oldest queued row to Temporal once nothing else is running (the row relay in [Temporal](temporal.md#lanes), which imports share): one workflow per job, with the workflow id `job-<id>`.
 3. The workflow runs one activity, which claims that row and hands it to the handler for its kind (`execute-job.ts`). Handlers report progress and must consult `ctx.shouldCancel()` between steps so an in-flight job can be aborted.
 4. The activity records the outcome on the row, and the workflow ends the same way: completed, or failed with the handler's message.
 
@@ -329,11 +329,7 @@ The reaper, migration and deduplicate workers also register into the in-process 
 
 **Cancelling.** Through the API, or by cancelling the workflow in Temporal. Terminating the workflow cancels the job too.
 
-**A workflow that is gone.** Every ten seconds the relay checks that the job it handed over still has a running workflow. If the workflow was cancelled or terminated the job is cancelled; if it is missing or closed without settling the row (an emptied or different Temporal server, an upgrade from the release whose runner claimed rows itself) the job is submitted again.
-
-**One namespace per Maple server.** Two servers working in the same Temporal namespace take each other's jobs. A job that arrives from another server's database fails its workflow with a message saying so.
-
-The server's address and namespace are the `temporal` settings document, edited by the owner under Settings → Workers; see `temporal/temporal-host.ts`.
+**A workflow that is gone.** A job whose workflow was cancelled or terminated is cancelled; one whose workflow is missing or closed without settling the row (an emptied or different Temporal server, an upgrade from the release whose runner claimed rows itself) is submitted again. Each Maple server needs its own namespace; see [Temporal](temporal.md#one-namespace-per-maple-server).
 
 Six user job kinds exist (`JobKind` in `db/schema.ts`, registry in `job-runner/handlers/index.ts`):
 

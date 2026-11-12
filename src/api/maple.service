@@ -41,8 +41,11 @@ Environment=MAPLE_SQLITE_PATH=/var/lib/maple/maple.sqlite
 Environment=MAPLE_JWT_SECRET_FILE=/var/lib/maple/jwt.secret
 # Uncomment and set your photo library roots:
 # Environment=MAPLE_ROOTS=/srv/photos
-# Maple runs its background jobs on a Temporal server, 127.0.0.1:7233 unless
-# told otherwise here or under Settings → Workers (which takes precedence):
+# Maple runs all its background work on a Temporal server (docs/temporal.md),
+# 127.0.0.1:7233 unless told otherwise here or under Settings → Workers (which
+# takes precedence). Each Maple server needs its own Temporal namespace.
+# TimeoutStopSec below bounds how long a stop waits for running work; whatever
+# is cut off is delivered again by Temporal after the restart.
 # Environment=MAPLE_TEMPORAL_ADDRESS=temporal.example:7233
 
 # WebAuthn / passkey auth — REQUIRED in production. The browser refuses
