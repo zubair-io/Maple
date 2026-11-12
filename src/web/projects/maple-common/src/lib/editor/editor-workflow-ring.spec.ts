@@ -4,9 +4,10 @@
 import { promises as fs, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { LiveAnnouncer } from '@angular/cdk/a11y';
 import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { FolderAccessService } from '../folder-access/folder-access.service';
 import type { MapleFolderHandle } from '../folder-access/folder-access.types';
 import {
@@ -20,11 +21,16 @@ import {
   type WorkflowHistoryEntry,
 } from '../generated/workflow.generated';
 import { defaultAdjustmentModel } from '../models/adjustment-model';
+import type { Asset } from '../models/asset';
+import { RawPipelineService } from '../raw-pipeline/raw-pipeline.service';
 import { initSync, workflow_read_xmp } from '../raw-pipeline/pkg/raw_wasm';
+import { LibraryStateService } from '../state/library-state.service';
+import { LibraryStore } from '../state/library-store.service';
 import { DiskDirectory } from './copy-paste/testing/batch-test-files';
 import { EditTransactionRing, UNDO_STACK_CAP } from './edit-transaction-ring';
 import { reopenWorkflowRing } from './editor-state.workflow';
-import type { EditorStateService } from './editor-state.service';
+import { EditorStateService } from './editor-state.service';
+import { makeLibraryStub } from './editor-state.test-helpers';
 import { historyRingSteps } from './editor-workflow-ring';
 import { inProcessWorkflowXmp } from '../xmp/testing/in-process-workflow-xmp';
 import { WorkflowVariantStoreService } from '../xmp/workflow-variant-store.service';
@@ -117,6 +123,9 @@ describe('reopened editor history ring', () => {
     TestBed.configureTestingModule({
       providers: [
         { provide: WorkflowXmpService, useValue: inProcessWorkflowXmp },
+        { provide: LibraryStateService, useValue: makeLibraryStub() },
+        { provide: RawPipelineService, useValue: {} },
+        { provide: LiveAnnouncer, useValue: { announce: () => Promise.resolve() } },
         {
           provide: FolderAccessService,
           useValue: {
@@ -243,7 +252,7 @@ describe('reopened editor history ring', () => {
           history: { isCurrent: () => true },
         },
       } as unknown as EditorStateService;
-      await reopenWorkflowRing(editor, 'asset');
+      await reopenWorkflowRing(editor, { id: 'asset', generation: 1 });
       return ring;
     };
 
@@ -256,6 +265,25 @@ describe('reopened editor history ring', () => {
     it('drops a rebuild whose binding was replaced while the sidecar was read', async () => {
       for (const contrast of [10, 20, 30]) await commit(contrast);
       expect((await open(true)).history()).toEqual([]);
+    });
+
+    it('rebuilds the ring once a cold open resolves the bound asset (#5388)', async () => {
+      for (const contrast of [10, 20, 30]) await commit(contrast);
+      const library = TestBed.inject(LibraryStore);
+      const editor = TestBed.inject(EditorStateService);
+      // A reload or deep link binds before the library knows the asset and its folder.
+      editor.bind('asset');
+      TestBed.tick();
+      library.currentFolder.set(folder);
+      library.assets.set([{ id: 'asset', filename: 'photo.dng' } as Asset]);
+      TestBed.tick();
+      await vi.waitFor(() =>
+        expect(editor.undoHistory().map((tx) => tx.description)).toEqual([
+          'Contrast 20',
+          'Contrast 30',
+        ]),
+      );
+      expect(editor.canUndo()).toBe(true);
     });
   });
 });

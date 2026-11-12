@@ -103,6 +103,11 @@ export class EditTransactionRing {
     return tx;
   }
 
+  /** Nothing recorded, open, or redoable since the bind. */
+  untouched(): boolean {
+    return !this._pending && this._undo().length === 0 && this._redo().length === 0;
+  }
+
   /** Rebuild Undo/Redo from the persisted history of a reopened sidecar (#4983).
    * An untouched ring only: anything recorded or open since the bind is newer. */
   seed(
@@ -110,7 +115,7 @@ export class EditTransactionRing {
     undo: readonly RingStep[],
     redo: readonly RingStep[],
   ): boolean {
-    if (this._pending || this._undo().length > 0 || this._redo().length > 0) return false;
+    if (!this.untouched()) return false;
     const build = (step: RingStep) =>
       this.checkpointTransaction(
         serializer,
