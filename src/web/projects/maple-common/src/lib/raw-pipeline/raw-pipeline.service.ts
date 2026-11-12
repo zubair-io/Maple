@@ -29,7 +29,7 @@ import type { CompatibleLensProfile, LensProfileEvidence } from '../lens/lens-pr
 import { LIBRARY_BACKEND } from '../api/library-backend.token';
 import type { SampleQueue } from './raw-pipeline.samplers';
 import type { ImportedWhiteBalancePair } from './raw-pipeline.imported-wb-request';
-import { dispatchResolveImportedWb } from './raw-pipeline.imported-wb-request';
+import { ImportedWbRequests } from './raw-pipeline.imported-wb-request';
 import {
   sampleColorCurve as runColorCurveSample,
   sampleMaskRange as runMaskRangeSample,
@@ -92,6 +92,7 @@ export class RawPipelineService implements OnDestroy {
   private worker: Worker | null = null;
   private nextId = 1;
   private readonly cpuSource = new CpuSourceTransfer();
+  private readonly importedWb = new ImportedWbRequests();
   private pending = new Map<number, PendingHandler>();
   /** Bumped every time the worker is retired — the WASM registry (mask and brush
    *  rasters included) dies with it, so hosts memoizing registry ids re-resolve when
@@ -395,11 +396,10 @@ export class RawPipelineService implements OnDestroy {
     );
   }
 
-  /** Resolve the name-only imported Auto WB once on the worker session that holds
-   * `bytes` (#4669); rejects when none does, or when the worker's has changed. */
+  /** Name-only imported Auto WB of the session holding `bytes`, asked once per session (#4669). */
   resolveImportedWhiteBalance(bytes: Uint8Array): Promise<ImportedWhiteBalancePair> {
     return this.dispatchNow((w, id, register) =>
-      dispatchResolveImportedWb(w, id, register, this.cpuSource.sessionFor(bytes, w)),
+      this.importedWb.request(w, id, register, this.cpuSource.sessionFor(bytes, w)),
     );
   }
 
