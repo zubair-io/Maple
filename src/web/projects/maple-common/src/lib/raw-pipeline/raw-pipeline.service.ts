@@ -103,13 +103,9 @@ export class RawPipelineService implements OnDestroy {
     return this.workerEpoch();
   }
 
-  // T10: threaded-state, reported by the worker once WASM init completes.
-  // `isThreaded$`/`threadCount$`, the observables that used to surface this
-  // to a UI, were deleted as dead (#3048 — no production caller remained).
-  // The subjects themselves stay: `raw-pipeline.worker-dispatch.ts`'s shared
-  // `WorkerDispatchContext` still populates them from the worker's `status`
-  // message, and retiring that protocol end-to-end is a separate follow-up
-  // (see the module doc above).
+  // T10: threaded state the worker reports once WASM init completes. Its public
+  // observables were deleted as dead (#3048); `WorkerDispatchContext` still fills
+  // these subjects from the `status` message, whose retirement is a separate follow-up.
   private readonly threadedSubject = new BehaviorSubject<boolean | null>(null);
   private readonly threadCountSubject = new BehaviorSubject<number>(1);
 
@@ -224,6 +220,8 @@ export class RawPipelineService implements OnDestroy {
    * @param filmLut A resolved `.mlut` grid (#3171), routed per
    *   `selectLegacyDecodeRoute`. NOT transferred: the same buffer is reused
    *   across every fast/refine tick until the look changes.
+   * @param retainSource `false` renders one-shot (#4669: final outputs resolve a
+   *   name-only Auto in the core) instead of on the editor's retained CPU source.
    *
    * Non-RAW images decode browser-natively at full size (sizing ignored) and
    * still run the WASM adjustment chain via `develop_non_raw` (#3039).
@@ -235,11 +233,12 @@ export class RawPipelineService implements OnDestroy {
     maxLongEdge?: number,
     qualityPreview?: boolean,
     filmLut?: ArrayBuffer,
+    retainSource = true,
   ): Promise<DecodedImage> {
     // RAW and browser-decoded raster develops share the worker serialization gate.
     this.closeNativeDetail();
     const nonRaw = isNonRawExtension(ext);
-    const epoch = this.cpuSource.epoch;
+    const epoch = retainSource ? this.cpuSource.epoch : -1;
     const run = nonRaw
       ? () => {
           this.cpuSource.clear();
@@ -308,7 +307,6 @@ export class RawPipelineService implements OnDestroy {
     return this.gate.enabled();
   }
 
-  // fallow-ignore-next-line unused-class-member
   openLiveSession(
     canvas: OffscreenCanvas,
     bytes: Uint8Array,
@@ -322,7 +320,7 @@ export class RawPipelineService implements OnDestroy {
     } catch {
       return Promise.reject(new Error('RawPipelineService: worker unavailable'));
     }
-    this.cpuSource.retire();
+    this.cpuSource.retire(bytes, worker, this.nextId);
     return openLiveSessionRequest(
       worker,
       this.nextId++,
@@ -397,9 +395,12 @@ export class RawPipelineService implements OnDestroy {
     );
   }
 
-  /** Resolve the retained session's name-only imported Auto WB once (#4669). */
-  resolveImportedWhiteBalance(): Promise<ImportedWhiteBalancePair> {
-    return this.dispatchNow((w, id, register) => dispatchResolveImportedWb(w, id, register));
+  /** Resolve the name-only imported Auto WB once on the worker session that holds
+   * `bytes` (#4669); rejects when none does, or when the worker's has changed. */
+  resolveImportedWhiteBalance(bytes: Uint8Array): Promise<ImportedWhiteBalancePair> {
+    return this.dispatchNow((w, id, register) =>
+      dispatchResolveImportedWb(w, id, register, this.cpuSource.sessionFor(bytes, w)),
+    );
   }
 
   /** Forget a raster registered by `registerMaskRaster`. Fire-and-forget. */

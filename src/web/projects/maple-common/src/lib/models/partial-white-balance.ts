@@ -9,7 +9,13 @@ export interface PartialWhiteBalance {
   readonly temperature?: number;
   readonly tint?: number;
   readonly version: number;
-  readonly resolved?: { readonly temperature: number; readonly tint: number };
+  readonly resolved?: ImportedAutoPair;
+}
+
+/** The shared estimator's pair for a name-only Auto import (#4669). */
+export interface ImportedAutoPair {
+  readonly temperature: number;
+  readonly tint: number;
 }
 
 export function isUnresolvedAuto(imported: PartialWhiteBalance | null | undefined): boolean {
@@ -52,7 +58,7 @@ export function hydratePartialWhiteBalance(
  * intent; any other model is unchanged. */
 export function withResolvedImportedAuto(
   model: AdjustmentModel,
-  pair: { readonly temperature: number; readonly tint: number },
+  pair: ImportedAutoPair,
 ): AdjustmentModel {
   const imported = model.partialWhiteBalance;
   if (!imported || !isUnresolvedAuto(imported)) return model;
@@ -62,6 +68,16 @@ export function withResolvedImportedAuto(
     pair.tint,
     true,
   );
+}
+
+/** `model` with `reference`'s resolved name-only Auto pair (#4669), so a snapshot
+ * taken before the estimate landed equals the same edit state after it. */
+export function alignImportedAuto(
+  model: AdjustmentModel,
+  reference: AdjustmentModel,
+): AdjustmentModel {
+  const pair = reference.partialWhiteBalance?.resolved;
+  return pair ? withResolvedImportedAuto(model, pair) : model;
 }
 
 /** The model a renderer consumes: a resolved name-only Auto renders as its

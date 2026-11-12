@@ -24,6 +24,7 @@ export interface RenameRekeyDeps {
   apiAssetIds: Map<AssetId, string>;
   assetAbsPaths: Map<AssetId, string>;
   asShotWb: Map<AssetId, { temperature: number; tint: number }>;
+  importedAutoWb: Map<AssetId, { temperature: number; tint: number }>;
   /** #3182 — see `library-store-lens-corrections.ts`. */
   lensCorrections: WritableSignal<Map<AssetId, LensCorrectionCapability>>;
   sessionEdited: Set<AssetId>;
@@ -64,6 +65,7 @@ export function rekeyAssetId(
   rekeyMap(deps.apiAssetIds);
   rekeyMap(deps.assetAbsPaths);
   rekeyMap(deps.asShotWb);
+  rekeyMap(deps.importedAutoWb);
   deps.lensCorrections.update((map) => {
     const next = new Map(map);
     rekeyMap(next);

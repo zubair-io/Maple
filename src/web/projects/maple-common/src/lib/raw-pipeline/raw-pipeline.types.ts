@@ -190,19 +190,11 @@ export interface SetFilmLutSuccess {
   type: 'set-film-lut-success';
 }
 
-/** Resolve the retained session's name-only imported Auto WB once, after its
- *  As Shot first frame (#4669). Replies with the shared estimator's pair. */
-export interface ResolveImportedWbRequest {
-  id: number;
-  type: 'resolve-imported-wb';
-}
-
-export interface ResolveImportedWbSuccess {
-  id: number;
-  type: 'resolve-imported-wb-success';
-  temperature: number;
-  tint: number;
-}
+import type {
+  ResolveImportedWbRequest,
+  ResolveImportedWbSuccess,
+} from './raw-pipeline.imported-wb.types';
+export type { ResolveImportedWbRequest, ResolveImportedWbSuccess };
 
 /**
  * A small, downsampled RGB snapshot of the GPU-presented frame, read back on the

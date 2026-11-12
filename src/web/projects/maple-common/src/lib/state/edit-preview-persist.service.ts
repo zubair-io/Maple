@@ -60,6 +60,7 @@ import { RawPipelineService } from '../raw-pipeline/raw-pipeline.service';
 import { XmpSerializerService } from '../xmp/xmp-serializer.service';
 import { XmpParserService } from '../xmp/xmp-parser.service';
 import { defaultAdjustmentModel } from '../models/adjustment-model';
+import { isUnresolvedAuto, renderModelForImportedAuto } from '../models/partial-white-balance';
 import {
   PREVIEW_LONG_EDGE_PX,
   encodeDevelopedRenderToAvif,
@@ -259,8 +260,19 @@ export class EditPreviewPersistService {
       this.store.currentFolder() === folder &&
       this.xmpSerializer.serialize(this.store.adjustmentFor(id)()) === xmp;
     // Full quality (not the fast-phase half-res Preview demosaic) — this
-    // is a persisted cache artifact, not a live-render tick.
-    const img = await this.pipeline.decode(bytes, ext, xmp, PREVIEW_LONG_EDGE_PX, false);
+    // is a persisted cache artifact, not a live-render tick. Imported Auto
+    // (#4669) is never persisted As Shot: a resolved pair renders as numbers;
+    // an unresolved one renders one-shot so the core resolves it, never on the
+    // editor's retained CPU source (whose session renders it As Shot).
+    const img = await this.pipeline.decode(
+      bytes,
+      ext,
+      this.xmpSerializer.serialize(renderModelForImportedAuto(model)),
+      PREVIEW_LONG_EDGE_PX,
+      false,
+      undefined,
+      !isUnresolvedAuto(model.partialWhiteBalance),
+    );
     if (this.isDestroyed || !current()) return;
 
     if (this.store.backend === 'self-hosted') {

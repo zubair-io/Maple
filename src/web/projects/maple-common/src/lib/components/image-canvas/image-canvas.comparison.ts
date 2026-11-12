@@ -10,6 +10,7 @@ import { RawPipelineService } from '../../raw-pipeline/raw-pipeline.service';
 import type { ImageCanvasComponent } from './image-canvas.component';
 import { imageDataToBitmap } from '../../raw-pipeline/image-utils';
 import { defaultAdjustmentModel, type AdjustmentModel } from '../../models/adjustment-model';
+import { isUnresolvedAuto } from '../../models/partial-white-balance';
 import type { LibraryStore } from '../../state/library-store.service';
 import type { XmpAdjustmentRestoreService } from '../../xmp/xmp-adjustment-restore.service';
 import type {
@@ -59,6 +60,11 @@ export class ImageCanvasComparison {
       const asset = this.host.state.focusedAsset();
       return asset ? this.host.state.adjustmentFor(asset.id)().crop : null;
     });
+    // The opening sidecar's imported Auto (#4669) shows its pair once resolved.
+    const importedAuto = computed(() => {
+      const asset = this.host.state.focusedAsset();
+      return asset ? this.host.state.adjustmentFor(asset.id)().partialWhiteBalance?.resolved : null;
+    });
     const ready = computed(() => {
       const hasFrame = this.host.gpuPresent.active() || this.host.imageBitmap() !== null;
       return hasFrame && this.host.coldOpenDone;
@@ -75,6 +81,7 @@ export class ImageCanvasComparison {
         untracked(() => this.select(asset.id, selection));
         const split = this.host.canvasSvc.beforeAfterSplitX();
         const baseline = this.baseline();
+        importedAuto(); // tracked: `hydrateAdjustment` below applies the landed pair
         const gpu = this.host.gpuPresent.active();
         const target = Math.min(4096, Math.max(1, this.host.fastTargetPx()));
         if (split === null) {
@@ -192,7 +199,10 @@ export class ImageCanvasComparison {
       const film = model.filmLook ? await this.host.filmLut.getLattice(model.filmLook) : null;
       if (generation !== this.generation) return;
       if (model.filmLook && !film) throw new Error('Original film look unavailable');
-      const bitmap = await this.renderBitmap(bytes, ext, xmp, target, colorSpace, film);
+      // Before the pair lands, both colour spaces resolve imported Auto in the
+      // core (#4669): a retained CPU source's session would render it As Shot.
+      const retain = !isUnresolvedAuto(model.partialWhiteBalance);
+      const bitmap = await this.renderBitmap(bytes, ext, xmp, target, colorSpace, film, retain);
       if (generation !== this.generation) {
         bitmap.close();
         return;
@@ -219,6 +229,7 @@ export class ImageCanvasComparison {
     target: number,
     colorSpace: 'display-p3' | 'srgb',
     film: ArrayBuffer | null,
+    retain: boolean,
   ): Promise<ImageBitmap> {
     if (colorSpace === 'display-p3') {
       // Reuse the bounded CPU reference and its lossless, ICC-tagged output;
@@ -234,7 +245,15 @@ export class ImageCanvasComparison {
     }
     // Sized CPU RAW and browser-developed non-RAW share the existing sRGB
     // preview entry. Non-RAW ignores the decode cap: bound its owned bitmap.
-    const decoded = await this.renderer().decode(bytes, ext, xmp, target, false, film ?? undefined);
+    const decoded = await this.renderer().decode(
+      bytes,
+      ext,
+      xmp,
+      target,
+      false,
+      film ?? undefined,
+      retain,
+    );
     const full = await imageDataToBitmap(decoded);
     const scale = Math.min(1, target / Math.max(full.width, full.height));
     if (scale === 1) return full;
