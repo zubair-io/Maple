@@ -232,6 +232,25 @@ final class ImportedAutoWhiteBalanceSessionTests: XCTestCase {
     assertShowsPair(session, try XCTUnwrap(session.importedAuto.target))
   }
 
+  /// A 100% patch that finished before the pair landed stayed on screen in As
+  /// Shot over the newly balanced base: adoption hydrates (skipping `model`'s
+  /// own clear) and the refine keeps a patch that covers the viewport.
+  func testThePairLandingDropsANativeDetailPatchDevelopedBeforeIt() async throws {
+    let gate = EstimateGate()
+    let (session, _) = try await openEditor("imported-auto-detail", estimate: gated(gate))
+    try await waitUntil("the estimate to start") { await gate.entered == 1 }
+    try await settle(session)
+    session.nativeDetailPreview = CIImage(color: .red)
+      .cropped(to: CGRect(x: 0, y: 0, width: 4, height: 4))
+    session.nativeDetailSourceRect = CGRect(x: 0, y: 0, width: 64, height: 64)
+    let request = session.nativeDetailRequestID
+    await gate.release()
+    try await waitUntil("the pair") { session.importedAuto.target != nil }
+    XCTAssertNil(session.nativeDetailPreview, "An As Shot patch never covers the pair")
+    XCTAssertEqual(session.nativeDetailSourceRect, .zero)
+    XCTAssertNotEqual(session.nativeDetailRequestID, request, "In-flight detail is stale")
+  }
+
   // MARK: - Closing
 
   func testClosingTheEditorCancelsItsEstimate() async throws {

@@ -51,7 +51,9 @@ extension EditSession {
 
   /// The re-render after the As Shot first frame. The pair goes on `model` so
   /// the WB sliders show what the canvas renders, and on the open gesture's
-  /// baseline so the estimate never becomes an undo step of its own.
+  /// baseline so the estimate never becomes an undo step of its own. A 100%
+  /// patch developed before it shows As Shot, so it goes too: hydration skips
+  /// `model`'s own clear, and the refine would keep a patch that covers the view.
   func adoptImportedAutoWhiteBalance(_ target: ResolvedWhiteBalance) {
     importedAuto.target = target
     if let pending = transactions.pending {
@@ -59,10 +61,12 @@ extension EditSession {
         id: pending.id, kind: pending.kind, description: pending.description,
         before: pending.before.overlayingImportedAuto(target))
     }
+    let shown = model
     isHydratingInitialState = true
     model = model.overlayingImportedAuto(target)
     originalModel = originalModel.overlayingImportedAuto(target)
     isHydratingInitialState = false
+    if model != shown { clearNativeDetailPreview() }
     if renderRequested { _scheduleRender(phase: .fast) }
   }
 
