@@ -27,8 +27,6 @@ const HEARTBEAT_MS = 30_000;
 /** Several missed heartbeats: whatever process was writing them is gone. */
 const HEARTBEAT_STALE_MS = 5 * 60_000;
 
-let inFlight: Promise<void> | null = null;
-
 /**
  * A backup is running while its stored status says so and its heartbeat is
  * recent. A worker that died mid-backup leaves `running` behind with a
@@ -136,19 +134,12 @@ async function scheduledBackupDue(now = Date.now()): Promise<boolean> {
 
 /**
  * One backup check: a scheduled pass backs up only when one is due, a forced
- * pass (an operator's "Back up now") always does. A pass that finds a backup
- * already going in this process leaves it alone.
+ * pass (an operator's "Back up now") always does. The maintenance activity
+ * never runs two passes at once, and makes a forced one wait its turn.
  */
-export function runDbBackupPass(
+export async function runDbBackupPass(
   signal: AbortSignal,
   { force = false }: { force?: boolean } = {},
 ): Promise<void> {
-  if (inFlight) return Promise.resolve();
-  const pass = (force ? Promise.resolve(true) : scheduledBackupDue())
-    .then((wanted) => (wanted ? runBackup(signal) : undefined))
-    .finally(() => {
-      inFlight = null;
-    });
-  inFlight = pass;
-  return pass;
+  if (force || (await scheduledBackupDue())) await runBackup(signal);
 }

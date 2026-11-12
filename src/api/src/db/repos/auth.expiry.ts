@@ -15,8 +15,9 @@
  * already had to treat expiry as a read-time condition, because Mongo's TTL
  * monitor only wakes once a minute and an expired document is fully readable
  * until it fires. So each repository's own predicate — `expires_at > ?` in the
- * redeem and the rotate — is what actually refuses an
- * expired row, and it keeps refusing it whether or not the sweeper ever runs.
+ * redeem and the rotate, the expiry filter on the invite list and on upload
+ * session lookups — is what actually refuses an expired row, and it keeps
+ * refusing it whether or not the sweeper ever runs.
  * What the sweep buys is that the tables stay small.
  *
  * Which is also why one table's failure does not abort the pass: a locked or

@@ -9,6 +9,7 @@ import {
   saveDbBackupStatus,
 } from '../src/cloudflare/backup-retain-config.ts';
 import { saveCloudflareConfig } from '../src/cloudflare/cloudflare-config.repo.ts';
+import { patchAppSettings } from '../src/db/repos/app-settings.repo.ts';
 import {
   clearMaintenanceRun,
   pendingMaintenanceRuns,
@@ -149,4 +150,23 @@ test('once the requested run has been handed over, the route follows the stored 
 
   expect((await (await request('GET', owner)).json()).running).toBe(false);
   expect((await request('POST', owner)).status).toBe(202);
+});
+
+test('a request the worker tier never picked up stops blocking after two minutes and is reported', async () => {
+  using _live = await createLiveTestDatabase();
+  await configureBackups();
+  await patchAppSettings('maintenance', {
+    'requests.db-backup': { requestedAt: minutesAgo(3), options: { force: true } },
+  });
+
+  const settings = await (await request('GET', owner)).json();
+  expect(settings.running).toBe(false);
+  expect(settings.request_error).toContain('was not picked up');
+
+  expect((await request('POST', owner)).status).toBe(202);
+  const [renewed] = await pendingMaintenanceRuns();
+  expect(Date.parse(renewed!.requestedAt)).toBeGreaterThan(Date.now() - 60_000);
+  const after = await (await request('GET', owner)).json();
+  expect(after.running).toBe(true);
+  expect(after.request_error).toBeUndefined();
 });

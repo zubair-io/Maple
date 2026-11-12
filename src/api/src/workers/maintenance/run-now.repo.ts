@@ -50,6 +50,11 @@ export async function clearMaintenanceRun(request: MaintenanceRunRequest): Promi
     await unsetAppSettings(DOC_ID, [`requests.${request.taskId}`]);
 }
 
+export async function maintenanceRunRequest(taskId: string): Promise<MaintenanceRunRequest | null> {
+  return (await pendingMaintenanceRuns()).find((request) => request.taskId === taskId) ?? null;
+}
+
+// fallow-ignore-next-line unused-export -- the yes/no form the #5822 run-now routes read
 export async function maintenanceRunRequested(taskId: string): Promise<boolean> {
-  return (await pendingMaintenanceRuns()).some((request) => request.taskId === taskId);
+  return (await maintenanceRunRequest(taskId)) !== null;
 }

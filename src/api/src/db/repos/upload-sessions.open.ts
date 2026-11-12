@@ -51,7 +51,7 @@ import {
   toUploadSession,
   type UploadSessionRow,
 } from './upload-sessions.rows.ts';
-import { toDate, toHex } from './values.ts';
+import { nowIso, toDate, toHex } from './values.ts';
 
 export interface OpenOrResumeArgs {
   libraryId: ObjectId;
@@ -82,7 +82,7 @@ export interface OpenOrResumeResult {
 
 /** One session row by id, or `null`. */
 export async function readSessionRow(db: SqliteDb, id: string): Promise<UploadSessionRow | null> {
-  const rows = await db.read<UploadSessionRow>(BY_ID_SQL, [id]);
+  const rows = await db.read<UploadSessionRow>(BY_ID_SQL, [id, nowIso()]);
   return rows[0] ?? null;
 }
 
@@ -181,18 +181,23 @@ async function abandonStalePeers(db: SqliteDb, args: OpenOrResumeArgs): Promise<
  * Deliberately unfiltered by state. The unique key spans every state, so a new
  * insert cannot be used when an `open`-only lookup misses — an abandoned row
  * from a prior cross-device takeover would collide, and the route would turn
- * that into the `resumeMismatchNoOffset` failure.
+ * that into the `resumeMismatchNoOffset` failure. An expired row is deleted
+ * here, as the sweep would have, and reads as nothing stored.
  */
 async function readResumeRow(
   db: SqliteDb,
   args: OpenOrResumeArgs,
 ): Promise<UploadSessionRow | undefined> {
-  const rows = await db.read<UploadSessionRow>(BY_RESUME_KEY_SQL, [
+  const now = nowIso();
+  const [row] = await db.read<UploadSessionRow & { expired: 0 | 1 }>(BY_RESUME_KEY_SQL, [
+    now,
     toHex(args.libraryId),
     args.deviceId,
     args.phassetLocalId,
   ]);
-  return rows[0];
+  if (row?.expired !== 1) return row;
+  await db.write(`DELETE FROM upload_sessions WHERE id = ? AND expires_at < ?`, [row.id, now]);
+  return undefined;
 }
 
 /**

@@ -57,10 +57,21 @@ const SESSION_COLUMNS = `
   target_rel_path, resolved_rel_path, total_bytes, received_bytes, chunk_size,
   state, maple_id, created_at, updated_at`;
 
-export const BY_ID_SQL = `SELECT ${SESSION_COLUMNS} FROM upload_sessions WHERE id = ?`;
+/**
+ * Expiry is enforced on read, so a session past `expires_at` is gone whether
+ * or not the sweep (`auth.expiry.ts`) has removed it yet. Bound with
+ * `[id, nowIso()]`.
+ */
+export const BY_ID_SQL = `
+  SELECT ${SESSION_COLUMNS} FROM upload_sessions WHERE id = ? AND expires_at >= ?`;
 
+/**
+ * Bound with `[nowIso(), library, device, local id]`. Not filtered on expiry:
+ * the unique key spans expired rows too, so the caller has to see one to clear
+ * it before inserting a fresh session.
+ */
 export const BY_RESUME_KEY_SQL = `
-  SELECT ${SESSION_COLUMNS} FROM upload_sessions
+  SELECT ${SESSION_COLUMNS}, expires_at < ? AS expired FROM upload_sessions
    WHERE library_id = ? AND device_id = ? AND phasset_local_id = ?`;
 
 /**
