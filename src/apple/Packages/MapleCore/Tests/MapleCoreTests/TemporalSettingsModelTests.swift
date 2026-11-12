@@ -269,6 +269,28 @@ final class TemporalSettingsModelTests: XCTestCase {
     model.stop()
   }
 
+  func test_editDuringSave_doesNotReportTheNewerDraftAsSaved() async {
+    let h = Harness()
+    let model = h.model()
+    model.start()
+    await eventually { model.settings != nil }
+
+    h.holdSave = true
+    model.address = "first:7233"
+    let saving = Task { await model.save() }
+    await eventually { h.savedTargets.count == 1 }
+    model.address = "second:7233"
+
+    h.releaseSave(.success(settings(address: "first:7233", state: .unknown)))
+    await saving.value
+    XCTAssertEqual(h.savedTargets.map(\.address), ["first:7233"])
+    XCTAssertEqual(model.settings?.address, "first:7233")
+    XCTAssertEqual(model.address, "second:7233")
+    XCTAssertEqual(model.saveState, .idle)
+    XCTAssertTrue(model.canSave)
+    model.stop()
+  }
+
   func test_blankFieldDisablesSave() async {
     let h = Harness()
     let model = h.model()
