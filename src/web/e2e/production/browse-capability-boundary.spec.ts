@@ -20,6 +20,17 @@ test('production Browse exposes only the app-provided capability surface', async
         await route.fulfill({ json: [] });
         return;
       }
+      // An empty library opens the folder picker, which lists the server's
+      // filesystem roots. Answer with the API's wire shapes: the catch-all `{}`
+      // below has no `roots` array, which crashed the picker template (#5388).
+      if (path === '/api/fs/roots') {
+        await route.fulfill({ json: { roots: ['/photos'] } });
+        return;
+      }
+      if (path === '/api/fs/list') {
+        await route.fulfill({ json: { path: '/photos', parent: null, entries: [] } });
+        return;
+      }
       await route.fulfill({ json: {} });
     });
   }
