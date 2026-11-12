@@ -9,6 +9,7 @@ import {
   PREVIEW_LONG_EDGE_PX,
 } from '../raw-pipeline/image-utils';
 import { RawPipelineService } from '../raw-pipeline/raw-pipeline.service';
+import { isUnresolvedAuto } from '../models/partial-white-balance';
 import { readSidecar, sidecarParseFailed } from '../xmp/xmp-dom-utils';
 import { XmpParserService } from '../xmp/xmp-parser.service';
 import type { PreviewLocation } from './preview-location';
@@ -57,9 +58,12 @@ export class HostedRawSidecarService {
   async develop(bytes: Uint8Array, ext: string, xml: string): Promise<Blob> {
     const { model } = this.parser.parseAdjustmentModel(xml);
     const film = await this.films.getLattice(model.filmLook ?? '');
+    // A name-only imported Auto (#4669) renders one-shot so the core resolves it:
+    // the retained CPU source's session would render it As Shot.
+    const retain = !isUnresolvedAuto(model.partialWhiteBalance);
     const image = await this.injector
       .get(RawPipelineService)
-      .decode(bytes, ext, xml, PREVIEW_LONG_EDGE_PX, true, film ?? undefined);
+      .decode(bytes, ext, xml, PREVIEW_LONG_EDGE_PX, true, film ?? undefined, retain);
     return (await encodeDevelopedRenderToAvif(image)) ?? encodeDevelopedRenderToJpeg(image);
   }
 }

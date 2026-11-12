@@ -286,18 +286,8 @@ export function normalizeParsedWb(
 ): void {
   const temperatureSeen = appliedModelKeys.has('temperature');
   const tintSeen = appliedModelKeys.has('tint');
-  const partial = temperatureSeen !== tintSeen;
-  // Name-only Auto (#4669) keeps its intent until the opened RAW resolves it.
-  const unresolvedAuto = model.whiteBalancePreset === 'Auto' && !temperatureSeen && !tintSeen;
-  model.partialWhiteBalance =
-    partial || unresolvedAuto
-      ? {
-          ...(temperatureSeen ? { temperature: model.temperature } : {}),
-          ...(tintSeen ? { tint: model.tint } : {}),
-          version: wbScale.sourceVersion,
-        }
-      : null;
-  if (partial || unresolvedAuto) {
+  model.partialWhiteBalance = importedWbIntent(model, temperatureSeen, tintSeen, wbScale);
+  if (model.partialWhiteBalance) {
     // Joint legacy conversion must wait for the real missing camera axis.
     model.wbScaleVersion = wbScale.sourceVersion;
     model.temperature = temperatureSeen ? model.temperature : 6500;
@@ -313,6 +303,25 @@ export function normalizeParsedWb(
   }
   const inferred = inferredWbPresetForAuthoredPair(model.whiteBalancePreset, appliedModelKeys);
   if (inferred) model.whiteBalancePreset = inferred;
+}
+
+/** Import intent kept until the opened RAW supplies what the sidecar omits: one
+ * authored axis (#3434), or name-only Auto with neither axis (#4669). Null when the
+ * sidecar authors both axes or none without Auto. */
+function importedWbIntent(
+  model: ParsedWbFields,
+  temperatureSeen: boolean,
+  tintSeen: boolean,
+  wbScale: WbScaleResolution,
+): AdjustmentModel['partialWhiteBalance'] {
+  const partial = temperatureSeen !== tintSeen;
+  const unresolvedAuto = model.whiteBalancePreset === 'Auto' && !temperatureSeen && !tintSeen;
+  if (!partial && !unresolvedAuto) return null;
+  return {
+    ...(temperatureSeen ? { temperature: model.temperature } : {}),
+    ...(tintSeen ? { tint: model.tint } : {}),
+    version: wbScale.sourceVersion,
+  };
 }
 
 /** Foreign authored pairs are Custom edits; Maple's legacy source omission stays unchanged. */

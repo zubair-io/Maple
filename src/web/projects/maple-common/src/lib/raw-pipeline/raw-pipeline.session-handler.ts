@@ -25,6 +25,7 @@ import type {
   WorkerResponse,
 } from './raw-pipeline.types';
 import { resolveRetainedCpuImportedWb } from './raw-pipeline.cpu-handler';
+import type { ImportedWbSession } from './raw-pipeline.imported-wb.types';
 import {
   type WebLiveSessionInstance,
   type WebLiveSessionCtor,
@@ -45,6 +46,8 @@ function liveSessionCtor(): WebLiveSessionCtor | null {
 
 /** The single open session, or null. Only one image is live at a time. */
 let liveSession: WebLiveSessionInstance | null = null;
+/** The `open-session` request id that opened `liveSession` (#4669 resolve identity). */
+let liveSessionId: number | null = null;
 
 // Re-entrancy gate (the wasm-bindgen `&mut self` borrow hazard): `render` holds the
 // session's mutable borrow for its whole Promise (across awaits), so a second
@@ -196,6 +199,7 @@ async function openSessionOp(req: OpenSessionRequest): Promise<void> {
     );
     markEnd(sessionOpenStartMark, `maple:session-open:${req.id}:end`, 'maple:session-open');
     liveSession = session;
+    liveSessionId = req.id;
     // Retain the canvas (the readback source) — `open()` did not neuter the JS ref.
     // `open` already presented the first frame, so a snapshot here reflects it.
     setLiveCanvas(req.canvas);
@@ -326,17 +330,27 @@ export async function handleSetFilmLut(req: SetFilmLutRequest): Promise<void> {
   });
 }
 
+/** The named session's pair, or null when it is no longer the open one (#4669). */
+function importedWbPair({ kind, token }: ImportedWbSession): Float32Array | null {
+  if (kind === 'cpu') return resolveRetainedCpuImportedWb(token);
+  const session = liveSessionId === token ? liveSession : null;
+  return session ? session.resolve_imported_white_balance() : null;
+}
+
 /**
- * Resolve the open session's name-only imported Auto WB (#4669). Queued behind
+ * Resolve the named session's name-only imported Auto WB (#4669). Queued behind
  * the first frame's render on `sessionChain`, so it never delays that frame; the
- * session keeps the pair, and the caller re-renders once with it.
+ * session keeps the pair, and the caller re-renders once with it. A session that
+ * is no longer the one the caller named (another photo opened or replaced the
+ * retained source since) is refused before any estimate runs.
  */
 export async function handleResolveImportedWb(req: ResolveImportedWbRequest): Promise<void> {
   await enqueueSessionOp(async () => {
     try {
-      const pair = liveSession?.resolve_imported_white_balance() ?? resolveRetainedCpuImportedWb();
+      const pair = importedWbPair(req.session);
+      const { kind, token } = req.session;
       if (!pair) {
-        postSessionError(req.id, 'resolve-imported-wb: no retained session');
+        postSessionError(req.id, `resolve-imported-wb: ${kind} session ${token} is not open`);
         return;
       }
       const response: WorkerResponse = {

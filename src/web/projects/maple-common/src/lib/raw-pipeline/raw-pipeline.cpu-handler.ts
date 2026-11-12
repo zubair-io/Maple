@@ -32,9 +32,10 @@ export function renderRetainedCpu(
     throw error;
   }
 }
-/** The retained CPU source's name-only imported Auto WB pair, or null (#4669). */
-export function resolveRetainedCpuImportedWb(): Float32Array | null {
-  return retained?.session.resolve_imported_white_balance() ?? null;
+/** The retained CPU source's name-only imported Auto WB pair, or null when the
+ * retained source is not generation `token` (#4669). */
+export function resolveRetainedCpuImportedWb(token: number): Float32Array | null {
+  return retained?.token === token ? retained.session.resolve_imported_white_balance() : null;
 }
 function releaseRetainedCpu(): void {
   retained?.session.free();

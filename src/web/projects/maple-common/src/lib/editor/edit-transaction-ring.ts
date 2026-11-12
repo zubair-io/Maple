@@ -8,6 +8,7 @@
 
 import { computed, signal } from '@angular/core';
 import type { AdjustmentModel } from '../models/adjustment-model';
+import { alignImportedAuto } from '../models/partial-white-balance';
 import type { XmpSerializerService } from '../xmp/xmp-serializer.service';
 import type { RingStep } from './editor-workflow-ring';
 import {
@@ -42,11 +43,13 @@ export class EditTransactionRing {
   readonly canRedo = computed(() => this._redo().length > 0);
 
   /** True when an undo entry exists OR the open transaction has already
-   * moved the model (it becomes one at the next boundary). */
+   * moved the model (it becomes one at the next boundary). An imported Auto
+   * estimate landing mid-transaction is not a move (#4669). */
   canUndo(current: AdjustmentModel | null): boolean {
     if (this._undo().length > 0) return true;
     const pending = this._pending;
-    return pending != null && current != null && !sameModel(pending.before, current);
+    if (pending == null || current == null) return false;
+    return !sameModel(alignImportedAuto(pending.before, current), current);
   }
 
   /** The recorded transactions, oldest first. */
@@ -71,12 +74,18 @@ export class EditTransactionRing {
   }
 
   /** Close the open transaction against `after`. Records and returns it,
-   * or `null` when nothing was open or nothing changed. */
+   * or `null` when nothing was open or nothing changed. The background
+   * imported Auto resolution is not the user's change, so `before` takes it too. */
   close(serializer: XmpSerializerService, after: AdjustmentModel | null): EditTransaction | null {
     const pending = this._pending;
     this._pending = null;
     if (!pending || !after) return null;
-    const tx = makeEditTransaction(serializer, { ...pending, after: structuredClone(after) });
+    const before = alignImportedAuto(pending.before, after);
+    const tx = makeEditTransaction(serializer, {
+      ...pending,
+      before,
+      after: structuredClone(after),
+    });
     if (!tx) return null;
     this._undo.update((stack) => pushCapped(stack, tx));
     this.lastCommitted.set(tx);

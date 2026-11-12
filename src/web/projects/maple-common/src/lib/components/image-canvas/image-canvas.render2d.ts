@@ -143,7 +143,7 @@ export async function coldOpen2d(
     host.imageBitmap()?.close();
     host.imageBitmap.set(bitmap);
     host.canvasSvc.currentPixels.set(decoded);
-    publishColdOpenMetadata(host, assetId, decoded, openModel, fitRevision, serializeOpened);
+    publishColdOpenMetadata(host, assetId, decoded, openModel, fitRevision, serializeOpened, bytes);
     host.nativeDetail?.recordBase({
       assetId,
       generation,
@@ -193,6 +193,7 @@ function publishColdOpenMetadata(
   openModel: AdjustmentModel,
   fitRevision: number,
   serializeOpened: (model: AdjustmentModel) => string,
+  bytes: Uint8Array,
 ): void {
   const state: LibraryStateService = host.state;
   // Update dimensions on the asset — the NATIVE dims (the sized reply carries
@@ -232,7 +233,7 @@ function publishColdOpenMetadata(
     host.lastRenderedXmp = serializeOpened(coldOpenRenderedModel(openModel, decoded));
   }
   host.markColdOpenDone();
-  resolveImportedAutoAfterFirstFrame(host.state, host.pipeline, assetId);
+  resolveImportedAutoAfterFirstFrame(host.state, host.pipeline, assetId, bytes);
 }
 
 /**

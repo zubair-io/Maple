@@ -8,6 +8,7 @@ import { AUTO_WB_ALGORITHM_VERSION } from '../generated/white-balance-presets.ge
 import { isSupportedRaw } from '../state/raw-extensions';
 import { stableStringify } from './edit-transaction';
 import { seedWhiteBalanceModel } from '../state/library-store-white-balance';
+import { alignImportedAuto } from '../models/partial-white-balance';
 
 function isCurrentAutoModel(
   editor: EditorStateService,
@@ -16,6 +17,9 @@ function isCurrentAutoModel(
 ): boolean {
   const current = editor.currentAdjustment();
   if (current === before) return true;
+  // The imported Auto estimate (#4669) may land while analysis runs: not a user edit.
+  if (current && stableStringify(current) === stableStringify(alignImportedAuto(before, current)))
+    return true;
   const reading = editor.library.asShotWbFor(id);
   if (!reading || before.partialWhiteBalance) return false;
   // Decode may resolve untouched As Shot values while analysis runs. Only
