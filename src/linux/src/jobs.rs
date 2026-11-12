@@ -54,8 +54,8 @@ pub enum Event {
     GpuRendered(u64, u64, crate::gpu_texture::GpuFrame),
     GpuFallback(u64, u64, String),
     Detail(u64, u64, Result<crate::detail::DetailFrame, String>),
-    /// `Ok(Some)` is the published document after an outside change was merged.
-    Saved(u64, Result<Option<Box<SidecarDocument>>, String>),
+    /// `Ok(Some)` is the published merge after an outside change was merged.
+    Saved(u64, Result<Option<Box<crate::sidecar::Merged>>, String>),
     Comparison(u64, Box<AdjustmentModel>, Result<egui::ColorImage, String>),
     Exported(PathBuf, Result<(), String>),
 }

@@ -247,7 +247,8 @@ impl MapleApp {
                         Ok(_) if id == self.session && self.cloud_editor.is_some() => {
                             match (&self.selected, saved) {
                                 (Some(photo), Some((saved_id, _, document))) if saved_id == id => {
-                                    let published = merged.map_or(document, |merged| *merged);
+                                    let published =
+                                        merged.map_or(document, |merged| merged.document);
                                     self.cloud.synchronize(id, photo, published);
                                     self.status = "Synchronizing XMP…".into();
                                 }
@@ -303,7 +304,7 @@ impl MapleApp {
 
     /// The editor takes the merged document only when nothing newer is
     /// waiting to be saved; a newer edit is merged on top by its own save.
-    fn adopt_merged(&mut self, session: u64, revision: u64, merged: &SidecarDocument) {
+    fn adopt_merged(&mut self, session: u64, revision: u64, merged: &crate::sidecar::Merged) {
         if session != self.session {
             return;
         }
@@ -312,7 +313,15 @@ impl MapleApp {
             && self.dirty.is_none()
             && self.before_edit.is_none();
         if idle {
-            self.document = Some(merged.clone());
+            // Undo and redo states join the adopted document's lineage with the
+            // outside change applied (#5887). One the merge rejects keeps its
+            // own lineage, which still never reverts the outside change.
+            for snapshot in self.history.iter_mut().chain(self.redo.iter_mut()) {
+                if let Ok(rebased) = merged.rebase(snapshot) {
+                    *snapshot = rebased;
+                }
+            }
+            self.document = Some(merged.document.clone());
             self.render();
             self.status = "Merged changes made outside Maple".into();
         } else {

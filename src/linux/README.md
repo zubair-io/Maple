@@ -336,9 +336,11 @@ not refused (#4983): `SidecarStore` runs the shared
 was based on, publishes the merge and records the outside state as an `external`
 history entry. A property only one side changed keeps that side's value; one both
 changed takes Maple's. The editor adopts the merged document when no newer edit is
-waiting, without scheduling another save. A save queued before adoption, and an
-undo or redo state, applies only its own changes relative to what Maple last meant
-to publish, so it never reverts the outside change. A sidecar removed outside
+waiting, without scheduling another save, and moves its undo and redo states onto
+it with the outside change applied, so a later Undo keeps that change and a Redo
+lands on top of a saved Undo. A save queued before adoption applies only its own
+changes relative to what Maple last meant to publish, so it never reverts the
+outside change. A sidecar removed outside
 Maple, malformed outside XML, more than one `rdf:Description`, or a merge the
 shared code rejects still refuses and keeps the edit. `SidecarStore` also rejects
 sidecar symlinks. Saves sync a temporary file, retain existing permissions,
