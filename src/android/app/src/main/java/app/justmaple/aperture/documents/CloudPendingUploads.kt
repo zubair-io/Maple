@@ -63,6 +63,18 @@ internal class CloudPendingUploads(private val root: File) {
             upload
         }
 
+    /**
+     * Creates a document under [requested] or the first free variant of it: free of [taken]
+     * and of every pending record, checked and recorded at once so two creates never share it.
+     */
+    fun reserve(account: String, folder: CloudDocumentId, requested: String, taken: Set<String>): CloudDocumentId =
+        synchronized(this) {
+            val pending = children(account, folder).map { it.path.substringAfterLast('/') }
+            folder.child(CloudDocumentRows.unique(requested, false, taken + pending), false).also {
+                create(account, it, creates = true)
+            }
+        }
+
     fun find(account: String, file: CloudDocumentId): Upload? =
         all(account).find { it.library == file.library && it.path == file.path }
 
