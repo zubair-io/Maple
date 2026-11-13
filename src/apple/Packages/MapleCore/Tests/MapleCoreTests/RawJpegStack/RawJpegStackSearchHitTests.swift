@@ -140,8 +140,17 @@ final class RawJpegStackSearchHitTests: XCTestCase {
       http: AuthenticatedHTTPClient.unauthenticated(
         server: server,
         urlSession: session(recorder) { path in
-          path == "/api/folders"
-            ? #"[{"id":"f1","path":"/l","label":"L","file_count":2}]"# : "{}"
+          switch path {
+          case "/api/folders":
+            return #"[{"id":"f1","path":"/l","label":"L","file_count":2}]"#
+          case "/api/assets/\(self.jpegID)":
+            // The JPEG lives at one location, so the server's trash can only move that copy.
+            return #"{"id":"\#(self.jpegID)","folder_id":"f1","filename":"IMG_3.JPG","#
+              + #""abs_path":"/l/Trip/IMG_3.JPG","fileinfo":[{"path":"Trip","filename":"#
+              + #""IMG_3.JPG","library_id":"f1"}],"size":4,"mtime":0,"rating":0}"#
+          default:
+            return "{}"
+          }
         }),
       server: server)
 

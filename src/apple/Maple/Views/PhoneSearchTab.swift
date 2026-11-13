@@ -175,6 +175,11 @@
       // while this tab is already alive — `.task(id:)` won't re-run since
       // `sessionKey` hasn't changed.
       .onChange(of: pendingSeed) { _, _ in applySeedIfNeeded() }
+      // A RAW+JPEG stacking change re-runs the shown search unfolded or folded (#5050).
+      .onReceive(NotificationCenter.default.publisher(for: RawJpegStackPreference.didChange)) { _ in
+        guard let vm = session?.vm else { return }
+        Task { await vm.refreshForStackingChange() }
+      }
       .onChange(of: Set(sessions.keys)) { oldKeys, newKeys in
         guard let current = path.last?.asset, !newKeys.contains(current.id),
           let stableID = current.stableID,

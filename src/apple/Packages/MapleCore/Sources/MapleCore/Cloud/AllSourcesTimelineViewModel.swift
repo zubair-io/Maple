@@ -74,6 +74,9 @@ public final class AllSourcesTimelineViewModel {
   public private(set) var inFlight: Set<BucketKey> = []
   public private(set) var loadError: Error?
   public private(set) var isLoadingBuckets: Bool = false
+  /// Bumped once a stacking change has reloaded the months; the month sections' load tasks key on
+  /// it so the visible months fetch their pages again (#5050).
+  public private(set) var stackingRevision = 0
   /// The month containing the last opened tile. The Timeline view is
   /// recreated after Preview, so its scroll target must live with this VM.
   public var scrollBucketID: String?
@@ -271,6 +274,25 @@ public final class AllSourcesTimelineViewModel {
     let photoKitRefs = photoKitMerge?.assetsForMonth(year: key.year, month: key.month) ?? []
     let folderRefs = folderMerge?.assetsForMonth(year: key.year, month: key.month) ?? []
     return [photoKitRefs, folderRefs]
+  }
+
+  /// A server's 'Show one image for RAW+JPEG pairs' changed (#5050): every page held here and in
+  /// the on-disk cache was folded, or not, by the old value. Drop them and reload the months, then
+  /// bump `stackingRevision` so the visible months fetch again, never mixing the two. A page load
+  /// already in flight is superseded, so its month must not stay marked in flight.
+  public func reloadForStackingChange() async {
+    _ = bumpGeneration()
+    inFlight.removeAll()
+    pagesByBucket = [:]
+    cloudStreamsByBucket = [:]
+    mergedPagesByBucket = [:]
+    for source in sources {
+      for libraryID in source.libraryIDs {
+        await pagesCache.clearLibrary(host: source.server.cacheHostKey, libraryID: libraryID)
+      }
+    }
+    await loadBuckets()
+    stackingRevision &+= 1
   }
 
   /// Stale-while-revalidate across every (server, library): seed from each
