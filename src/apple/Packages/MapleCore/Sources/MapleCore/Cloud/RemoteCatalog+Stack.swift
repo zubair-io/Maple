@@ -56,20 +56,26 @@ extension RemoteCatalog {
 
   /// Move or copy the RAW, then the JPEG under the RAW's final stem. `collision` is the RAW's
   /// policy; the JPEG uses `companionCollision` and throws `destinationExists` naming the JPEG when
-  /// its name is taken, before either file moves. Keep Both asks for a RAW name whose stem is free
-  /// in `libraryFolderID`'s `destinationPath` for the RAW, the JPEG and their sidecar: the server's
-  /// own keep-both looks at the RAW alone. `restore` is where a move puts the RAW back when the
-  /// JPEG cannot follow; the RAW is addressed there by the location the move gave it, not its old
-  /// `sourceAddress`.
+  /// its name is taken, before either file moves. With `companionCollision: .replace` the file at
+  /// the JPEG's name goes to the server's Trash first (`trashDisplacedCompanion`). Keep Both asks
+  /// for a RAW name whose stem is free in `libraryFolderID`'s `destinationPath` for the RAW, the
+  /// JPEG and their sidecar: the server's own keep-both looks at the RAW alone. `restore` is where
+  /// a move puts the RAW back when the JPEG cannot follow; the RAW is addressed there by the
+  /// location the move gave it, not its old `sourceAddress`.
   public func relocateAsset(
     assetID: String, mode: RelocateMode, collision: CollisionPolicy, destinationPath: String,
     sourceAddress: String?, stack: RawJpegStack, libraryFolderID: String,
     restore: (path: String, filename: String), companionCollision: CollisionPolicy = .fail
   ) async throws -> RelocateAssetResult {
     let companion = try companionID(of: stack)
-    if collision != .autoSuffix, companionCollision != .replace {
-      try await requireCompanionNameFree(
-        stack, libraryFolderID: libraryFolderID, destinationPath: destinationPath)
+    if collision != .autoSuffix {
+      if companionCollision == .replace {
+        try await trashDisplacedCompanion(
+          stack, libraryFolderID: libraryFolderID, destinationPath: destinationPath)
+      } else {
+        try await requireCompanionNameFree(
+          stack, libraryFolderID: libraryFolderID, destinationPath: destinationPath)
+      }
     }
     let keepBothName =
       collision == .autoSuffix
@@ -121,6 +127,32 @@ extension RemoteCatalog {
     let path = destinationPath.isEmpty ? name : "\(destinationPath)/\(name)"
     if try await statFile(folderID: libraryFolderID, relativePath: path) != nil {
       throw FileOperationError.destinationExists(name)
+    }
+  }
+
+  /// Sends the file at the JPEG's name in `destinationPath`, which the JPEG's own prompt chose to
+  /// replace, to the server's Trash before the RAW moves. While it sits there it shares the
+  /// destination's sidecar stem, so the server will not let the RAW replace that sidecar
+  /// (`relocate-sidecar-plan.ts`, #4692) and the pair cannot land, and a sidecar the RAW's Replace
+  /// left behind would pass to the JPEG. In the Trash it stays recoverable, where a Replace would
+  /// delete it. A file the server indexes as a photo of its own is refused before anything moves:
+  /// trashing that asset would trash every copy of it.
+  private func trashDisplacedCompanion(
+    _ stack: RawJpegStack, libraryFolderID: String, destinationPath: String
+  ) async throws {
+    let name = stack.companion.name
+    let path = destinationPath.isEmpty ? name : "\(destinationPath)/\(name)"
+    if let address = companionAddress(of: stack), let colon = address.firstIndex(of: ":"),
+      address[address.index(after: colon)...].caseInsensitiveCompare(path) == .orderedSame
+    {
+      return  // the JPEG itself
+    }
+    guard try await statFile(folderID: libraryFolderID, relativePath: path) != nil else { return }
+    if case .indexedAsset = try await deleteFile(folderID: libraryFolderID, relativePath: path) {
+      throw FileOperationError.invalidDestination(
+        "\(name) in the destination is a photo of its own on the server. Move or trash it there"
+          + " first: replacing it along with the RAW would leave the RAW and that photo sharing one"
+          + " sidecar.")
     }
   }
 

@@ -8,29 +8,29 @@ import XCTest
 /// views ask the server to fold pairs.
 final class RawJpegStackServerTests: XCTestCase {
   private let server = URL(string: "https://example.test")!
-  private let rawID = "650a1b2c3d4e5f6071829301"
-  private let jpegID = "650a1b2c3d4e5f6071829302"
+  let rawID = "650a1b2c3d4e5f6071829301"
+  let jpegID = "650a1b2c3d4e5f6071829302"
   private let libPath = "/srv/photos/Library"
 
-  private struct Request {
+  struct Request {
     let method: String
     let path: String
     let query: String?
     let body: [String: Any]
   }
 
-  private final class Recorder: @unchecked Sendable {
+  final class Recorder: @unchecked Sendable {
     var requests: [Request] = []
   }
 
-  private var stack: RawJpegStack {
+  var stack: RawJpegStack {
     RawJpegStack(
       primary: .init(name: "IMG_1.CR3", size: 3), companion: .init(name: "IMG_1.JPG", size: 2),
       location: .cloud(
         address: "lib:Trip/IMG_1.JPG", path: "/srv/photos/Library/Trip/IMG_1.JPG", id: jpegID))
   }
 
-  private func respond(_ request: URLRequest, status: Int = 200, json: String) -> (
+  func respond(_ request: URLRequest, status: Int = 200, json: String) -> (
     Data, HTTPURLResponse
   ) {
     let response = HTTPURLResponse(
@@ -39,7 +39,7 @@ final class RawJpegStackServerTests: XCTestCase {
     return (Data(json.utf8), response)
   }
 
-  private func catalog(
+  func catalog(
     _ recorder: Recorder, _ answer: @escaping (Request, URLRequest) -> (Data, HTTPURLResponse)
   ) -> RemoteCatalog {
     let session = URLSession.stubbedSequence { request in
@@ -56,7 +56,7 @@ final class RawJpegStackServerTests: XCTestCase {
       server: server)
   }
 
-  private func moved(_ request: URLRequest, path: String, filename: String) -> (
+  func moved(_ request: URLRequest, path: String, filename: String) -> (
     Data, HTTPURLResponse
   ) {
     respond(
@@ -68,7 +68,7 @@ final class RawJpegStackServerTests: XCTestCase {
   }
 
   /// `file-meta` for a library-relative path: a file when `taken` holds it, else 404.
-  private func fileMeta(_ request: URLRequest, taken: Set<String>) -> (Data, HTTPURLResponse) {
+  func fileMeta(_ request: URLRequest, taken: Set<String>) -> (Data, HTTPURLResponse) {
     let path =
       URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?
       .queryItems?.first { $0.name == "path" }?.value ?? ""
@@ -110,7 +110,8 @@ final class RawJpegStackServerTests: XCTestCase {
   func testTheJpegIsReplacedOnlyWhenItsOwnPromptSaidSo() async throws {
     let recorder = Recorder()
     let catalog = catalog(recorder) { record, request in
-      self.moved(
+      if record.path == "/api/folders/f1/file-meta" { return self.fileMeta(request, taken: []) }
+      return self.moved(
         request, path: "Album",
         filename: record.path.contains(self.rawID) ? "IMG_1.CR3" : "IMG_1.JPG")
     }
