@@ -1,5 +1,6 @@
 //! Real sidecars through the writer: a rewritten container whose own tag binds a
-//! canonical prefix elsewhere, and edits that would move Android's layers across
+//! canonical prefix elsewhere, a correction that shadows a vendor prefix its
+//! mask leaf restores, and edits that would move Android's layers across
 //! corrections it keeps verbatim (`mask_stack`).
 use super::*;
 use crate::mask_model::{layer_from_json, layer_json, AuthoredLayer};
@@ -200,6 +201,71 @@ fn a_container_binding_a_canonical_prefix_elsewhere_is_never_declared_twice() {
             saved.xml
         );
     }
+}
+
+/// The namespace each vendor element and attribute named `local` resolves to.
+fn vendor_names(xml: &str, local: &str) -> Vec<String> {
+    let mut reader = NsReader::from_str(xml);
+    let mut found = Vec::new();
+    loop {
+        let (ns, event) = reader.read_resolved_event().unwrap();
+        let start = match &event {
+            Event::Start(e) | Event::Empty(e) => e,
+            Event::Eof => break,
+            _ => continue,
+        };
+        let uri = |ns: ResolveResult| match ns {
+            ResolveResult::Bound(ns) => String::from_utf8(ns.0.to_vec()).unwrap(),
+            _ => String::new(),
+        };
+        if start.local_name().into_inner() == local.as_bytes() {
+            found.push(uri(ns));
+        }
+        for attr in start.attributes() {
+            let (ns, name) = reader.resolve_attribute(attr.unwrap().key);
+            if name.into_inner() == local.as_bytes() {
+                found.push(uri(ns));
+            }
+        }
+    }
+    found
+}
+
+#[test]
+fn a_leaf_restoring_a_prefix_its_correction_shadows_keeps_its_namespace() {
+    // `f` is urn:vendor on the description, urn:inner on the correction and
+    // urn:vendor again on its mask leaf.
+    let xml = FOREIGN
+        .replacen(" f:Tag=\"sky\"", " xmlns:f=\"urn:inner\" f:Tag=\"sky\"", 1)
+        .replacen(
+            " f:Leaf=\"top\"/>",
+            " xmlns:f=\"urn:vendor\" f:Leaf=\"top\"><f:Mark>kept</f:Mark></rdf:li>",
+            1,
+        );
+    let source = through_file(&xml);
+    let expected = [
+        ("Tag", "urn:inner"),
+        ("Note", "urn:inner"),
+        ("Leaf", "urn:vendor"),
+        ("Mark", "urn:vendor"),
+    ];
+    for (local, uri) in expected {
+        assert_eq!(vendor_names(&source.xml, local), [uri], "{local}");
+    }
+    let mut layers = read(&source);
+    let mut edited = layer_from_json(&layers[0]).unwrap();
+    edited.layer.adjustments.exposure = Some(1.25);
+    layers[0] = layer_json(&edited);
+    let saved = through_file(&write(&source, &layers));
+    for (local, uri) in expected {
+        assert_eq!(
+            vendor_names(&saved.xml, local),
+            [uri],
+            "{local} in\n{}",
+            saved.xml
+        );
+    }
+    assert_eq!(rendered(&saved.xml)[0], edited.layer, "{}", saved.xml);
 }
 
 /// raw-core renders radial, then linear.
