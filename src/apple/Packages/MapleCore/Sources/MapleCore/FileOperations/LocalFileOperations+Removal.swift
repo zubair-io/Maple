@@ -259,4 +259,24 @@ extension LocalFileOperations {
       if original != destination { try FileManager.default.removeItem(atPath: sourceSidecar) }
     }
   }
+
+  /// Undo a plan that will never be finalized — removes the staged
+  /// copies, leaving the source (and everything else) exactly as it was
+  /// before `planRelocate` ran. Not applicable to a case-only rename
+  /// (`sourceAlreadyRelocated`) — that has no staged copies to revert;
+  /// undoing it would mean renaming back, which a caller that actually
+  /// needs that can do by calling `planRelocate` again in reverse.
+  public static func revertPlan(_ plan: RelocatePlan) {
+    if let snapshot = plan.localSnapshot {
+      do { try revertLocalSnapshot(plan, snapshot: snapshot) } catch {
+        fileOpsLog.error(
+          "revertPlan: destination changed or rollback failed; backup retained: \(error.localizedDescription, privacy: .public)"
+        )
+      }
+      return
+    }
+    for path in plan.createdPaths {
+      try? FileManager.default.removeItem(atPath: path)
+    }
+  }
 }
