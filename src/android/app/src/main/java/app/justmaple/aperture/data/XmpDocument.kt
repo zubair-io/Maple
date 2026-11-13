@@ -41,10 +41,12 @@ private constructor(
             readPointCurves(xml, ::canonicalPrefix, scopes.filter { it.second.topLevel }.map { it.second.primary })
         }
         val descriptionTags by lazy {
-            tags.map { (tag, scope) -> DescriptionTag(tag.range, tag.value, effectiveBindings(tag.value, scope.bindings)) }
+            tags.map { (tag, scope) ->
+                DescriptionTag(tag.range, tag.value, effectiveBindings(tag.value, scope.bindings), scope.defaultNamespace)
+            }
         }
         val maskContainers by lazy {
-            matchingChildren(xml, descriptionTags, ::attributeName) { it in MASK_CONTAINERS }
+            matchingChildren(xml, descriptionTags, ::elementName) { it in MASK_CONTAINERS }
         }
     }
 
@@ -67,7 +69,7 @@ private constructor(
         val target = maskTarget(last)
         val kept = source.maskContainers.indices.mapNotNull { index ->
             val text = masks?.containers?.get(index) ?: originalMask(index)
-            val scope = source.maskContainers[index].second.bindings
+            val scope = source.maskContainers[index].second.scope
             text.takeIf { it.isNotEmpty() }?.let { index to maskSource(scope, it) }
         }
         return kept + masks?.appended.orEmpty().map { null to maskSource(target, it) }
@@ -213,7 +215,7 @@ private constructor(
             pointCurveBlock(curves, last, outputPrefixes(lastScope.bindings), indent) +
                 masks?.appended.orEmpty().joinToString("") { "\n$indent$it" }
         val (insertion, selfClosingTail) = appendToDescription(original, last, block)
-        val curveEdits = pointCurveRemovals(original, descriptionTags, curves, ::attributeName) + maskEdits + insertion
+        val curveEdits = pointCurveRemovals(original, descriptionTags, curves, ::elementName) + maskEdits + insertion
         val replacements = tags.map { (tag, scope) ->
             val stripped =
                 ATTRIBUTE.replace(tag.value) { match ->
@@ -299,6 +301,8 @@ private constructor(
             val attributes: Map<String, String>,
             /** A direct child of the document's `rdf:RDF`. */
             val topLevel: Boolean,
+            /** The default namespace in force; `null` when none or undeclared. */
+            val defaultNamespace: String? = null,
             /** A top-level description of the primary subject: the only ones read and edited. */
             val primary: Boolean,
         )
@@ -334,6 +338,11 @@ private constructor(
             return if (canonical != null) "$canonical:${name.substringAfter(':')}"
             else if (prefix in NAMESPACES) "" else name
         }
+
+        /** An element's canonical name: unprefixed names resolve in the default namespace. */
+        private fun elementName(name: String, scope: Map<String, String>): String =
+            if (':' in name) attributeName(name, scope)
+            else canonicalPrefix(scope[""])?.let { "$it:$name" } ?: name
 
         private fun descriptions(xml: String): List<Pair<MatchResult, DescriptionScope>> {
             val tags = DESCRIPTION.findAll(xml).filter { it.groupValues[1].isNotEmpty() }.toList()
@@ -379,9 +388,12 @@ private constructor(
                     if (prefix != null && "$prefix:${parser.name}" in XmpSubject.containers) candidate.score += 1
                 }
                 if (parser.name != "Description") continue
+                var defaultNamespace: String? = null
                 val bindings = buildMap {
                     for (i in 0 until parser.getNamespaceCount(parser.depth)) {
-                        parser.getNamespacePrefix(i)?.let { put(it, parser.getNamespaceUri(i)) }
+                        val prefix = parser.getNamespacePrefix(i)
+                        if (prefix.isNullOrEmpty()) defaultNamespace = parser.getNamespaceUri(i)?.ifEmpty { null }
+                        else put(prefix, parser.getNamespaceUri(i))
                     }
                 }
                 val attributes = buildMap {
@@ -400,7 +412,7 @@ private constructor(
                     open = candidate
                     openDepth = parser.depth
                 }
-                found += DescriptionScope(bindings, attributes, topLevel, primary = false)
+                found += DescriptionScope(bindings, attributes, topLevel, defaultNamespace, primary = false)
             }
             val primary =
                 candidates.reduceOrNull { best, next ->

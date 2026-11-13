@@ -1,9 +1,19 @@
 package app.justmaple.aperture.data
 
-/** A primary `rdf:Description` start tag, its source range and in-scope prefixes. */
-internal class DescriptionTag(val range: IntRange, val text: String, val bindings: Map<String, String>) {
+/** A primary `rdf:Description` start tag, its source range and in-scope prefixes; the
+ * default namespace in force there, if any, is kept apart from the prefixes. */
+internal class DescriptionTag(
+    val range: IntRange,
+    val text: String,
+    val bindings: Map<String, String>,
+    val defaultNamespace: String? = null,
+) {
     val selfClosing: Boolean
         get() = text.endsWith("/>")
+
+    /** [bindings] plus the default namespace under the empty prefix. */
+    val scope: Map<String, String>
+        get() = defaultNamespace?.let { bindings + ("" to it) } ?: bindings
 }
 
 internal class XmlEdit(val start: Int, val end: Int, val text: String)
@@ -15,7 +25,7 @@ private val TOKEN =
         """<!--.*?-->|<!\[CDATA\[.*?]]>|<\?.*?\?>|</([^\s>]+)\s*>|<([^\s/>!?]+)((?:[^>"']|"[^"]*"|'[^']*')*?)(/?)>""",
         RegexOption.DOT_MATCHES_ALL,
     )
-private val XMLNS = Regex("""\sxmlns:([^\s=]+)\s*=\s*(['"])(.*?)\2""")
+private val XMLNS = Regex("""\sxmlns(?::([^\s=]+))?\s*=\s*(['"])(.*?)\2""")
 
 internal class Child(val name: String, val tag: String, val start: Int, val end: Int)
 
@@ -48,7 +58,7 @@ internal fun directChildren(xml: String, content: Int): Children {
     error("Unclosed RDF description")
 }
 
-/** The prefixes [child] declares on its own start tag. */
+/** The namespaces [child] declares on its own start tag; the default one under "". */
 internal fun Child.declarations(): Map<String, String> =
     XMLNS.findAll(tag).associate { it.groupValues[1] to it.groupValues[3] }
 
@@ -62,7 +72,7 @@ internal fun matchingChildren(
 ): List<Pair<Child, DescriptionTag>> =
     descriptions.filterNot { it.selfClosing }.flatMap { description ->
         directChildren(xml, description.range.last + 1)
-            .filter { matches(canonicalName(it.name, description.bindings + it.declarations())) }
+            .filter { matches(canonicalName(it.name, description.scope + it.declarations())) }
             .map { it to description }
     }
 

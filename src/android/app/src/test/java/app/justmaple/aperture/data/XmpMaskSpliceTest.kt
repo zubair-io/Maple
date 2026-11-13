@@ -133,4 +133,28 @@ class XmpMaskSpliceTest {
         assertEquals("+0.50", saved.attribute("crs:Exposure2012"))
         assertTrue(saved.original.contains("</rdf:Description>"))
     }
+
+    @Test
+    fun containersUnderADefaultNamespaceAreCollected() {
+        val crs = "http://ns.adobe.com/camera-raw-settings/1.0/"
+        val own = """<GradientBasedCorrections xmlns="$crs"><rdf:Seq/></GradientBasedCorrections>"""
+        val inherited = "<CircularGradientBasedCorrections><rdf:Seq/></CircularGradientBasedCorrections>"
+        val source =
+            """<x:xmpmeta xmlns:x="adobe:ns:meta/">
+              | <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+              |  <rdf:Description rdf:about="">
+              |   $own
+              |   <f:Other xmlns:f="urn:f"/>
+              |  </rdf:Description>
+              |  <rdf:Description rdf:about="" xmlns="$crs">
+              |   $inherited
+              |  </rdf:Description>
+              | </rdf:RDF>
+              |</x:xmpmeta>
+              |""".trimMargin()
+        val document = throughFile(source)
+        assertEquals(listOf(own, inherited), containers(document))
+        val scope = document.maskInput().getJSONArray("containers").getJSONObject(1).getJSONObject("scope")
+        assertEquals(crs, scope.getString(""))
+    }
 }

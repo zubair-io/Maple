@@ -32,6 +32,12 @@ impl Attr {
     pub fn canonical(&self) -> Option<String> {
         canonical_name(self.uri.as_deref(), &self.local)
     }
+
+    /// The value with entity and character references decoded, as raw-core
+    /// reads it; `None` when a reference is malformed.
+    pub fn value(&self) -> Option<std::borrow::Cow<'_, str>> {
+        quick_xml::escape::unescape(&self.raw).ok()
+    }
 }
 
 #[derive(Clone, Debug)]

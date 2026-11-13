@@ -104,7 +104,7 @@ fn layer_key(description: &Element) -> Option<f64> {
         .attrs
         .iter()
         .find(|attr| attr.canonical().as_deref() == Some("papp:LayerOrder"))
-        .and_then(|attr| parse_key(&attr.raw))
+        .and_then(|attr| parse_key(&attr.value()?))
 }
 
 fn all_keys(element: &Element, out: &mut Vec<f64>) {
@@ -331,5 +331,21 @@ impl Document {
             layers.sort_by(|a, b| a.0.unwrap_or(0.0).total_cmp(&b.0.unwrap_or(0.0)));
         }
         Ok(layers.into_iter().map(|(_, layer)| layer).collect())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn layer_keys_are_read_after_reference_decoding() {
+        let xml = format!(
+            r#"<rdf:Seq xmlns:rdf="{RDF}" xmlns:papp="{}"><rdf:li><rdf:Description papp:LayerOrder="&#49;"/></rdf:li><rdf:li><rdf:Description papp:LayerOrder="&#x32;.5"/></rdf:li><rdf:li><rdf:Description papp:LayerOrder="&bogus;"/></rdf:li></rdf:Seq>"#,
+            mask_xml::PAPP
+        );
+        let mut keys = Vec::new();
+        all_keys(&mask_xml::parse(&xml).unwrap()[0], &mut keys);
+        assert_eq!(keys, [1.0, 2.5]);
     }
 }
