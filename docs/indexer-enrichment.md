@@ -361,7 +361,7 @@ Per image it copies the image first, then its sidecars under the name the image 
 An attempt can stop partway through one group (an image or movie plus its sidecars): after copying a file and before recording it, after recording some of the group's files and before the rest, or after recording all of them and before the indexer hand-off. The next attempt has to tell such a group from one that was never started, and it does so with a marker:
 
 1. Before the worker publishes a group's image or movie, it writes the name the file is about to land under on that file's row (`import_files.publishing_dest`). After a collision that is the renamed sibling, `IMG-1.dng`.
-2. It clears the marker when the group is finished: sidecars recorded, image handed to the indexer.
+2. It clears the marker when the group ends: finished (sidecars recorded, image handed to the indexer), skipped as a duplicate, or failed.
 3. An attempt that finds a marker looks at the marked name. If it holds the source's exact bytes, the image is this import's own copy: it counts as copied under that name and the group is finished from there (`imports/resume.ts`). If the name is free, the image is judged and copied by the ordinary rules above.
 4. A group with no marker was never started and follows the ordinary rules: a file already in the library there is a duplicate, is skipped with its sidecars and gains nothing.
 
@@ -372,18 +372,24 @@ Finishing a group whose image is already in place means: the sidecars still miss
 The details that keep this exact:
 
 - **The earlier attempt may still be running.** It can land its copy while the new attempt is hashing or copying the same file. The new attempt looks at the marked name again before it accepts a "duplicate" verdict and before every publish, and a copy that lands after that look wins the no-clobber publish, so whichever attempt lands the marked name first wins and no second copy is made.
-- **Renamed images.** When an image lands under a new name, the rows of the sidecars that follow it are renamed in the same write that records the image, so a group's rows never disagree about the name. Groups are paired on source paths, which do not change, so two images whose destinations meet after a rename (`IMG.dng` landing as `IMG-1.dng` beside the import's own `IMG-1.dng`) each keep their own sidecars.
+- **Renamed images.** When an image lands under a new name, the rows of the sidecars that follow it are renamed in the same write that records the image, so a group's rows never disagree about the name. That includes a sidecar already recorded `failed`: a retry copies a failed sidecar to the destination its row names, and the old name is beside a different image. Groups are paired on source paths, which do not change, so two images whose destinations meet after a rename (`IMG.dng` landing as `IMG-1.dng` beside the import's own `IMG-1.dng`) each keep their own sidecars.
 - **Retried sidecars.** A retry of a failed sidecar marks its image before copying anything, so a stop before that hand-off is recovered the same way.
-- **A failed image keeps its marker.** The failure may have come after the file landed, so a retry looks at the marked name before it copies.
+- **A failed image gives its marker up.** A later retry trusts a file it finds at a marked name, so a marker must not be left where the same photo could arrive by another route (a second import of the same folder, say) and be taken for this import's copy. The write that records an image as failed or skipped also sets its marker, so no stop can fall between the two. After a failure the marker goes back to the name an earlier attempt had marked, if there was one, and is cleared otherwise. The earlier name is kept because that attempt may still be running and land its copy there, or because the name could not be read.
+- **One unreadable sidecar fails that sidecar.** The image and the rest of the import go on, and a retry picks the sidecar up.
 - **An unreadable file is not a different file.** If the marked name exists and cannot be compared, the group fails and can be retried; the image is not copied again under another name.
 
 An attempt that fails on an error that is not about one file (a file outcome that could not be written, say) leaves the import `failed` with files still `pending` or a marker still set. Such an import can be retried even though none of its files is `failed`, and the next attempt finishes the marked group as above.
 
-Stops that are not recognised:
+What the marker does not survive, and what it gets wrong:
 
-- An import that was already `running` under a release without the marker has none, so a group that release's attempt stopped in is treated as never started.
-- On a volume that cannot hard-link (SMB, exFAT) a file's name exists before all of its bytes do. While a replaced attempt is still writing there, the marked name holds a partial file, which reads as a different file, and the new attempt publishes a second copy under a sibling name.
-- An import that fails after its last file was recorded and its last marker cleared is left `failed` with nothing to retry; every file is in place.
+- **Power loss or a kernel crash.** The database commits with `synchronous = NORMAL`, so a marker survives the server process dying, but its commit can be rolled back when the machine itself goes down. The group then looks never started: an image that had landed is skipped as already present, with its sidecars, and one that had landed under a new name and is not yet catalogued is copied again under the next free name (`IMG-2.dng`).
+- **A kept marker and the same photo from another route.** A marker an earlier attempt left stays on a failed image until a later attempt copies or finds the image. If the same photo reaches that exact name some other way before then, a retry takes it for this import's copy: it is counted as copied, a sidecar it lacks is added beside it, and it is handed to the indexer again. Nothing is overwritten.
+- **An image moved inside the library before a retry.** If the image this import landed was moved or renamed before the retry, the marked name is free, the image is found elsewhere as a duplicate, and its sidecar from the source is not copied.
+- **A failed publish whose own file could not be withdrawn.** A publish that fails removes the file it created. If that removal fails too, the file stays at the name with no marker. A retry then skips it as already present, with its sidecars, and reports no failure; if it had landed under a new name and is not yet catalogued, the retry copies it again under the next free name.
+- **Two takeovers in a row.** A row holds one marked name, and each attempt that publishes writes its own. If a first attempt is still copying, a second resolves a different name and is itself replaced before recording anything, the third attempt looks only at the second's name. The copy the first attempt then lands is treated as a duplicate and its sidecars are not copied.
+- **An import already running under a release without the marker.** It has none, so a group that release's attempt stopped in is treated as never started.
+- **Volumes that cannot hard-link (SMB, exFAT).** A file's name exists there before all of its bytes do. While a replaced attempt is still writing, the marked name holds a partial file, which reads as a different file, and the new attempt publishes a second copy under a sibling name.
+- **A failure after the last write.** An import that fails after its last file was recorded and its last marker cleared is left `failed` with nothing to retry; every file is in place.
 
 ## Search
 

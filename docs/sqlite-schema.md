@@ -118,13 +118,17 @@ stage ever called, and nothing wrote it. Migration
 
 `import_files.publishing_dest` is the library-relative name an import attempt
 is publishing a file under. The attempt writes it on a group's image or movie
-before the publish and clears it once that file's sidecars and indexer hand-off
-are finished, so it is normally `NULL` everywhere but on the group an attempt
-is working on. A marker outlives its attempt when that attempt stops inside the
-group, when the image's own copy fails, or when the import ends first; it stays
-until a later attempt finishes that group. Both writes are refused unless they
-come from the attempt that currently holds the import, like the file outcomes
-(`db/repos/imports.publishing.ts`).
+before the publish and clears it when the group ends, so it is normally `NULL`
+everywhere but on the group an attempt is working on. A marker outlives its
+attempt in two cases: the attempt stopped inside the group, or the image failed
+while it still carried the name an earlier attempt had marked (that attempt may
+still land its copy there, or the name could not be read). It stays until a
+later attempt copies or finds the image. The write that records an image as
+failed or skipped sets the marker in the same transaction. Every marker write
+is refused unless it comes from the attempt that currently holds the import,
+like the file outcomes (`db/repos/imports.publishing.ts`).
+The marker is committed before the publish, which with `synchronous = NORMAL`
+means it survives the server process dying but not necessarily power loss.
 Migration `0046-import-file-publishing-dest` adds the column; the frozen
 initial DDL does not have it. Nothing indexes it: the worker reads an import's
 markers once per attempt, along the `(import_id, idx)` index its file list

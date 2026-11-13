@@ -31,7 +31,7 @@ interface PublishOptions {
   keepExisting?: boolean;
   /** The name an earlier attempt of this import marked before publishing this file. */
   earlierDest?: string | null;
-  /** Runs with the resolved name before every publish, so the name is durable first. */
+  /** Runs with the resolved name before every publish, so the name is committed first. */
   beforePublish?: (destRel: string) => Promise<void>;
 }
 
