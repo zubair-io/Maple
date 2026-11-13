@@ -25,6 +25,8 @@ internal class CloudPendingUploads(private val root: File) {
         val generation: Int = 0,
         /** Persisted before a writer touches the bytes; only its clean close clears it. */
         val writing: Boolean = false,
+        /** A document created here: it publishes only into a free name, never over a server file. */
+        val creates: Boolean = false,
     ) {
         fun document(server: String) = CloudDocumentId.file(server, library, slug, path)
 
@@ -41,7 +43,7 @@ internal class CloudPendingUploads(private val root: File) {
     /** Records being sent, or held while a rename or delete reconciles them with the server. */
     private val busy = mutableSetOf<String>()
 
-    fun create(account: String, file: CloudDocumentId, writing: Boolean = false): Upload =
+    fun create(account: String, file: CloudDocumentId, writing: Boolean = false, creates: Boolean = false): Upload =
         synchronized(this) {
             val upload =
                 Upload(
@@ -53,6 +55,7 @@ internal class CloudPendingUploads(private val root: File) {
                     ready = false,
                     failure = null,
                     writing = writing,
+                    creates = creates,
                 )
             check(data(upload).createNewFile()) { "Could not stage ${file.name}" }
             if (writing) writers[upload.token] = 1
@@ -199,6 +202,7 @@ internal class CloudPendingUploads(private val root: File) {
                 .put("failure", upload.failure ?: JSONObject.NULL)
                 .put("generation", upload.generation)
                 .put("writing", upload.writing)
+                .put("creates", upload.creates)
                 .toString()
         )
         check(temporary.renameTo(target)) { "Could not record pending upload" }
@@ -217,6 +221,7 @@ internal class CloudPendingUploads(private val root: File) {
                     if (value.isNull("failure")) null else value.getString("failure"),
                     value.optInt("generation"),
                     value.optBoolean("writing"),
+                    value.optBoolean("creates"),
                 )
             }
             .getOrNull()

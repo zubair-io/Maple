@@ -3,12 +3,10 @@ package app.justmaple.aperture.documents
 import android.content.ContentResolver
 import android.net.Uri
 import android.provider.DocumentsContract
-import android.util.Base64
 import android.util.Log
 import app.justmaple.aperture.cloud.CloudServer
 import java.io.FileNotFoundException
 import java.util.concurrent.Executor
-import org.json.JSONObject
 
 internal data class CloudChildren(val rows: List<CloudDocumentRow>, val loading: Boolean)
 
@@ -47,8 +45,7 @@ internal class CloudDocumentStore(
     fun origin(server: String): String = connection(server).origin
 
     /** The signed-in user on this server: pending uploads belong to it, not to the origin. */
-    fun account(server: String): String =
-        connection(server).let { "${it.origin}#${subject(it.access)}" }
+    fun account(server: String): String = connection(server).account
 
     fun libraries(server: String, refresh: Boolean = false): List<CloudLibraryRoot> {
         if (!refresh) synchronized(libraries) { libraries[server] }?.let { return it }
@@ -234,17 +231,6 @@ internal class CloudDocumentStore(
         const val AUTHORITY = "app.justmaple.aperture.documents"
         const val TITLE = "Maple Cloud"
         private const val METADATA_ENTRIES = 4096
-
-        /** The access token's `sub`: tokens rotate, the user they name does not. */
-        fun subject(access: String): String =
-            runCatching {
-                    val payload = access.split('.')[1]
-                    val json = String(Base64.decode(payload, Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING))
-                    JSONObject(json).getString("sub").also { require(it.isNotBlank()) }
-                }
-                .getOrElse {
-                    throw IllegalStateException("This Maple Cloud sign-in is invalid. Sign in again from Maple.")
-                }
 
         fun childrenUri(id: CloudDocumentId): Uri =
             DocumentsContract.buildChildDocumentsUri(AUTHORITY, id.encode())

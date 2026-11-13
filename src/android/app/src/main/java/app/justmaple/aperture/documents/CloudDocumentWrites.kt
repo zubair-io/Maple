@@ -35,7 +35,7 @@ internal class CloudDocumentWrites(
         if (directory) {
             api.mkdir(created)
             store.remember(created, CloudEntry(created.path, CloudEntryKind.Folder, null, null, false))
-        } else uploads.create(account, created)
+        } else uploads.create(account, created, creates = true)
         store.notifyFolder(parent)
         return created
     }
@@ -174,8 +174,9 @@ internal class CloudDocumentWrites(
 
     /**
      * One record's attempt. Only a server-wide condition (unreachable, signed out, rate
-     * limited) pauses the queue; a record the server rejects is marked failed and the
-     * records after it still go out.
+     * limited, another account signed in) pauses the queue; a record the server rejects is
+     * marked failed and the records after it still go out. A created document never lands
+     * over a file another client put at its name meanwhile: that is a 409, and it moves aside.
      */
     private fun send(server: String, initial: CloudPendingUploads.Upload): Outcome {
         var upload = initial
@@ -183,7 +184,7 @@ internal class CloudDocumentWrites(
             val file = upload.document(server)
             val response =
                 try {
-                    api.upload(file, uploads.data(upload))
+                    api.upload(file, uploads.data(upload), upload.account, upload.creates)
                 } catch (failure: IOException) {
                     Log.w("Maple", "Maple Cloud upload deferred", failure)
                     return Outcome.Paused
@@ -195,7 +196,7 @@ internal class CloudDocumentWrites(
                     store.notify(listOf(CloudDocumentStore.childrenUri(file.parent()), CloudDocumentStore.documentUri(file)))
                     return Outcome.Done
                 }
-                // An existing sidecar (or a racing upload) holds the name: keep both.
+                // An existing sidecar, or any item at a created document's name, holds it: keep both.
                 response.status == 409 -> {
                     val name = CloudDocumentRows.unique(file.name, false, store.names(file.parent()) + file.name)
                     Log.w("Maple", "Maple Cloud kept ${file.name} beside an existing item as $name")

@@ -2,7 +2,9 @@
  * bytes: a catalogued asset goes through the leased Trash workflow, anything else
  * (video, plain file) is moved to `.maple/trash` by path (#4694). An existing
  * sidecar is never replaced here — sidecars are written through the XMP routes
- * with their preconditions, so the raw upload answers 409 instead. */
+ * with their preconditions, so the raw upload answers 409 instead. A create-only
+ * upload (`X-Maple-Require-Absent: true`) replaces nothing either: it answers 409
+ * when the name is taken, however late another writer took it. */
 import * as path from 'node:path';
 import { open, rename, stat, unlink, utimes } from '../fs/mirrored.ts';
 import { findAssetToReplaceAtAddress, upsertUploadedAsset } from '../db/repos/assets.address.ts';
@@ -83,6 +85,8 @@ interface UploadTarget {
   mtimeHeader: string | undefined;
   ownerId: string | undefined;
   sidecarAdmission?: UploadedSidecarAdmission;
+  /** Publish only into a free name; never trash or replace what holds it. */
+  requireAbsent: boolean;
 }
 interface TrashedReplacement {
   docId: ObjectId;
@@ -135,10 +139,24 @@ async function trashExistingUpload(input: UploadTarget): Promise<TrashedReplacem
 }
 async function publishUploadedBody(input: UploadTarget): Promise<void> {
   if (isSidecarUpload(input.filename)) return publishUploadedSidecar(input);
+  if (input.requireAbsent) return publishUploadedExclusive(input);
   try {
     await rename(input.tmp, input.absPath);
   } catch (error) {
     throw uploadError('rename', error);
+  }
+}
+
+/** Publishes the whole body under a name nothing holds (#5143); a taken name is a 409. */
+async function publishUploadedExclusive(input: UploadTarget): Promise<void> {
+  try {
+    await publishWholeExclusive(input.tmp, input.absPath);
+  } catch (error) {
+    if (!(error instanceof PublishCollisionError)) throw uploadError('publish', error);
+    refuseSidecarReplacement(input.target, input.filename);
+    throw new UploadConflictError(`An item already exists at "${input.target}"`);
+  } finally {
+    await unlink(input.tmp).catch(() => {});
   }
 }
 
@@ -150,15 +168,7 @@ async function publishUploadedSidecar(input: UploadTarget): Promise<void> {
   await serializeSidecarWrite(
     input.absPath,
     async () => {
-      try {
-        await publishWholeExclusive(input.tmp, input.absPath);
-      } catch (error) {
-        if (!(error instanceof PublishCollisionError)) throw uploadError('publish', error);
-        refuseSidecarReplacement(input.target, input.filename);
-        throw error;
-      } finally {
-        await unlink(input.tmp).catch(() => {});
-      }
+      await publishUploadedExclusive(input);
       await preserveUploadMtime(input.absPath, input.mtimeHeader);
     },
     { primarySidecar: admission?.primarySidecar, admissionScope: admission?.scope },
@@ -239,7 +249,7 @@ export async function finalizeUploadedFile(input: UploadTarget) {
 
 async function finalizeUpload(input: UploadTarget) {
   try {
-    const trashed = await trashExistingUpload(input);
+    const trashed = input.requireAbsent ? undefined : await trashExistingUpload(input);
     await publishUploadedBody(input);
     const info = await stat(input.absPath);
     if (!isSidecarUpload(input.filename))

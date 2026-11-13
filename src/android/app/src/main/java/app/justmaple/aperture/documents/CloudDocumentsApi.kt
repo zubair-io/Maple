@@ -145,12 +145,18 @@ internal class CloudDocumentsApi(private val http: CloudTransport) {
             "Create ${folder.name}",
         )
 
-    fun upload(file: CloudDocumentId, data: File): CloudResponse =
+    /**
+     * Sent with [account]'s session only. A [creates] upload publishes a new document and
+     * answers 409 when anything holds the name; otherwise it replaces the ordinary file there.
+     */
+    fun upload(file: CloudDocumentId, data: File, account: String, creates: Boolean): CloudResponse =
         http.upload(
             file.server,
             "/api/folders/${file.library}/upload",
             data,
-            mapOf(TARGET to target(file.path), "Content-Type" to "application/octet-stream"),
+            mapOf(TARGET to target(file.path), "Content-Type" to "application/octet-stream") +
+                if (creates) mapOf(REQUIRE_ABSENT to "true") else emptyMap(),
+            account,
         )
 
     fun moveFolder(from: CloudDocumentId, to: CloudDocumentId) =
@@ -280,6 +286,7 @@ internal class CloudDocumentsApi(private val http: CloudTransport) {
 
     companion object {
         private const val TARGET = "X-Maple-Target-Path"
+        private const val REQUIRE_ABSENT = "X-Maple-Require-Absent"
         private val SLUG = Regex("[A-Za-z0-9_-]+")
         private val LIBRARY = Regex("[0-9a-f]{24}")
 

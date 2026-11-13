@@ -7,6 +7,7 @@ import android.os.Looper
 import android.os.ParcelFileDescriptor
 import android.provider.DocumentsContract.Document
 import android.util.Base64
+import app.justmaple.aperture.cloud.CloudAccountChangedException
 import app.justmaple.aperture.cloud.CloudResponse
 import app.justmaple.aperture.cloud.CloudServer
 import app.justmaple.aperture.cloud.CloudTransport
@@ -308,6 +309,40 @@ class CloudDocumentWritesTest {
         assertEquals(CloudEntryKind.File, store().entry(file("f0.txt")).kind)
     }
 
+    @Test
+    fun aCreatedDocumentNeverReplacesAFileAnotherClientPutAtItsName() {
+        api.page("2026", files = listOf("old.txt"))
+        val store = store()
+        val created = writes(store).create(folder, "text/plain", "notes.txt")
+        // Another client publishes its own notes.txt while ours waits to upload.
+        api.page("2026", files = listOf("old.txt", "notes.txt"))
+        uploads.closed(uploads.opened(uploads.find(account("ann"), created)!!), clean = true)
+        staged("old.txt")
+        writes(store).schedule(server)
+        assertEquals(listOf("2026/notes (1).txt", "2026/notes.txt", "2026/old.txt"), api.uploads.sorted())
+        assertEquals("Only the deliberate replacement replaced a server file", listOf("2026/old.txt"), api.replaced)
+        assertTrue(uploads.all(account("ann")).isEmpty())
+    }
+
+    @Test
+    fun anotherAccountSigningInMidDrainStopsItAndKeepsTheRest() {
+        api.page("2026")
+        ready("ann", "2026/first.txt", age = 2)
+        val second = ready("ann", "2026/second.txt", age = 1)
+        api.status = {
+            // Bob signs in on the same connection once the first upload is out.
+            connections = listOf(CloudServer(server, "https://maple.test", token("bob"), "r"))
+            201
+        }
+        writes(store()).schedule(server)
+        assertEquals(listOf("2026/first.txt"), api.uploads)
+        assertEquals(listOf(second.token), uploads.all(account("ann")).map { it.token })
+        assertNull(uploads.all(account("ann")).single().failure)
+        connections = listOf(CloudServer(server, "https://maple.test", token("ann"), "r2"))
+        writes(store()).schedule(server)
+        assertEquals(listOf("2026/first.txt", "2026/second.txt"), api.uploads)
+    }
+
     private fun staged(name: String): CloudPendingUploads.Upload {
         val upload = uploads.create(account("ann"), file(name), writing = true)
         uploads.data(upload).writeText("edited $name")
@@ -331,9 +366,10 @@ class CloudDocumentWritesTest {
         return "${part("{\"alg\":\"HS256\"}")}.${part("{\"sub\":\"$user\"}")}.signature"
     }
 
-    private class FakeServer : CloudTransport {
+    private inner class FakeServer : CloudTransport {
         val requests = mutableListOf<String>()
         val uploads = mutableListOf<String>()
+        val replaced = mutableListOf<String>()
         var status: (String) -> Int = { 201 }
         var download: (OutputStream) -> Unit = {}
         private val existing = mutableSetOf<String>()
@@ -392,10 +428,23 @@ class CloudDocumentWritesTest {
         override fun download(id: String, path: String, output: OutputStream, signal: CancellationSignal?) =
             download(output)
 
-        override fun upload(id: String, path: String, file: File, headers: Map<String, String>): CloudResponse {
+        override fun upload(
+            id: String,
+            path: String,
+            file: File,
+            headers: Map<String, String>,
+            account: String,
+        ): CloudResponse {
+            // CloudHttp's contract: a request bound to another account is never sent.
+            if (account != connections.single().account) throw CloudAccountChangedException()
             val target = Uri.decode(headers.getValue("X-Maple-Target-Path"))
             synchronized(uploads) { uploads += target }
-            return response(status(target), JSONObject())
+            // The server's create-only publication (`X-Maple-Require-Absent`).
+            if (headers["X-Maple-Require-Absent"] == "true" && target in existing)
+                return response(409, JSONObject().put("error", "An item already exists at \"$target\""))
+            val status = status(target)
+            if (status in 200..299 && !existing.add(target)) synchronized(replaced) { replaced += target }
+            return response(status, JSONObject())
         }
 
         private fun response(status: Int, body: JSONObject) =
