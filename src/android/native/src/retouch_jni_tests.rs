@@ -214,5 +214,43 @@ fn spots_must_name_authored_entries_in_their_read_order() {
     )]);
 }
 
+#[test]
+fn a_new_spot_applies_after_the_spots_of_a_later_kept_container() {
+    let areas = |spot: RetouchSpot| {
+        let model = raw_core::types::AdjustmentModel {
+            retouch_spots: vec![spot],
+            ..Default::default()
+        };
+        raw_core::xmp::serialize_retouch_areas(&model, "   ")
+    };
+    let (first, kept) = (new_spot(0.2, 0.2, 0.25), new_spot(0.6, 0.6, 0.65));
+    // A vendor attribute on its container keeps the second list verbatim.
+    let opaque = areas(kept).replacen(
+        "<crs:RetouchAreas>",
+        "<crs:RetouchAreas xmlns:f=\"urn:vendor\" f:Tag=\"kept\">",
+        1,
+    );
+    let description = |areas: String| {
+        format!("  <rdf:Description rdf:about=\"\" xmlns:crs=\"http://ns.adobe.com/camera-raw-settings/1.0/\">\n{areas}\n  </rdf:Description>\n")
+    };
+    let xml = format!(
+        "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\">\n <rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">\n{}{} </rdf:RDF>\n</x:xmpmeta>\n",
+        description(areas(first)),
+        description(opaque)
+    );
+    let source = through_file_of(&xml, &NAMES);
+    assert_eq!(rendered(&source.xml), vec![first, kept], "{}", source.xml);
+    let spots = read(&source);
+    assert_eq!(spots, vec![(first, Some(0))]);
+    let added = new_spot(0.8, 0.8, 0.85);
+    let saved = write(&source, &[spots[0], (added, None)]);
+    assert_eq!(
+        rendered(&saved.xml),
+        vec![first, kept, added],
+        "{}",
+        saved.xml
+    );
+}
+
 #[path = "retouch_frame_tests.rs"]
 mod frame;

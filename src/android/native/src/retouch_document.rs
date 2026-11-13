@@ -106,8 +106,8 @@ pub struct Document {
     pub entries: Vec<Entry>,
     /// raw-core models a structured spot, so the legacy strings are ignored.
     pub any_areas: bool,
-    /// A structured container without a clean sequence models a spot.
-    pub opaque_areas: bool,
+    /// The last structured container without a clean sequence that models a spot.
+    pub last_opaque: Option<usize>,
     legacy: Vec<RetouchSpot>,
     /// Legacy containers that decode to at least one spot.
     pub legacy_containers: Vec<usize>,
@@ -149,7 +149,7 @@ impl Document {
             containers: Vec::new(),
             entries: Vec::new(),
             any_areas: false,
-            opaque_areas: false,
+            last_opaque: None,
             legacy: Vec::new(),
             legacy_containers: Vec::new(),
             target: bindings(input.get("target"))?,
@@ -192,7 +192,9 @@ impl Document {
                 let spots = parse_piece(&text[root.span.clone()], &scope)?.retouch_spots;
                 if areas {
                     self.any_areas |= !spots.is_empty();
-                    self.opaque_areas |= !spots.is_empty();
+                    if !spots.is_empty() {
+                        self.last_opaque = Some(index);
+                    }
                 } else if !spots.is_empty() {
                     self.legacy.extend(spots);
                     self.legacy_containers.push(index);

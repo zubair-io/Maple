@@ -170,7 +170,8 @@ enum Fate {
 struct Plan<'a> {
     document: &'a Document,
     spots: Vec<(RetouchSpot, Option<usize>)>,
-    /// The structured container new spots are appended to, if one exists.
+    /// The structured container new spots are appended to: the last one, when no
+    /// container Android keeps verbatim renders spots after it.
     append_into: Option<usize>,
 }
 
@@ -338,7 +339,7 @@ fn convertible(document: &Document) -> Result<(), String> {
         .entries
         .iter()
         .any(|entry| entry.spot.is_some() && entry.authored.is_none());
-    if document.frame.is_some() && (kept || document.opaque_areas) {
+    if document.frame.is_some() && (kept || document.last_opaque.is_some()) {
         return Err("These repair spots predate the upright frame and include spots Android cannot convert; edit them in Maple on a Mac or iPad".into());
     }
     Ok(())
@@ -357,7 +358,11 @@ pub fn write(input: &Value) -> Result<Value, String> {
     validate(&document, &spots)?;
     convertible(&document)?;
     let plan = Plan {
-        append_into: document.containers.iter().rposition(|c| c.seq.is_some()),
+        append_into: document
+            .containers
+            .iter()
+            .rposition(|c| c.seq.is_some())
+            .filter(|&last| document.last_opaque.is_none_or(|opaque| opaque < last)),
         document: &document,
         spots,
     };
