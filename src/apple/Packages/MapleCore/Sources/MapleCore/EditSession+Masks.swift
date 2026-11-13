@@ -348,8 +348,8 @@ extension EditSession {
 
   /// One undo entry (#5122). A brush raster is released here and registered
   /// again from its dabs if Undo brings the layer back. A bitmap raster
-  /// cannot be rebuilt in step with an undo, so it stays registered, as it
-  /// does when Undo removes the layer that created it.
+  /// cannot be rebuilt in step with an undo, so the history keeps it
+  /// registered until no snapshot can restore it (`HistoryRasters`).
   public func deleteMask(id: UUID) {
     guard let layer = model.localAdjustments.first(where: { $0.id == id }) else { return }
     beginEdit(kind: .mask, description: "Delete mask")
