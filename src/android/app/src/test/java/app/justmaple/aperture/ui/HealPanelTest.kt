@@ -209,6 +209,31 @@ class HealPanelTest {
     }
 
     @Test
+    fun undoAndRedoReloadTheSelectedSpotIntoThePanel() {
+        showPanel()
+        place(.2f, .3f)
+        val brush = { compose.runOnIdle { model.state.value.healBrush } }
+        val described = { spot: RepairSpot -> RepairBrush(spot.kind, spot.radius, spot.feather, spot.opacity) }
+        click("editor-heal-kind-clone")
+        slider("editor-heal-opacity").performSemanticsAction(SemanticsActions.SetProgress) { it(.4f) }
+        val edited = spots().single()
+
+        compose.runOnIdle { model.undo() }
+        assertEquals("Undo restores the opacity", 1f, spots().single().opacity, 1e-6f)
+        assertEquals(described(spots().single()), brush())
+        compose.runOnIdle { model.undo() }
+        assertEquals(RepairKind.Heal, spots().single().kind)
+        assertEquals(described(spots().single()), brush())
+        compose.onNodeWithContentDescription("Heal mode").assertIsSelected()
+
+        compose.runOnIdle { model.redo() }
+        compose.runOnIdle { model.redo() }
+        assertEquals(edited, spots().single())
+        assertEquals(described(edited), brush())
+        compose.onNodeWithContentDescription("Clone mode").assertIsSelected()
+    }
+
+    @Test
     fun aRasterPhotoCannotAuthorRepairSpots() {
         showPanel(raw = false)
         compose.onNodeWithTag("editor-heal-kind-clone").assertIsNotEnabled()
