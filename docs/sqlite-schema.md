@@ -114,6 +114,23 @@ stage ever called, and nothing wrote it. Migration
 `0042-remove-unused-stage-handlers` drops it (#5825); its definition, like
 `indexer_queue`'s, remains only in the frozen initial DDL.
 
+### The publish marker on `import_files` (#5932)
+
+`import_files.publishing_dest` is the library-relative name an import attempt
+is publishing a file under. The attempt writes it on a group's image or movie
+before the publish and clears it once that file's sidecars and indexer hand-off
+are finished, so it is normally `NULL` everywhere but on the group an attempt
+is working on. A marker outlives its attempt when that attempt stops inside the
+group, when the image's own copy fails, or when the import ends first; it stays
+until a later attempt finishes that group. Both writes are refused unless they
+come from the attempt that currently holds the import, like the file outcomes
+(`db/repos/imports.publishing.ts`).
+Migration `0046-import-file-publishing-dest` adds the column; the frozen
+initial DDL does not have it. Nothing indexes it: the worker reads an import's
+markers once per attempt, along the `(import_id, idx)` index its file list
+already uses. [Imports](indexer-enrichment.md#imports) describes how a later
+attempt uses the marker.
+
 ### `app_settings` is the one table that is a document, and why
 
 Every other table follows the rule that a field a query filters on is a

@@ -67,6 +67,7 @@ import { removeUnusedStageHandlersMigration } from './0042-remove-unused-stage-h
 import { removeRowLeasesMigration } from './0043-remove-row-leases.ts';
 import { rawJpegStacksMigration } from './0044-raw-jpeg-stacks.ts';
 import { backupSidecarSendsMigration } from './0045-backup-sidecar-sends.ts';
+import { importFilePublishingDestMigration } from './0046-import-file-publishing-dest.ts';
 
 export const ALL_MIGRATIONS: readonly Migration[] = [
   initialSchemaMigration,
@@ -114,4 +115,5 @@ export const ALL_MIGRATIONS: readonly Migration[] = [
   removeRowLeasesMigration,
   rawJpegStacksMigration,
   backupSidecarSendsMigration,
+  importFilePublishingDestMigration,
 ];

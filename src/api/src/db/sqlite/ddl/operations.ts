@@ -90,6 +90,9 @@ CREATE INDEX imports_list  ON imports (status, created_at DESC);
  * on Mongo, because an inline array of tens of thousands of entries blew past
  * the 16 MiB document ceiling mid-scan. Rows have no such ceiling, so the split
  * simply stays.
+ *
+ * Frozen 0001 DDL: 0046 adds `publishing_dest`, the name an attempt is
+ * publishing the file under (#5932).
  */
 export const IMPORT_FILES_TABLE_DDL = `
 CREATE TABLE import_files (
