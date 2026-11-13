@@ -11,6 +11,24 @@ import org.json.JSONObject
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
+/**
+ * Native `values()` as the editor state reads it: every adjustment field, plus each piece
+ * of session metadata (`_`-prefixed) the app reads, which only reaches the state if listed here.
+ */
+internal fun sessionValues(json: String): Map<String, Float> {
+    val values = JSONObject(json)
+    return AdjustmentFields.all.associate { it.name to values.optDouble(it.name, it.initial.toDouble()).toFloat() } +
+        mapOf(
+            "_uncropped_aspect" to values.getDouble("_uncropped_aspect").toFloat(),
+            "_aspect" to values.optDouble("_aspect", 1.5).toFloat(),
+            "_raw" to values.optDouble("_raw", 0.0).toFloat(),
+            "_shot_temperature" to values.getDouble("_shot_temperature").toFloat(),
+            "_shot_tint" to values.getDouble("_shot_tint").toFloat(),
+            // The EXIF orientation a sensor-framed repair list converts through (HealSession).
+            "_orientation" to values.getDouble("_orientation").toFloat(),
+        )
+}
+
 /** The handle, GPU and ANativeWindow belong to exactly one serial worker. */
 class EditorRenderer(library: PhotoLibrary, private val onPresented: (Int) -> Unit) : PreviewRenderer {
     private val nativeDetail = NativeDetailRenderer(library) { expectedEpoch ->
@@ -266,19 +284,7 @@ class EditorRenderer(library: PhotoLibrary, private val onPresented: (Int) -> Un
 
     override suspend fun shutdown() = withContext(dispatcher) { release() }
 
-    private fun readValues(): Map<String, Float> {
-        val objectValues = JSONObject(NativeBridge.values(handle))
-        return AdjustmentFields.all.associate {
-            it.name to objectValues.optDouble(it.name, it.initial.toDouble()).toFloat()
-        } +
-            mapOf(
-                "_uncropped_aspect" to objectValues.getDouble("_uncropped_aspect").toFloat(),
-                "_aspect" to objectValues.optDouble("_aspect", 1.5).toFloat(),
-                "_raw" to objectValues.optDouble("_raw", 0.0).toFloat(),
-                "_shot_temperature" to objectValues.getDouble("_shot_temperature").toFloat(),
-                "_shot_tint" to objectValues.getDouble("_shot_tint").toFloat(),
-            )
-    }
+    private fun readValues(): Map<String, Float> = sessionValues(NativeBridge.values(handle))
 
     override suspend fun sampleMaskRange(document: String, x: Float, y: Float): String =
         analysisLock.withLock {

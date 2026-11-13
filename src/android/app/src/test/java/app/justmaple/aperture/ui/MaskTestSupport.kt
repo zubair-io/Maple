@@ -11,6 +11,7 @@ import app.justmaple.aperture.data.Photo
 import app.justmaple.aperture.data.PhotoLibrary
 import app.justmaple.aperture.data.PreviewRenderer
 import app.justmaple.aperture.data.XmpDocument
+import app.justmaple.aperture.data.sessionValues
 import java.io.File
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.first
@@ -49,8 +50,18 @@ internal class MaskTestRenderer(private val raw: Boolean = true) : PreviewRender
     override fun invalidateModel() {
         invalidations++
     }
+    /** Native `values()`'s metadata, read through the same parser the real renderer uses. */
     override suspend fun open(path: String, document: String, edge: Int, generation: Int) =
-        mapOf("exposure" to 0f, "_raw" to if (raw) 1f else 0f, "_uncropped_aspect" to 1.5f, "_orientation" to orientation)
+        sessionValues(
+            JSONObject()
+                .put("_raw", if (raw) 1 else 0)
+                .put("_uncropped_aspect", 1.5)
+                .put("_aspect", 1.5)
+                .put("_orientation", orientation.toInt())
+                .put("_shot_temperature", 5500)
+                .put("_shot_tint", 0)
+                .toString()
+        )
     override suspend fun modelValues(document: String): Map<String, Float> = error("Settings paste is not exercised by this test")
     override suspend fun autoWhiteBalance(document: String): app.justmaple.aperture.WhiteBalanceRecommendation =
         error("White balance analysis is not expected in this test")
