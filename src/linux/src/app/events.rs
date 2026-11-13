@@ -290,6 +290,7 @@ impl MapleApp {
                 _ => {}
             }
         }
+        self.adopt_deferred();
         if self.saving == 0 && self.pending_navigation.is_some() {
             self.flush();
         }
@@ -311,6 +312,8 @@ impl MapleApp {
 
     /// The editor takes the merged document only when nothing newer is
     /// waiting to be saved; a newer edit is merged on top by its own save.
+    /// A merge of the current revision that arrives while another save is
+    /// still in flight is kept until that save completes (#5864).
     fn adopt_merged(&mut self, session: u64, revision: u64, merged: &crate::sidecar::Merged) {
         if session != self.session {
             return;
@@ -320,19 +323,43 @@ impl MapleApp {
             && self.dirty.is_none()
             && self.before_edit.is_none();
         if idle {
-            // Undo and redo states join the adopted document's lineage with the
-            // outside change applied (#5887). One the merge rejects keeps its
-            // own lineage, which still never reverts the outside change.
-            for snapshot in self.history.iter_mut().chain(self.redo.iter_mut()) {
-                if let Ok(rebased) = merged.rebase(snapshot) {
-                    *snapshot = rebased;
-                }
-            }
-            self.document = Some(merged.document.clone());
-            self.render();
-            self.status = "Merged changes made outside Maple".into();
+            self.adopt(merged);
         } else {
+            if revision == self.edit_revision {
+                self.deferred_merge = Some((session, revision, Box::new(merged.clone())));
+            }
             self.status = "Merged changes made outside Maple; newer edits save on top".into();
         }
+    }
+
+    /// Adopts the retained merge once no save is in flight. A newer edit
+    /// supersedes it: that edit's save merges the outside change itself.
+    fn adopt_deferred(&mut self) {
+        let Some((session, revision, merged)) = self.deferred_merge.take() else {
+            return;
+        };
+        if session != self.session || revision != self.edit_revision {
+            return;
+        }
+        if self.saving == 0 && self.dirty.is_none() && self.before_edit.is_none() {
+            self.adopt(&merged);
+        } else {
+            self.deferred_merge = Some((session, revision, merged));
+        }
+    }
+
+    fn adopt(&mut self, merged: &crate::sidecar::Merged) {
+        self.deferred_merge = None;
+        // Undo and redo states join the adopted document's lineage with the
+        // outside change applied (#5887). One the merge rejects keeps its
+        // own lineage, which still never reverts the outside change.
+        for snapshot in self.history.iter_mut().chain(self.redo.iter_mut()) {
+            if let Ok(rebased) = merged.rebase(snapshot) {
+                *snapshot = rebased;
+            }
+        }
+        self.document = Some(merged.document.clone());
+        self.render();
+        self.status = "Merged changes made outside Maple".into();
     }
 }

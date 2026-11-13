@@ -417,7 +417,9 @@ imported server values as local edits. The copy and every local save compare and
 rename under one process-wide sidecar publication lock. The editor adopts the
 merged document (and rebases its undo and redo states onto it) when no newer edit
 is waiting. A newer local save made while the merge ran supersedes it and merges
-in its own synchronization. A server sidecar removed by another client, a
+in its own synchronization; when that save finds the merge already published and
+no further edit follows, the editor keeps the merge and adopts it once every save
+in flight has completed. A server sidecar removed by another client, a
 rejected merge, or a server that keeps changing still refuses with local edits
 retained; explicit Reload XMP adopts the server version.
 

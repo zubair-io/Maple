@@ -39,6 +39,9 @@ pub struct MapleApp {
     cloud_editor: Option<crate::cloud::CloudEntry>,
     /// Queued saves: session, edit revision and the exact document sent.
     save_documents: std::collections::VecDeque<(u64, u64, SidecarDocument)>,
+    /// A merge of the current edit that arrived while another save was in
+    /// flight: session, edit revision and the merge, adopted once idle.
+    deferred_merge: Option<(u64, u64, Box<crate::sidecar::Merged>)>,
     pending_navigation: Option<Navigation>,
     worker: Worker,
     thumbnails: ThumbnailWorker,
@@ -119,6 +122,7 @@ impl MapleApp {
             cloud: cloud::CloudState::new(context.clone()),
             cloud_editor: None,
             save_documents: Default::default(),
+            deferred_merge: None,
             pending_navigation: None,
             worker: Worker::with_gpu(context.clone(), gpu),
             thumbnails: ThumbnailWorker::new(context.clone()),
