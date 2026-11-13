@@ -161,11 +161,17 @@ internal class CloudPendingUploads(private val root: File) {
             current.copy(path = path, generation = current.generation + 1).also(::write)
         }
 
-    /** Drops the record unless a writer reopened it while [upload] was being sent. */
+    /**
+     * Drops the record unless a writer reopened it while [upload] was being sent; a created
+     * document kept that way is published now, so its newer save replaces it in place.
+     */
     fun sent(upload: Upload): Boolean =
         synchronized(this) {
             val current = read(record(upload)) ?: return@synchronized true
-            if (upload.token in writers || current.generation != upload.generation) return@synchronized false
+            if (upload.token in writers || current.generation != upload.generation) {
+                if (current.creates) write(current.copy(creates = false))
+                return@synchronized false
+            }
             remove(upload)
             true
         }
