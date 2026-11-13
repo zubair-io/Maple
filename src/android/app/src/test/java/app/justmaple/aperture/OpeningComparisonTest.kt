@@ -2,6 +2,7 @@ package app.justmaple.aperture
 
 import app.justmaple.aperture.generated.AdjustmentFields
 import app.justmaple.aperture.ui.EditorGroup
+import app.justmaple.aperture.ui.ToneCurveFamily
 import android.net.Uri
 import android.view.Surface
 import app.justmaple.aperture.data.*
@@ -45,7 +46,7 @@ class OpeningComparisonTest {
     }
 
     @Test
-    fun resettingLightClearsPointCurvesAndTheirModeInOneUndo() = runBlocking {
+    fun resettingLightClearsToneCurvesAndTheirModeInOneUndoAndKeepsColourCurves() = runBlocking {
         Dispatchers.setMain(UnconfinedTestDispatcher())
         val app = RuntimeEnvironment.getApplication()
         val raw = File.createTempFile("light-reset-", ".dng", app.cacheDir).apply { writeText("renderer seam") }
@@ -64,7 +65,12 @@ class OpeningComparisonTest {
             val curved = model.state.value.document.serialize()
             model.resetGroup(EditorGroup.Light)
             val reset = model.state.value.document
-            PointCurve.entries.forEach { assertTrue("$it is reset", reset.curve(it).isEmpty()) }
+            val tone = ToneCurveFamily.entries.flatMap { it.curves }
+            assertEquals(8, tone.size)
+            PointCurve.entries.forEach { curve ->
+                if (curve in tone) assertTrue("$curve is reset", reset.curve(curve).isEmpty())
+                else assertEquals("$curve is a colour curve, outside Light", knots, reset.curve(curve))
+            }
             assertNull(reset.attribute("papp:ToneCurveMode"))
             model.undo()
             assertEquals(curved, model.state.value.document.serialize())

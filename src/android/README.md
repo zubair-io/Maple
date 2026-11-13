@@ -33,8 +33,9 @@ mark modified channels. Dragging empty plot space adds a knot; dragging a knot m
 it, with the endpoints pinned to x = 0 and 1 and interior knots kept 1/256 apart
 (`ToneCurveEditing`, mirroring Apple's rules). The selected knot shows its input/output
 and can be deleted, and Reset curve returns the channel to the empty identity. A drag,
-delete, reset or mode change is one undo entry; Reset Light clears all eight curves and
-the mode together with the Light sliders, also as one undo entry. The plot is sampled by
+delete, reset or mode change is one undo entry; Reset Light clears all eight tone curves
+and the mode together with the Light sliders, also as one undo entry, and keeps any Oklab
+colour curves (pasted or authored elsewhere). The plot is sampled by
 raw-core's own Fritsch–Carlson evaluator over JNI (`point_curve_preview`), so it draws
 the rendered shape; the Scene family also shows the parametric curve and its split
 markers above the region sliders. The XMP writer replaces only changed curve elements
