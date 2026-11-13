@@ -277,6 +277,7 @@ pub fn declaration(prefix: Option<&str>, uri: &str) -> String {
     }
 }
 
+#[cfg(test)]
 pub fn canonical_context() -> BTreeMap<Option<String>, String> {
     CANONICAL
         .iter()
