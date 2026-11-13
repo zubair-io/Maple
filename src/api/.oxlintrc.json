@@ -170,6 +170,7 @@
         "src/imports/scan.capture-time.test.ts",
         "src/imports/scan.test.ts",
         "src/imports/worker.attempt.test.ts",
+        "src/imports/worker.resume.test.ts",
         "src/imports/worker.sidecars.test.ts",
         "src/imports/worker.test.ts",
         "src/indexer/exif.formats.test.ts",

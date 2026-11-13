@@ -5,16 +5,19 @@
  * Nothing here polls.
  *
  * Per-file semantics:
- *   - Files are processed grouped by image: an image's `.xmp` sidecars are
- *     copied first, then the image, then the image is handed to the indexer
- *     via `handleEvent`. Movies are copied but never indexed (watcher is
- *     image-only, v1).
+ *   - Files are processed grouped by image: the image is copied first, then
+ *     its `.xmp` sidecars under the name the image landed at, then the image
+ *     is handed to the indexer via `handleEvent`. Movies are copied but never
+ *     indexed (watcher is image-only, v1).
  *   - Dedup decision is at the image: `hashFileForId` → `assetExistsForHash`
  *     (maple_id then sha1_head). A duplicate image AND its sidecars are
  *     skipped — copying an orphan sidecar for an image already in the library
  *     would be meaningless.
  *   - On-disk name collisions resolve to a free sibling; byte-identical files
  *     already present are skipped.
+ *   - An attempt that takes a running import over finishes the group the
+ *     earlier attempt stopped in: files that attempt had already put in place
+ *     count as copied and the group's sidecars and indexer hand-off follow.
  *   - Cancel, from the API or from Temporal, is observed BETWEEN files;
  *     already-copied files stay.
  */
@@ -28,8 +31,11 @@ import { copyFileAtomic, resolveDest, destAbsPath } from './copy.ts';
 import { buildImportFiles } from './scan.ts';
 import { groupFiles } from './group-files.ts';
 import {
+  findInterruptedGroup,
+  inPlace,
   probeDuplicate,
   resumeLandedPrimary,
+  type CopyOutcome,
   type RecordFile,
   type ResumeSeams,
 } from './resume.ts';
@@ -183,6 +189,7 @@ export class ImportRunner {
     held.progress = { current: 0, total: files.length };
 
     const { primaries, sidecars } = groupFiles(files);
+    const interruptedGroup = findInterruptedGroup(claim, files, primaries, sidecars);
     const counts = { copied: 0, skipped: 0, failed: 0 };
     let current = 0;
 
@@ -219,7 +226,14 @@ export class ImportRunner {
         return { outcome: 'cancelled' };
       }
 
-      await this.processGroup(claim, files, pIdx, sidecars.get(pIdx) ?? [], record);
+      await this.processGroup(
+        claim,
+        files,
+        pIdx,
+        sidecars.get(pIdx) ?? [],
+        record,
+        pIdx === interruptedGroup,
+      );
     }
 
     // Terminal status: an import that copied or skipped at least one file is
@@ -266,6 +280,7 @@ export class ImportRunner {
     pIdx: number,
     sidecarIdxs: number[],
     record: RecordFile,
+    interrupted: boolean,
   ): Promise<void> {
     const id = claim._id;
     const primary = files[pIdx];
@@ -282,16 +297,17 @@ export class ImportRunner {
     }
 
     // A retry meets a primary that already landed. Re-hashing it would hit the
-    // dedup check below and skip its still-pending sidecars as duplicates.
-    if (primary.state === 'copied') {
-      await resumeLandedPrimary({
-        libraryRoot: claim.library_root,
-        files,
-        primaryIndex: pIdx,
-        sidecarIndexes: sidecarIdxs,
-        record,
-        seams: this.resumeSeams(claim),
-      });
+    // dedup check below and skip its still-pending sidecars as duplicates. The
+    // same goes for a primary the interrupted attempt copied but never
+    // recorded, which the sweep may have catalogued since. Only that one group
+    // is trusted this way: anywhere else, a file already in place was there
+    // before this import.
+    const mayHaveLanded = interrupted && primary.state === 'pending';
+    if (
+      primary.state === 'copied' ||
+      (mayHaveLanded && (await inPlace(claim.library_root, primary)))
+    ) {
+      await this.resumeGroup(claim, files, pIdx, sidecarIdxs, record, interrupted);
       return;
     }
 
@@ -310,7 +326,26 @@ export class ImportRunner {
       return;
     }
 
-    await this.copyGroup(claim, files, pIdx, sidecarIdxs, record);
+    await this.copyGroup(claim, files, pIdx, sidecarIdxs, record, mayHaveLanded);
+  }
+
+  private resumeGroup(
+    claim: ClaimedImport,
+    files: ImportFileEntry[],
+    pIdx: number,
+    sidecarIdxs: number[],
+    record: RecordFile,
+    interrupted: boolean,
+  ): Promise<void> {
+    return resumeLandedPrimary({
+      libraryRoot: claim.library_root,
+      files,
+      primaryIndex: pIdx,
+      sidecarIndexes: sidecarIdxs,
+      record,
+      interrupted,
+      seams: this.resumeSeams(claim),
+    });
   }
 
   /** Re-records a primary the scan already rejected, and fails its sidecars with it. */
@@ -340,6 +375,7 @@ export class ImportRunner {
     pIdx: number,
     sidecarIdxs: number[],
     record: RecordFile,
+    mayHaveLanded: boolean,
   ): Promise<void> {
     const primary = files[pIdx];
 
@@ -348,6 +384,12 @@ export class ImportRunner {
     // must become `IMG-1.xmp` or the edits detach from their image
     // (invariant #1: the sidecar is the contract). See remapSidecarDest.
     const pr = await this.copyOne(claim.library_root, primary.src, primary.dest);
+    // The attempt this one replaced can still be finishing the same copy and
+    // win the publish; its record is refused, so the group is ours to finish.
+    if (mayHaveLanded && pr.state === 'skipped_duplicate') {
+      await this.resumeGroup(claim, files, pIdx, sidecarIdxs, record, true);
+      return;
+    }
     await record(pIdx, pr.state, pr.error, pr.destRel);
 
     const origStem = stemOf(primary.dest);
@@ -382,7 +424,8 @@ export class ImportRunner {
 
   private resumeSeams(claim: ClaimedImport): ResumeSeams {
     return {
-      copyOne: (libraryRoot, src, destRel) => this.copyOne(libraryRoot, src, destRel),
+      copyOne: (libraryRoot, src, destRel, keepExisting) =>
+        this.copyOne(libraryRoot, src, destRel, keepExisting),
       handOffToIndexer: (absPath) => this.handOffToIndexer(claim, claim._id, absPath),
       rearmSidecarIndex: async (imageFilename) => {
         try {
@@ -427,21 +470,20 @@ export class ImportRunner {
   /** Copy `src` to `destRel` under the library, resolving on-disk collisions.
    * Never throws — returns the per-file outcome so one bad file doesn't abort
    * the import. Retries when a no-clobber publish loses a cross-process race
-   * for the destination (re-resolving a free sibling from the base path). */
+   * for the destination (re-resolving a free sibling from the base path).
+   * With `keepExisting`, a different file already at `destRel` is left alone
+   * and nothing is copied. */
   private async copyOne(
     libraryRoot: string,
     src: string,
     destRel: string,
-  ): Promise<{
-    state: ImportFileEntry['state'];
-    error: string | null;
-    destRel: string;
-  }> {
+    keepExisting = false,
+  ): Promise<CopyOutcome> {
     try {
       for (let attempt = 0; attempt < PUBLISH_RETRIES; attempt++) {
         const resolved = await resolveDest(libraryRoot, destRel, src);
-        if (resolved.alreadyPresent) {
-          return { state: 'skipped_duplicate', error: null, destRel: resolved.destRel };
+        if (resolved.alreadyPresent || (keepExisting && resolved.destRel !== destRel)) {
+          return { state: 'skipped_duplicate', error: null, destRel };
         }
         const destAbs = destAbsPath(libraryRoot, resolved.destRel);
         const published = await copyFileAtomic(src, destAbs);
