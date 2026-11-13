@@ -71,6 +71,11 @@ export interface WindowPass {
   scores?: ReadonlyMap<string, number>;
   /** The lookahead hits that pass the filters: never served, only read for which shot they are. */
   beyond?: WindowRow[];
+  /**
+   * Lookahead hits folded into a RAW+JPEG stack another hit leads ({@link foldRankedStacks}): the
+   * other half of a photograph already counted, so never a match left past the cap.
+   */
+  foldedBeyond?: number;
   /** Every survivor in rank order, copies of a shot included, when collapsing dropped any. */
   copies?: WindowRow[];
 }
@@ -186,7 +191,8 @@ export function cappedPast(held: readonly WindowRow[], pass: WindowPass, depth: 
   const beyond = pass.beyond ?? [];
   const newShots = collapseShots([...held, ...beyond]).length - held.length;
   const copiesBeyond = beyond.length - newShots;
-  return depth >= RANKED_WINDOW_MAX && pass.considered - copiesBeyond > depth;
+  const others = pass.considered - (pass.foldedBeyond ?? 0) - copiesBeyond;
+  return depth >= RANKED_WINDOW_MAX && others > depth;
 }
 
 /** A pass with one row per shot, keeping every copy aside when that dropped any. */
@@ -335,7 +341,9 @@ export function ftsRanker(where: SearchWhere, dbOverride?: SqliteDb): WindowRank
  * served into its stack, and never shifts the rows behind it. The leader keeps the shot (owner,
  * capture time, kind, filename) of the half that ranked first, so the copies a narrower step
  * collapsed into the JPEG stay collapsed into the stack; its own `owner_id` stays the RAW's, the
- * document it is served as. A lookahead row folds against the served rows and the lookahead alike.
+ * document it is served as. A lookahead row folds against the served rows and the lookahead alike,
+ * and is counted in `foldedBeyond` when it does, so the other half of a held stack is never taken
+ * for a match left past the cap (`cappedPast`).
  */
 export function foldRankedStacks(where: SearchWhere, pass: WindowPass): WindowPass {
   if (where.foldStacks !== true) return pass;
@@ -361,11 +369,9 @@ export function foldRankedStacks(where: SearchWhere, pass: WindowPass): WindowPa
     });
   };
   const rows = fold(pass.rows, pass.rows);
-  return {
-    ...pass,
-    rows,
-    ...(pass.beyond ? { beyond: fold(pass.beyond, [...pass.rows, ...pass.beyond]) } : {}),
-  };
+  if (!pass.beyond) return { ...pass, rows };
+  const beyond = fold(pass.beyond, [...pass.rows, ...pass.beyond]);
+  return { ...pass, rows, beyond, foldedBeyond: pass.beyond.length - beyond.length };
 }
 
 /**
