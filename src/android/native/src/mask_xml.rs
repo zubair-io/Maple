@@ -225,7 +225,8 @@ pub fn scopes(elements: &[Element]) -> Scopes {
 }
 
 /// The bindings `element` uses but does not declare itself, as they resolve
-/// where it sits in the source.
+/// where it sits in the source; an unprefixed element with no default
+/// namespace in scope uses the empty one (`xmlns=""`).
 pub fn used_bindings(element: &Element, scopes: &Scopes) -> BTreeMap<Option<String>, String> {
     fn used(
         element: &Element,
@@ -239,9 +240,7 @@ pub fn used_bindings(element: &Element, scopes: &Scopes) -> BTreeMap<Option<Stri
                 out.insert(prefix, ());
             }
         };
-        if element.uri.is_some() || element.prefix.is_some() {
-            note(element.prefix.clone());
-        }
+        note(element.prefix.clone());
         for attr in &element.attrs {
             if attr.prefix.is_some() {
                 note(attr.prefix.clone());
@@ -257,7 +256,10 @@ pub fn used_bindings(element: &Element, scopes: &Scopes) -> BTreeMap<Option<Stri
     let inherited = &scopes[&element.start.start];
     needed
         .keys()
-        .filter_map(|prefix| Some((prefix.clone(), inherited.get(prefix)?.clone())))
+        .filter_map(|prefix| match prefix {
+            None => Some((None, inherited.get(&None).cloned().unwrap_or_default())),
+            Some(_) => Some((prefix.clone(), inherited.get(prefix)?.clone())),
+        })
         .filter(|(_, uri)| uri != XML)
         .collect()
 }
@@ -271,7 +273,7 @@ pub fn detached_declarations(
 ) -> String {
     used_bindings(element, scopes)
         .into_iter()
-        .filter(|(prefix, uri)| context.get(prefix) != Some(uri))
+        .filter(|(prefix, uri)| context.get(prefix).map_or("", String::as_str) != uri)
         .map(|(prefix, uri)| declaration(prefix.as_deref(), &uri))
         .collect()
 }

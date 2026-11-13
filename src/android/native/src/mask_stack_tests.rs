@@ -268,6 +268,42 @@ fn a_leaf_restoring_a_prefix_its_correction_shadows_keeps_its_namespace() {
     assert_eq!(rendered(&saved.xml)[0], edited.layer, "{}", saved.xml);
 }
 
+#[test]
+fn unprefixed_nodes_under_a_default_namespace_reset_keep_no_namespace() {
+    // The sequence's default namespace is urn:seq; the correction resets it.
+    let xml = FOREIGN
+        .replacen("<rdf:Seq>", "<rdf:Seq xmlns=\"urn:seq\">", 1)
+        .replacen(" f:Tag=\"sky\"", " xmlns=\"\" f:Tag=\"sky\"", 1)
+        .replacen(
+            "<f:Note>graded by hand</f:Note>",
+            "<Memo>metadata</Memo>",
+            1,
+        )
+        .replacen(
+            " f:Leaf=\"top\"/>",
+            " f:Leaf=\"top\"><Mark>kept</Mark></rdf:li>",
+            1,
+        );
+    let source = through_file(&xml);
+    for local in ["Memo", "Mark"] {
+        assert_eq!(vendor_names(&source.xml, local), [""], "{local}");
+    }
+    let mut layers = read(&source);
+    let mut edited = layer_from_json(&layers[0]).unwrap();
+    edited.layer.adjustments.exposure = Some(1.25);
+    layers[0] = layer_json(&edited);
+    let saved = through_file(&write(&source, &layers));
+    for local in ["Memo", "Mark"] {
+        assert_eq!(
+            vendor_names(&saved.xml, local),
+            [""],
+            "{local} in\n{}",
+            saved.xml
+        );
+    }
+    assert_eq!(rendered(&saved.xml)[0], edited.layer, "{}", saved.xml);
+}
+
 /// raw-core renders radial, then linear.
 fn assert_radial_then_linear(saved: &Sidecar) {
     let stack = rendered(&saved.xml);
