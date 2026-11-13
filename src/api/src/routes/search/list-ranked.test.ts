@@ -330,7 +330,8 @@ describe('a window row deleted between ranking and hydration (#4545)', () => {
     setInProcessSearchForTests(honouringK(ranked.slice(0, 5)));
     const first = (await list('placeQuery=greyson&limit=2')) as unknown as { rankPin: string };
     const pin = decodeRankPin(first.rankPin)!;
-    const built = buildSearchWhere({ placeQuery: 'greyson' });
+    // The route folds RAW+JPEG stacks by default (#5849), and a pin is only good for its own `where`.
+    const built = buildSearchWhere({ placeQuery: 'greyson' }, [], null, { stackRawJpeg: true });
     if ('error' in built) throw new Error(built.error);
     const pinned = (await pinnedWindow({ where: built, text: 'greyson', need: 4 }, pin))!;
     run(

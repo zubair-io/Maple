@@ -136,6 +136,14 @@ export interface SearchWhere {
    * before joining anything — see {@link searchWhereSql}.
    */
   month: number | null;
+  /**
+   * Fold a RAW+JPEG stack into its RAW (#5849): the `stack_raw_jpeg` display
+   * setting, off whenever an `ext` filter asks for files by type. Its
+   * predicate reads `assets.stack_primary_id`, which `assets_live` and
+   * `assets_live_captured_ym` carry, so the count and the histogram stay
+   * index-only. Absent means unfolded.
+   */
+  foldStacks?: boolean;
 }
 
 /** A translated query, or the 400 the route should answer instead. */
@@ -207,6 +215,7 @@ export function buildSearchWhere(
   q: SearchQuery,
   excludedPersonIds: readonly string[] = [],
   peoplePersonIds: readonly string[] | null = null,
+  display: { stackRawJpeg: boolean } = { stackRawJpeg: false },
 ): SearchWhereResult {
   const invalid = validate(q);
   if (invalid !== null) return invalid;
@@ -237,6 +246,7 @@ export function buildSearchWhere(
     ownerId,
     hidden: hiddenFilter(q),
     month: monthFilter(q),
+    foldStacks: display.stackRawJpeg && extensions.length === 0,
   };
 }
 
@@ -407,6 +417,7 @@ export function searchWhereSql(where: SearchWhere, extra?: BoundPredicate): Boun
     ...(narrowing ? [narrowing.sql] : []),
     QUALIFIED_LIVE_PREDICATE,
     ...(where.hidden === null ? [] : [`assets.hidden = ${where.hidden}`]),
+    ...(where.foldStacks === true ? ['assets.stack_primary_id IS NULL'] : []),
     ...where.clauses,
     ...(extra ? [extra.sql] : []),
   ];

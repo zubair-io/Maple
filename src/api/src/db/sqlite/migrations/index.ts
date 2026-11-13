@@ -65,6 +65,7 @@ import { backupDestinationCountsMigration } from './0040-backup-destination-coun
 import { dropVectorFingerprintIndexMigration } from './0041-drop-vector-fingerprint-index.ts';
 import { removeUnusedStageHandlersMigration } from './0042-remove-unused-stage-handlers.ts';
 import { removeRowLeasesMigration } from './0043-remove-row-leases.ts';
+import { rawJpegStacksMigration } from './0044-raw-jpeg-stacks.ts';
 import { backupSidecarSendsMigration } from './0045-backup-sidecar-sends.ts';
 
 export const ALL_MIGRATIONS: readonly Migration[] = [
@@ -111,5 +112,6 @@ export const ALL_MIGRATIONS: readonly Migration[] = [
   dropVectorFingerprintIndexMigration,
   removeUnusedStageHandlersMigration,
   removeRowLeasesMigration,
+  rawJpegStacksMigration,
   backupSidecarSendsMigration,
 ];

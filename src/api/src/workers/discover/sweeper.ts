@@ -12,6 +12,7 @@ import {
   listRecordedInDirectory,
   type RecordedInDirectory,
 } from '../../db/repos/assets.discover.sweep.ts';
+import { reconcileRawJpegStacks } from '../../db/repos/assets.raw-jpeg-stacks.ts';
 import { SUPPORTED_EXTS, toPosixRelDir } from './types.ts';
 import type { WatchEvent } from './types.ts';
 import { DUPLICATES_DIR_NAME } from '../../fs/duplicates.ts';
@@ -107,6 +108,8 @@ export async function visitDirectory(
   );
 
   await emitUnreconciledEvents(newCandidates, missingCandidates, reconciled, root, deps);
+  // After this visit's created/removed events, so a pair indexed together folds together.
+  await reconcileRawJpegStacks(folderId, toPosixRelDir(path.relative(root, dir.dir_path)));
 
   await reconcileFolderHidden(folderId, root, dir.dir_path, folderHidden, deps.cleanupHidden);
 
