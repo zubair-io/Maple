@@ -181,18 +181,20 @@ describe('imports on Temporal', () => {
       const { id, src, lib } = await pendingImport(live.db, 'retried', false);
       await importStatus(id, 'failed');
       const workflow = env.client.workflow.getHandle(importWorkflowId(id.toHexString()));
-      const firstRun = (await workflow.describe()).runId;
+      const latestRun = async () => {
+        const { runId, status } = await workflow.describe();
+        return { runId, open: status.name === 'RUNNING' };
+      };
+      // A retry that reaches a run still closing is served by that same run.
+      const firstRun = await until(latestRun, (latest) => !latest.open);
 
       await fs.writeFile(src, 'retried');
       expect(await retryImport(id)).toBe(true);
 
       expect((await importStatus(id, 'done'))?.counts.copied).toBe(1);
       expect(await fs.readFile(path.join(lib, '2024/03/IMG.dng'), 'utf8')).toBe('retried');
-      const secondRun = await until(
-        async () => (await workflow.describe()).runId,
-        (runId) => runId !== firstRun,
-      );
-      expect(secondRun).not.toBe(firstRun);
+      const secondRun = await until(latestRun, (latest) => latest.runId !== firstRun.runId);
+      expect(secondRun.runId).not.toBe(firstRun.runId);
     } finally {
       await host.stop();
     }

@@ -14,7 +14,7 @@ import type { JobHandler } from '../job-runner/handlers/index.ts';
 import { JOB_TASK_QUEUE, jobWorkflow, jobWorkflowId } from '../job-runner/job-workflow.ts';
 import { jobLane } from '../job-runner/job-queue.ts';
 import { createJob, getJob, markJobDispatched, resumeBatchJob } from '../job-runner/jobs.repo.ts';
-import { startLocalTemporalServer, until } from './local-temporal.test-helpers.ts';
+import { gate, startLocalTemporalServer, until } from './local-temporal.test-helpers.ts';
 import { readTemporalStatus, saveTemporalSettings } from './temporal-config.ts';
 import { dispatchSignal } from './row-workflow.ts';
 import { TemporalHost } from './temporal-host.ts';
@@ -240,6 +240,40 @@ describe('jobs on Temporal', () => {
 
       expect((await jobStatus(job._id, 'done'))?.result).toEqual({ runs: 2 });
     } finally {
+      await host.stop();
+    }
+  }, 60_000);
+
+  test('a dispatch that arrives while the job runs is served by the same workflow run', async () => {
+    using _live = await createLiveTestDatabase();
+    const handler = gate();
+    const host = await hostFor(async () => {
+      await handler.blocked;
+      return { kind: 'done', result: {} };
+    });
+    try {
+      const job = await queueExportJob();
+      await jobStatus(job._id, 'running');
+      const workflow = env.client.workflow.getHandle(jobWorkflowId(job._id.toHexString()));
+      const started = await workflow.describe();
+
+      await workflow.signal(dispatchSignal);
+      handler.release();
+
+      const closed = await until(
+        () => workflow.describe(),
+        ({ status }) => status.name !== 'RUNNING',
+      );
+      const { events } = await workflow.fetchHistory();
+      const passes = (events ?? []).filter((event) => event.activityTaskScheduledEventAttributes);
+      expect({ status: closed.status.name, sameRun: closed.runId === started.runId }).toEqual({
+        status: 'COMPLETED',
+        sameRun: true,
+      });
+      expect(passes).toHaveLength(2);
+      expect((await getJob(job._id))?.status).toBe('done');
+    } finally {
+      handler.release();
       await host.stop();
     }
   }, 60_000);
