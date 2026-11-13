@@ -312,7 +312,8 @@ extension BatchRenameViewModel {
           throw FileOperationError.unsupportedSource("this photo's server library is unknown")
         }
         try await catalog.requireCompanionRenameFree(
-          of: stack, toMatch: name, libraryFolderID: folderID)
+          of: stack, toMatch: name, libraryFolderID: folderID,
+          primaryAddress: asset.catalog?.address)
       } catch FileOperationError.destinationExists(let path) {
         refused[asset.id] = Self.companionTaken(asset, oldFilename: asset.fullFilename, path: path)
       } catch {

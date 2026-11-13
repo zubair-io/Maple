@@ -65,6 +65,13 @@ public actor CloudPagesCache {
     try? FileManager.default.removeItem(at: dir)
   }
 
+  /// Drops every cached page of every server. A server's 'Show one image for RAW+JPEG pairs' decides
+  /// how its pages fold (#5050) and is not part of the key, so a change to it must clear the pages
+  /// of Timelines no view model holds right now as well: their next load paints the cache first.
+  public func clearAll() {
+    try? FileManager.default.removeItem(at: baseDir)
+  }
+
   /// baseDir / host / libraryID / scope / YYYY-MM-pN.json — same scope
   /// segment scheme as CloudBucketsCache so the two caches' folder
   /// layouts mirror each other.
