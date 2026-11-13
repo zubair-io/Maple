@@ -16,6 +16,7 @@
  *   - `imports.rows.ts`   row shapes and row → document conversions
  *   - `imports.repo.ts`   the verbs the routes and the worker call (this file)
  *   - `imports.retry.ts`  the one accessor with real branching
+ *   - `imports.publishing.ts`  the marker an attempt writes before publishing a file
  *
  * ## The `imports` row is the work queue
  *
@@ -201,7 +202,7 @@ export class ImportTakenOver extends Error {
   }
 }
 
-async function holdsImport(db: SqliteDb, hex: string, holder: string): Promise<boolean> {
+export async function holdsImport(db: SqliteDb, hex: string, holder: string): Promise<boolean> {
   const rows = await db.read<{ locked_by: string | null; status: string }>(
     `SELECT locked_by, status FROM imports WHERE id = ?`,
     [hex],
@@ -336,6 +337,10 @@ export async function setImportFiles(
  *
  * `holder` fences both writes to one attempt; once a later attempt has taken
  * the import over, nothing is written and {@link ImportTakenOver} is thrown.
+ *
+ * `sidecarDests` moves the sidecars that follow an image to the names they take
+ * beside it when it landed under a new one. They change with the image's own
+ * row or not at all, so the group's rows never name two different stems.
  */
 export async function updateImportProgress(
   id: ObjectId,
@@ -347,6 +352,7 @@ export async function updateImportProgress(
     current: number;
     counts: ImportCounts;
     holder?: string;
+    sidecarDests?: { index: number; destRel: string }[];
   },
   now: () => Date = () => new Date(),
   dbOverride?: SqliteDb,
@@ -378,6 +384,12 @@ export async function updateImportProgress(
         ...fence.params,
       ],
     },
+    ...(args.sidecarDests ?? []).map((sidecar) => ({
+      sql: `UPDATE import_files SET dest = ?
+             WHERE import_id = ? AND idx = ?
+               AND EXISTS (SELECT 1 FROM import_files WHERE import_id = ? AND idx = ?)${fence.sql}`,
+      params: [sidecar.destRel, hex, sidecar.index, hex, args.index, ...fence.params],
+    })),
   ]);
   if (changesAt(results, 0) !== 1) {
     if (args.holder !== undefined && !(await holdsImport(db, hex, args.holder))) {

@@ -44,4 +44,10 @@ export {
   updateImportProgress,
 } from '../db/repos/imports.repo.ts';
 
+export {
+  clearImportFilePublishing,
+  getImportPublishingDests,
+  markImportFilePublishing,
+} from '../db/repos/imports.publishing.ts';
+
 export type { ClaimedImport } from '../db/repos/imports.repo.ts';

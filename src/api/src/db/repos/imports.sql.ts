@@ -118,6 +118,30 @@ export function heldBy(importId: string, holder: string | undefined): AttemptFen
     : { sql: ` AND ${HELD_BY_SQL}`, params: [importId, holder] };
 }
 
+export const IMPORT_PUBLISHING_DESTS_SQL = `
+  SELECT idx, publishing_dest FROM import_files
+   WHERE import_id = ? AND publishing_dest IS NOT NULL ORDER BY idx`;
+
+/**
+ * Sets one file's publish marker, or clears it with `null`, for the attempt
+ * that holds the import. It is its own statement and not part of the file's
+ * outcome: the marker has to be durable before the file is published, and the
+ * outcome is only known afterwards.
+ */
+export function publishingDestStatement(
+  importId: string,
+  index: number,
+  destRel: string | null,
+  holder: string,
+): SqlStatement {
+  const fence = heldBy(importId, holder);
+  return {
+    sql: `UPDATE import_files SET publishing_dest = ?
+           WHERE import_id = ? AND idx = ?${fence.sql}`,
+    params: [destRel, importId, index, ...fence.params],
+  };
+}
+
 /**
  * Rows per bulk-insert statement.
  *
