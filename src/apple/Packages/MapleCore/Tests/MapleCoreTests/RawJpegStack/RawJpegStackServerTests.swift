@@ -452,6 +452,30 @@ final class RawJpegStackServerTests: XCTestCase {
     XCTAssertFalse(remembered)
   }
 
+  /// A grid's first GET answered after Settings recorded a newer value used to overwrite it, and
+  /// every later load reused that stale answer without asking again.
+  func testAFetchAnsweredAfterSettingsRecordedAValueKeepsThatValue() async {
+    let preference = ServerRawJpegStackPreference()
+    let gated = GatedServer()
+    let server = self.server
+    let load = Task {
+      await preference.isEnabled(server: server) {
+        await gated.put(true)
+        return DisplayConfig(showHiddenImages: false, stackRawJpeg: true)
+      }
+    }
+    await until { await gated.waiting == 1 }
+    await preference.record(false, server: server)
+    await gated.releaseOne()
+
+    let answered = await load.value
+    XCTAssertFalse(answered)
+    let remembered = await preference.isEnabled(server: server) {
+      DisplayConfig(showHiddenImages: false, stackRawJpeg: true)
+    }
+    XCTAssertFalse(remembered)
+  }
+
   func testAnUnreachableServerDefaultsToStackingOnAndAsksAgainNextTime() async {
     let preference = ServerRawJpegStackPreference()
     let calls = Recorder()

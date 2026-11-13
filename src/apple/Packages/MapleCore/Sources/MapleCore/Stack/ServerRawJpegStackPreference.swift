@@ -17,13 +17,16 @@ public actor ServerRawJpegStackPreference {
   public init() {}
 
   /// The preference for `server`, fetched once and then remembered. On when the server cannot be
-  /// asked, which is the setting's default; a failed fetch is retried on the next call.
+  /// asked, which is the setting's default; a failed fetch is retried on the next call. A value
+  /// Settings recorded or saved while the fetch was in flight is newer than its answer and wins.
   public func isEnabled(
     server: URL, fetch: @Sendable () async throws -> DisplayConfig
   ) async -> Bool {
-    if let value = known[server.absoluteString] { return value }
-    guard let config = try? await fetch() else { return true }
-    known[server.absoluteString] = config.stackRawJpeg
+    let key = server.absoluteString
+    if let value = known[key] { return value }
+    guard let config = try? await fetch() else { return known[key] ?? true }
+    if let value = known[key] { return value }
+    known[key] = config.stackRawJpeg
     return config.stackRawJpeg
   }
 
