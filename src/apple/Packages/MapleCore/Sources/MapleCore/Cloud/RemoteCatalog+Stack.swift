@@ -263,7 +263,7 @@ extension RemoteCatalog {
   /// the library `libraryFolderID` the RAW and the JPEG would land under different stems and the
   /// JPEG's sidecar beside the older photo: that trash is refused before anything moves, until the
   /// server can trash a pair under one stem (#5930). The server's trash takes no location, so a
-  /// JPEG it holds in several places is refused too: it would trash whichever copy it picks.
+  /// RAW or JPEG it holds in several places is refused too: it would trash whichever copy it picks.
   /// `primaryAbsPath` is the RAW's server path.
   public func deleteAsset(
     assetID: String, intent: DeleteAssetIntent, stack: RawJpegStack, libraryFolderID: String,
@@ -273,7 +273,8 @@ extension RemoteCatalog {
     if intent == .trash {
       try await requireTrashStemFree(
         stack, libraryFolderID: libraryFolderID, primaryAbsPath: primaryAbsPath)
-      try await requireOneCompanionLocation(stack, id: companion)
+      try await requireOneLocation(assetID: companion, name: stack.companion.name)
+      try await requireOneLocation(assetID: assetID, name: stack.primary.name)
     }
     let primary = try await deleteAsset(assetID: assetID, intent: intent)
     guard primary == .ok else { return primary }
@@ -291,16 +292,17 @@ extension RemoteCatalog {
     }
   }
 
-  /// Throws `unsupportedSource` when the server holds the JPEG at more than one live location:
-  /// `DELETE /api/assets/<id>` trashes the copy the server picks (`activeFileInfo`), which need
-  /// not be the one listed beside the RAW, and both DELETEs would succeed with the pair split.
-  private func requireOneCompanionLocation(_ stack: RawJpegStack, id: String) async throws {
-    guard let asset = try await getAsset(assetID: id) else {
-      throw FileOperationError.sourceMissing(stack.companion.name)
+  /// Throws `unsupportedSource` when the server holds the RAW or JPEG `name` at more than one live
+  /// location: `DELETE /api/assets/<id>` trashes the copy the server picks (`activeFileInfo`),
+  /// which need not be the one listed in this folder, and both DELETEs would succeed with the
+  /// listed pair split.
+  private func requireOneLocation(assetID: String, name: String) async throws {
+    guard let asset = try await getAsset(assetID: assetID) else {
+      throw FileOperationError.sourceMissing(name)
     }
     guard (asset.fileInfo ?? []).filter({ $0.deletedAt == nil }).count > 1 else { return }
     throw FileOperationError.unsupportedSource(
-      "The server holds \(stack.companion.name) in more than one place and can't be told which"
+      "The server holds \(name) in more than one place and can't be told which"
         + " copy to trash, so it could trash a different copy and leave this one behind. Nothing"
         + " was trashed.")
   }

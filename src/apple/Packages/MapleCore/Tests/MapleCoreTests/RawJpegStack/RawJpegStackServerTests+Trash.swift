@@ -6,10 +6,11 @@ import XCTest
 /// refused before anything moves when the server could not trash the pair as listed.
 extension RawJpegStackServerTests {
   /// The lookups a stacked trash makes before trashing: the library roots, `file-meta` for the
-  /// library's Trash, which holds `inTrash`, and the JPEG's asset, live at `jpegLocations`.
+  /// library's Trash, which holds `inTrash`, and the JPEG's and RAW's assets, live at
+  /// `jpegLocations` and `rawLocations`.
   private func trashLookup(
     _ record: Request, _ request: URLRequest, inTrash: Set<String> = [],
-    jpegLocations: [String] = ["Trip"]
+    jpegLocations: [String] = ["Trip"], rawLocations: [String] = ["Trip"]
   ) -> (Data, HTTPURLResponse)? {
     if record.path == "/api/folders" {
       return respond(
@@ -20,15 +21,17 @@ extension RawJpegStackServerTests {
           """)
     }
     if record.path == "/api/folders/f1/file-meta" { return fileMeta(request, taken: inTrash) }
-    if record.method == "GET", record.path == "/api/assets/\(jpegID)" {
-      let locations = jpegLocations.map {
-        #"{"path":"\#($0)","filename":"IMG_1.JPG","library_id":"f1","deleted_at":null}"#
+    for (id, name, places) in [
+      (jpegID, "IMG_1.JPG", jpegLocations), (rawID, "IMG_1.CR3", rawLocations),
+    ] where record.method == "GET" && record.path == "/api/assets/\(id)" {
+      let locations = places.map {
+        #"{"path":"\#($0)","filename":"\#(name)","library_id":"f1","deleted_at":null}"#
       }
       return respond(
         request,
         json: """
-          {"id":"\(jpegID)","folder_id":"f1","filename":"IMG_1.JPG",
-           "abs_path":"\(libPath)/\(jpegLocations[0])/IMG_1.JPG",
+          {"id":"\(id)","folder_id":"f1","filename":"\(name)",
+           "abs_path":"\(libPath)/\(places[0])/\(name)",
            "fileinfo":[\(locations.joined(separator: ","))],"size":2,"mtime":0,"rating":0}
           """)
     }
@@ -132,6 +135,29 @@ extension RawJpegStackServerTests {
       XCTFail("a JPEG in several places must refuse the stacked trash")
     } catch FileOperationError.unsupportedSource(let message) {
       XCTAssertTrue(message.contains("IMG_1.JPG"), message)
+    }
+    XCTAssertEqual(
+      recorder.requests.filter { $0.method != "GET" }.map(\.path), [], "nothing is trashed")
+  }
+
+  /// The same holds for the RAW: with the RAW in several places the server could trash another
+  /// copy of it alongside this folder's JPEG, leaving the listed RAW behind.
+  func testTrashIsRefusedWhenTheServerHoldsTheRawInSeveralPlaces() async throws {
+    let recorder = Recorder()
+    let catalog = catalog(recorder) { record, request in
+      if let lookup = self.trashLookup(record, request, rawLocations: ["Album", "Trip"]) {
+        return lookup
+      }
+      return self.noContent(request)
+    }
+
+    do {
+      _ = try await catalog.deleteAsset(
+        assetID: rawID, intent: .trash, stack: stack, libraryFolderID: "f1",
+        primaryAbsPath: rawAbsPath)
+      XCTFail("a RAW in several places must refuse the stacked trash")
+    } catch FileOperationError.unsupportedSource(let message) {
+      XCTAssertTrue(message.contains("IMG_1.CR3"), message)
     }
     XCTAssertEqual(
       recorder.requests.filter { $0.method != "GET" }.map(\.path), [], "nothing is trashed")
