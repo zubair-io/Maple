@@ -2,9 +2,10 @@
  * `folder_scan` — walk a registered library and push every supported file
  * through the discover producer, which dedups by maple_id/sha1_head and
  * relinks moved or new files onto their asset rows. Registering a folder,
- * Rescan and the scan-on-open all start one; the walk is idempotent, so an
- * attempt interrupted by a restart simply walks again. `last_scan` is stamped
- * once the walk completes, and is what the scan-on-open de-bounce reads.
+ * Rescan and the scan-on-open all start one. The walk saves its position on
+ * the job row, so an attempt that replaces one interrupted by a restart
+ * carries on from the directories still to list. `last_scan` is stamped once
+ * the walk completes, and is what the scan-on-open de-bounce reads.
  */
 
 import type { Dirent } from 'node:fs';
@@ -22,6 +23,12 @@ const log = childLogger('folder-scan');
 
 /** Directories listed, and files handed to discover, at once. */
 const CONCURRENCY = 8;
+
+/**
+ * How much of a walk a restart can repeat. The outstanding directories of a
+ * large library run to megabytes, too much to rewrite on every step.
+ */
+const SAVE_POSITION_EVERY_MS = 30_000;
 
 /**
  * Supported extensions (lowercase with leading dot): a cheap pre-filter in
@@ -109,18 +116,38 @@ async function listDirectory(dir: string): Promise<Listing> {
   };
 }
 
-interface WalkState {
+/** Where a walk stands: the directories still to list, and the files handed to discover so far. */
+type WalkPosition = {
   queue: string[];
   found: number;
+};
+
+interface WalkState extends WalkPosition {
+  savedAt: number;
+}
+
+interface Scan {
+  folderId: ObjectId;
+  libraryRoot: string;
+  ctx: JobHandlerContext;
+  savePositionEveryMs: number;
+}
+
+function savedPosition(checkpoint: Record<string, unknown> | undefined): WalkPosition | null {
+  const queue: unknown = checkpoint?.['queue'];
+  const found: unknown = checkpoint?.['found'];
+  const usable =
+    Array.isArray(queue) &&
+    queue.every((dir): dir is string => typeof dir === 'string') &&
+    typeof found === 'number' &&
+    Number.isSafeInteger(found) &&
+    found >= 0;
+  return usable ? { queue, found } : null;
 }
 
 /** Walks breadth-first, a batch of directories at a time; false when cancelled part-way. */
-async function walk(
-  folderId: ObjectId,
-  libraryRoot: string,
-  ctx: JobHandlerContext,
-  state: WalkState,
-): Promise<boolean> {
+async function walk(scan: Scan, state: WalkState): Promise<boolean> {
+  const { folderId, libraryRoot, ctx } = scan;
   if (state.queue.length === 0) return true;
   if (await ctx.shouldCancel()) return false;
   const listings = await Promise.all(state.queue.slice(0, CONCURRENCY).map(listDirectory));
@@ -133,24 +160,46 @@ async function walk(
       ),
     ),
   );
-  const found = state.found + files.length;
-  await ctx.reportProgress(found, 0);
-  return walk(folderId, libraryRoot, ctx, {
+  const position: WalkPosition = {
     queue: [...state.queue.slice(CONCURRENCY), ...listings.flatMap((listing) => listing.dirs)],
-    found,
-  });
+    found: state.found + files.length,
+  };
+  // Saved only now, with this batch's files handed over, so a directory an
+  // interrupted attempt had listed but not finished is still in the saved queue.
+  const saveDue = Date.now() - state.savedAt >= scan.savePositionEveryMs;
+  if (saveDue) await ctx.saveCheckpoint?.(position);
+  await ctx.reportProgress(position.found, 0);
+  return walk(scan, { ...position, savedAt: saveDue ? Date.now() : state.savedAt });
 }
 
-export const folderScanHandler: JobHandler = {
-  async run(payload, ctx) {
-    const folderId = typeof payload['folderId'] === 'string' ? payload['folderId'] : '';
-    if (!ObjectId.isValid(folderId)) throw new Error('A folder scan needs a folderId');
-    const folder = await findFolderById(new ObjectId(folderId));
-    if (folder === null) throw new Error('Folder not found');
-    const completed = await walk(folder._id, folder.path, ctx, { queue: [folder.path], found: 0 });
-    if (!completed) return { kind: 'cancelled', result: { last_scan: null } };
-    const scannedAt = new Date().toISOString();
-    await setFolderLastScan(folder._id, scannedAt);
-    return { kind: 'done', result: { last_scan: scannedAt } };
-  },
-};
+/** `savePositionEveryMs` is a parameter for the tests, which cannot wait out the real interval. */
+export function folderScanHandlerSavingEvery(savePositionEveryMs: number): JobHandler {
+  return {
+    async run(payload, ctx) {
+      const folderId = typeof payload['folderId'] === 'string' ? payload['folderId'] : '';
+      if (!ObjectId.isValid(folderId)) throw new Error('A folder scan needs a folderId');
+      const folder = await findFolderById(new ObjectId(folderId));
+      if (folder === null) throw new Error('Folder not found');
+      const saved = savedPosition(ctx.checkpoint);
+      if (saved !== null) {
+        log.info(
+          { folderId, outstanding: saved.queue.length, found: saved.found },
+          'folder scan resumed from its saved position',
+        );
+      }
+      const start = saved ?? { queue: [folder.path], found: 0 };
+      const scan = { folderId: folder._id, libraryRoot: folder.path, ctx, savePositionEveryMs };
+      const completed = await walk(scan, { ...start, savedAt: Date.now() });
+      if (!completed) {
+        // Nothing resumes a cancelled scan, and its row is kept for good.
+        await ctx.saveCheckpoint?.({});
+        return { kind: 'cancelled', result: { last_scan: null } };
+      }
+      const scannedAt = new Date().toISOString();
+      await setFolderLastScan(folder._id, scannedAt);
+      return { kind: 'done', result: { last_scan: scannedAt } };
+    },
+  };
+}
+
+export const folderScanHandler = folderScanHandlerSavingEvery(SAVE_POSITION_EVERY_MS);
