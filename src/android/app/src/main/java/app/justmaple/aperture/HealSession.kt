@@ -102,6 +102,13 @@ fun MapleViewModel.selectRepair(index: Int?) {
     updateMaskState { it.copy(healSelection = spot?.let { index }, healBrush = spot?.brush ?: it.healBrush) }
 }
 
+/** After undo/redo the brush describes the selected spot as the restored document has it. */
+internal fun MapleViewModel.reloadSelectedRepair() {
+    val index = state.value.healSelection ?: return
+    val spot = runCatching { repairSpots().getOrNull(index) }.getOrNull() ?: return
+    updateMaskState { it.copy(healBrush = spot.brush) }
+}
+
 /** Places a spot with the brush, centred on the full-frame [center], and selects it. */
 fun MapleViewModel.placeRepair(center: MaskPoint): RepairSpot? {
     val brush = state.value.healBrush

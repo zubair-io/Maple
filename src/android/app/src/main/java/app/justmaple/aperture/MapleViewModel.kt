@@ -638,6 +638,7 @@ internal constructor(
                 dirty = true,
             )
         }
+        reloadSelectedRepair()
         renderXml = presentedXml(value.document)
         // Field pushes drifted the native model (wb_source = Manual); an
         // identical XML string must still reload it (#4766).
