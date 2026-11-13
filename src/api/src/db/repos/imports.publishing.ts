@@ -5,9 +5,13 @@
  * so an attempt that stops between the two leaves a file in the library that no
  * row accounts for. The marker closes that gap: before publishing an image or
  * movie the attempt writes the library-relative name it is about to land under
- * into `import_files.publishing_dest`, and it clears the marker once that
- * file's sidecars and indexer hand-off are finished. A later attempt that finds
- * a marker knows the group was started, and under which name to look.
+ * into `import_files.publishing_dest`, and it clears the marker when the group
+ * ends. A later attempt that finds a marker knows the group was started, and
+ * under which name to look.
+ *
+ * The marker is committed before the publish. The database runs with
+ * `synchronous = NORMAL`, so that holds across the process dying, not across
+ * power loss: there the commit can roll back and the group looks never started.
  *
  * Both writes are fenced to the attempt that holds the import, which is what
  * makes the marker trustworthy: an attempt a later one replaced cannot write a

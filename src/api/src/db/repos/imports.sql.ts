@@ -118,7 +118,7 @@ export const IMPORT_PUBLISHING_DESTS_SQL = `
 /**
  * Sets one file's publish marker, or clears it with `null`, for the attempt
  * that holds the import. It is its own statement and not part of the file's
- * outcome: the marker has to be durable before the file is published, and the
+ * outcome: the marker has to be committed before the file is published, and the
  * outcome is only known afterwards.
  */
 export function publishingDestStatement(
