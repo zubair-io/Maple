@@ -2,7 +2,7 @@
 //! way Android's `XmpDocument` does (`sidecar_tests`).
 use super::*;
 use crate::retouch_document::{spot_from_json, spot_json};
-use crate::sidecar_tests::{call, splice, through_file_of, Sidecar, INDENT};
+use crate::sidecar_tests::{call, splice, through_file_of, vendor_names, Sidecar, INDENT};
 use raw_core::types::{Point2, RetouchKind, RetouchSpot};
 use serde_json::{json, Value};
 
@@ -126,6 +126,46 @@ fn editing_a_lightroom_spot_keeps_its_metadata_and_every_other_byte() {
     let entries =
         |xml: &str| -> Vec<String> { xml.split("<rdf:li>\n").skip(1).map(str::to_owned).collect() };
     assert_eq!(entries(&saved.xml)[1..], entries(&source.xml)[1..]);
+}
+
+#[test]
+fn a_leaf_restoring_a_prefix_its_spot_shadows_keeps_its_namespace() {
+    // `vnd` is urn:example:vendor on the description, urn:inner on the first
+    // spot and urn:example:vendor again on its mask leaf.
+    let xml = fixture("lightroom-spots.xmp")
+        .xml
+        .replacen(
+            " vnd:Reviewed=",
+            " xmlns:vnd=\"urn:inner\" vnd:Reviewed=",
+            1,
+        )
+        .replacen(
+            "B001\"/>",
+            "B001\" xmlns:vnd=\"urn:example:vendor\" vnd:Leaf=\"top\"><vnd:Mark>kept</vnd:Mark></rdf:li>",
+            1,
+        );
+    let source = through_file_of(&xml, &NAMES);
+    let expected = [
+        ("Reviewed", "urn:inner"),
+        ("SpotNote", "urn:inner"),
+        ("Leaf", "urn:example:vendor"),
+        ("Mark", "urn:example:vendor"),
+    ];
+    for (local, uri) in expected {
+        assert_eq!(vendor_names(&source.xml, local), [uri], "{local}");
+    }
+    let mut spots = read(&source);
+    spots[0].0.center = Point2::new(0.25, 0.5);
+    let saved = write(&source, &spots);
+    for (local, uri) in expected {
+        assert_eq!(
+            vendor_names(&saved.xml, local),
+            [uri],
+            "{local} in\n{}",
+            saved.xml
+        );
+    }
+    assert_eq!(read(&saved), spots);
 }
 
 #[test]
