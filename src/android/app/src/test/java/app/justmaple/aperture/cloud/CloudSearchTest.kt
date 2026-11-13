@@ -256,4 +256,30 @@ class CloudSearchTest {
         assertEquals(449, model.state.value.total)
         assertTrue(model.state.value.canLoadMore)
     }
+
+    @Test
+    fun anotherAccountSigningInToTheSearchedServerSearchesAgain() = runTest {
+        var account = "ann"
+        val model =
+            CloudSearchModel(TestScope(StandardTestDispatcher(testScheduler)), { today }) { _, path ->
+                if (path.startsWith("/api/search/facets"))
+                    response(200, JSONObject().put("people", org.json.JSONArray()
+                        .put(JSONObject().put("value", account).put("count", 1))))
+                else response(200, JSONObject().put("results", org.json.JSONArray().put(row("lib:$account.dng", "$account.dng"))))
+            }
+        val server = Folder(Uri.parse("maple-cloud://server-1"), "photos.example.com")
+        model.selectServer(server)
+        advanceUntilIdle()
+        assertEquals(listOf("ann.dng"), model.state.value.results.map { it.name })
+        account = "bob"
+        model.selectServer(server)
+        model.signedIn(Folder(Uri.parse("maple-cloud://server-2"), "other.example.com"))
+        advanceUntilIdle()
+        assertEquals("Another server's sign-in leaves this search alone", listOf("ann.dng"), model.state.value.results.map { it.name })
+        // Signing in again keeps the server id; what was shown belongs to the previous account.
+        model.signedIn(server)
+        advanceUntilIdle()
+        assertEquals(listOf("bob.dng"), model.state.value.results.map { it.name })
+        assertEquals(listOf("bob"), model.state.value.people.map { it.value })
+    }
 }
