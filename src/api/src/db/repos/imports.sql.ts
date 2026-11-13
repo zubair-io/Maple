@@ -82,11 +82,11 @@ export const MARK_IMPORT_DISPATCHED_SQL = `
 /**
  * Hand one import to the activity attempt Temporal just delivered.
  *
- * A `running` row is taken over, not skipped: Temporal only delivers another
- * attempt after the previous one missed its heartbeat deadline, so the holder
- * named in `locked_by` is gone. Whatever that holder still tries to write is
- * refused by {@link heldBy}. A finished import matches nothing, which is how a
- * redelivery becomes a no-op.
+ * A `running` row is taken over, not skipped: Temporal delivers another attempt
+ * once the previous one missed its heartbeat deadline or was reset, and the
+ * holder named in `locked_by` may still be running. Whatever it still tries to
+ * write is refused by {@link heldBy}. A finished import matches nothing, which
+ * is how a redelivery becomes a no-op.
  */
 export const CLAIM_IMPORT_SQL = `
   UPDATE imports

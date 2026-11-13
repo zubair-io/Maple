@@ -5,6 +5,7 @@
  * reasons.
  */
 
+import { randomUUID } from 'node:crypto';
 import { ApplicationFailure, Context } from '@temporalio/activity';
 import type { RowRun } from './row-workflow.ts';
 
@@ -12,7 +13,12 @@ import type { RowRun } from './row-workflow.ts';
 export type AttemptStop = 'cancel' | 'superseded';
 
 export interface RowAttempt {
-  /** Unique per delivery; every write the attempt makes is fenced to it. */
+  /**
+   * `temporal:<workflow run id>:<activity id>:<attempt number>:<nonce>`; every
+   * write the attempt makes is fenced to it. The nonce is what makes it unique
+   * per delivery: resetting an activity in Temporal starts its attempt count
+   * again, so the other parts can repeat while the earlier delivery still runs.
+   */
   identity: string;
   heartbeat: (progress: { current: number; total: number }) => void;
   stopReason: () => AttemptStop | null;
@@ -68,7 +74,7 @@ export async function runAttempt(work: (attempt: RowAttempt) => Promise<RowRun>)
   const { workflowExecution, activityId, attempt } = context.info;
   try {
     return await work({
-      identity: `temporal:${workflowExecution?.runId}:${activityId}:${attempt}`,
+      identity: `temporal:${workflowExecution?.runId}:${activityId}:${attempt}:${randomUUID()}`,
       heartbeat: (progress) => context.heartbeat(progress),
       stopReason: () => attemptStop(context.cancellationDetails),
     });

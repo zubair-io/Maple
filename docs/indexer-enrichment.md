@@ -323,7 +323,7 @@ The reaper, migration and deduplicate workers also register into the in-process 
 
 **One at a time, in creation order.** Temporal is only ever handed one job. Several workflows waiting on one task queue start in no particular order, so the queue stays in SQLite, where `created_at` decides.
 
-**A worker that dies.** Temporal notices when the heartbeat stops (five minutes) and delivers the job again; the new attempt takes the row over and resumes from the checkpoint the handler saved. A handler that throws fails the job, and that is not retried.
+**A worker that dies.** Temporal notices when the heartbeat stops (five minutes) and delivers the job again; the new attempt takes the row over and resumes from the checkpoint the handler saved. Each delivery claims the row under an identity of its own, `temporal:<workflow run id>:<activity id>:<attempt number>:<nonce>`, and every write it makes is fenced on it, so an earlier attempt that is in fact still running writes nothing more; the nonce keeps that true when an activity reset in Temporal starts the attempt count again (see [Temporal](temporal.md#lanes)). A handler that throws fails the job, and that is not retried.
 
 **Losing contact with Temporal.** A queued job waits and is relayed when the server returns. A running job keeps running: its handler does not stop because Temporal gave up on the attempt, it finishes and records the result, and the redelivery that follows finds the job finished and only reports how.
 
