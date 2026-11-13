@@ -115,10 +115,16 @@ fn render(
     let (text, scopes) = (&origin.container.text, &origin.container.scopes);
     let attrs = format!("{indent}    ");
     let leaf_indent = format!("{indent}        ");
-    let leaf_end = item.find("/>").ok_or_else(unexpected)?;
-    let extra = attribute_lines(
-        &unknown(&origin.leaf.attrs, &LEAF_KEYS),
+    // Declared on the spot's tag, so in scope for everything under it.
+    let (spot_attrs, inner) = attribute_lines(
+        &unknown(&origin.description.attrs, &SPOT_KEYS),
         context,
+        &attrs,
+    );
+    let leaf_end = item.find("/>").ok_or_else(unexpected)?;
+    let (extra, leaf_context) = attribute_lines(
+        &unknown(&origin.leaf.attrs, &LEAF_KEYS),
+        &inner,
         &format!("{leaf_indent}  "),
     );
     let children: Vec<&Element> = origin.leaf.children.iter().collect();
@@ -129,7 +135,7 @@ fn render(
             text,
             scopes,
             &children,
-            context,
+            &leaf_context,
             &format!("{leaf_indent}  "),
         );
         format!(">\n{lines}{leaf_indent}</rdf:li>")
@@ -145,19 +151,12 @@ fn render(
         .collect();
     item.insert_str(
         after_masks,
-        &node_lines(text, scopes, &nodes, context, &attrs),
+        &node_lines(text, scopes, &nodes, &inner, &attrs),
     );
     let masks_at = item
         .find(&format!(">\n{attrs}<crs:Masks>"))
         .ok_or_else(unexpected)?;
-    item.insert_str(
-        masks_at,
-        &attribute_lines(
-            &unknown(&origin.description.attrs, &SPOT_KEYS),
-            context,
-            &attrs,
-        ),
-    );
+    item.insert_str(masks_at, &spot_attrs);
     Ok(item)
 }
 

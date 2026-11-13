@@ -152,4 +152,32 @@ fn scope(reader: &NsReader<&[u8]>) -> Value {
     )
 }
 
+/// The namespace each vendor element and attribute named `local` resolves to.
+pub(crate) fn vendor_names(xml: &str, local: &str) -> Vec<String> {
+    let mut reader = NsReader::from_str(xml);
+    let mut found = Vec::new();
+    loop {
+        let (ns, event) = reader.read_resolved_event().unwrap();
+        let start = match &event {
+            Event::Start(e) | Event::Empty(e) => e,
+            Event::Eof => break,
+            _ => continue,
+        };
+        let uri = |ns: ResolveResult| match ns {
+            ResolveResult::Bound(ns) => String::from_utf8(ns.0.to_vec()).unwrap(),
+            _ => String::new(),
+        };
+        if start.local_name().into_inner() == local.as_bytes() {
+            found.push(uri(ns));
+        }
+        for attr in start.attributes() {
+            let (ns, name) = reader.resolve_attribute(attr.unwrap().key);
+            if name.into_inner() == local.as_bytes() {
+                found.push(uri(ns));
+            }
+        }
+    }
+    found
+}
+
 pub(crate) const INDENT: &str = "      ";
