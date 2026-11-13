@@ -87,18 +87,11 @@ export const MARK_IMPORT_DISPATCHED_SQL = `
  * named in `locked_by` is gone. Whatever that holder still tries to write is
  * refused by {@link heldBy}. A finished import matches nothing, which is how a
  * redelivery becomes a no-op.
- *
- * Two statements in one transaction, the takeover first, so the claim also
- * reports which it was. In the other order the takeover would match the row the
- * pending claim had just moved to `running`, and every claim would report one.
  */
-const claimImportSql = (from: 'running' | 'pending'): string => `
+export const CLAIM_IMPORT_SQL = `
   UPDATE imports
      SET status = 'running', locked_by = ?, updated_at = ?
-   WHERE id = ? AND status = '${from}'`;
-
-export const TAKE_OVER_IMPORT_SQL = claimImportSql('running');
-export const CLAIM_PENDING_IMPORT_SQL = claimImportSql('pending');
+   WHERE id = ? AND status IN ('pending', 'running')`;
 
 const HELD_BY_SQL = `EXISTS (SELECT 1 FROM imports WHERE id = ? AND locked_by = ? AND status = 'running')`;
 

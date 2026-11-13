@@ -67,7 +67,7 @@ import {
   type ImportRow,
 } from './imports.rows.ts';
 import {
-  CLAIM_PENDING_IMPORT_SQL,
+  CLAIM_IMPORT_SQL,
   heldBy,
   HELD_IMPORTS_SQL,
   IMPORT_BY_ID_SQL,
@@ -77,7 +77,6 @@ import {
   listImportsSql,
   MARK_IMPORT_DISPATCHED_SQL,
   NEXT_IMPORT_SQL,
-  TAKE_OVER_IMPORT_SQL,
 } from './imports.sql.ts';
 import { DISPATCHED_MARKER } from './jobs.sql.ts';
 import { toHex } from './values.ts';
@@ -222,15 +221,10 @@ export async function claimImport(
 ): Promise<ClaimedImport | null> {
   const db = sqliteDb(dbOverride);
   const hex = toHex(id);
-  const params = [workerId, now().toISOString(), hex];
-  const results = await db.transaction([
-    { sql: TAKE_OVER_IMPORT_SQL, params },
-    { sql: CLAIM_PENDING_IMPORT_SQL, params },
-  ]);
-  const takenOver = changesAt(results, 0) === 1;
-  if (!takenOver && changesAt(results, 1) !== 1) return null;
+  const result = await db.write(CLAIM_IMPORT_SQL, [workerId, now().toISOString(), hex]);
+  if (result.changes === 0) return null;
   const row = await readImportRow(db, hex);
-  return row === null ? null : toClaimedImport(row, takenOver);
+  return row === null ? null : toClaimedImport(row);
 }
 
 export async function nextImportId(dbOverride?: SqliteDb): Promise<string | null> {
