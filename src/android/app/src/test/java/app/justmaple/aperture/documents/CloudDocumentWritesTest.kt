@@ -343,6 +343,51 @@ class CloudDocumentWritesTest {
         assertEquals(listOf("2026/first.txt", "2026/second.txt"), api.uploads)
     }
 
+    @Test
+    fun aPendingCreationNeverRenamesOrTrashesTheFileAnotherClientPutAtItsName() {
+        api.page("2026")
+        val store = store()
+        val writes = writes(store)
+        val renamed = writes.create(folder, "text/plain", "a.txt")
+        val deleted = writes.create(folder, "text/plain", "b.txt")
+        // Another client publishes its own a.txt and b.txt before ours upload.
+        api.page("2026", files = listOf("a.txt", "b.txt"))
+        writes.rename(renamed, "renamed.txt")
+        writes.delete(deleted)
+        assertEquals(
+            "Only the journal changes; the other client's files are untouched",
+            listOf("GET /api/folder/photos/2026?limit=500"),
+            api.requests.distinct(),
+        )
+        assertEquals(listOf("2026/renamed.txt"), uploads.all(account("ann")).map { it.path })
+    }
+
+    @Test
+    fun aSecondWriterWaitsUntilTheServerCopyIsStaged() {
+        api.page("2026", files = listOf("notes.txt"))
+        val store = store()
+        val writes = writes(store)
+        val started = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        api.download = { output ->
+            started.countDown()
+            release.await(10, TimeUnit.SECONDS)
+            output.write("server copy".toByteArray())
+        }
+        val pool = Executors.newFixedThreadPool(2)
+        val first = pool.submit<ParcelFileDescriptor> { writes.openForWrite(file("notes.txt"), "rw", null) }
+        assertTrue(started.await(10, TimeUnit.SECONDS))
+        val second = pool.submit<ParcelFileDescriptor> { writes.openForWrite(file("notes.txt"), "rw", null) }
+        Thread.sleep(300)
+        assertFalse("The second writer must not see a half-copied file", second.isDone)
+        release.countDown()
+        val descriptors = listOf(first, second).map { it.get(10, TimeUnit.SECONDS) }
+        val staged = uploads.all(account("ann")).single()
+        assertEquals("server copy", uploads.data(staged).readText())
+        descriptors.forEach(ParcelFileDescriptor::close)
+        pool.shutdown()
+    }
+
     private fun staged(name: String): CloudPendingUploads.Upload {
         val upload = uploads.create(account("ann"), file(name), writing = true)
         uploads.data(upload).writeText("edited $name")

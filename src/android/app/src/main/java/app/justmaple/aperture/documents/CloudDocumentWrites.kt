@@ -23,6 +23,7 @@ internal class CloudDocumentWrites(
 ) {
     private val api = store.api
     private val queued = mutableSetOf<String>()
+    private val initializing = mutableMapOf<String, Pair<Any, Int>>()
 
     fun create(parent: CloudDocumentId, mime: String, displayName: String): CloudDocumentId {
         require(parent.directory && !parent.isServerRoot) { "Choose a Maple library folder" }
@@ -42,28 +43,11 @@ internal class CloudDocumentWrites(
 
     fun openForWrite(file: CloudDocumentId, mode: String, signal: CancellationSignal?): ParcelFileDescriptor {
         val account = store.account(file.server)
+        // One opener stages a document at a time: another writer never sees a half-copied prefill.
         val upload =
-            uploads.find(account, file)?.let(uploads::opened)
-                ?: run {
-                    val entry = store.entry(file)
-                    if (entry.kind == CloudEntryKind.Sidecar)
-                        throw FileNotFoundException(
-                            "${file.name} is a Maple sidecar; edits are saved by Maple, never replaced here"
-                        )
-                    if (entry.kind != CloudEntryKind.File)
-                        throw FileNotFoundException("${file.name} is an original and stays read-only")
-                    // Registered as written before the prefill, so it is never uploaded half-copied.
-                    uploads.create(account, file, writing = true).also { created ->
-                        if (mode !in TRUNCATING)
-                            try {
-                                uploads.data(created).outputStream().use { api.download(file, it, signal) }
-                            } catch (failure: Exception) {
-                                uploads.closed(created, clean = false)
-                                uploads.remove(created)
-                                throw failure
-                            }
-                    }
-                }
+            initializingOnce("$account|${file.library}|${file.path}") {
+                uploads.find(account, file)?.let(uploads::opened) ?: staged(account, file, mode, signal)
+            }
         return try {
             ParcelFileDescriptor.open(uploads.data(upload), ParcelFileDescriptor.parseMode(mode), handler) {
                 failure ->
@@ -74,6 +58,47 @@ internal class CloudDocumentWrites(
         } catch (failure: IOException) {
             uploads.closed(upload, clean = false)
             throw failure
+        }
+    }
+
+    private fun staged(
+        account: String,
+        file: CloudDocumentId,
+        mode: String,
+        signal: CancellationSignal?,
+    ): CloudPendingUploads.Upload {
+        val entry = store.entry(file)
+        if (entry.kind == CloudEntryKind.Sidecar)
+            throw FileNotFoundException("${file.name} is a Maple sidecar; edits are saved by Maple, never replaced here")
+        if (entry.kind != CloudEntryKind.File)
+            throw FileNotFoundException("${file.name} is an original and stays read-only")
+        // Registered as written before the prefill, so it is never uploaded half-copied.
+        return uploads.create(account, file, writing = true).also { created ->
+            if (mode !in TRUNCATING)
+                try {
+                    uploads.data(created).outputStream().use { api.download(file, it, signal) }
+                } catch (failure: Exception) {
+                    uploads.closed(created, clean = false)
+                    uploads.remove(created)
+                    throw failure
+                }
+        }
+    }
+
+    private fun <T> initializingOnce(key: String, action: () -> T): T {
+        val lock =
+            synchronized(initializing) {
+                val (shared, users) = initializing[key] ?: (Any() to 0)
+                initializing[key] = shared to users + 1
+                shared
+            }
+        try {
+            return synchronized(lock, action)
+        } finally {
+            synchronized(initializing) {
+                val (held, users) = initializing.getValue(key)
+                if (users == 1) initializing.remove(key) else initializing[key] = held to users - 1
+            }
         }
     }
 
@@ -95,7 +120,8 @@ internal class CloudDocumentWrites(
                 val pending = held.singleOrNull { it.path == id.path }
                 // The server cannot see a name that is only waiting to upload; its upload would replace this file.
                 check(held.none { it.path == target.path }) { "An item named \"${target.name}\" already exists" }
-                if (pending != null && !onServer(id)) {
+                // A created document was never published: a server file at its name is another client's.
+                if (pending != null && (pending.creates || !onServer(id))) {
                     check(target.name !in store.names(id.parent())) { "An item named \"${target.name}\" already exists" }
                 } else
                     catalogued(id, { asset -> api.renameAsset(id, asset, target.name) }) {
@@ -121,7 +147,8 @@ internal class CloudDocumentWrites(
             throw UnsupportedOperationException("The Maple server cannot remove folders")
         uploads.holding(account, { it.library == id.library && it.path == id.path }) { held ->
             val pending = held.singleOrNull()
-            if (pending == null || onServer(id))
+            // A created document was never published: a server file at its name is another client's.
+            if (pending == null || (!pending.creates && onServer(id)))
                 catalogued(id, { asset -> api.trashAsset(id, asset) }) { api.trashFile(id) }
             // A staged replacement of a trashed file must not bring it back.
             pending?.let(uploads::remove)
