@@ -31,6 +31,7 @@ import app.justmaple.aperture.data.RepairKind
 import app.justmaple.aperture.data.RepairSpot
 import app.justmaple.aperture.data.XmpDocument
 import app.justmaple.aperture.placeRepair
+import app.justmaple.aperture.RepairBrush
 import app.justmaple.aperture.repairSpots
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -176,6 +177,35 @@ class HealPanelTest {
         assertEquals(spots(), model.repairSpots(saved))
         assertTrue(saved.original.contains("<crs:RetouchAreas>"))
         assertEquals("2", saved.attribute("papp:RetouchFrameVersion"))
+    }
+
+    @Test
+    fun deletingTheSelectedSpotLoadsItsNeighbourIntoThePanel() {
+        showPanel()
+        place(.2f, .3f)
+        place(.7f, .6f)
+        click("editor-heal-row-0")
+        click("editor-heal-kind-clone")
+        slider("editor-heal-opacity").performSemanticsAction(SemanticsActions.SetProgress) { it(.4f) }
+        compose.onNodeWithContentDescription("Clone mode").assertIsSelected()
+
+        click("editor-heal-delete-0")
+        val heal = spots().single()
+        assertEquals(RepairKind.Heal, heal.kind)
+        compose.runOnIdle {
+            assertEquals(0, model.state.value.healSelection)
+            assertEquals(
+                "The panel describes the spot now selected",
+                RepairBrush(heal.kind, heal.radius, heal.feather, heal.opacity),
+                model.state.value.healBrush,
+            )
+        }
+        compose.onNodeWithContentDescription("Heal mode").assertIsSelected()
+        // A slider edit changes only that setting of the selected spot.
+        slider("editor-heal-feather").performSemanticsAction(SemanticsActions.SetProgress) { it(.8f) }
+        val edited = spots().single()
+        assertEquals(.8f, edited.feather, 1e-4f)
+        assertEquals(heal.copy(feather = edited.feather), edited)
     }
 
     @Test

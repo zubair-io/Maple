@@ -93,16 +93,13 @@ private fun MapleViewModel.editSelectedRepair(commit: Boolean, transform: (Repai
     if (commit) repairCommand(edit) else writeSpots(commit = false, edit)
 }
 
+private val RepairSpot.brush get() = RepairBrush(kind, radius, feather, opacity)
+
 /** Selects a spot and loads it into the brush, so the panel describes what is on screen. */
 fun MapleViewModel.selectRepair(index: Int?) {
     commitGesture()
     val spot = index?.let { runCatching { repairSpots().getOrNull(it) }.getOrNull() }
-    updateMaskState {
-        it.copy(
-            healSelection = spot?.let { index },
-            healBrush = spot?.let { s -> RepairBrush(s.kind, s.radius, s.feather, s.opacity) } ?: it.healBrush,
-        )
-    }
+    updateMaskState { it.copy(healSelection = spot?.let { index }, healBrush = spot?.brush ?: it.healBrush) }
 }
 
 /** Places a spot with the brush, centred on the full-frame [center], and selects it. */
@@ -145,21 +142,23 @@ fun MapleViewModel.setRepairOpacity(value: Float) {
 }
 
 fun MapleViewModel.removeRepair(index: Int) {
-    var remaining = 0
+    var remaining = emptyList<RepairSpot>()
     val removed: (List<RepairSpot>) -> List<RepairSpot>? = { spots ->
-        spots.takeIf { index in it.indices }?.filterIndexed { i, _ -> i != index }?.also { remaining = it.size }
+        spots.takeIf { index in it.indices }?.filterIndexed { i, _ -> i != index }?.also { remaining = it }
     }
     if (!repairCommand(removed)) return
     updateMaskState {
         val selected = it.healSelection
-        it.copy(
-            healSelection = when {
-                remaining == 0 || selected == null -> null
+        val next =
+            when {
+                remaining.isEmpty() || selected == null -> null
                 selected > index -> selected - 1
-                selected == index -> index.coerceAtMost(remaining - 1)
+                selected == index -> index.coerceAtMost(remaining.lastIndex)
                 else -> selected
             }
-        )
+        // A deleted selection hands over to a neighbour: the panel shows that spot's settings.
+        val brush = if (selected == index && next != null) remaining[next].brush else it.healBrush
+        it.copy(healSelection = next, healBrush = brush)
     }
 }
 
