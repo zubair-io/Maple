@@ -1,0 +1,99 @@
+{
+  "issues": [
+    3941,
+    1472
+  ],
+  "recordedAt": "2026-10-04T19:08:32.954062+00:00",
+  "releaseQualified": false,
+  "experimentState": "running",
+  "testedHeadBeforeCommit": "65efc7d337f6172e7ace84920567a50f17125e26",
+  "mainBase": "2a3de0b43ae214970c4d6e2de178a2e069c6dc32",
+  "sourceFiles": [
+    {
+      "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/tools/removal/probe_lama_large_refinement.py",
+      "sha256": "4a4950b07c3182b5bc6e7d7ac37f5937b110aa70740a178284e405916eaad144",
+      "bytes": 9665
+    },
+    {
+      "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/tools/removal/lama_large_refinement_test.py",
+      "sha256": "d6ac2559be9e40eb122337845c237a8f5f86f430c57ba5190c5fc8fe91332454",
+      "bytes": 4720
+    }
+  ],
+  "executedProbeSnapshot": {
+    "path": "/Users/riabuz/.cache/maple-removal-research/photographic-large-refinement-executed-probe-20261004.py",
+    "sha256": "3b730c72227d8c23e9dacf419d3fe8b3bed39f83961c8f96f30a8dcb9eef6017",
+    "bytes": 9665
+  },
+  "postStartChange": "Import order only; complete non-import AST is identical. Final-source actual-context controls pass.",
+  "context": "/Users/riabuz/.cache/maple-removal-research/corrected-person4-photographic-final-context-20261004",
+  "inputContext": {
+    "path": "/Users/riabuz/.cache/maple-removal-research/corrected-person4-photographic-final-context-20261004/context.json",
+    "sha256": "9830789c82db848c733ca60522517abf2a291e6d0b558f8366c385e54ad9c4f1",
+    "bytes": 848
+  },
+  "contextProtocol": "Full source-bound native2048 scene/model pixels and intent/protection. Stock pinned upstream pyramid/loss/Adam helpers are unchanged; oneCPU replaces CUDA dispatch, research pixel budget admits2048\u00b2. Rear activation checkpointing recomputes frozen network activations. No8bit input, upscaled-only final output or partial-mask fallback.",
+  "actualCheckpointControl": {
+    "contextSize": 512,
+    "predictionBitsChanged": 0,
+    "bothLatentGradientBitsChanged": [
+      0,
+      0
+    ],
+    "scope": "Actual source-bound coarse plate, not every shape/device/optimization trajectory qualification."
+  },
+  "actualPreflight": {
+    "passed": 8,
+    "skipped": 0,
+    "log": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/photographic-large-refinement-controls-20261004.log",
+      "sha256": "7547aa23893f5e32bc2e48887e1d0f6a565384abdaad1272fe8dfa7872be486d",
+      "bytes": 1317
+    },
+    "scope": "Actual retained context; changed recipe/source/model bytes, NaNs, corrupted kept mask, protected-pixel generation plane and existing output refusals."
+  },
+  "liveExperiment": {
+    "sessionId": 52799,
+    "pid": 48854,
+    "verifiedProcess": "PID ELAPSED  %CPU    RSS COMMAND\n48854   08:12  99.6 9323808 /opt/homebrew/Cellar/python@3.11/3.11.15_1/Frameworks/Python.framework/Versions/3.11/Resources/Python.app/Contents/MacOS/Python tools/removal/probe_lama_large_refinement.py /Users/riabuz/.cache/maple-removal-research/corrected-person4-photographic-final-context-20261004 /Users/riabuz/.cache/maple-removal-research/lama-source-20261004 /Users/riabuz/.cache/maple-removal-research/lama-weights-20261004/big-lama/models/best.ckpt /Users/riabuz/.cache/maple-removal-research/lama-weights-20261004/big-lama/config.yaml /Users/riabuz/.cache/maple-removal-research/corrected-person4-photographic-refinement-20261004",
+    "output": "/Users/riabuz/.cache/maple-removal-research/corrected-person4-photographic-refinement-20261004",
+    "liveLog": "/Users/riabuz/.cache/maple-removal-research/photographic-large-refinement-20261004.log",
+    "startLogSnapshot": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/photographic-large-refinement-started-log-20261004.txt",
+      "sha256": "4e64ca3365a95679cf13515ac5e8b874ec11c927058f5b25fc5a1463ca9cfe0c",
+      "bytes": 3156
+    },
+    "terminalResultRequired": true
+  },
+  "maintenance": {
+    "featurePatchesPreserved": 158,
+    "stablePatchesIdentical": true,
+    "rebaseBefore": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/photographic-refinement-rebase-before-20261004.json",
+      "sha256": "df8062b1dea569faefa084e9936ec0762314bc5839aca92ec84865212866cc95",
+      "bytes": 17752
+    },
+    "rebaseAfter": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/photographic-refinement-rebase-after-20261004.json",
+      "sha256": "6ebdfa3c67fa452708a0a18f096122db436548f93159ac1423301c7bdf62a4f6",
+      "bytes": 17809
+    },
+    "nativeFreshness": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/photographic-refinement-main-native-freshness-20261004.log",
+      "sha256": "1d4e583dcb1be5357b4fd66959b325ca26549286dd00aafe5264b9f173db6537",
+      "bytes": 91
+    },
+    "macBuild": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/photographic-refinement-main-mac-build-20261004.log",
+      "sha256": "0cf1b0bb99edbf084436faf28b3efa60b6f1accdbdede237e10a2b461369c2fa",
+      "bytes": 482124
+    },
+    "headroom": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/photographic-refinement-main-headroom-20261004.log",
+      "sha256": "e5ab2a25f8061db32ffdb922fed42f0e27b479832ba0cc573d056ef342acf495",
+      "bytes": 55
+    },
+    "windowsRuntimeValidation": "Not run on this Mac; incoming main-only WinUI target/Retry smoke changes need Windows execution."
+  },
+  "remaining": "Wait on original session52799. Terminal output/state digest, exact known-model pixels, native RAW baseline/refined grade bakes, independent preservation and visual fill review are unproven until executed. Prior fill remains rejected; no shipping model/cap, RAW math, XMP or app admission. Original ACR gate39403 remains live on pre-rebase executable; full epic remains active."
+}

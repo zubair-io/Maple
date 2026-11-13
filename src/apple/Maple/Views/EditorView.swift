@@ -87,6 +87,7 @@ struct EditorSurface: View {
   /// `nil` until they first report, a layout pass after the canvas (#5769);
   /// the canvas draws nothing until then, so the header must always report.
   @State private var canvasCoverFrames: [CGRect]?
+  @State private var removalReturnTool: Tool = .exposure
 
   /// Whether the vectorscope HUD is showing (#3277). Persisted so the
   /// choice survives app restarts; the HUD itself arms
@@ -103,6 +104,14 @@ struct EditorSurface: View {
 
   var isRegular: Bool { layout != .phone }
 
+  private var isFocusedMacRemoval: Bool {
+    #if os(macOS)
+      state.armedTool == .remove
+    #else
+      false
+    #endif
+  }
+
   var body: some View {
     ZStack {
       // ── LAYER 0 : full-bleed canvas ──────────────────────────────
@@ -110,20 +119,20 @@ struct EditorSurface: View {
         state: state,
         filmstripSource: filmstripSource,
         wheelExclusionFrame: wheelExclusionFrame,
-        coverFrames: canvasCoverFrames,
-        hasFilmstrip: !filmstripAssets.isEmpty
+        coverFrames: isFocusedMacRemoval ? [] : canvasCoverFrames,
+        hasFilmstrip: !isFocusedMacRemoval && !filmstripAssets.isEmpty
       )
 
       // ── LAYER 1 : value HUD (center, fades in during scrub) ───────
       // The overlay owns its value observation and idle timer, so input
       // does not invalidate the surrounding editor shell.
-      EditorValueHUD(state: state)
+      if !isFocusedMacRemoval { EditorValueHUD(state: state) }
 
       // ── LAYER 2 : left filmstrip rail (regular only) ───────────────
       // Vertically centered with its own max-height cap (set inside
       // FilmstripRail) so it floats mid-canvas instead of spanning the
       // full height.  `alignment: .leading` = left edge + vertical center.
-      if isRegular && !filmstripAssets.isEmpty {
+      if isRegular && !isFocusedMacRemoval && !filmstripAssets.isEmpty {
         FilmstripRail(
           assets: filmstripAssets,
           activeID: state.session.asset.id,
@@ -141,7 +150,7 @@ struct EditorSurface: View {
       // trailing edge is owned by the shared inspector and dock, and the
       // rail is vertically centred, so this corner is the one spot the
       // four-up panel sits without covering a control.
-      if isRegular && showsScopesPanel {
+      if isRegular && !isFocusedMacRemoval && showsScopesPanel {
         EditorScopesPanel(state: state)
           .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
           .padding(
@@ -155,73 +164,81 @@ struct EditorSurface: View {
       // The open landscape Duo uses the vertical control bar. Its closed
       // display keeps the compact slider controls but moves group selection
       // into the trailing side rail. EditorState survives either reflow.
-      Group {
-        if usesPhoneControls {
-          GeometryReader { geometry in
-            VStack {
-              Spacer(minLength: 0)
-              IPhoneControlBar(
-                state: state, onPresetsTap: { presetsOpen = true },
-                maximumPanelHeight: min(300, geometry.size.height * 0.4),
-                showsGroupTabs: !usesDuoToolRail, showsScope: showsScope
-              )
-              .reportsWheelExclusion(in: "editorCanvas", active: true)
-              .coversCanvas()
+      if isFocusedMacRemoval {
+        FocusedRemovalControls(state: state)
+      } else {
+        Group {
+          if usesPhoneControls {
+            GeometryReader { geometry in
+              VStack {
+                Spacer(minLength: 0)
+                IPhoneControlBar(
+                  state: state, onPresetsTap: { presetsOpen = true },
+                  maximumPanelHeight: min(300, geometry.size.height * 0.4),
+                  showsGroupTabs: !usesDuoToolRail, showsScope: showsScope
+                )
+                .reportsWheelExclusion(in: "editorCanvas", active: true)
+                .coversCanvas()
+              }
+              .frame(maxWidth: .infinity, maxHeight: .infinity)
+              .ignoresSafeArea(edges: .bottom)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .ignoresSafeArea(edges: .bottom)
+          } else {
+            EditorControls(
+              state: state, onPresetsTap: { presetsOpen = true },
+              hasFilmstrip: !filmstripAssets.isEmpty, showsScope: showsScope
+            )
           }
-        } else {
-          EditorControls(
-            state: state, onPresetsTap: { presetsOpen = true },
-            hasFilmstrip: !filmstripAssets.isEmpty, showsScope: showsScope
-          )
         }
+        .disabled(!state.session.hasLoadedSidecar || state.session.isSavingRemoval)
+        .popover(isPresented: presetsPresented(asSheet: false), arrowEdge: .trailing) {
+          presetsPanel.frame(width: 340, height: 460)
+        }
+        #if os(iOS)
+          .mapleBottomSheet(isPresented: presetsPresented(asSheet: true)) { presetsPanel }
+        #endif
       }
-      .disabled(!state.session.hasLoadedSidecar)
-      .popover(isPresented: presetsPresented(asSheet: false), arrowEdge: .trailing) {
-        presetsPanel.frame(width: 340, height: 460)
-      }
-      #if os(iOS)
-        .mapleBottomSheet(isPresented: presetsPresented(asSheet: true)) { presetsPanel }
-      #endif
 
       // Navigation and actions remain visible while adjusting the photo.
-      VStack(spacing: 0) {
-        HStack {
-          Spacer(minLength: 0)
-          PillHeader(
-            state: state,
-            onBack: onDismiss,
-            onShare: { showExport = true },
-            onInfo: onInfo,
-            onWorkflow: {
-              state.endGesture()
-              state.whiteBalancePicker.cancel()
-              state.session.workflow.isPresented = true
-              workflowOpen = true
-            },
-            showsScope: $showsScope,
-            showsScopesPanel: $showsScopesPanel,
-            scopesPanelAvailable: isRegular,
-            showsGroupSwitcher: headerCarriesGroups
-          )
-          .coversCanvas()
-          Spacer(minLength: 0)
+      if !isFocusedMacRemoval {
+        VStack(spacing: 0) {
+          HStack {
+            Spacer(minLength: 0)
+            PillHeader(
+              state: state,
+              onBack: onDismiss,
+              onShare: { showExport = true },
+              onInfo: onInfo,
+              onWorkflow: {
+                state.endGesture()
+                state.whiteBalancePicker.cancel()
+                state.session.workflow.isPresented = true
+                workflowOpen = true
+              },
+              showsScope: $showsScope,
+              showsScopesPanel: $showsScopesPanel,
+              scopesPanelAvailable: isRegular,
+              showsGroupSwitcher: headerCarriesGroups
+            )
+            .coversCanvas()
+            Spacer(minLength: 0)
+          }
+          EditorSidecarLoadNotice(session: state.session)
+            .padding(.top, 8)
+          Spacer()
         }
-        EditorSidecarLoadNotice(session: state.session)
-          .padding(.top, 8)
-        Spacer()
+        .statusRowHeaderPlacement(surface: "editor")
+        .ignoresSafeArea(edges: .bottom)
+        #if os(iOS)
+          if sideRailCarriesGroups {
+            EditorSideGroupRail(state: state)
+          }
+        #endif
+        // Keep per-frame rendering observations inside the status leaf.
+        EditorRenderStatus(state: state)
+      } else {
+        RemovalExitButton(state: state, returnTool: removalReturnTool)
       }
-      .statusRowHeaderPlacement(surface: "editor")
-      .ignoresSafeArea(edges: .bottom)
-      #if os(iOS)
-        if sideRailCarriesGroups {
-          EditorSideGroupRail(state: state)
-        }
-      #endif
-      // Keep per-frame rendering observations inside the status leaf.
-      EditorRenderStatus(session: state.session)
       #if os(iOS)
         // Undo, Redo and one-tap edits confirm themselves with a haptic.
         EditorHistoryHaptics(session: state.session)
@@ -238,13 +255,15 @@ struct EditorSurface: View {
       ExportPanel(session: state.session)
     }
     .overlay(alignment: .topTrailing) {
-      VStack(alignment: .trailing, spacing: 8) {
-        // GPU frame-time HUD — validation-only (gpu build +
-        // MAPLE_GPU_HUD=1); compiles out / EmptyView otherwise. Ported
-        // from the legacy FullImageView when it was retired (#1807).
-        EditorFrameTimeHUD(session: state.session)
+      if !isFocusedMacRemoval {
+        VStack(alignment: .trailing, spacing: 8) {
+          // GPU frame-time HUD — validation-only (gpu build +
+          // MAPLE_GPU_HUD=1); compiles out / EmptyView otherwise. Ported
+          // from the legacy FullImageView when it was retired (#1807).
+          EditorFrameTimeHUD(session: state.session)
+        }
+        .padding(.top, 60)
       }
-      .padding(.top, 60)
     }
     // Mac extends under its hidden window toolbar. iOS keeps the top
     // inset so the editor header stays clear of system status/navigation.
@@ -263,7 +282,13 @@ struct EditorSurface: View {
     .onChange(of: scopeProducerArmed, initial: true) { _, armed in
       state.session.scopeEnabled = armed
     }
+    .onChange(of: state.armedTool) { oldTool, newTool in
+      if newTool == .remove, oldTool != .remove {
+        removalReturnTool = oldTool
+      }
+    }
     .onDisappear {
+      state.removal.close()
       state.session.scopeEnabled = false
       state.session.workflow.invalidate()
     }
@@ -289,6 +314,13 @@ struct EditorSurface: View {
       await state.session.loadSidecar()
       guard !Task.isCancelled else { return }
       state.session.ensureRenderStarted()
+      if state.armedTool == .remove, !state.removal.active {
+        await state.removal.open()
+      }
+    }
+    .onChange(of: state.armedTool) { _, tool in
+      guard tool == .remove, state.session.hasLoadedSidecar, !state.removal.active else { return }
+      Task { await state.removal.open() }
     }
     #if os(macOS)
       // Hide the macOS window toolbar in editor mode so the canvas is

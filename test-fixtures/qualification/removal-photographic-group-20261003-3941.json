@@ -1,0 +1,559 @@
+{
+  "issue": 3941,
+  "epic": 1472,
+  "recordedAt": "2026-10-03T22:46:46.718840+00:00",
+  "headBeforeCommit": "3bc3ee9e237ad8daee07cdfb990db0ad0577827a",
+  "releaseQualified": false,
+  "scope": "Actual photographic native grouped instance-choice state flow, planner/default mask parameters, sequential model jobs, review and durable Keep/reopen/undo/redo. This is not proof that detector proposals represent distinct people or that either selected person was completely removed.",
+  "original": {
+    "path": "/Users/riabuz/.cache/maple-removal-research/raws/_DSC7409.NEF",
+    "sha256": "2ed291a09d7d4f72c8588b0c12d6cc5c470ad42ab9e3aaad1f888f34526b959f",
+    "bytes": 29019786
+  },
+  "fixtureRestoration": {
+    "path": "/Users/riabuz/.cache/maple-removal-research/native-mac-generation-models-20261003/fixture-restoration.json",
+    "sha256": "4fe7b0ee7ec883e866dc99c47f1fae166e3cc5664ea27a79554d3a6448de6444",
+    "bytes": 2291,
+    "report": {
+      "recordedAt": "2026-10-03T22:32:51.683324+00:00",
+      "scope": "Five exact retained deployed model/runtime files only. Missing historical input/golden tensor corpus is not regenerated or claimed restored. App storage unchanged.",
+      "files": [
+        {
+          "file": "rtdetrv2-r18.onnx",
+          "sha256": "e83fb962424fc2a881d080148194ed57c3276a9b186a1bc381e772c397228f58",
+          "bytes": 80426004,
+          "previous_symlink": "/tmp/maple-removal-models/rtdetr/native-build/rtdetrv2-r18.onnx",
+          "current_symlink": "/Users/riabuz/.cache/maple-removal-research/native-mac-generation-models-20261003/rtdetrv2-r18.onnx"
+        },
+        {
+          "file": "lama-native-1024.onnx",
+          "sha256": "339d078d9d1376d76a49efd4fa42f328c3f276af775505ae8b57c84db187c4f6",
+          "bytes": 204794328,
+          "previous_symlink": "/tmp/maple-removal-models/lama/native-build/lama-native-1024.onnx",
+          "current_symlink": "/Users/riabuz/.cache/maple-removal-research/native-mac-generation-models-20261003/lama-native-1024.onnx"
+        },
+        {
+          "file": "mobile-sam-encoder.onnx",
+          "sha256": "e12aec77d292b119aaa8add4e23a21114d3ff4fac44a1abfb8ca2a391f03bf2b",
+          "bytes": 27996392,
+          "previous_symlink": "/tmp/maple-removal-models/mobile-sam/native-build/mobile-sam-encoder.onnx",
+          "current_symlink": "/Users/riabuz/.cache/maple-removal-research/native-mac-generation-models-20261003/mobile-sam-encoder.onnx"
+        },
+        {
+          "file": "runtime.dylib",
+          "sha256": "d306d2bc768540766c7ed8a1e0ff05d2870c77a934ebeee4a7bafa1b732ef299",
+          "bytes": 35138784,
+          "previous_symlink": "/tmp/maple-removal-ort123-official/onnxruntime-osx-arm64-1.23.2/lib/libonnxruntime.dylib",
+          "current_symlink": "/Users/riabuz/.cache/maple-removal-research/native-mac-generation-models-20261003/runtime.dylib"
+        },
+        {
+          "file": "mobile-sam-decoder.onnx",
+          "sha256": "878e0ba9952d4d35c78d8cbd3ee57cdc3691fda0deb39d2cf1f0c8004f2f38e7",
+          "bytes": 16496934,
+          "previous_symlink": "/tmp/maple-removal-models/mobile-sam/native-build/mobile-sam-decoder.onnx",
+          "current_symlink": "/Users/riabuz/.cache/maple-removal-research/native-mac-generation-models-20261003/mobile-sam-decoder.onnx"
+        }
+      ],
+      "raw_sha256": "2ed291a09d7d4f72c8588b0c12d6cc5c470ad42ab9e3aaad1f888f34526b959f"
+    }
+  },
+  "modelsMatchGeneratedPins": true,
+  "nativeSourceHash": "77cd0d2e27a2a6bf317e7c50ec719ff3a17263d4",
+  "execution": {
+    "finalLog": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/photographic-native-group-final-20261003.log",
+      "sha256": "8fe8cc20a443a050feea7d04f86830ee1b93dacfced9958b361060f235b522e9",
+      "bytes": 5694
+    },
+    "initialLog": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/photographic-native-group-20261003.log",
+      "sha256": "f6006db2d61deac8726d7923a4f1e64a210698ca505c4d253569d050a6c6e712",
+      "bytes": 112078
+    },
+    "initialTestSeconds": 64.88,
+    "artifactTestSeconds": 123.671,
+    "failures": 0,
+    "skips": 0,
+    "testSourceLabelNote": "Executed under original method name testDetectedSeparatedPeopleUseActualModelAndOneDurableKeep; subsequently renamed to testSeparatedInstanceChoicesUseActualModelAndOneDurableKeep to state the proven scope. Assertions and body unchanged.",
+    "timingQualification": "Shared M5 Max128GiB with concurrent unrelated XCTest workloads; observations are not controlled device qualification or native UI response measurements."
+  },
+  "actual": {
+    "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/test-fixtures/raws/removal-photographic/group-runs/3A55764B-1A9C-4CA4-BB3E-2004CB3B869F/report.json",
+    "sha256": "1308ba2a6e795df7d866c7147540734e8e2d0f29f496ba9246c0693015d46070",
+    "bytes": 9520,
+    "report": {
+      "assets": {
+        "23c084e284e769ea6167398e96d301115c734bce19dc95a1c5c6484108e488e0.mask": "blake3:23c084e284e769ea6167398e96d301115c734bce19dc95a1c5c6484108e488e0",
+        "c934527e57e54901a254926976aece151be450742da491cf1e852559d795c4cb.mask": "blake3:c934527e57e54901a254926976aece151be450742da491cf1e852559d795c4cb",
+        "cad5a98b2c94b93596ef636e5203732f5520abb17a931f49c993639723e7fede.f16": "blake3:cad5a98b2c94b93596ef636e5203732f5520abb17a931f49c993639723e7fede",
+        "ff49b69d3ce196897c3565733a613068f8986fdda6d04d851e964f303c0fd315.f16": "blake3:ff49b69d3ce196897c3565733a613068f8986fdda6d04d851e964f303c0fd315"
+      },
+      "beforeSize": [
+        2048,
+        1365
+      ],
+      "detected": [
+        {
+          "bounds": [
+            2359.513427734375,
+            1323.6661376953125,
+            3390.616943359375,
+            3324.008544921875
+          ],
+          "id": 1,
+          "keep": true,
+          "role": "Likely subject"
+        },
+        {
+          "bounds": [
+            339.34326171875,
+            1225.926025390625,
+            1357.124267578125,
+            3987.10498046875
+          ],
+          "id": 2,
+          "keep": true,
+          "role": "Likely subject"
+        },
+        {
+          "bounds": [
+            0,
+            1425.0997314453125,
+            599.3267211914062,
+            3993.12841796875
+          ],
+          "id": 3,
+          "keep": true,
+          "role": "Likely subject"
+        },
+        {
+          "bounds": [
+            1577.129638671875,
+            1541.351318359375,
+            2511.241455078125,
+            3280.099365234375
+          ],
+          "id": 4,
+          "keep": true,
+          "role": "Likely subject"
+        },
+        {
+          "bounds": [
+            1160.5152587890625,
+            1554.8511962890625,
+            1595.103271484375,
+            3027.515869140625
+          ],
+          "id": 5,
+          "keep": true,
+          "role": "Uncertain"
+        },
+        {
+          "bounds": [
+            3288.872802734375,
+            1539.19384765625,
+            3601.3701171875,
+            1981.574951171875
+          ],
+          "id": 6,
+          "keep": true,
+          "role": "Uncertain"
+        },
+        {
+          "bounds": [
+            2341.3017578125,
+            1464.407958984375,
+            2587.671630859375,
+            1749.7353515625
+          ],
+          "id": 7,
+          "keep": true,
+          "role": "Uncertain"
+        },
+        {
+          "bounds": [
+            2592.306884765625,
+            1435.8916015625,
+            2753.84423828125,
+            1623.7664794921875
+          ],
+          "id": 8,
+          "keep": true,
+          "role": "Uncertain"
+        },
+        {
+          "bounds": [
+            3084.809326171875,
+            1574.0076904296875,
+            3344.427001953125,
+            1814.454833984375
+          ],
+          "id": 9,
+          "keep": true,
+          "role": "Uncertain"
+        },
+        {
+          "bounds": [
+            56.44190216064453,
+            1054.5150146484375,
+            496.8452453613281,
+            1494.7808837890625
+          ],
+          "id": 10,
+          "keep": true,
+          "role": "Uncertain"
+        },
+        {
+          "bounds": [
+            3065.0849609375,
+            1576.8009033203125,
+            3340.959228515625,
+            1976.159423828125
+          ],
+          "id": 11,
+          "keep": true,
+          "role": "Uncertain"
+        },
+        {
+          "bounds": [
+            1481.85205078125,
+            1500.13232421875,
+            1755.7445068359375,
+            1897.8040771484375
+          ],
+          "id": 12,
+          "keep": true,
+          "role": "Uncertain"
+        },
+        {
+          "bounds": [
+            1173.6534423828125,
+            1556.6324462890625,
+            1601.958251953125,
+            2224.6474609375
+          ],
+          "id": 13,
+          "keep": true,
+          "role": "Uncertain"
+        },
+        {
+          "bounds": [
+            2065.99609375,
+            1449.9412841796875,
+            2279.99853515625,
+            1568.121337890625
+          ],
+          "id": 14,
+          "keep": true,
+          "role": "Uncertain"
+        },
+        {
+          "bounds": [
+            2.9002726078033447,
+            1072.8819580078125,
+            537.4979858398438,
+            3974.838134765625
+          ],
+          "id": 15,
+          "keep": true,
+          "role": "Uncertain"
+        }
+      ],
+      "originalUnchanged": true,
+      "records": [
+        {
+          "accepted": {
+            "context_window": {
+              "height": 1024,
+              "width": 1024,
+              "x": 2930,
+              "y": 1248
+            },
+            "dependencies": [],
+            "mask": "blake3:23c084e284e769ea6167398e96d301115c734bce19dc95a1c5c6484108e488e0",
+            "model": "blake3:11d91ba3f522282c1b0f0a3b9aa2be1646a1a65fd406b65f08e4d90740a4c492",
+            "patch_window": {
+              "height": 1024,
+              "width": 1024,
+              "x": 2930,
+              "y": 1248
+            },
+            "plate": "linear-calibration-v1",
+            "recipe": "blake3:d399ca2eb7c6aec84660fdc42dc112c9687ccdd0e664c77549a1c6b6ddcbcce2",
+            "source": {
+              "decode": "blake3:add2c2b7017c74c40e3b2229acc1804ab1ca5be9700e99f448093dd044bf87c9",
+              "height": 4000,
+              "original": "blake3:2019a5cbd7bcdcf8405528789cde7c05ed4bee8d31c533df786be64f42c97718",
+              "width": 6000
+            }
+          },
+          "bake": {
+            "ev": 0,
+            "temp": 6500,
+            "tint": 0
+          },
+          "kind": "removal",
+          "model": "339d078d9d1376d76a49efd4fa42f328c3f276af775505ae8b57c84db187c4f6",
+          "patch": "blake3:cad5a98b2c94b93596ef636e5203732f5520abb17a931f49c993639723e7fede",
+          "region": [
+            0.4883333444595337,
+            0.31200000643730164,
+            0.1706666648387909,
+            0.25600001215934753
+          ],
+          "schema": 4
+        },
+        {
+          "accepted": {
+            "context_window": {
+              "height": 1024,
+              "width": 1024,
+              "x": 0,
+              "y": 744
+            },
+            "dependencies": [],
+            "mask": "blake3:c934527e57e54901a254926976aece151be450742da491cf1e852559d795c4cb",
+            "model": "blake3:11d91ba3f522282c1b0f0a3b9aa2be1646a1a65fd406b65f08e4d90740a4c492",
+            "patch_window": {
+              "height": 1024,
+              "width": 1024,
+              "x": 0,
+              "y": 744
+            },
+            "plate": "linear-calibration-v1",
+            "recipe": "blake3:872b61bc2f220d4cd5dd47f59315739caa050088bac1c7292dfa8b31cbe7e1b5",
+            "source": {
+              "decode": "blake3:add2c2b7017c74c40e3b2229acc1804ab1ca5be9700e99f448093dd044bf87c9",
+              "height": 4000,
+              "original": "blake3:2019a5cbd7bcdcf8405528789cde7c05ed4bee8d31c533df786be64f42c97718",
+              "width": 6000
+            }
+          },
+          "bake": {
+            "ev": 0,
+            "temp": 6500,
+            "tint": 0
+          },
+          "kind": "removal",
+          "model": "339d078d9d1376d76a49efd4fa42f328c3f276af775505ae8b57c84db187c4f6",
+          "patch": "blake3:ff49b69d3ce196897c3565733a613068f8986fdda6d04d851e964f303c0fd315",
+          "region": [
+            0,
+            0.1860000044107437,
+            0.1706666648387909,
+            0.25600001215934753
+          ],
+          "schema": 4
+        }
+      ],
+      "releaseQualified": false,
+      "removeElapsed": "58.541820417 seconds",
+      "reopenedDigest": "blake3:14821a792d3a1c41e22e6f9e528dae2eab8c1db69780d1845ba70a0c2a6ae07b",
+      "requests": [
+        {
+          "bake": {
+            "ev": 0,
+            "temp": 6500,
+            "tint": 0
+          },
+          "context_window": {
+            "height": 1024,
+            "width": 1024,
+            "x": 2930,
+            "y": 1248
+          },
+          "model": "blake3:11d91ba3f522282c1b0f0a3b9aa2be1646a1a65fd406b65f08e4d90740a4c492",
+          "model_version": "339d078d9d1376d76a49efd4fa42f328c3f276af775505ae8b57c84db187c4f6",
+          "patch_window": {
+            "height": 1024,
+            "width": 1024,
+            "x": 2930,
+            "y": 1248
+          },
+          "plate": "linear-calibration-v1",
+          "recipe": "blake3:d399ca2eb7c6aec84660fdc42dc112c9687ccdd0e664c77549a1c6b6ddcbcce2",
+          "source": {
+            "decode": "blake3:add2c2b7017c74c40e3b2229acc1804ab1ca5be9700e99f448093dd044bf87c9",
+            "height": 4000,
+            "original": "blake3:2019a5cbd7bcdcf8405528789cde7c05ed4bee8d31c533df786be64f42c97718",
+            "width": 6000
+          }
+        },
+        {
+          "bake": {
+            "ev": 0,
+            "temp": 6500,
+            "tint": 0
+          },
+          "context_window": {
+            "height": 1024,
+            "width": 1024,
+            "x": 0,
+            "y": 744
+          },
+          "model": "blake3:11d91ba3f522282c1b0f0a3b9aa2be1646a1a65fd406b65f08e4d90740a4c492",
+          "model_version": "339d078d9d1376d76a49efd4fa42f328c3f276af775505ae8b57c84db187c4f6",
+          "patch_window": {
+            "height": 1024,
+            "width": 1024,
+            "x": 0,
+            "y": 744
+          },
+          "plate": "linear-calibration-v1",
+          "recipe": "blake3:872b61bc2f220d4cd5dd47f59315739caa050088bac1c7292dfa8b31cbe7e1b5",
+          "source": {
+            "decode": "blake3:add2c2b7017c74c40e3b2229acc1804ab1ca5be9700e99f448093dd044bf87c9",
+            "height": 4000,
+            "original": "blake3:2019a5cbd7bcdcf8405528789cde7c05ed4bee8d31c533df786be64f42c97718",
+            "width": 6000
+          }
+        }
+      ],
+      "reviewDigest": "blake3:14821a792d3a1c41e22e6f9e528dae2eab8c1db69780d1845ba70a0c2a6ae07b",
+      "reviewSize": [
+        2048,
+        1365
+      ],
+      "scope": "Actual photographic detection/SAM, explicit list choices, native planner/default masks, two sequential deployed model jobs, review and one durable Keep with sidecar/companions, undo/redo and byte-exact reopening. Native UI, automatic role/closure quality, photographic fills and supported-device performance are not qualified.",
+      "selected": [
+        6,
+        10
+      ],
+      "source": {
+        "decode": "blake3:add2c2b7017c74c40e3b2229acc1804ab1ca5be9700e99f448093dd044bf87c9",
+        "height": 4000,
+        "original": "blake3:2019a5cbd7bcdcf8405528789cde7c05ed4bee8d31c533df786be64f42c97718",
+        "width": 6000
+      },
+      "undoSteps": 1
+    }
+  },
+  "independentMaskLayout": {
+    "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/test-fixtures/raws/removal-photographic/group-runs/3A55764B-1A9C-4CA4-BB3E-2004CB3B869F/independent-mask-layout.json",
+    "sha256": "4992e07f279204fe8d1265fa528fcc3fd7de4e7bbaa8e79f9689f03af240076f",
+    "bytes": 717,
+    "report": [
+      {
+        "selected_person": 6,
+        "mask": "23c084e284e769ea6167398e96d301115c734bce19dc95a1c5c6484108e488e0.mask",
+        "source_wh": [
+          6000,
+          4000
+        ],
+        "stored_window_xywh": [
+          3287,
+          1540,
+          311,
+          440
+        ],
+        "selected_pixels": 95543,
+        "actual_support_xywh": [
+          3287,
+          1540,
+          311,
+          440
+        ]
+      },
+      {
+        "selected_person": 10,
+        "mask": "c934527e57e54901a254926976aece151be450742da491cf1e852559d795c4cb.mask",
+        "source_wh": [
+          6000,
+          4000
+        ],
+        "stored_window_xywh": [
+          76,
+          1060,
+          387,
+          393
+        ],
+        "selected_pixels": 3734,
+        "actual_support_xywh": [
+          76,
+          1060,
+          387,
+          334
+        ]
+      }
+    ]
+  },
+  "pixels": {
+    "before": {
+      "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/test-fixtures/raws/removal-photographic/group-runs/3A55764B-1A9C-4CA4-BB3E-2004CB3B869F/before.rgb8",
+      "sha256": "c5126825053eb71da1910ec1b2c289aa911da3c77a0ca4a0491162851aaeb5ac",
+      "bytes": 8386560
+    },
+    "review": {
+      "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/test-fixtures/raws/removal-photographic/group-runs/3A55764B-1A9C-4CA4-BB3E-2004CB3B869F/review.rgb8",
+      "sha256": "633a3c412a3438151f21162b9c10120f598a5a2d1c8266f453f6767a7e1b6f6f",
+      "bytes": 8386560
+    },
+    "reopened": {
+      "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/test-fixtures/raws/removal-photographic/group-runs/3A55764B-1A9C-4CA4-BB3E-2004CB3B869F/reopened.rgb8",
+      "sha256": "633a3c412a3438151f21162b9c10120f598a5a2d1c8266f453f6767a7e1b6f6f",
+      "bytes": 8386560
+    }
+  },
+  "sidecar": {
+    "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/test-fixtures/raws/removal-photographic/group-runs/3A55764B-1A9C-4CA4-BB3E-2004CB3B869F/photo.xmp",
+    "sha256": "6bafa24bf1449a7fe73ec068d58bae9ef95c236d3ce190efff7f11a6bdfeb9c4",
+    "bytes": 3869
+  },
+  "assets": [
+    {
+      "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/test-fixtures/raws/removal-photographic/group-runs/3A55764B-1A9C-4CA4-BB3E-2004CB3B869F/23c084e284e769ea6167398e96d301115c734bce19dc95a1c5c6484108e488e0.mask",
+      "sha256": "61155f246f255145be347f4f4f58975966726a855ff6b79509e055d5aaabbdb7",
+      "bytes": 17137
+    },
+    {
+      "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/test-fixtures/raws/removal-photographic/group-runs/3A55764B-1A9C-4CA4-BB3E-2004CB3B869F/c934527e57e54901a254926976aece151be450742da491cf1e852559d795c4cb.mask",
+      "sha256": "bb09167929d3299c83ae7a99bf6d03e0e455ed254077b9b0b79eadd96b2a3cb1",
+      "bytes": 19044
+    },
+    {
+      "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/test-fixtures/raws/removal-photographic/group-runs/3A55764B-1A9C-4CA4-BB3E-2004CB3B869F/cad5a98b2c94b93596ef636e5203732f5520abb17a931f49c993639723e7fede.f16",
+      "sha256": "52a1bc6c91e4d53e002af35b7a1786aa781afc46c920957d6b957aa44c3303fd",
+      "bytes": 8388640
+    },
+    {
+      "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/test-fixtures/raws/removal-photographic/group-runs/3A55764B-1A9C-4CA4-BB3E-2004CB3B869F/ff49b69d3ce196897c3565733a613068f8986fdda6d04d851e964f303c0fd315.f16",
+      "sha256": "df6e3db8a12fc2cc0094824e247eddc37d9dd1048d969f1b305a4c95a4a1b4cd",
+      "bytes": 8388640
+    }
+  ],
+  "quality": {
+    "before": {
+      "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/test-fixtures/raws/removal-photographic/group-runs/3A55764B-1A9C-4CA4-BB3E-2004CB3B869F/before.png",
+      "sha256": "bdfb485b114b3c217976dee7332395c34d8889ca5523513040f92104289259ca",
+      "bytes": 3817491
+    },
+    "review": {
+      "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/test-fixtures/raws/removal-photographic/group-runs/3A55764B-1A9C-4CA4-BB3E-2004CB3B869F/review.png",
+      "sha256": "b8e84751c090f2460e0fd73a49b81b80e20434c6b949b45e2446914dbe7db11b",
+      "bytes": 3817314
+    },
+    "reviewQualified": false,
+    "finding": "The selected blue-coat instance becomes a smeared silhouette with residual outline. The top-left black-hat instance remains visibly present. Detector boxes include partial/overlapping proposals for foreground people; distinct-person ownership is not proved. The second accepted mask contains only3734 selected pixels despite its387x393 stored window. Protected-mask overlap and duplicate/partial proposals need further diagnosis; complete removal is not claimed."
+  },
+  "automaticRoles": {
+    "subject": 4,
+    "uncertain": 11,
+    "background": 0,
+    "finding": "All15 proposals start kept. Box-overlap uncertainty propagation is the inspected code mechanism; no automatic background selection was qualified by this test."
+  },
+  "proved": [
+    "Two explicit list choices applied automatically on Remove",
+    "Combined mask rejected by native planner; each separate actual context planned successfully",
+    "Two real native model proposals reached review without XMP or companion writes",
+    "One Keep published two accepted records and four verified companion assets",
+    "One undo step, redo, actual sidecar round trip and original-byte preservation",
+    "Reopen using saved assets in an engine without a model directory produced byte-identical review pixels"
+  ],
+  "notProved": [
+    "Distinct-person detection/ownership and independent silhouette closure truth",
+    "Successful automatic background-role selection in this crowd",
+    "Photographic fill quality or complete selected-object disappearance",
+    "Live native UI accessibility, latency/cancellation, Metal parity/export and supported-device gates",
+    "Complete Apple/Web/portable/recovery epic scope"
+  ]
+}

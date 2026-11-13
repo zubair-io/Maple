@@ -31,8 +31,9 @@ extension XMPSidecarStore {
       self.pendingModel = model
       self.pendingCulling = culling
       self.cached = (model, culling)
-      try self.writeSidecar(
+      let saved = try self.writeSidecar(
         model: model, culling: culling, existingXML: existing, at: destination, durable: true)
+      self.cached = (saved, culling)
       self.pendingModel = nil
       self.pendingCulling = nil
     }
@@ -53,9 +54,10 @@ extension XMPSidecarStore {
   /// Validation finishes before the prior sidecar or pending state is changed.
   public func writeWorkflowConfirmed(_ workflow: SidecarWorkflow) throws {
     try coordinateSidecarWrite { destination, existing in
+      try self.removalRecovery.requireOrdinaryWrite(xml: existing)
       let xml: String
       if let model = self.pendingModel, let culling = self.pendingCulling {
-        xml = self.serializedSidecar(model: model, culling: culling, existingXML: existing)
+        xml = try self.serializedSidecar(model: model, culling: culling, existingXML: existing)
       } else {
         xml = existing ?? XMPSerializer.serialize(model: .default, culling: CullingState())
       }
@@ -116,9 +118,18 @@ extension XMPSidecarStore {
   public func publishWorkflow(_ command: WorkflowPublication) throws -> String {
     try settleWorkflowWrites()
     return try coordinateSidecarWrite { destination, existing in
+      try self.removalRecovery.requireOrdinaryWrite(xml: existing)
       let output = try command.output(current: existing, variantId: self.variantId)
       // Parse before publication; a failure never changes the original checkpoint.
       let restored = try XMPParser.parse(output)
+      let priorRemovals = try existing.flatMap { try RemovalXMPRecords.read(Data($0.utf8)) } ?? "[]"
+      let nextRemovals = restored.0.inpaintRemovals?.json ?? "[]"
+      if priorRemovals != "[]" || nextRemovals != "[]" {
+        // A complete-XMP restore has the same source/companion requirements as Keep.
+        _ = try self.serializedSidecar(
+          model: restored.0, culling: restored.1, existingXML: existing,
+          removalChange: (priorRemovals, nextRemovals))
+      }
       if output != existing {
         try self.publishSidecarXML(output, at: destination, durable: true)
       } else {
@@ -133,10 +144,10 @@ extension XMPSidecarStore {
     pendingTask?.cancel()
     pendingTask = nil
     guard let model = pendingModel, let culling = pendingCulling else { return }
-    try writeAtomically(model: model, culling: culling, durable: true)
+    let saved = try writeAtomically(model: model, culling: culling, durable: true)
     pendingModel = nil
     pendingCulling = nil
-    cached = (model, culling)
+    cached = (saved, culling)
   }
 
   /// The queued actions commit on top of `xml`. After a merge the newest one holds the

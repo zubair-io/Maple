@@ -44,8 +44,10 @@ use crate::{
 
 use super::{dump_after, stage, RenderQuality};
 
+pub(super) mod camera;
 mod colour;
 mod geometry;
+mod removal;
 
 use super::capture_first::Chain;
 pub(crate) use colour::{capture_base, capture_colour, develop_colour, CameraReady};
@@ -64,6 +66,7 @@ pub use entries::{
     develop_scene_linear_from_raw_with_quality_cancellable,
     develop_scene_linear_from_raw_with_quality_with_gain,
 };
+pub(super) use removal::{develop_camera_with_patches, develop_with_calibration_patches};
 
 /// Same develop chain as [`develop_scene_linear_from_raw_with_quality_cancellable`],
 /// additionally returning the scalar gain the `auto_exposure` stage applied
@@ -104,6 +107,18 @@ pub(crate) fn develop_camera(
     quality: RenderQuality,
     cancel: CancelToken<'_>,
 ) -> Result<CameraReady> {
+    let (camera_rgb, skip_pre_gain) = develop_camera_unwarped(raw, model, quality, cancel)?;
+    develop_camera_geometry(raw, model, quality, camera_rgb, skip_pre_gain)
+}
+
+/// Sensor-sized camera RGB through highlight recovery, before any optical
+/// correction or DefaultCrop, and whether the WB pre-gain was skipped.
+pub(super) fn develop_camera_unwarped(
+    raw: &RawImage,
+    model: &AdjustmentModel,
+    quality: RenderQuality,
+    cancel: CancelToken<'_>,
+) -> Result<(crate::image::Image, bool)> {
     if cancel.is_cancelled() {
         return Err(Error::Cancelled);
     }
@@ -231,7 +246,18 @@ pub(crate) fn develop_camera(
         )
     })?;
     dump_after("00b_highlight_recovery", &camera_rgb);
+    Ok((camera_rgb, skip_pre_gain))
+}
 
+/// OpcodeList3 / lens correction and DefaultCrop on the unwarped camera
+/// buffer, then the profile it develops through.
+pub(super) fn develop_camera_geometry(
+    raw: &RawImage,
+    model: &AdjustmentModel,
+    quality: RenderQuality,
+    mut camera_rgb: crate::image::Image,
+    skip_pre_gain: bool,
+) -> Result<CameraReady> {
     // Stage 2a (#1695): DNG OpcodeList3 on the demosaiced linear data, in
     // ActiveArea coordinates — i.e. BEFORE DefaultCrop moves the origin.
     // `aa` is in raw-sensor coordinates; Preview quality's half-res Bayer

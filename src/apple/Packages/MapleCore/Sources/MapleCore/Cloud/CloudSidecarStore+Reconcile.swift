@@ -23,6 +23,8 @@ extension CloudSidecarStore {
         cachedPassthrough = .empty
       }
       let current: String? = absent ? nil : String(decoding: bytes, as: UTF8.self)
+      var savedModel = model
+      savedModel.inpaintRemovals = try RemovalXMPRecords.ordinaryWriteRecords(absent ? nil : bytes)
       if let current {
         _ = try XMPParser.parse(data: bytes)
         _ = try selectedWorkflow(current)
@@ -30,7 +32,8 @@ extension CloudSidecarStore {
         cachedPassthrough = XMPParser.parsePassthrough(data: bytes)
       }
       let incoming = XMPSerializer.serialize(
-        model: model, culling: culling, metadata: cachedMetadata, passthrough: cachedPassthrough)
+        model: savedModel, culling: culling, metadata: cachedMetadata,
+        passthrough: cachedPassthrough)
       let (output, merged) = try reconcile(incoming: incoming, current: current)
       if merged, let current, try Self.isSameDocument(output, current) {
         if stagedAdoption?.published != current {
@@ -65,6 +68,7 @@ extension CloudSidecarStore {
           ? PendingAdoption(
             represented: incoming,
             document: ReconciledSidecar(xml: published, model: model, culling: culling)) : nil)
+      if cached?.0 == model, cached?.1 == culling { cached = (savedModel, culling) }
       return
     }
   }

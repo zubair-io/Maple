@@ -8,11 +8,11 @@ import { renderModelForCrop } from './image-canvas.crop';
 //       without attempting another GPU session — the session-level static `presentBroken`
 //       flag prevents re-detection on every image.
 
-import { Injector, signal, type WritableSignal } from '@angular/core';
-import { TestBed } from '@angular/core/testing';
+import { signal } from '@angular/core';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
-import { ImageCanvasGpuPresent, wireScopeSampleEffect } from './image-canvas.gpu-present';
+import { ImageCanvasGpuPresent } from './image-canvas.gpu-present';
+import { CLEAR_SAVED_REMOVALS } from './image-canvas.gpu-removals';
 import { buildLiveParams, canUseLiveFastPath } from './image-canvas.live-params';
 import type { GpuPresentHost } from './image-canvas.gpu-present';
 import type { OpenedLiveSession } from '../../raw-pipeline/raw-pipeline.service';
@@ -112,6 +112,7 @@ function makeHost(
 
   const canvasSvc = {
     currentPixels: signal<DecodedImage | null>(null),
+    cropInputDimensions: signal<{ w: number; h: number } | null>(null),
     pan: signal({ x: 0, y: 0 }),
   } as unknown as GpuPresentHost['canvasSvc'];
 
@@ -127,6 +128,9 @@ function makeHost(
     state,
     canvasSvc,
     xmpSerializer,
+    savedRemovals: {
+      load: vi.fn(async () => undefined),
+    } as unknown as GpuPresentHost['savedRemovals'],
     gpuFallback,
     serializeForRender: () => '<x/>',
     captureRenderSerializer() {
@@ -146,6 +150,9 @@ function makeHost(
 }
 
 // ── Test suite ────────────────────────────────────────────────────────────────
+
+const withRemovals = (records: string) =>
+  `<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns:papp="http://ns.justmaple.app/photo/1.0/"><rdf:Description papp:InpaintRemovals='${records}'/></rdf:RDF>`;
 
 describe('ImageCanvasGpuPresent — present-failure detection (#1572)', () => {
   beforeEach(() => {
@@ -251,6 +258,43 @@ describe('ImageCanvasGpuPresent — present-failure detection (#1572)', () => {
     expect(await pendingNeutral).toBe(false);
     await present.render('Auto', 2, params);
     expect(render).toHaveBeenLastCalledWith('Auto', params);
+  });
+
+  it('reads companions only on cold renders and clears a session’s saved removals exactly once', async () => {
+    const host = makeHost(() => Promise.resolve(makeOpenedSession()));
+    const present = new ImageCanvasGpuPresent(host);
+    const bundle = { manifest: '[{"name":"saved","length":1}]', bytes: new Uint8Array([7]) };
+    vi.mocked(host.savedRemovals.load).mockResolvedValueOnce(bundle);
+    const render = vi
+      .mocked(host.pipeline.renderLiveSession)
+      .mockResolvedValue({ colorSpace: 'srgb', width: 31, height: 19 });
+    const params = new Float32Array(19);
+    await present.render(withRemovals('[1]'), 1, params);
+    await present.render('next exposure', 1, params);
+    await present.render(withRemovals('[]'), 1);
+    await present.render('<rdf:Description papp:Exposure="1"/>', 1);
+    expect(render.mock.calls.map((call) => [call[1], call[2]])).toEqual([
+      [undefined, bundle],
+      [params, undefined],
+      [undefined, CLEAR_SAVED_REMOVALS],
+      [undefined, undefined],
+    ]);
+    expect(render.mock.calls[3]).toHaveLength(2);
+    expect(host.savedRemovals.load).toHaveBeenCalledTimes(2);
+  });
+
+  it('sends no saved-removal bundle and reads no companions for an ordinary photo', async () => {
+    const host = makeHost(() => Promise.resolve(makeOpenedSession()));
+    const present = new ImageCanvasGpuPresent(host);
+    await present.open('asset-1', new Uint8Array([1]), 'dng');
+    const render = vi
+      .mocked(host.pipeline.renderLiveSession)
+      .mockResolvedValue({ colorSpace: 'srgb', width: 31, height: 19 });
+    await present.render('<rdf:Description papp:Exposure="1"/>', 1);
+    await present.render('<rdf:Description papp:Exposure="2"/>', 1);
+    expect(vi.mocked(host.pipeline.openLiveSession).mock.calls[0][5]).toBeUndefined();
+    expect(render.mock.calls.every((call) => call.length === 2)).toBe(true);
+    expect(host.savedRemovals.load).toHaveBeenCalledTimes(1);
   });
 
   it('records the presented dims on open and after every render, even a superseded one', async () => {
@@ -518,48 +562,5 @@ describe('ImageCanvasGpuPresent — GPU fallback notice reporting (#2415)', () =
 
     expect(result).toBe(true);
     expect(host.gpuFallback.visible()).toBe(false);
-  });
-});
-
-describe('wireScopeSampleEffect (#3397)', () => {
-  it('publishes an out-of-band sample into currentPixels', () => {
-    const host = makeHost(() => Promise.resolve(makeOpenedSession()));
-    const injector = TestBed.inject(Injector);
-    const stop = wireScopeSampleEffect(host, injector);
-    TestBed.flushEffects();
-    expect(host.canvasSvc.currentPixels()).toBeNull();
-
-    (host.pipeline.scopeSample as WritableSignal<DecodedImage | null>).set({
-      width: 1,
-      height: 1,
-      rgb: new Uint8Array([99, 88, 77]),
-      asShotTemperature: 6500,
-      asShotTint: 0,
-    });
-    TestBed.flushEffects();
-
-    expect(Array.from(host.canvasSvc.currentPixels()!.rgb)).toEqual([99, 88, 77]);
-    stop();
-  });
-
-  it('a null sample leaves the previous pixels in place', () => {
-    const host = makeHost(() => Promise.resolve(makeOpenedSession()));
-    const sample = host.pipeline.scopeSample as WritableSignal<DecodedImage | null>;
-    const stop = wireScopeSampleEffect(host, TestBed.inject(Injector));
-
-    sample.set({
-      width: 1,
-      height: 1,
-      rgb: new Uint8Array([1, 2, 3]),
-      asShotTemperature: 6500,
-      asShotTint: 0,
-    });
-    TestBed.flushEffects();
-
-    // A readback miss must not blank the scopes to their pseudo fallback.
-    sample.set(null);
-    TestBed.flushEffects();
-    expect(Array.from(host.canvasSvc.currentPixels()!.rgb)).toEqual([1, 2, 3]);
-    stop();
   });
 });

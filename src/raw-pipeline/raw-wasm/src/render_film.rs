@@ -41,6 +41,7 @@ pub fn render_bytes_with_film(
 
     let model = crate::mask_registry::parse_model(xmp.as_deref())
         .map_err(|e| JsError::new(&e.to_string()))?;
+    crate::removal_saved::require_no_unresolved_removals(&model).map_err(|e| JsError::new(&e))?;
 
     let film_lut = if film_lut_bytes.is_empty() {
         None
@@ -157,6 +158,7 @@ pub fn render_bytes_sized_with_film(
 
     let model = crate::mask_registry::parse_model(xmp.as_deref())
         .map_err(|e| JsError::new(&e.to_string()))?;
+    crate::removal_saved::require_no_unresolved_removals(&model).map_err(|e| JsError::new(&e))?;
 
     let film_lut = if film_lut_bytes.is_empty() {
         None

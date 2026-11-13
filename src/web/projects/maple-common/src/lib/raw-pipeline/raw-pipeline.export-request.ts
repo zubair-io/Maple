@@ -8,6 +8,7 @@
 // (#3039 review — shared with `auto-adjust-request.ts` / `develop-non-raw-request.ts`,
 // which had grown byte-for-byte identical copies of it).
 
+import type { RemovalCompanionBundle } from '../removal/removal-companion-bundle';
 import type { ExportedFile, ExportRequest, RawExportOptions } from './raw-pipeline.types';
 import { dispatchWithMark, type RegisterPending } from './raw-pipeline.dispatch-with-mark';
 
@@ -30,13 +31,30 @@ export function dispatchExport(
   options: RawExportOptions,
   xmp: string | undefined,
   filmLut?: ArrayBuffer,
+  saved?: RemovalCompanionBundle,
 ): Promise<ExportedFile> {
   const buffer = bytes.buffer.slice(
     bytes.byteOffset,
     bytes.byteOffset + bytes.byteLength,
   ) as ArrayBuffer;
-  const request: ExportRequest = { id, type: 'export', bytes: buffer, ext, xmp, options, filmLut };
-  const transfer = filmLut ? [buffer, filmLut] : [buffer];
+  const removals = saved
+    ? { manifest: saved.manifest, companions: saved.bytes.slice().buffer as ArrayBuffer }
+    : undefined;
+  const request: ExportRequest = {
+    id,
+    type: 'export',
+    bytes: buffer,
+    ext,
+    xmp,
+    options,
+    filmLut,
+    removals,
+  };
+  const transfer = [
+    buffer,
+    ...(filmLut ? [filmLut] : []),
+    ...(removals ? [removals.companions] : []),
+  ];
   return dispatchWithMark<ExportedFile>(
     worker,
     request,

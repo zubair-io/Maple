@@ -154,7 +154,26 @@ pub fn sensor_linearize_region(
 /// already 3-channel RGB. Caller dispatches on
 /// `raw.cfa == CfaPattern::LinearRgb`. See ticket #07.
 pub fn linearraw_to_camera_rgb(raw: &RawImage) -> crate::Result<Image> {
+    linearraw_to_camera_rgb_region(raw, 0, 0, raw.width, raw.height)
+}
+
+/// Bounded LinearRaw conversion using the whole-frame normalization/gamma
+/// arithmetic (#3955). Sensor coordinates; no mosaic or full RGB allocation.
+pub(crate) fn linearraw_to_camera_rgb_region(
+    raw: &RawImage,
+    x: u32,
+    y: u32,
+    width: u32,
+    height: u32,
+) -> crate::Result<Image> {
     debug_assert_eq!(raw.cfa, CfaPattern::LinearRgb);
+    if u64::from(x) + u64::from(width) > u64::from(raw.width)
+        || u64::from(y) + u64::from(height) > u64::from(raw.height)
+    {
+        return Err(crate::Error::Pipeline(
+            "LinearRaw region exceeds sensor bounds".into(),
+        ));
+    }
     let w = raw.width as usize;
     let h = raw.height as usize;
     let expected = 3 * w * h;
@@ -189,27 +208,39 @@ pub fn linearraw_to_camera_rgb(raw: &RawImage) -> crate::Result<Image> {
     let transfers = crate::sensor_gain_maps::transfers_apply(raw);
     let corrections = raw.sensor_gain_maps.as_ref();
 
-    let mut img = Image::new(raw.width, raw.height, ColorSpace::CameraNativeLinearRgb);
-    img.pixels.par_iter_mut().enumerate().for_each(|(idx, px)| {
-        let off = idx * 3;
-        let (x, y) = ((idx % w) as u32, (idx / w) as u32);
-        let encoded = [
-            ((raw.raw_data[off] as f32 - bl_r) / denom_r).clamp(0.0, 1.0),
-            ((raw.raw_data[off + 1] as f32 - bl_g) / denom_g).clamp(0.0, 1.0),
-            ((raw.raw_data[off + 2] as f32 - bl_b) / denom_b).clamp(0.0, 1.0),
-        ];
-        *px = std::array::from_fn(|plane| {
-            let value = encoded[plane];
-            // 8-bit lossy LinearRaw is gamma-encoded: invert the DNG
-            // Converter's usual gamma 2.4, even where the file declares its
-            // own OpcodeList2 transfer (`transfers_apply`, #5081). WB stays
-            // baked; DCP derives `scene_white_xyz` from
-            // `inv(CM) · AsShotNeutral` (legacy path), which matched the
-            // reference better than `wb_already_baked = true`.
-            let decoded = if lossy_8bit { value.powf(2.4) } else { value };
-            corrections.map_or(decoded, |c| c.apply(x, y, plane as u32, decoded, transfers))
+    let mut img = Image::new(width, height, ColorSpace::CameraNativeLinearRgb);
+    if width == 0 || height == 0 {
+        return Ok(img);
+    }
+    img.pixels
+        .par_chunks_mut(width as usize)
+        .enumerate()
+        .for_each(|(local_y, row)| {
+            let abs_y = y + local_y as u32;
+            let start = (abs_y as usize * w + x as usize) * 3;
+            let samples = &raw.raw_data[start..start + width as usize * 3];
+            for (local_x, (px, codes)) in row.iter_mut().zip(samples.chunks_exact(3)).enumerate() {
+                let abs_x = x + local_x as u32;
+                let encoded = [
+                    ((codes[0] as f32 - bl_r) / denom_r).clamp(0.0, 1.0),
+                    ((codes[1] as f32 - bl_g) / denom_g).clamp(0.0, 1.0),
+                    ((codes[2] as f32 - bl_b) / denom_b).clamp(0.0, 1.0),
+                ];
+                *px = std::array::from_fn(|plane| {
+                    let value = encoded[plane];
+                    // 8-bit lossy LinearRaw is gamma-encoded: invert the DNG
+                    // Converter's usual gamma 2.4, even where the file declares its
+                    // own OpcodeList2 transfer (`transfers_apply`, #5081). WB stays
+                    // baked; DCP derives `scene_white_xyz` from
+                    // `inv(CM) · AsShotNeutral` (legacy path), which matched the
+                    // reference better than `wb_already_baked = true`.
+                    let decoded = if lossy_8bit { value.powf(2.4) } else { value };
+                    corrections.map_or(decoded, |c| {
+                        c.apply(abs_x, abs_y, plane as u32, decoded, transfers)
+                    })
+                });
+            }
         });
-    });
     Ok(img)
 }
 

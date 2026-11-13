@@ -1,0 +1,126 @@
+{
+  "issues": [3984, 1472],
+  "releaseQualified": false,
+  "testedMainBase": "51dc3443faa4c85d192eb95d5605d172edf60564",
+  "change": "Keep per-person painted Add/Subtract history and redo across checkbox changes. Replay from immutable detected masks with current kept/manual protection for the pending overlay and Remove. Undo/Redo apply pending choices before replay. New detection explicitly starts with empty refinement history.",
+  "sourceFiles": [
+    {
+      "path": "src/apple/Packages/MapleCore/Sources/MapleCore/Removal/RemovalSession+Inference.swift",
+      "sha256": "22e2f4412e18736b3a68368bdbc96dcb8663cfed7bfb78c347d3b5d9b7bf5c0d",
+      "bytes": 10604
+    },
+    {
+      "path": "src/apple/Packages/MapleCore/Sources/MapleCore/Removal/RemovalSession+PersonRefinement.swift",
+      "sha256": "7ceb8e6bf299abbfb56b0db2d8dd1795323b7de2f968ecb835c5787ef4fece07",
+      "bytes": 7356
+    },
+    {
+      "path": "src/apple/Packages/MapleCore/Sources/MapleCore/Removal/NativeRemovalOverlay.swift",
+      "sha256": "8ed347a299b50b091da24764c54f23a31facbb997e297d5965feaa3c607873b7",
+      "bytes": 4524
+    },
+    {
+      "path": "src/apple/Packages/MapleCore/Tests/MapleCoreTests/RemovalPersonRefinementTests.swift",
+      "sha256": "8a4ec5289d3ff82e25d622b2d70b059250eb820cae670df63feaa18c5cd02cd8",
+      "bytes": 15414
+    },
+    {
+      "path": "src/apple/Packages/MapleCore/Tests/MapleCoreTests/PhotographicRemovalGroupTests.swift",
+      "sha256": "48db3bd75098230ec9fbf6814b7040d5ff60f138ccb18c4b63ba02d2d05b7976",
+      "bytes": 17245
+    }
+  ],
+  "beforeFix": {
+    "log": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/person-choice-refinement-before-20261004.log",
+      "sha256": "e1bb5dbb239320db83d7c21bf10369bbcf7b4c772b82fcd21f303a111235370f",
+      "bytes": 24606
+    },
+    "tests": 1,
+    "assertionFailures": 3,
+    "observed": "Another checkbox discarded the painted edge and selection Undo/Redo history."
+  },
+  "validation": {
+    "swift": {
+      "log": {
+        "path": "/Users/riabuz/.cache/maple-removal-research/person-choice-final-tests-20261004.log",
+        "sha256": "244487b97f3384cc3cd9119208d2a4cc7c5fff47cbd7c1abd8966ae8022dcab1",
+        "bytes": 21209
+      },
+      "passed": 33,
+      "failures": 0,
+      "skips": 0,
+      "includes": "Real photographic detector/SAM manual partial-person correction with pending overlay and Undo/Redo; actual two-object LaMa generation, one durable Keep, two records/four assets, XMP and exact saved reopening; fixture-free history/protection/session/group tests."
+    },
+    "macBuild": {
+      "log": {
+        "path": "/Users/riabuz/.cache/maple-removal-research/person-choice-mac-build-20261004.log",
+        "sha256": "1abffe50e9ce4c479ee9aa6e6e9461f365917fba26417057a4ee18fbc6de22ab",
+        "bytes": 506835
+      },
+      "result": "BUILD SUCCEEDED"
+    },
+    "nativeCheck": "check-only current",
+    "nativeInputStamp": "8606c98b2a9898d7cc24e4513f57fbd2c9f1349b"
+  },
+  "photographicCorrection": {
+    "report": {
+      "path": "test-fixtures/raws/removal-photographic/person-choice-runs/C37D1033-5AB4-4FEA-895E-C5F23F6E081A/report.json",
+      "sha256": "612fe1fce526b5b1dd25de452819059ec8b77ca30ed776c3103dfe065e229f04",
+      "bytes": 1155
+    },
+    "results": {
+      "afterChoiceDigest": "blake3:e7c7f628b2e96024afd82574d3d3f8a204eb9ba88de52ab56251f9e175027824",
+      "beforeDigest": "blake3:f38593ad68b4168595039f88693a32dbc735c7dc5538178343f7677423b9bb58",
+      "changedChoice": 6,
+      "correctedDigest": "blake3:e7c7f628b2e96024afd82574d3d3f8a204eb9ba88de52ab56251f9e175027824",
+      "explicitDuplicateSelections": [3, 10, 15],
+      "originalUnchanged": true,
+      "protectionDigest": "blake3:e5da474a5c01d4145b2eaa34066e53901c1be5194f6be85d51998125c1dfdb95",
+      "releaseQualified": false,
+      "scope": "Actual native RAW detector/SAM masks and manual painted correction retained across checkbox, pending overlay and exact undo/redo. No automatic duplicate ownership, complete silhouette, live UI, reconstruction quality or performance qualification.",
+      "selectionDigest": "blake3:ece6fcec00681346a96cabf6bf2b6e6b90e6d2d911ef31e7f055d04b9f6ae68d",
+      "source": {
+        "decode": "blake3:add2c2b7017c74c40e3b2229acc1804ab1ca5be9700e99f448093dd044bf87c9",
+        "height": 4000,
+        "original": "blake3:2019a5cbd7bcdcf8405528789cde7c05ed4bee8d31c533df786be64f42c97718",
+        "width": 6000
+      },
+      "target": 3
+    },
+    "masks": [
+      {
+        "path": "test-fixtures/raws/removal-photographic/person-choice-runs/C37D1033-5AB4-4FEA-895E-C5F23F6E081A/before.mimf",
+        "sha256": "42f01cef285690478e7498d115c6ec257fd71c4d36f1fbd288ec9d74b0ddf9e4",
+        "bytes": 197767
+      },
+      {
+        "path": "test-fixtures/raws/removal-photographic/person-choice-runs/C37D1033-5AB4-4FEA-895E-C5F23F6E081A/corrected.mimf",
+        "sha256": "885f2c8b2935a5ab32dd2798ba62f4752551f8fa9038e53b325f20ef16e7db60",
+        "bytes": 215207
+      },
+      {
+        "path": "test-fixtures/raws/removal-photographic/person-choice-runs/C37D1033-5AB4-4FEA-895E-C5F23F6E081A/selection.mimf",
+        "sha256": "49e6b7f3391aa78850a7cab10e7512d08577937d77e760d5617ea595683d81ab",
+        "bytes": 221625
+      },
+      {
+        "path": "test-fixtures/raws/removal-photographic/person-choice-runs/C37D1033-5AB4-4FEA-895E-C5F23F6E081A/protection.mimf",
+        "sha256": "be83e408be205c4bc5861efb7f6889ac6e86b70204b47a945a4f0b90d8941f29",
+        "bytes": 1120203
+      }
+    ]
+  },
+  "photographicSavedGroup": {
+    "report": {
+      "path": "test-fixtures/raws/removal-photographic/group-runs/C70E2B3D-8072-4E66-82AD-0B6AD571FC00/report.json",
+      "sha256": "dc1a57e726f2a47f9c6758c5b06a0a730c9f59ff6c4510582cb3be5fe7a202a8",
+      "bytes": 13221
+    }
+  },
+  "limits": [
+    "No new shipping model, source/color pipeline, XMP contract or Web port changes.",
+    "Actual RAW correction explicitly selects three overlapping proposals belonging to the observed left wearer; automatic ownership/complete-silhouette and role semantics remain unqualified.",
+    "Core overlay projection and editor state were exercised; no fresh live native UI, iOS/device, photographic fill quality or supported-device performance qualification."
+  ]
+}

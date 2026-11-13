@@ -1,0 +1,169 @@
+{
+  "issue": 3984,
+  "epic": 1472,
+  "recorded_at": "2026-10-03T04:34:25.245296+00:00",
+  "branch": "codex/ai-object-removal",
+  "rebased_onto": "c6034fdb369ec711e065adf050afc1f8fa979636",
+  "parent_commit": "454530f001222d5ba107ba48998ba9464dab299c",
+  "pre_rebase_backup": "codex/ai-object-removal-pre-main-20261002",
+  "rebase_commits": 97,
+  "releaseQualified": false,
+  "goal_status": "active; incomplete",
+  "changes": [
+    "Automatic people detection on tab entry; suggested background checked; checkbox multi-selection; Remove applies choices automatically; no Apply or Suggest button.",
+    "Integrated current main semantic history, snapshots and partial white balance without rolling back accepted removals.",
+    "Shared sidecar leases and verified snapshot restoration; missing companions refuse publication.",
+    "Extracted web file I/O and haptics to maintain source-file headroom."
+  ],
+  "checks": {
+    "swift_regressions": {
+      "log": "/tmp/maple-main-update-swift-regressions-final-20261003.log",
+      "sha256": "7b127c6b29b76037af9e5179a59153b7ee5241487ccc18b571a41e33527b4ea4",
+      "passed": 2299,
+      "failed": 0,
+      "skipped": 0,
+      "classes": 289
+    },
+    "swift_integration": {
+      "log": "/tmp/maple-main-update-swift-integration-final2-20261003.log",
+      "sha256": "293cd846a98edd1964f471896cbbc468b14e271298923db63876a27fc65deb83",
+      "passed": 86,
+      "failed": 0,
+      "skipped": 0
+    },
+    "actual_models": {
+      "log": "/tmp/maple-main-update-actual-models-20261003.log",
+      "sha256": "fb3c921d8e55a84ecd0e731fbd6e01dc0362462b368d3dfd60b8a854f6bb01d0",
+      "passed": 5,
+      "failed": 0,
+      "skipped": 0
+    },
+    "web": {
+      "log": "/tmp/maple-main-update-web-tests-final6-20261003.log",
+      "sha256": "0126879ea3f3b04f27e7b3ec51e2bde62be0f8cf30b998d0722a442e148c5091",
+      "passed": 165,
+      "failed": 0,
+      "files": 20
+    },
+    "api": {
+      "log": "/tmp/maple-main-update-api-tests-20261002.log",
+      "sha256": "9e14a031845895a41b5e535db6131131843bcd8b21e62451f7592b89642e84ad",
+      "passed": 98,
+      "failed": 0,
+      "files": 5
+    },
+    "rust_xmp": {
+      "log": "/tmp/maple-main-update-rust-xmp-20261002.log",
+      "sha256": "ab1b072e25df6ab1d9de7dc6b2be53b00b8586041a6b5e1211c6f11f4f5e7887",
+      "passed": 202,
+      "failed": 0,
+      "ignored": 20
+    },
+    "metal": {
+      "log": "/tmp/maple-main-update-metal-final-20261003.log",
+      "sha256": "36d674522fb717d8539ed077ca351015a18ad7f7c71cff8c32408b56e4d6bae6",
+      "passed": 20,
+      "failed": 0,
+      "skipped": 0
+    },
+    "mac_build": {
+      "log": "/tmp/maple-main-update-mac-final2-20261003.log",
+      "sha256": "e956ee9551ecdc247259c9e4bb920101853f2782342fd1733d4d8f16659008a0",
+      "success": true
+    },
+    "web_typecheck": {
+      "log": "/tmp/maple-main-update-web-ts-final3-20261003.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "success": true,
+      "scope": "noEmit; declaration and declarationMap disabled"
+    },
+    "codegen": {
+      "log": "/tmp/maple-main-update-codegen-final3-20261003.log",
+      "sha256": "e804b8a3bb09954ddc570bfe60e969c77b8ef80f2560ad621ead492b11fdb19d",
+      "success": true,
+      "idempotent": true
+    },
+    "swift_format": {
+      "log": "/tmp/maple-main-update-swift-format-final-20261003.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "success": true,
+      "files": 173
+    },
+    "headroom": {
+      "log": "/tmp/maple-main-update-headroom-final-20261003.log",
+      "sha256": "e5ab2a25f8061db32ffdb922fed42f0e27b479832ba0cc573d056ef342acf495",
+      "success": true
+    },
+    "acr_baseline": {
+      "log": "/tmp/maple-main-update-color-baseline-20261003.log",
+      "sha256": "cb8b67bddd09cea610e5f8a5d6036cff9e899b8894fbdaaffd78c99077f31257",
+      "executed": false,
+      "reason": "Missing test-fixtures/references/manifest.json"
+    }
+  },
+  "source_sha256": {
+    "docs/capability-registry.json": "82e84b9dd06746da3717f19450b0b19982c04ccda52726453c2d2314af33c891",
+    "docs/capability-registry.md": "ff7f0586df5f16edd8100c7000ad9ef760a530985f2bb517bd761372a4f0a192",
+    "src/apple/Packages/MapleCore/Sources/MapleCore/AdjustmentModel.swift": "e3111105832f3be9010d324b0fdef2159e732db2c293ecbd3f8374ec7f5bfb7b",
+    "src/apple/Packages/MapleCore/Sources/MapleCore/EditSession+RemovalHistory.swift": "8de739539550fd64a9495d783ffb24e48a98e2b095b32eb06641dc9c32330334",
+    "src/apple/Packages/MapleCore/Sources/MapleCore/EditSession+UndoRedo.swift": "7a1c4c64fe5dd2d30a20d818e497880a0d979c6440eb628615efbf98181343c6",
+    "src/apple/Packages/MapleCore/Sources/MapleCore/EditSession.swift": "b54e22c36e2c5e205d08027779aa4747949142c909e56404039cceb03f48ad58",
+    "src/apple/Packages/MapleCore/Sources/MapleCore/Editor/EditorState+WhiteBalancePreset.swift": "c98bb5ae671b5081c534749ad5e73f3779367a1dde54824044789797740fde2d",
+    "src/apple/Packages/MapleCore/Sources/MapleCore/Editor/EditorWorkflowState.swift": "73068ed84aaf6588585a3557e5613fcc5c19de2a79f4d91a32db9ffc02695df4",
+    "src/apple/Packages/MapleCore/Sources/MapleCore/XMPSerialization+WhiteBalance.swift": "3027b1df55ca57736262dcc41bc71477decd750a417f4d92819dbf3844130aea",
+    "src/apple/Packages/MapleCore/Sources/MapleCore/XMPSidecarStore.swift": "4d1e9a6a0e75a501ae81b2b6eb6291218df05cf85a12b8bfbaee59be812e6032",
+    "src/apple/Packages/MapleCore/Tests/MapleCoreTests/RemovalHistoryTests.swift": "facb4744ee7e3e54d0b9cfe73ec0ac6098c31e812529ceb30b9929aefe234fbb",
+    "src/raw-pipeline/raw-core/src/capability_registry/mod.rs": "1c6e26f689cde0dc89638971b04cf0b62d44fa08b24199ecf80c4ae8fcc78086",
+    "src/web/projects/maple-common/src/lib/editor/editor-state.removal-history.spec.ts": "8a560941f23ad44bc2b47c54ddc4ee058311fc02e3c993fe8cbc078294cc25f4",
+    "src/web/projects/maple-common/src/lib/editor/editor-state.removal-history.ts": "4c5d89fbcb03abeef7a73094dd06c62027191fbf571a463e530edef465a38009",
+    "src/web/projects/maple-common/src/lib/editor/editor-state.service.ts": "5206f74162b21a565a97565ea43a9e1a2ba46d5633082a1d492561c705d913b0",
+    "src/web/projects/maple-common/src/lib/removal/local-removal-assets.spec.ts": "2c7c8d8828667fec6fa7fe7d042b19e19ab07004c583904ef133d9c2b164b965",
+    "src/web/projects/maple-common/src/lib/removal/removal-server-confirmation.ts": "24ba3705a293f207a37b1b04a5bc94299f90894979a41560fe52161704e95374",
+    "src/web/projects/maple-common/src/lib/xmp/hosted-workflow-writer.service.ts": "80cc2a88a5e755efe4623f05ad52c3490eeaeed67b5649a0f77e58abb9fda21a",
+    "src/web/projects/maple-common/src/lib/xmp/sidecar.store.ts": "343e59ef30f8daddbd0a580ac584c9fcd7dfff231b76f88f20ec6887127589ac",
+    "src/web/projects/maple-common/src/lib/xmp/xmp-adjustment-restore.service.ts": "709ca735099426f744d22d988d3ccb8a4e5747cc91f3d01c5700685eba7f704c",
+    "src/web/projects/maple-common/src/lib/xmp/xmp-store.service.ts": "407298ffa0b93a6ba3efa96b2b42d5c5b31ee431cbaf7aa95d604f70482c438f",
+    "test-fixtures/qualification/gpu_chain_parity_metal.json": "437db2e3e5c3d12bef93c497259b1f90cf0a0858b3755554a08f32ae5bc60279",
+    "src/web/projects/maple-common/src/lib/editor/editor-state.haptics.ts": "be5b324dc34230d139e7b3a18cac81848b290e8d2ba8b27c326f03bbac83e0a7",
+    "src/web/projects/maple-common/src/lib/xmp/sidecar-file-io.service.ts": "fa226c74cc3e1479846a359ce98ee7cf01bbf1921e5bc6da2149ac8f578b2cc2"
+  },
+  "native_ui": {
+    "app": "/tmp/maple-removal-auto-people-ui-20261002/Maple People Test.app",
+    "bundle_id": "app.justmaple.aperture.peopletest",
+    "sandbox_enabled": true,
+    "normal_build": "/tmp/maple-main-update-mac-20261002/Build/Products/Debug/Maple.app",
+    "observations": [
+      "Actual photographic RAW preview rendered with current main chrome.",
+      "Opening Background people runs actual detection; likely subject stays unchecked and green.",
+      "Checking the person immediately marks it red and enables Remove; Apply and Suggest buttons absent.",
+      "Remove applies choices and starts generation, then displays explicit 1024-source-pixel context error for this large foreground subject.",
+      "Unchecking returns to zero marked people and disabled Remove. No accepted edit or XMP created."
+    ],
+    "screenshots": {
+      "/tmp/maple-main-update-people-selected-20261003.png": "aca2eed05f9822568596e729d9e5f9983d69786409c2d082a76c3d12aaa3b44d",
+      "/tmp/maple-main-update-people-kept-20261003.png": "c36883b2dad03a9431934b10f3a68c6090ea97d0b55432e44f22145df305c7bc"
+    },
+    "runtime_log": "/tmp/maple-removal-auto-people-ui-20261002/runtime-main-update.log",
+    "original_user_app_and_photo_untouched": true
+  },
+  "regular_updates": {
+    "automation_id": "keep-ai-removal-branch-current",
+    "frequency": "hourly",
+    "preserves_dirty_work": true,
+    "push_or_merge": false
+  },
+  "failed_attempts_resolved": [
+    "Post-rebase compile return mismatch fixed.",
+    "Initial Swift failures in workflow adoption, concurrent semantic writes and partial WB authorship fixed; final full suite green.",
+    "Blocking flock trial hung under a held lock; replaced by nonblocking bounded asynchronous retry, focused and full suites green.",
+    "Node test file adapters lacked new main listEntries and browser Worker; use actual filesystem listing and rebuilt WASM converters. Final 165 cases pass."
+  ],
+  "limits": [
+    "No fresh ACR parity run: reference manifest absent.",
+    "Large-object strategy remains unfinished; complete selection plus expansion must fit 1024 x 1024 source pixels.",
+    "Real crowd/subject/overlap reconstruction quality and physical lower-memory Mac/16ms performance remain unqualified.",
+    "Pinned model distribution, checkpoint/transitive licensing, signing and remaining consumers remain open; no release flag enabled.",
+    "No fresh iOS, Windows, Safari/Firefox or full port qualification; Mac remains priority.",
+    "No push, PR or merge performed; full epic not complete."
+  ]
+}

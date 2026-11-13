@@ -1,0 +1,380 @@
+{
+  "issue": 4183,
+  "relatedIssues": [1472, 3940, 3984],
+  "recordedAt": "2026-10-04T08:56:55.059783+00:00",
+  "testedHead": "36c659d7ed7a76040c9e229e06186cad74f9dc88",
+  "testedBase": "ca6ccec2d4d52f1c412548b6843b514b5c2ad40f",
+  "observedOriginMain": "ec3d1b767f98f9d56e07a2fc93fc3b70c661cc3b",
+  "releaseQualified": false,
+  "problem": "Unordered final Info.plist generation and stamping produced mixed binary/XML output or lost provenance despite BUILD SUCCEEDED.",
+  "change": "Declare the final app Info.plist as the stamping phase input. Xcode orders generation before stamping and stamping before signing on both bundle layouts. Existing SHA/date and early-feature policy are preserved.",
+  "validation": {
+    "testedHead": "36c659d7ed7a76040c9e229e06186cad74f9dc88",
+    "verifiedCases": [
+      ["mac", "clean-debug"],
+      ["mac", "incremental-stable"],
+      ["mac", "incremental-prerelease"],
+      ["ios", "clean-debug"],
+      ["ios", "incremental-stable"],
+      ["ios", "incremental-prerelease"]
+    ],
+    "buildsPassed": 6,
+    "finalPlistsAndDeepSignaturesVerified": 6,
+    "orderedBeforeSigning": true,
+    "releaseQualified": false,
+    "receiptIntegrityControlsPassed": 8,
+    "failed": 0,
+    "skipped": 0,
+    "nativeInputStamp": "c1fa14dbb7b8dd1fa6ce3749ab0b0bed05baa0b1",
+    "nativeCheckOnlyPassed": true,
+    "baselineActualMixedPlistRefused": true
+  },
+  "builds": [
+    {
+      "case": "clean-debug",
+      "platform": "mac",
+      "testedHead": "36c659d7ed7a76040c9e229e06186cad74f9dc88",
+      "expectedEarlyFeatures": null,
+      "started": "2026-10-04T08:45:58.528208+00:00",
+      "ended": "2026-10-04T08:52:27.567762+00:00",
+      "buildExit": 0,
+      "command": [
+        "xcodebuild",
+        "-project",
+        "src/apple/Maple.xcodeproj",
+        "-scheme",
+        "Maple",
+        "-configuration",
+        "Debug",
+        "-destination",
+        "platform=macOS",
+        "-derivedDataPath",
+        "/Users/riabuz/.cache/maple-removal-research/mac-main-update-20261003",
+        "clean",
+        "build"
+      ],
+      "log": "/Users/riabuz/.cache/maple-removal-research/provenance-fixed-mac-clean-debug-20261004.log",
+      "logSHA256": "086c279dfecf6b683b65fa72a6ff1294b7e6ad8c989108322e38af1a4d6cc5a4",
+      "plist": "/Users/riabuz/.cache/maple-removal-research/provenance-fixed-mac-clean-debug-20261004.plist",
+      "plistSHA256": "4d96d43ee65a8407cec9e2faed5aa8012d2a956e8ab830390d1e54b6c16e69f6",
+      "codesignExit": 0,
+      "codesignLog": "/Users/riabuz/.cache/maple-removal-research/provenance-fixed-mac-clean-debug-codesign-20261004.log"
+    },
+    {
+      "case": "incremental-stable",
+      "platform": "mac",
+      "testedHead": "36c659d7ed7a76040c9e229e06186cad74f9dc88",
+      "expectedEarlyFeatures": false,
+      "started": "2026-10-04T08:52:27.770574+00:00",
+      "ended": "2026-10-04T08:53:22.725660+00:00",
+      "buildExit": 0,
+      "command": [
+        "xcodebuild",
+        "-project",
+        "src/apple/Maple.xcodeproj",
+        "-scheme",
+        "Maple",
+        "-configuration",
+        "Debug",
+        "-destination",
+        "platform=macOS",
+        "-derivedDataPath",
+        "/Users/riabuz/.cache/maple-removal-research/mac-main-update-20261003",
+        "build"
+      ],
+      "log": "/Users/riabuz/.cache/maple-removal-research/provenance-fixed-mac-incremental-stable-20261004.log",
+      "logSHA256": "f497033dfeef91ba49ad202c0fdba672e8a4f81e47d18940daa0ac1ef157260b",
+      "plist": "/Users/riabuz/.cache/maple-removal-research/provenance-fixed-mac-incremental-stable-20261004.plist",
+      "plistSHA256": "3fd619c3bb4f09b19c056be5b20a670490252131bed3b66091ac86877f19bb0a",
+      "codesignExit": 0,
+      "codesignLog": "/Users/riabuz/.cache/maple-removal-research/provenance-fixed-mac-incremental-stable-codesign-20261004.log"
+    },
+    {
+      "case": "incremental-prerelease",
+      "platform": "mac",
+      "testedHead": "36c659d7ed7a76040c9e229e06186cad74f9dc88",
+      "expectedEarlyFeatures": true,
+      "started": "2026-10-04T08:53:23.031964+00:00",
+      "ended": "2026-10-04T08:54:11.698265+00:00",
+      "buildExit": 0,
+      "command": [
+        "xcodebuild",
+        "-project",
+        "src/apple/Maple.xcodeproj",
+        "-scheme",
+        "Maple",
+        "-configuration",
+        "Debug",
+        "-destination",
+        "platform=macOS",
+        "-derivedDataPath",
+        "/Users/riabuz/.cache/maple-removal-research/mac-main-update-20261003",
+        "build"
+      ],
+      "log": "/Users/riabuz/.cache/maple-removal-research/provenance-fixed-mac-incremental-prerelease-20261004.log",
+      "logSHA256": "a3ef51a7dafdc0f0eaefaa4e2d68aa4c30c8d6bedbe0d5f037fd402289ff591b",
+      "plist": "/Users/riabuz/.cache/maple-removal-research/provenance-fixed-mac-incremental-prerelease-20261004.plist",
+      "plistSHA256": "dc642cac79d1d261567e5f0867873e9c0416722c5fdf2629c73b070eecf873e2",
+      "codesignExit": 0,
+      "codesignLog": "/Users/riabuz/.cache/maple-removal-research/provenance-fixed-mac-incremental-prerelease-codesign-20261004.log"
+    },
+    {
+      "case": "clean-debug",
+      "platform": "ios",
+      "testedHead": "36c659d7ed7a76040c9e229e06186cad74f9dc88",
+      "expectedEarlyFeatures": null,
+      "started": "2026-10-04T08:45:58.528376+00:00",
+      "ended": "2026-10-04T08:52:33.734196+00:00",
+      "buildExit": 0,
+      "command": [
+        "xcodebuild",
+        "-project",
+        "src/apple/Maple.xcodeproj",
+        "-scheme",
+        "Maple",
+        "-configuration",
+        "Debug",
+        "-destination",
+        "platform=iOS Simulator,id=C91ACD40-2680-421C-AC62-E296CC4E7166",
+        "-derivedDataPath",
+        "/Users/riabuz/.cache/maple-removal-research/zits-ios-rebase-20261004",
+        "clean",
+        "build"
+      ],
+      "log": "/Users/riabuz/.cache/maple-removal-research/provenance-fixed-ios-clean-debug-20261004.log",
+      "logSHA256": "5c962fc99ab25283965dbbdd4d9f1762e2acc3cafbf3a6f6df12da153960bfdf",
+      "plist": "/Users/riabuz/.cache/maple-removal-research/provenance-fixed-ios-clean-debug-20261004.plist",
+      "plistSHA256": "417926762c2546559c6c4a7c8412f212bc55455f75ec2ebe28d8a34ee9a8aecd",
+      "codesignExit": 0,
+      "codesignLog": "/Users/riabuz/.cache/maple-removal-research/provenance-fixed-ios-clean-debug-codesign-20261004.log"
+    },
+    {
+      "case": "incremental-stable",
+      "platform": "ios",
+      "testedHead": "36c659d7ed7a76040c9e229e06186cad74f9dc88",
+      "expectedEarlyFeatures": false,
+      "started": "2026-10-04T08:52:34.485859+00:00",
+      "ended": "2026-10-04T08:53:22.029623+00:00",
+      "buildExit": 0,
+      "command": [
+        "xcodebuild",
+        "-project",
+        "src/apple/Maple.xcodeproj",
+        "-scheme",
+        "Maple",
+        "-configuration",
+        "Debug",
+        "-destination",
+        "platform=iOS Simulator,id=C91ACD40-2680-421C-AC62-E296CC4E7166",
+        "-derivedDataPath",
+        "/Users/riabuz/.cache/maple-removal-research/zits-ios-rebase-20261004",
+        "build"
+      ],
+      "log": "/Users/riabuz/.cache/maple-removal-research/provenance-fixed-ios-incremental-stable-20261004.log",
+      "logSHA256": "e0a9c0fa33090cbfd28cd1c9418bfe9cd7d39fdba1f79c43d59f63e5de9c2e05",
+      "plist": "/Users/riabuz/.cache/maple-removal-research/provenance-fixed-ios-incremental-stable-20261004.plist",
+      "plistSHA256": "cca01d254cdae1c9d25f670bb99807e01acd6e6ce514924887b26813098bc06f",
+      "codesignExit": 0,
+      "codesignLog": "/Users/riabuz/.cache/maple-removal-research/provenance-fixed-ios-incremental-stable-codesign-20261004.log"
+    },
+    {
+      "case": "incremental-prerelease",
+      "platform": "ios",
+      "testedHead": "36c659d7ed7a76040c9e229e06186cad74f9dc88",
+      "expectedEarlyFeatures": true,
+      "started": "2026-10-04T08:53:22.302590+00:00",
+      "ended": "2026-10-04T08:54:12.430164+00:00",
+      "buildExit": 0,
+      "command": [
+        "xcodebuild",
+        "-project",
+        "src/apple/Maple.xcodeproj",
+        "-scheme",
+        "Maple",
+        "-configuration",
+        "Debug",
+        "-destination",
+        "platform=iOS Simulator,id=C91ACD40-2680-421C-AC62-E296CC4E7166",
+        "-derivedDataPath",
+        "/Users/riabuz/.cache/maple-removal-research/zits-ios-rebase-20261004",
+        "build"
+      ],
+      "log": "/Users/riabuz/.cache/maple-removal-research/provenance-fixed-ios-incremental-prerelease-20261004.log",
+      "logSHA256": "be6101c78e069365fa133452c09b8622c4d661dbc00346b465fe8d4c812a0342",
+      "plist": "/Users/riabuz/.cache/maple-removal-research/provenance-fixed-ios-incremental-prerelease-20261004.plist",
+      "plistSHA256": "4118f15f5f0cccffa0d5ccefc7c4040f0620104bb21f6217f970e5b096f00ebb",
+      "codesignExit": 0,
+      "codesignLog": "/Users/riabuz/.cache/maple-removal-research/provenance-fixed-ios-incremental-prerelease-codesign-20261004.log"
+    }
+  ],
+  "sourceFiles": [
+    {
+      "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/src/apple/Maple.xcodeproj/project.pbxproj",
+      "sha256": "2d88324469415441b19ed9c19ee03907f528ee052d25d5d2367eb401f533e9ce",
+      "bytes": 76041
+    },
+    {
+      "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/src/apple/Maple/BuildProvenance.swift",
+      "sha256": "f159021549f5b3721615ea096c94fe32fd1c1f4862e16324bd76d7c0c4f494ed",
+      "bytes": 1024
+    },
+    {
+      "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/tools/removal/verify_apple_build_provenance.py",
+      "sha256": "b0ca8f942483a4edecb3d026bb6eff13b65fefc4a147df1abe00e3616d233a43",
+      "bytes": 4231
+    },
+    {
+      "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/tools/removal/apple_build_provenance_test.py",
+      "sha256": "dd161791f04385603584075069a5f6009addf0ee72ff3686e83a33a529b41fd5",
+      "bytes": 4367
+    },
+    {
+      "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/docs/apple.md",
+      "sha256": "c2ad1e2afd9b03cf8b57f7640b81610ecc578cf9301b848baea09c20d47e5dd3",
+      "bytes": 51030
+    }
+  ],
+  "evidenceFiles": [
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/run-provenance-builds-20261004.py",
+      "sha256": "9069d25838f64324c437dbee5defbc3b067b728c35307dc65832e4a417af07b1",
+      "bytes": 3484
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/provenance-fixed-audit-20261004.json",
+      "sha256": "8f9e651083cee2fb5c711d298fa4f0b6dad9ab76f46bffd5c6194a89ec9ddfa3",
+      "bytes": 527
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/provenance-fixed-controls-20261004.log",
+      "sha256": "9040037930cb58f4ad1fb773c88364973f72ef7fd161cccbef5ec30eece1163f",
+      "bytes": 1266
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/provenance-fixed-headroom-20261004.log",
+      "sha256": "e5ab2a25f8061db32ffdb922fed42f0e27b479832ba0cc573d056ef342acf495",
+      "bytes": 55
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/removal-postrename-ios-invalid-info-20261004.plist",
+      "sha256": "d5a5d38b74fce739e6eebddce670dafe56b7729894a6f3c7cfaa24f391b5875f",
+      "bytes": 4758
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/provenance-fixed-mac-20261004.json",
+      "sha256": "c785dcd1b68bb59baec4b3b7b33c914734bab4e0d28ae7893312ccc1ce4ac2dd",
+      "bytes": 3496
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/provenance-fixed-mac-runner-20261004.log",
+      "sha256": "00361f1b62344dc96d8ec729dab95013379f813bf8ec9a8a4a9732e5b72bfe10",
+      "bytes": 252
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/provenance-fixed-ios-20261004.json",
+      "sha256": "079b7c38b331c2cd61941e00a7502a3c10d0660208be5d5eae98c40bba1227be",
+      "bytes": 3640
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/provenance-fixed-ios-runner-20261004.log",
+      "sha256": "cd79f291296da454bfa87ca15666669abf3a37c6c43130d2eff8aa2c8f681606",
+      "bytes": 252
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/provenance-fixed-mac-clean-debug-20261004.log",
+      "sha256": "086c279dfecf6b683b65fa72a6ff1294b7e6ad8c989108322e38af1a4d6cc5a4",
+      "bytes": 5938258
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/provenance-fixed-mac-clean-debug-20261004.plist",
+      "sha256": "4d96d43ee65a8407cec9e2faed5aa8012d2a956e8ab830390d1e54b6c16e69f6",
+      "bytes": 4234
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/provenance-fixed-mac-clean-debug-codesign-20261004.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/provenance-fixed-mac-incremental-stable-20261004.log",
+      "sha256": "f497033dfeef91ba49ad202c0fdba672e8a4f81e47d18940daa0ac1ef157260b",
+      "bytes": 355363
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/provenance-fixed-mac-incremental-stable-20261004.plist",
+      "sha256": "3fd619c3bb4f09b19c056be5b20a670490252131bed3b66091ac86877f19bb0a",
+      "bytes": 4275
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/provenance-fixed-mac-incremental-stable-codesign-20261004.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/provenance-fixed-mac-incremental-prerelease-20261004.log",
+      "sha256": "a3ef51a7dafdc0f0eaefaa4e2d68aa4c30c8d6bedbe0d5f037fd402289ff591b",
+      "bytes": 339412
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/provenance-fixed-mac-incremental-prerelease-20261004.plist",
+      "sha256": "dc642cac79d1d261567e5f0867873e9c0416722c5fdf2629c73b070eecf873e2",
+      "bytes": 4274
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/provenance-fixed-mac-incremental-prerelease-codesign-20261004.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/provenance-fixed-ios-clean-debug-20261004.log",
+      "sha256": "5c962fc99ab25283965dbbdd4d9f1762e2acc3cafbf3a6f6df12da153960bfdf",
+      "bytes": 6113790
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/provenance-fixed-ios-clean-debug-20261004.plist",
+      "sha256": "417926762c2546559c6c4a7c8412f212bc55455f75ec2ebe28d8a34ee9a8aecd",
+      "bytes": 4818
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/provenance-fixed-ios-clean-debug-codesign-20261004.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/provenance-fixed-ios-incremental-stable-20261004.log",
+      "sha256": "e0a9c0fa33090cbfd28cd1c9418bfe9cd7d39fdba1f79c43d59f63e5de9c2e05",
+      "bytes": 358599
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/provenance-fixed-ios-incremental-stable-20261004.plist",
+      "sha256": "cca01d254cdae1c9d25f670bb99807e01acd6e6ce514924887b26813098bc06f",
+      "bytes": 4859
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/provenance-fixed-ios-incremental-stable-codesign-20261004.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/provenance-fixed-ios-incremental-prerelease-20261004.log",
+      "sha256": "be6101c78e069365fa133452c09b8622c4d661dbc00346b465fe8d4c812a0342",
+      "bytes": 346942
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/provenance-fixed-ios-incremental-prerelease-20261004.plist",
+      "sha256": "4118f15f5f0cccffa0d5ccefc7c4040f0620104bb21f6217f970e5b096f00ebb",
+      "bytes": 4858
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/provenance-fixed-ios-incremental-prerelease-codesign-20261004.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    }
+  ],
+  "scope": "Actual xcodebuild clean and repeated incremental Debug builds on macOS and the arm64 iPhone 17 Pro simulator, no fabricated metadata or signing success. Stable/prerelease CI inputs select the existing boolean policy. Not a physical iOS/App Store/Xcode Cloud distribution qualification or AI reconstruction/performance claim.",
+  "remaining": [
+    "Rebase onto newer main and refresh the native library/test app as appropriate",
+    "Full AI-removal epic implementation and qualification under #1472"
+  ],
+  "pushOrMergePerformed": false
+}

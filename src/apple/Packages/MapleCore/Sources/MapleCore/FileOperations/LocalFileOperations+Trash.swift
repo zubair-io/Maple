@@ -3,7 +3,9 @@
 //
 // macOS owns a real Trash the user already knows how to look in, so a
 // filesystem-source delete goes through Finder's recycle operation, so Finder
-// records the original locations for Put Back. iOS/iPadOS has no OS trash for a
+// records the original locations for Put Back. Accepted AI removals instead
+// travel as one verified recovery folder so Finder cannot separate
+// RAW/XMP/companions (#3944). iOS/iPadOS has no OS trash for a
 // security-scoped folder, so it falls back to `.maple/trash/<rel>` under the
 // library root via the SAME relocate primitive every other move here uses.
 
@@ -58,6 +60,15 @@ extension LocalFileOperations {
     /// that restore action (#5343).
     static func trashToOSTrash(_ primaryURL: URL) async throws -> RelocateOutcome {
       let fm = FileManager.default
+      // A stacked JPEG shares the RAW's sidecar; the removal records are the RAW's alone.
+      if RawJpegPairing.isRaw(primaryURL.path),
+        sidecarCarriesRemovals(SidecarPath.sidecarURL(for: primaryURL))
+      {
+        let source = try LocalRemovalRelocation.open(rawURL: primaryURL)
+        if let records = source.records, !(try RemovalBridge.assetNames(records: records)).isEmpty {
+          return try await trashAcceptedRemoval(source, raw: primaryURL)
+        }
+      }
       let sidecarURL = SidecarPath.sidecarURL(for: primaryURL)
       let sidecarShared = SidecarOwnership.localStemClaimedBySibling(primaryURL)
       let variants = try LocalWorkflowVariants.paired(with: primaryURL)

@@ -1,0 +1,320 @@
+{
+  "issue": 3940,
+  "relatedIssues": [1472, 3984, 3944],
+  "recordedAt": "2026-10-04T06:36:32.493973+00:00",
+  "testedHead": "b41b7067446f48cb193d5a7e5ab986da5972b76b",
+  "testedBase": "773c5941f2f50d59a04328c1ae0d2f039dd8cfca",
+  "observedOriginMain": "773c5941f2f50d59a04328c1ae0d2f039dd8cfca",
+  "releaseQualified": false,
+  "problem": "A workflow restore with an already-present identical immutable action identity verified its removal companions but acknowledged the checkpoint without synchronizing the existing XMP inode. An explicitly unsynchronized restored sidecar reproduced the gap.",
+  "change": "Re-read the exact existing XML through one handle, synchronize that inode and its photo folder before adopting the acknowledged workflow; identical retries retain one history action and the original snapshot. Removal source/companion checks still precede confirmation.",
+  "baseline": {
+    "reason": "Missing existing sidecar sync after verified carriers",
+    "baselineHead": "de2410ecabbfeda538156dbf4c4f7bc0ea39e5c8",
+    "actualContentTestPassed": true,
+    "explicitlyUnsynchronizedSidecar": true
+  },
+  "validation": {
+    "realFileXCTestPassed": 82,
+    "failed": 0,
+    "skipped": 0,
+    "realWorkflowTraceControlsPassed": 6,
+    "existingXmpAndDirectoryConfirmedOnBothRetries": true,
+    "repeatedHistoryEntries": 1,
+    "missingCompanionRefusesMatchingIdentity": true,
+    "newMainResizeTestsPassed": 37,
+    "featurePatchesPreservedByRebase": 144,
+    "nativeInputStamp": "fef88c9cf1a25dabe51a4f11c9fac009dcea45a7",
+    "fourReleaseRustTargetsBuilt": true,
+    "exportedSymbolsVerified": 185,
+    "macOSBuild": "BUILD SUCCEEDED",
+    "arm64iPhone17ProSimulatorBuild": "BUILD SUCCEEDED",
+    "swiftRegressionCoverage": {
+      "classes": 500,
+      "run": 313,
+      "excluded": 187,
+      "untriaged": 0
+    }
+  },
+  "workflowTraceAudit": {
+    "test": "testAlreadyPublishedRemovalRestoreReconfirmsDurabilityWithoutDuplicatingHistory",
+    "traceSHA256": "4fe84ad936c75c730f3de17e3ca000c21588a36091d7c16931e166097509e6c6",
+    "operations": {
+      "Restore": [
+        [
+          "FILE",
+          "/private/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/removal-workflow-retry-05086EAA-01FE-4620-A324-87BCEAAE148D/.maple/inpaint/0346a34d63cd3fb6a969a0ec9904197cd1fd3a65674a9dd86f35aa141af4ebd0.f16"
+        ],
+        [
+          "FILE",
+          "/private/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/removal-workflow-retry-05086EAA-01FE-4620-A324-87BCEAAE148D/.maple/inpaint/2756822fece19b66f167dc674837f4614c52f9cfa4d3ff5d97e05b044be8f9f8.mask"
+        ],
+        [
+          "DIRECTORY",
+          "/private/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/removal-workflow-retry-05086EAA-01FE-4620-A324-87BCEAAE148D/.maple/inpaint"
+        ],
+        [
+          "DIRECTORY",
+          "/private/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/removal-workflow-retry-05086EAA-01FE-4620-A324-87BCEAAE148D/.maple"
+        ],
+        [
+          "DIRECTORY",
+          "/private/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/removal-workflow-retry-05086EAA-01FE-4620-A324-87BCEAAE148D"
+        ],
+        [
+          "FILE",
+          "/private/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/removal-workflow-retry-05086EAA-01FE-4620-A324-87BCEAAE148D/source.xmp"
+        ],
+        [
+          "DIRECTORY",
+          "/private/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/removal-workflow-retry-05086EAA-01FE-4620-A324-87BCEAAE148D"
+        ]
+      ],
+      "RepeatedRestore": [
+        [
+          "FILE",
+          "/private/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/removal-workflow-retry-05086EAA-01FE-4620-A324-87BCEAAE148D/.maple/inpaint/0346a34d63cd3fb6a969a0ec9904197cd1fd3a65674a9dd86f35aa141af4ebd0.f16"
+        ],
+        [
+          "FILE",
+          "/private/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/removal-workflow-retry-05086EAA-01FE-4620-A324-87BCEAAE148D/.maple/inpaint/2756822fece19b66f167dc674837f4614c52f9cfa4d3ff5d97e05b044be8f9f8.mask"
+        ],
+        [
+          "DIRECTORY",
+          "/private/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/removal-workflow-retry-05086EAA-01FE-4620-A324-87BCEAAE148D/.maple/inpaint"
+        ],
+        [
+          "DIRECTORY",
+          "/private/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/removal-workflow-retry-05086EAA-01FE-4620-A324-87BCEAAE148D/.maple"
+        ],
+        [
+          "DIRECTORY",
+          "/private/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/removal-workflow-retry-05086EAA-01FE-4620-A324-87BCEAAE148D"
+        ],
+        [
+          "FILE",
+          "/private/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/removal-workflow-retry-05086EAA-01FE-4620-A324-87BCEAAE148D/source.xmp"
+        ],
+        [
+          "DIRECTORY",
+          "/private/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/removal-workflow-retry-05086EAA-01FE-4620-A324-87BCEAAE148D"
+        ]
+      ]
+    },
+    "existingSidecarDurabilityReconfirmed": true,
+    "releaseQualified": false
+  },
+  "actualPhotographicSmartPaint": {
+    "report": {
+      "assets": {
+        "051bfa5d08e8dbfc12d1afa1615dfeefc95a843d45e8e7948cb5b2d6364fe2d2.f16": "blake3:051bfa5d08e8dbfc12d1afa1615dfeefc95a843d45e8e7948cb5b2d6364fe2d2",
+        "878987dc830be6765a1afc5a8acba72fe0a41e8f035648dcae0c2a1e54b46916.mask": "blake3:878987dc830be6765a1afc5a8acba72fe0a41e8f035648dcae0c2a1e54b46916"
+      },
+      "cancelWroteSidecar": false,
+      "largeIntentDigest": "blake3:f91ffbb2382107bfce64a74bd729a10317d0fcf7ad20089c81e2b9c617ef23d8",
+      "largeRefusedBeforeInference": true,
+      "originalUnchanged": true,
+      "protectedNativeContextExact": true,
+      "protectionDigest": "blake3:97b80da7ff45d60110f5633ceae0b1d1e4e6aafc35566649048898176bb7290d",
+      "releaseQualified": false,
+      "reopenedDigest": "blake3:0a05c7b41e421cb9fc2d447bdf6854c6bca8422f4b8c78873b507f3e5e3e6d9e",
+      "requests": [
+        {
+          "bake": {
+            "ev": 0,
+            "temp": 6500,
+            "tint": 0
+          },
+          "context_window": {
+            "height": 1024,
+            "width": 1024,
+            "x": 2933,
+            "y": 1248
+          },
+          "model": "blake3:11d91ba3f522282c1b0f0a3b9aa2be1646a1a65fd406b65f08e4d90740a4c492",
+          "model_version": "339d078d9d1376d76a49efd4fa42f328c3f276af775505ae8b57c84db187c4f6",
+          "patch_window": {
+            "height": 1024,
+            "width": 1024,
+            "x": 2933,
+            "y": 1248
+          },
+          "plate": "linear-calibration-v1",
+          "recipe": "blake3:c62a3714ba9e4f3535e8df99c5a3ab44b54ebe1ecfc315c473399c19f04f784a",
+          "source": {
+            "decode": "blake3:add2c2b7017c74c40e3b2229acc1804ab1ca5be9700e99f448093dd044bf87c9",
+            "height": 4000,
+            "original": "blake3:2019a5cbd7bcdcf8405528789cde7c05ed4bee8d31c533df786be64f42c97718",
+            "width": 6000
+          }
+        }
+      ],
+      "reviewDigest": "blake3:0a05c7b41e421cb9fc2d447bdf6854c6bca8422f4b8c78873b507f3e5e3e6d9e",
+      "reviewSize": [2048, 1365],
+      "scope": "Actual photographic Smart paint Add/Subtract gestures, deployed native MobileSAM selection, held-out visible sample checks, temporary review/Compare/Cancel, native LaMa reconstruction, one Keep/XMP/two assets/undo and exact model-free reopening. No independent complete silhouettes, person ownership, photographic fill quality, live UI or supported-device performance qualification.",
+      "selectionUndoRedoExact": true,
+      "smartIntentDigest": "blake3:878987dc830be6765a1afc5a8acba72fe0a41e8f035648dcae0c2a1e54b46916",
+      "source": {
+        "decode": "blake3:add2c2b7017c74c40e3b2229acc1804ab1ca5be9700e99f448093dd044bf87c9",
+        "height": 4000,
+        "original": "blake3:2019a5cbd7bcdcf8405528789cde7c05ed4bee8d31c533df786be64f42c97718",
+        "width": 6000
+      },
+      "undoSteps": 1
+    },
+    "files": [
+      {
+        "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/test-fixtures/raws/removal-photographic/smart-runs/769AEE96-6853-4384-B217-0A4C06017708/051bfa5d08e8dbfc12d1afa1615dfeefc95a843d45e8e7948cb5b2d6364fe2d2.f16",
+        "sha256": "d0284fcdbaed174702a6c780920e1d24a9ee41babc8dc4e6e7c344688ee2a1b1",
+        "bytes": 8388640
+      },
+      {
+        "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/test-fixtures/raws/removal-photographic/smart-runs/769AEE96-6853-4384-B217-0A4C06017708/878987dc830be6765a1afc5a8acba72fe0a41e8f035648dcae0c2a1e54b46916.mask",
+        "sha256": "35fbe6cb0fca2f596814e8ca2065a0a0dbcb9d7282bb20f4459af2807cea2d16",
+        "bytes": 16403
+      },
+      {
+        "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/test-fixtures/raws/removal-photographic/smart-runs/769AEE96-6853-4384-B217-0A4C06017708/large-intent.mimf",
+        "sha256": "c274137b7ebe2d0d1fd40832ba231f981441a4bc3731d6f819e83305d982f53c",
+        "bytes": 191541
+      },
+      {
+        "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/test-fixtures/raws/removal-photographic/smart-runs/769AEE96-6853-4384-B217-0A4C06017708/report.json",
+        "sha256": "f6292b46cf5f8073a5fb2e8cb59cb153bfa84f4cb8d3d8a5c62cccc8f82437b0",
+        "bytes": 2674
+      },
+      {
+        "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/test-fixtures/raws/removal-photographic/smart-runs/769AEE96-6853-4384-B217-0A4C06017708/review.rgb8",
+        "sha256": "b1f26219730844575af39a6c2f87c9c04c846a20f4bbe28519d3d0fc21201643",
+        "bytes": 8386560
+      },
+      {
+        "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/test-fixtures/raws/removal-photographic/smart-runs/769AEE96-6853-4384-B217-0A4C06017708/smart-intent.mimf",
+        "sha256": "35fbe6cb0fca2f596814e8ca2065a0a0dbcb9d7282bb20f4459af2807cea2d16",
+        "bytes": 16403
+      },
+      {
+        "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/test-fixtures/raws/removal-photographic/smart-runs/769AEE96-6853-4384-B217-0A4C06017708/smart-protection.mimf",
+        "sha256": "1c1acf54bea8f671160c858ac707a3896238501753f7adef4eb5b19b2176e97c",
+        "bytes": 111
+      }
+    ]
+  },
+  "sourceFiles": [
+    {
+      "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/src/apple/Packages/MapleCore/Sources/MapleCore/XMPSidecarStore.swift",
+      "sha256": "6ac161f316624a84af66530f7be6c840d022c1d50b635e53e23f0196e4490bee",
+      "bytes": 22784
+    },
+    {
+      "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/src/apple/Packages/MapleCore/Sources/MapleCore/XMPSidecarFilePublication.swift",
+      "sha256": "c7b4846b8e529e4cd3e53570e87aafbf60be838b8f26486a23f0c6acdffa4069",
+      "bytes": 2077
+    },
+    {
+      "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/src/apple/Packages/MapleCore/Tests/MapleCoreTests/RemovalWorkflowRetryTests.swift",
+      "sha256": "0d4b332b91c8c370a4bb886101fca1a034626385368eaa9b7a4bdb2907da9b85",
+      "bytes": 4656
+    },
+    {
+      "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/tools/removal/verify_mac_workflow_retry_sync.py",
+      "sha256": "fc8ea574f8a4388fc412c119194c654f6253020eaef2f5b96e2aa71e939cc65b",
+      "bytes": 3905
+    },
+    {
+      "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/tools/removal/mac_workflow_retry_sync_test.py",
+      "sha256": "3963563732e8a30bf554366805577cef400f54672f1d66e48d83b36f844ae9e6",
+      "bytes": 2832
+    },
+    {
+      "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/.github/swift-regressions/run.txt",
+      "sha256": "499b005906b39e1600177cd1b166d4cc1160afb5a5f0f9235c6e6c2e6031c10c",
+      "bytes": 11790
+    },
+    {
+      "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/docs/xmp-canonical-format.md",
+      "sha256": "819a5375b5b0eadaafeab50bfd511cf1b29c2f3498edf1fa89d293613ea9d164",
+      "bytes": 105799
+    }
+  ],
+  "evidenceFiles": [
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/removal-resize-main-after-20261004.json",
+      "sha256": "65b1235825f043ee15c193b5d5244ab3c39c7cd56b67bd60b1251672957645c0",
+      "bytes": 31280
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/removal-resize-main-native-build-20261004.log",
+      "sha256": "534f06682192ec80c456b72eafa85298403a1f65533c65fe455f1510cd247847",
+      "bytes": 198152
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/removal-resize-main-rust-tests-20261004.log",
+      "sha256": "d9439eaedb864de3c6b8607346f3be0decbc9885e478c47cc079f3ea3dbcc843",
+      "bytes": 8581
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/removal-workflow-retry-baseline-build-20261004.log",
+      "sha256": "b54dc772b1dee9951816f24d7dcaa9bb4f64adb2baefb20cef4353dc2cb64e31",
+      "bytes": 112058
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/removal-workflow-retry-baseline-trace-20261004.log",
+      "sha256": "2f65a658e6c2700caf2759603c4ffe01339c4983386e64e5776ad68dfbaafbab",
+      "bytes": 3007
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/removal-workflow-retry-baseline-refusal-20261004.json",
+      "sha256": "36e95c509ada0a626b2d2795c471f53c87f812177ba1cbeef6f4de03f9c3b626",
+      "bytes": 212
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/removal-workflow-retry-final-tests-20261004.log",
+      "sha256": "11451ba902c5fed53896970df30438652198fd87de781292466e69c5e898d31d",
+      "bytes": 36540
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/removal-workflow-retry-fixed-trace-20261004.log",
+      "sha256": "4fe84ad936c75c730f3de17e3ca000c21588a36091d7c16931e166097509e6c6",
+      "bytes": 3579
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/removal-workflow-retry-fixed-audit-20261004.json",
+      "sha256": "d501a1ddc28c0ddf7c3c58968aebd0519490ef674a896b4f30d7fcac9f9b5675",
+      "bytes": 3018
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/removal-workflow-retry-controls-20261004.log",
+      "sha256": "127ce11ac7fe0eaa421bc4cfca76ed939db7ebcd71a913ad2a77aa3b80da40d5",
+      "bytes": 998
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/removal-workflow-retry-mac-build-20261004.log",
+      "sha256": "5dfb0fc9e747e931c731f39e7a22c059e5aa642c04015bf1fe6cc4aa32bc4fd3",
+      "bytes": 868428
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/removal-workflow-retry-ios-build-20261004.log",
+      "sha256": "c3a5736a8f1d96b4ab6efaf74954561b92892b6797307e29aef6d94746efa665",
+      "bytes": 839404
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/removal-workflow-retry-headroom-20261004.log",
+      "sha256": "e5ab2a25f8061db32ffdb922fed42f0e27b479832ba0cc573d056ef342acf495",
+      "bytes": 55
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/mac-restored-sync-audit-20261004.dylib",
+      "sha256": "09f407c792dc16e98170aae65757e422ed6f7d9f734952bb3383f234d55b9a7e",
+      "bytes": 33784
+    }
+  ],
+  "scope": "Actual locally restored unsynchronized bytes and real shared workflow commands, no mocked sidecar writer or replaced filesystem. Proof of Darwin syscall order and product history/content, no physical power loss, live UI, reconstruction quality or device/NAS performance qualification.",
+  "remaining": [
+    "Primary Keep/undo/redo reconciliation when the XMP rename succeeds but its acknowledgement/directory sync fails",
+    "Previously interrupted deep ancestor durability and recovery UI",
+    "Complete person ownership, native large-object reconstruction quality and supported-device performance",
+    "Remote/portable transports and full Apple/Web epic qualification"
+  ],
+  "pushOrMergePerformed": false
+}

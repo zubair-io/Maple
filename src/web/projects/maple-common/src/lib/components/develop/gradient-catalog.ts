@@ -77,6 +77,7 @@ const TOOL_GRADIENTS: Record<ToolId, GradientValue> = {
   mask: 'linear-gradient(90deg, #4a443b 0%, #a8a097 100%)',
   // Heal (#3409) is value-less too — its brush controls live in its panel.
   heal: 'linear-gradient(90deg, #4a443b 0%, #a8a097 100%)',
+  remove: DEFAULT_GRADIENT,
   // Geometry (#3410) — field-less tool (seven sliders, no single drag-bar
   // field), same shape as lensCorrections above.
   geometry: 'linear-gradient(90deg, #4a443b 0%, #a8a097 100%)',

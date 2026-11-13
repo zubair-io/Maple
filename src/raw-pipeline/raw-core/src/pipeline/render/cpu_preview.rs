@@ -44,6 +44,7 @@ impl CpuPreview {
             film,
             CancelToken::never(),
             true,
+            None,
         )?;
         // Auto2's canonical pinned-default route applies only its baked LUT;
         // edited models and engaged film LUTs replay the curve, including identity rounding.

@@ -439,14 +439,14 @@ describe('EditorStateService', () => {
   describe('tool catalog', () => {
     it('verifies tool registry configuration', () => {
       // 26 + mask (#1541) + geometry (#3410) + captureSharpen (#3414)
-      // + defringe (#3411) + heal (#3409).
-      expect(ALL_TOOLS.length).toBe(31);
+      // + defringe (#3411) + heal (#3409) + remove (#3984).
+      expect(ALL_TOOLS.length).toBe(32);
       expect(TOOLS_IN_GROUP.light.length).toBe(7);
       expect(TOOLS_IN_GROUP.color.length).toBe(6);
       expect(TOOLS_IN_GROUP.effects.length).toBe(7);
       // Detail gained lensCorrections (#2231): 5 → 6, then geometry (#3410),
       // captureSharpen (#3414), defringe (#3411) and heal (#3409).
-      expect(TOOLS_IN_GROUP.detail.length).toBe(11);
+      expect(TOOLS_IN_GROUP.detail.length).toBe(12);
 
       const wired = ALL_TOOLS.filter(isWired);
       // Geometry (#3410) and Defringe (#3411) are wired: their sliders write

@@ -41,6 +41,8 @@ namespace Maple.WinUI.Services.Xmp
             {
                 parts.Add($"{XmpRetouch.FrameVersionKey}=\"2\"");
             }
+            if (doc.Adjustments.InpaintRemovals is { } removals)
+                parts.Add($"papp:InpaintRemovals=\"{XmpSchema.EscapeAttr(removals)}\"");
             XmpWhiteBalance.AppendAttributes(parts, doc.Adjustments);
             AppendCropFields(parts, doc.Adjustments);
             AppendCullingFields(parts, doc);

@@ -1,0 +1,210 @@
+{
+  "schema": 1,
+  "issue": 4211,
+  "relatedIssues": [
+    1472,
+    3941,
+    3955
+  ],
+  "recordedAt": "2026-10-04T17:11:01.518804+00:00",
+  "testedParentHead": "77d1c71c9f8efb5c290818976a62fe05d076e280",
+  "releaseQualified": false,
+  "sourceFiles": [
+    {
+      "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/src/raw-pipeline/raw-core/src/pipeline/fp16.rs",
+      "sha256": "aa9818ea92b0a92dc58c8444f33a1573a9723e2e8b079bd974435b0e7f0c6b82"
+    },
+    {
+      "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/src/raw-pipeline/raw-core/src/pipeline/inpaint_store_tests.rs",
+      "sha256": "151db168c1cebcb2d66b90c8d13ddb19d7d78816bc6788c0ed0470e04d8ee523"
+    },
+    {
+      "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/src/apple/Packages/MapleCore/Tests/MapleCoreTests/SceneLinearHalfShadowTransportTests.swift",
+      "sha256": "8d5d2f078cf06776662befc6143a719d03b5396756795374646270df2bd02b47"
+    },
+    {
+      "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/.github/swift-regressions/run.txt",
+      "sha256": "87eaac25d2e7f2d7128acf5cfd60c7fa03cfe58e5242c9c3311ff8a32906e20d"
+    },
+    {
+      "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/.github/swift-regressions/excluded.txt",
+      "sha256": "6454c0bd2ab9e4db8ca4b6bfd9ab9881671d6b5de722a74609374377aee9c721"
+    }
+  ],
+  "change": "Correct shared binary16 subnormal significand shift, nearest-even rounding and carry into minimum normal. Existing decoder, MIPF version/layout, models, view transform, WGSL color stages and previously stored assets unchanged. No original or sidecar mutation.",
+  "regressions": {
+    "baseline": "Three new arithmetic regressions fail before the fix; three historical tests pass.",
+    "fixed": "6 arithmetic tests pass, including every signed finite binary16 encoding and infinity, all adjacent finite rounding midpoints and both neighboring f32 values against the existing independent half crate.",
+    "patch": "18 real byte codec tests pass, including exact signed shadow pixels and positive shadow coverage in MIPF v1 and transport.",
+    "native": "29 XCTest tests pass, zero skips: every signed subnormal/minimum normal through actual linked half chain, exact real Metal texture readback, native removal authoring/refinement/history/saved-scene consumers.",
+    "coreChain": "29 tests pass, zero skips.",
+    "gpuComposite": "4 actual WGSL/CPU composite tests pass, zero skips.",
+    "apple": "All four release slices, 187 symbols; macOS and arm64 iOS simulator builds and strict deep signature checks pass. No new iOS runtime or full UI flow claim.",
+    "ciCoverage": "504 test classes accounted for; fixture-free native shadow chain class added to run list, real Metal class explicitly excluded on GPU requirement and exercised locally. No silent omission."
+  },
+  "logs": [
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/fp16-subnormal-baseline-regressions-20261004.log",
+      "sha256": "ba6661c79e74a58e97e3285491edbc045beb078471d1e03a6f8b01deb3cb4a96"
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/fp16-subnormal-tests-fixed-20261004.log",
+      "sha256": "946c561cdf8e3b7558921b18e08ead35a2a6015c3c1cdaf2019f581340e7fd5a"
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/fp16-subnormal-patch-codec-tests-20261004.log",
+      "sha256": "4f99e2837aacce9dde0a4dd287b5593f93e1fac4d503d443e18ad65418d3dea8"
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/fp16-fixed-xcframework-20261004.log",
+      "sha256": "26ab41af8b38a7ada7d5536da6035cdeedd4c966eff4c8ebba51e52fb78a8f7f"
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/fp16-fixed-core-chain-tests-20261004.log",
+      "sha256": "359b5fff35b173865674fc572c88154cb8a02158ade761175de785509202edd9"
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/fp16-fixed-gpu-composite-tests-20261004.log",
+      "sha256": "04358d29ffb57ee54a815cb9ca6eb61100d13382bda207c58b4767a0ae30b56d"
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/fp16-fixed-mac-build-20261004.log",
+      "sha256": "00c9976379728b1062dde57a4967bde2db40249806decd168ffb5b667cf8101f"
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/fp16-fixed-ios-build-20261004.log",
+      "sha256": "5851db9d710cd09295c62aecac5e3768b2166ed6e8c2779648dbdd0f12b5d7f1"
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/fp16-fixed-mac-codesign-20261004.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/fp16-fixed-ios-codesign-20261004.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/fp16-fixed-native-tests-qualified-20261004.log",
+      "sha256": "19cbbb744bd9345364a68868f61c7df4163e3fa9389f78c601b737bb8cd0e611"
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/fp16-fixed-swift-coverage-20261004.log",
+      "sha256": "b0a1e1073bac43272b283f782d8efa9656eb6ab78802c86acced2337693ad9e2"
+    }
+  ],
+  "nativeBuildInputHash": "e2736a82eb503eaf49c15d7b2b80aa758135cc71",
+  "researchProbeBinary": {
+    "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/src/raw-pipeline/target/release/examples/removal-scene-probe",
+    "sha256": "bb6b3a6ce5902f51eb7d2e5874fa284baf8029b317bcb6c6388a21e39f03b0e1"
+  },
+  "photographicExperiment": {
+    "context": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/corrected-person4-fixed-context-20261004/context.json",
+      "sha256": "661e7b04bd7ef3cf2419c4a5f4fc80e49997c582acaae15cbb0de72956132431"
+    },
+    "priorQualification": {
+      "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/test-fixtures/qualification/removal-corrected-person-fixed-context-20261004-3941.json",
+      "sha256": "ecece0b96856460036906f218abe3baa0e4697e72ec5a877aa06cabcb0bed83d"
+    },
+    "runtimeResult": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/corrected-person4-native2048-runtime-20261004/result.f32",
+      "sha256": "59b9f02ca8403d7f96b474579e7ac5878f1917c5a74c4698b0627f48acb8ff6f"
+    },
+    "referenceResult": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/corrected-person4-native2048-reference-20261004/result.f32",
+      "sha256": "88973daaa7410796bfd52c7bc72ae3441f59368dfc7d9ac73065aee449d7d75f"
+    },
+    "pairedGrades": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/fp16-fixed-person4-native2048-paired-grade-comparison-20261004.json",
+      "sha256": "0b8d1e50f5da3c73994947175c29e1a0e267af179b4f5ad02bceccc3633f63fe"
+    },
+    "independentPreservation": [
+      {
+        "path": "/Users/riabuz/.cache/maple-removal-research/fp16-fixed-person4-independent-grade-verification-20261004.json",
+        "sha256": "8af9ab76072b698b6d0e4af41ac62768e1a0a67eac3a8f787fb66bd02664bfae"
+      },
+      {
+        "path": "/Users/riabuz/.cache/maple-removal-research/fp16-fixed-person4-reference-independent-grade-verification-20261004.json",
+        "sha256": "c5c898c2634a3e0ea547734d7fd685d7b46ae3ab24637911d816b295d723d897"
+      }
+    ],
+    "beforeMaxDifferenceU8": 31,
+    "afterMaxDifferenceU8": 24,
+    "knownProtectedChangedChannels": 0,
+    "residualWorst": {
+      "case": "auto_ev+3_wb+1000",
+      "localXYChannel": [
+        839,
+        1662,
+        2
+      ],
+      "nativeXY": [
+        1783,
+        3010
+      ],
+      "patches": [
+        {
+          "owner": "runtime",
+          "patch": {
+            "path": "/Users/riabuz/.cache/maple-removal-research/fp16-fixed-person4-native2048-bake-20261004/replacement.f16",
+            "sha256": "da58fcdfa6689aa685d8ade8979f5fce93d687c73182bd3d28f7b2fd0f1cc2ac"
+          },
+          "bits": [
+            42428,
+            42705,
+            41881
+          ],
+          "sceneRGB": [
+            -0.02239990234375,
+            -0.0266265869140625,
+            -0.01483917236328125
+          ]
+        },
+        {
+          "owner": "reference",
+          "patch": {
+            "path": "/Users/riabuz/.cache/maple-removal-research/fp16-fixed-person4-native2048-reference-bake-20261004/replacement.f16",
+            "sha256": "6a54d5948119f51e01696672a6de4fbfb1883317bfc319c6056ee18a66fa35f1"
+          },
+          "bits": [
+            42429,
+            42705,
+            41882
+          ],
+          "sceneRGB": [
+            -0.0224151611328125,
+            -0.0266265869140625,
+            -0.0148468017578125
+          ]
+        }
+      ],
+      "interpretation": "Residual worst pixel carries ordinary normal half values differing by one ULP; it is not the repaired subnormal shift error. Model/reconstruction/encoding sensitivity remains unqualified; no view-transform workaround or shipping admission."
+    },
+    "quality": "Photographic person fill remains rejected: fabric-like repetition and bag-shaped dark area. Sparse prompted targets do not prove complete silhouette ownership."
+  },
+  "colorGate": {
+    "status": "RUNNING, not passed",
+    "sessionId": 39403,
+    "verifiedProcessPid": 78479,
+    "logPath": "/Users/riabuz/.cache/maple-removal-research/fp16-fixed-color-harness-primary-corpus-20261004.log",
+    "manifest": {
+      "path": "/Users/riabuz/Projects/_Maple/test-fixtures/references/manifest.json",
+      "sha256": "f3cbda4df895288494d11c2c7828f3b27aea365009acc4b5715e0be4b2ca93cd"
+    },
+    "budgets": {
+      "path": "/Users/riabuz/Projects/_Maple/test-fixtures/budgets.json",
+      "sha256": "48c8ac3f2b4b470f09afe43558ee98375321203f5e799acabeaaa5d90084927d"
+    },
+    "scope": "Full current-branch CLI perceptual gate against existing primary-worktree corpus read-only. No budget increase or primary checkout modification. Default in-worktree invocation skipped due absent manifest and is not evidence of a passing gate."
+  },
+  "remaining": "Full ACR gate terminal result, photographic reconstruction and model/runtime display parity, whole-object ownership, supported-device memory/latency, 100MP slider/performance/color/recovery/portable render/export consumers and Web authoring/refinement parity. Complete epic objective unchanged; no external blocker.",
+  "disqualifiedAttempts": [
+    {
+      "log": {
+        "path": "/Users/riabuz/.cache/maple-removal-research/fp16-fixed-native-tests-final-20261004.log",
+        "sha256": "0612d4b708967642a5206aa4da22b29aa55d51332345dcf25f58b4d2f2c19c24"
+      },
+      "reason": "Uncommitted test-class split introduced an extra brace; compile failed before test execution. Fixed and reran the same 29 tests in the qualified log."
+    }
+  ]
+}

@@ -1,0 +1,999 @@
+{
+  "issue": 3941,
+  "epic": 1472,
+  "recordedAt": "2026-10-03T22:00:25.106060+00:00",
+  "headBeforeCommit": "9f4251a57544ca5bec791603e99d1bc970b80300",
+  "releaseQualified": false,
+  "scope": "Actual PowerPaint MPS attention rejection and actual installed Mac LaMa Rust CPU reconstruction comparison. This does not change a shipping model or native mask policy.",
+  "powerpaintAttention": {
+    "baseline": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/powerpaint-expanded16-20261003/report.json",
+      "sha256": "1111bdf9d20acb05c4d4050c48b736feca4907afdaaebe639be700c4ea96bbe6",
+      "bytes": 10806
+    },
+    "actual": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/powerpaint-expanded16-sdpa-20261003/generated/report.json",
+      "sha256": "96a56e733690a32b59252c08552c933a423f3f5c58c5d75b2f3ff4fe5da0aea4",
+      "bytes": 16939
+    },
+    "orientation": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/powerpaint-expanded16-sdpa-20261003/report.json",
+      "sha256": "c21dee2a3b92c151a0e36f34e3ab0aa962721f58a38470af5b860a0ae05848b4",
+      "bytes": 5916,
+      "report": {
+        "orientation": 1,
+        "orientation_metadata": {
+          "height": 1024,
+          "input_blake3": "8444dd97c84684bc3194de047bf0331652f7c87ea58e0e0aed54c7aa75f8259f",
+          "inverse": false,
+          "orientation": 1,
+          "output_blake3": "8444dd97c84684bc3194de047bf0331652f7c87ea58e0e0aed54c7aa75f8259f",
+          "raw_identity": {
+            "decoded_orientation": "Normal",
+            "decoder_verified": true,
+            "original_blake3": "2019a5cbd7bcdcf8405528789cde7c05ed4bee8d31c533df786be64f42c97718"
+          },
+          "releaseQualified": false,
+          "sample_math": "shared-core exact pixel permutation; no color math or resizing",
+          "width": 1024
+        },
+        "preparation_sha256": "551e368f5e0685df3e792f8cfe272e55f88c3e917b9df366022d0226bbd8d874",
+        "context": {
+          "plate": "LinearCalibrationV1",
+          "original": "blake3:2019a5cbd7bcdcf8405528789cde7c05ed4bee8d31c533df786be64f42c97718",
+          "source_anchor": {
+            "original": "blake3:2019a5cbd7bcdcf8405528789cde7c05ed4bee8d31c533df786be64f42c97718",
+            "decode": "blake3:add2c2b7017c74c40e3b2229acc1804ab1ca5be9700e99f448093dd044bf87c9",
+            "width": 6000,
+            "height": 4000
+          },
+          "window": {
+            "x": 2850,
+            "y": 1300,
+            "width": 1024,
+            "height": 1024
+          },
+          "source_width": 6000,
+          "source_height": 4000,
+          "scene": "blake3:f920aac4690f61e12ac296d120ee1895e3023816e2d9393d20ebb4e7fff80ccb",
+          "model_input": "blake3:9bd6ca0d3cf29a6b5a2bb9834e03e320b25b3a4f895edc21183cb7b8f19f4864",
+          "encoding": {
+            "method": "signed-log-photographic-contrast-v1",
+            "low": -1.6838237074610694,
+            "high": 3.577129211400544
+          },
+          "release_qualified": false
+        },
+        "context_sha256": "ff1a313bc44bd90f4290cea3011e44f07848e652cdb5037e4d899d7b4b856b05",
+        "canonical_input_sha256": "3377775e02ae1f64efaf0bcb416534c822dee94e5aed9f17b0c0961fbef5c5dd",
+        "canonical_mask_sha256": "2ce494fb9e0909abbcb1f849c73776acbeca9b4d043eb2d63bb8f1b04fbb1458",
+        "canonical_generation_planes_sha256": "0bea390462a1801afca19e80deb60f3ef04e36529d8efda0026e9b6daa1f803c",
+        "shared_orientation_probe_sha256": "4a7e9c6a50fa6b244c2fff22654d8ff38082ae3c9c840aef635a50525fabe045",
+        "canonical_extent_hw": [
+          1024,
+          1024
+        ],
+        "upright_extent_hw": [
+          1024,
+          1024
+        ],
+        "source": {
+          "forward": {
+            "height": 1024,
+            "input_blake3": "8444dd97c84684bc3194de047bf0331652f7c87ea58e0e0aed54c7aa75f8259f",
+            "inverse": false,
+            "orientation": 1,
+            "output_blake3": "8444dd97c84684bc3194de047bf0331652f7c87ea58e0e0aed54c7aa75f8259f",
+            "raw_identity": null,
+            "releaseQualified": false,
+            "sample_math": "shared-core exact pixel permutation; no color math or resizing",
+            "width": 1024
+          },
+          "inverse": {
+            "height": 1024,
+            "input_blake3": "8444dd97c84684bc3194de047bf0331652f7c87ea58e0e0aed54c7aa75f8259f",
+            "inverse": true,
+            "orientation": 1,
+            "output_blake3": "8444dd97c84684bc3194de047bf0331652f7c87ea58e0e0aed54c7aa75f8259f",
+            "raw_identity": null,
+            "releaseQualified": false,
+            "sample_math": "shared-core exact pixel permutation; no color math or resizing",
+            "width": 1024
+          },
+          "roundtrip_bits_exact": true
+        },
+        "mask": {
+          "forward": {
+            "height": 1024,
+            "input_blake3": "d28750e9eba5f23e79dc07a891b46d1224d1a49291aae98f89007d61f1289152",
+            "inverse": false,
+            "orientation": 1,
+            "output_blake3": "d28750e9eba5f23e79dc07a891b46d1224d1a49291aae98f89007d61f1289152",
+            "raw_identity": null,
+            "releaseQualified": false,
+            "sample_math": "shared-core exact pixel permutation; no color math or resizing",
+            "width": 1024
+          },
+          "inverse": {
+            "height": 1024,
+            "input_blake3": "d28750e9eba5f23e79dc07a891b46d1224d1a49291aae98f89007d61f1289152",
+            "inverse": true,
+            "orientation": 1,
+            "output_blake3": "d28750e9eba5f23e79dc07a891b46d1224d1a49291aae98f89007d61f1289152",
+            "raw_identity": null,
+            "releaseQualified": false,
+            "sample_math": "shared-core exact pixel permutation; no color math or resizing",
+            "width": 1024
+          },
+          "roundtrip_bits_exact": true
+        },
+        "source_resampled": false,
+        "model_input_quantized_to_u8": false,
+        "releaseQualified": false,
+        "outputs": {
+          "decoder-model": {
+            "inverse": {
+              "height": 1024,
+              "input_blake3": "68881dfb1df445759c3e0c727d6ce283dbf61873f7d5c822ad86f525051a50b2",
+              "inverse": true,
+              "orientation": 1,
+              "output_blake3": "68881dfb1df445759c3e0c727d6ce283dbf61873f7d5c822ad86f525051a50b2",
+              "raw_identity": null,
+              "releaseQualified": false,
+              "sample_math": "shared-core exact pixel permutation; no color math or resizing",
+              "width": 1024
+            },
+            "replay_bits_exact": true,
+            "canonical_sha256": "fda3b7005adfc0ebb1123db8b36e7e32bf3bf670df65cbfbe08d1dc13cc58bf8",
+            "clamped": false,
+            "out_of_model_range_samples": 0
+          },
+          "raw-candidate": {
+            "inverse": {
+              "height": 1024,
+              "input_blake3": "c5b0d8ad1a36ea9453ea638b66b11bcdb0b9fc2c7985f285cb36748a874f731e",
+              "inverse": true,
+              "orientation": 1,
+              "output_blake3": "c5b0d8ad1a36ea9453ea638b66b11bcdb0b9fc2c7985f285cb36748a874f731e",
+              "raw_identity": null,
+              "releaseQualified": false,
+              "sample_math": "shared-core exact pixel permutation; no color math or resizing",
+              "width": 1024
+            },
+            "replay_bits_exact": true,
+            "canonical_sha256": "09071542027d98e74e9819a992e6cc8bc19818e6b50a0a859327b5a6decd4692",
+            "clamped": false,
+            "out_of_model_range_samples": 0
+          }
+        },
+        "model_report_sha256": "96a56e733690a32b59252c08552c933a423f3f5c58c5d75b2f3ff4fe5da0aea4",
+        "outside_float_bits_changed": 0,
+        "scope": "Actual native upright PowerPaint float inference and exact canonical inverse. Independent RAW range validation, grading, photographic quality and deployed Mac adapter qualification remain required."
+      }
+    },
+    "exactConditioningControls": [
+      {
+        "artifact": "source-nchw.f32",
+        "sha256": "3377775e02ae1f64efaf0bcb416534c822dee94e5aed9f17b0c0961fbef5c5dd",
+        "bytesEqual": true
+      },
+      {
+        "artifact": "vae-input-normalized-nchw.f32",
+        "sha256": "0c4b7b77cba5e863054e9d33c0d527af21001d878bc68a8ea081cf714e286399",
+        "bytesEqual": true
+      },
+      {
+        "artifact": "hole.png",
+        "sha256": "2ce494fb9e0909abbcb1f849c73776acbeca9b4d043eb2d63bb8f1b04fbb1458",
+        "bytesEqual": true
+      }
+    ],
+    "fixedRequest": {
+      "seed": 3941,
+      "steps": 30,
+      "guidance": 12.0,
+      "numericDtype": "float32",
+      "nativeExtent": [
+        1024,
+        1024
+      ]
+    },
+    "baselineInferenceMs": 146805.0602080002,
+    "sdpaInferenceMs": 246267.96466700034,
+    "baselineSampledMPSDriverBytes": 36174544896,
+    "sdpaSampledMPSDriverBytes": 79065792512,
+    "sdpaSampledMPSAllocatedBytes": 8412930560,
+    "actualProcessorTypes": {
+      "unet": [
+        "AttnProcessor2_0"
+      ],
+      "brushnet": [
+        "AttnProcessor2_0"
+      ],
+      "vae": [
+        "AttnProcessor2_0"
+      ]
+    },
+    "decoderMaximumFloatDifference": 0.28074514865875244,
+    "decoderMeanFloatDifference": 0.004585644695907831,
+    "preservation": {
+      "nativeRawReport": {
+        "path": "/Users/riabuz/.cache/maple-removal-research/powerpaint-expanded16-sdpa-bake-20261003/report.json",
+        "sha256": "a95f0af87b586bf122b88dd12a03d148014ed3726ab69bfe1fa6e8ab6d32d1cf",
+        "bytes": 4491
+      },
+      "independentDisplayReport": {
+        "path": "/Users/riabuz/.cache/maple-removal-research/powerpaint-expanded16-sdpa-grade-checks-20261003.json",
+        "sha256": "e539971f711a3c3a10539a9fee1b76f90cd30ab4964ac4f6b2c95a41ffb93682",
+        "bytes": 10261
+      },
+      "grades": [
+        {
+          "case": "neutral_ev-3_wb-1000",
+          "max_scene_float_error_identity": 5.402415990829468e-05,
+          "outside_mask_max_error": 0,
+          "three_native_develops_ms": 3730.937,
+          "outsideDisplaySamplesChanged": 0,
+          "protectedDisplaySamplesChanged": 0
+        },
+        {
+          "case": "auto_ev-3_wb-1000",
+          "max_scene_float_error_identity": 5.402415990829468e-05,
+          "outside_mask_max_error": 0,
+          "three_native_develops_ms": 3730.937,
+          "outsideDisplaySamplesChanged": 0,
+          "protectedDisplaySamplesChanged": 0
+        },
+        {
+          "case": "neutral_ev-3_wb+0",
+          "max_scene_float_error_identity": 3.0428171157836914e-05,
+          "outside_mask_max_error": 0,
+          "three_native_develops_ms": 3354.299791,
+          "outsideDisplaySamplesChanged": 0,
+          "protectedDisplaySamplesChanged": 0
+        },
+        {
+          "case": "auto_ev-3_wb+0",
+          "max_scene_float_error_identity": 3.0428171157836914e-05,
+          "outside_mask_max_error": 0,
+          "three_native_develops_ms": 3354.299791,
+          "outsideDisplaySamplesChanged": 0,
+          "protectedDisplaySamplesChanged": 0
+        },
+        {
+          "case": "neutral_ev-3_wb+1000",
+          "max_scene_float_error_identity": 2.3286789655685425e-05,
+          "outside_mask_max_error": 0,
+          "three_native_develops_ms": 2563.909583,
+          "outsideDisplaySamplesChanged": 0,
+          "protectedDisplaySamplesChanged": 0
+        },
+        {
+          "case": "auto_ev-3_wb+1000",
+          "max_scene_float_error_identity": 2.3286789655685425e-05,
+          "outside_mask_max_error": 0,
+          "three_native_develops_ms": 2563.909583,
+          "outsideDisplaySamplesChanged": 0,
+          "protectedDisplaySamplesChanged": 0
+        },
+        {
+          "case": "neutral_ev+0_wb-1000",
+          "max_scene_float_error_identity": 0.0004321932792663574,
+          "outside_mask_max_error": 0,
+          "three_native_develops_ms": 1767.952333,
+          "outsideDisplaySamplesChanged": 0,
+          "protectedDisplaySamplesChanged": 0
+        },
+        {
+          "case": "auto_ev+0_wb-1000",
+          "max_scene_float_error_identity": 0.0004321932792663574,
+          "outside_mask_max_error": 0,
+          "three_native_develops_ms": 1767.952333,
+          "outsideDisplaySamplesChanged": 0,
+          "protectedDisplaySamplesChanged": 0
+        },
+        {
+          "case": "neutral_ev+0_wb+0",
+          "max_scene_float_error_identity": 0.0002434253692626953,
+          "outside_mask_max_error": 0,
+          "three_native_develops_ms": 2754.428042,
+          "outsideDisplaySamplesChanged": 0,
+          "protectedDisplaySamplesChanged": 0
+        },
+        {
+          "case": "auto_ev+0_wb+0",
+          "max_scene_float_error_identity": 0.0002434253692626953,
+          "outside_mask_max_error": 0,
+          "three_native_develops_ms": 2754.428042,
+          "outsideDisplaySamplesChanged": 0,
+          "protectedDisplaySamplesChanged": 0
+        },
+        {
+          "case": "neutral_ev+0_wb+1000",
+          "max_scene_float_error_identity": 0.0001862943172454834,
+          "outside_mask_max_error": 0,
+          "three_native_develops_ms": 2842.149708,
+          "outsideDisplaySamplesChanged": 0,
+          "protectedDisplaySamplesChanged": 0
+        },
+        {
+          "case": "auto_ev+0_wb+1000",
+          "max_scene_float_error_identity": 0.0001862943172454834,
+          "outside_mask_max_error": 0,
+          "three_native_develops_ms": 2842.149708,
+          "outsideDisplaySamplesChanged": 0,
+          "protectedDisplaySamplesChanged": 0
+        },
+        {
+          "case": "neutral_ev+3_wb-1000",
+          "max_scene_float_error_identity": 0.0034575462341308594,
+          "outside_mask_max_error": 0,
+          "three_native_develops_ms": 2210.663375,
+          "outsideDisplaySamplesChanged": 0,
+          "protectedDisplaySamplesChanged": 0
+        },
+        {
+          "case": "auto_ev+3_wb-1000",
+          "max_scene_float_error_identity": 0.0034575462341308594,
+          "outside_mask_max_error": 0,
+          "three_native_develops_ms": 2210.663375,
+          "outsideDisplaySamplesChanged": 0,
+          "protectedDisplaySamplesChanged": 0
+        },
+        {
+          "case": "neutral_ev+3_wb+0",
+          "max_scene_float_error_identity": 0.0019474029541015625,
+          "outside_mask_max_error": 0,
+          "three_native_develops_ms": 1580.3998749999998,
+          "outsideDisplaySamplesChanged": 0,
+          "protectedDisplaySamplesChanged": 0
+        },
+        {
+          "case": "auto_ev+3_wb+0",
+          "max_scene_float_error_identity": 0.0019474029541015625,
+          "outside_mask_max_error": 0,
+          "three_native_develops_ms": 1580.3998749999998,
+          "outsideDisplaySamplesChanged": 0,
+          "protectedDisplaySamplesChanged": 0
+        },
+        {
+          "case": "neutral_ev+3_wb+1000",
+          "max_scene_float_error_identity": 0.0014903545379638672,
+          "outside_mask_max_error": 0,
+          "three_native_develops_ms": 2669.212833,
+          "outsideDisplaySamplesChanged": 0,
+          "protectedDisplaySamplesChanged": 0
+        },
+        {
+          "case": "auto_ev+3_wb+1000",
+          "max_scene_float_error_identity": 0.0014903545379638672,
+          "outside_mask_max_error": 0,
+          "three_native_develops_ms": 2669.212833,
+          "outsideDisplaySamplesChanged": 0,
+          "protectedDisplaySamplesChanged": 0
+        }
+      ]
+    },
+    "semanticVisualReview": "Target person removed; structural fill differs from sliced result and contains generated shelf/blue-container features of unverified truth. No photographic acceptance or runtime equivalence claim.",
+    "decision": "Reject this SDPA configuration as the next Mac optimization: observed time and sampled driver memory are higher than the prior sliced execution.",
+    "limit": "Historical single sliced run and fresh single SDPA run on a shared M5 Max128GiB. Not controlled p50/p95 or device admission. Step-boundary MPS allocated/driver values are distinct and incomplete, not total/peak GPU memory; do not sum them with RSS."
+  },
+  "nativeLaMa": {
+    "model": {
+      "path": "/Users/riabuz/Library/Containers/app.justmaple.aperture/Data/Library/Application Support/app.justmaple.aperture/removal-models/b2f3c5cad721907d5263723f1da65ca485df798bcedb138974feddf4fe34a552/lama-native-1024.onnx",
+      "sha256": "339d078d9d1376d76a49efd4fa42f328c3f276af775505ae8b57c84db187c4f6",
+      "bytes": 204794328
+    },
+    "pin": {
+      "id": "lama",
+      "file": "lama-native-1024.onnx",
+      "probe_path": "lama/native-build/lama-native-1024.onnx",
+      "size": 204794328,
+      "sha256": "339d078d9d1376d76a49efd4fa42f328c3f276af775505ae8b57c84db187c4f6",
+      "source_revision": "786f5936b27fb3dacd2b1ad799e4de968ea697e7",
+      "checkpoint_sha256": "fccb7adffd53ec0974ee5503c3731c2c2f1e7e07856fd9228cdcc0b46fd5d423",
+      "license": "Apache-2.0",
+      "native_side": 1024,
+      "release_qualified": false
+    },
+    "runtime": {
+      "path": "/Users/riabuz/Library/Containers/app.justmaple.aperture/Data/Library/Application Support/app.justmaple.aperture/removal-models/b2f3c5cad721907d5263723f1da65ca485df798bcedb138974feddf4fe34a552/runtime.dylib",
+      "sha256": "d306d2bc768540766c7ed8a1e0ff05d2870c77a934ebeee4a7bafa1b732ef299",
+      "bytes": 35138784
+    },
+    "cases": [
+      {
+        "case": "expanded16",
+        "preparation": {
+          "path": "/Users/riabuz/.cache/maple-removal-research/bologna-expanded16-20261003/preparation.json",
+          "sha256": "551e368f5e0685df3e792f8cfe272e55f88c3e917b9df366022d0226bbd8d874",
+          "bytes": 3947
+        },
+        "inference": {
+          "path": "/Users/riabuz/.cache/maple-removal-research/lama-expanded16-native-20261003/report.json",
+          "sha256": "d5bd3c4f5714b18bbcf675734f86a5af00fb46c7c1e3154fa96fc5c243c54b76",
+          "bytes": 2003,
+          "report": {
+            "cancelled_reconstruction_rejected": true,
+            "candidate_digest": "blake3:fe177835e0ef109296e9ecb9e09f6be72320d528704deb491abb30464b0c497b",
+            "candidate_known_samples_changed": 0,
+            "clamped": false,
+            "context": {
+              "encoding": {
+                "high": 3.577129211400544,
+                "low": -1.6838237074610694,
+                "method": "signed-log-photographic-contrast-v1"
+              },
+              "model_input": "blake3:9bd6ca0d3cf29a6b5a2bb9834e03e320b25b3a4f895edc21183cb7b8f19f4864",
+              "original": "blake3:2019a5cbd7bcdcf8405528789cde7c05ed4bee8d31c533df786be64f42c97718",
+              "plate": "LinearCalibrationV1",
+              "release_qualified": false,
+              "scene": "blake3:f920aac4690f61e12ac296d120ee1895e3023816e2d9393d20ebb4e7fff80ccb",
+              "source_anchor": {
+                "decode": "blake3:add2c2b7017c74c40e3b2229acc1804ab1ca5be9700e99f448093dd044bf87c9",
+                "height": 4000,
+                "original": "blake3:2019a5cbd7bcdcf8405528789cde7c05ed4bee8d31c533df786be64f42c97718",
+                "width": 6000
+              },
+              "source_height": 4000,
+              "source_width": 6000,
+              "window": {
+                "height": 1024,
+                "width": 1024,
+                "x": 2850,
+                "y": 1300
+              }
+            },
+            "context_digest": "blake3:97befa4ef67dceb32c7105564e68448472d7e64034046a763b183f54c96f8b18",
+            "generation_masks_digest": "blake3:083b197d425f21d1526d8cf6a88e0bc144b9a51f893d91ed804cfb20d2a781a7",
+            "inference_ms": 9187.773041,
+            "input_digest": "blake3:9bd6ca0d3cf29a6b5a2bb9834e03e320b25b3a4f895edc21183cb7b8f19f4864",
+            "input_quantized_to_u8": false,
+            "model": "blake3:11d91ba3f522282c1b0f0a3b9aa2be1646a1a65fd406b65f08e4d90740a4c492",
+            "model_open_ms": 551.545,
+            "model_output_known_samples_changed": 2782308,
+            "provider": "CPUExecutionProvider",
+            "qualification": "Actual deployed Rust CPU adapter only; independent RAW bake, photographic quality, native UI and device budgets remain required.",
+            "release_qualified": false,
+            "result_digest": "blake3:83dd53bf73d3054fcf024a8fee0e9a6eadb1430ad759bc60efde340549bea80e",
+            "runtime": "1.23.2",
+            "source_resampled": false
+          }
+        },
+        "processTimeLog": {
+          "path": "/Users/riabuz/.cache/maple-removal-research/lama-expanded16-native-20261003.log",
+          "sha256": "dd2faf6bc043c5f920f5fa76bf01e80ed6a215f442be3f316571fe0572e14880",
+          "bytes": 2538
+        },
+        "maximumResidentBytes": 2471018496,
+        "peakMemoryFootprintBytes": 2453047840,
+        "candidate": {
+          "path": "/Users/riabuz/.cache/maple-removal-research/lama-expanded16-native-20261003/candidate.f32",
+          "sha256": "79b027eb5bf643509577bb10167ee69dcfdb88ac7678bf07a6022c47a01f77d8",
+          "bytes": 12582912
+        },
+        "preservation": {
+          "nativeRawReport": {
+            "path": "/Users/riabuz/.cache/maple-removal-research/lama-expanded16-native-bake-20261003/report.json",
+            "sha256": "929938377e62deeaf5497e12ab933ac09818e57c90b6d4d8eb4ea19b94163586",
+            "bytes": 4511
+          },
+          "independentDisplayReport": {
+            "path": "/Users/riabuz/.cache/maple-removal-research/lama-expanded16-native-grade-checks-20261003.json",
+            "sha256": "9acb040939aecbfadd6e11fbdc8483fe8eba1b32c0a0233f02b82cc3d9632c40",
+            "bytes": 10261
+          },
+          "grades": [
+            {
+              "case": "neutral_ev-3_wb-1000",
+              "max_scene_float_error_identity": 5.402415990829468e-05,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 2833.948042,
+              "outsideDisplaySamplesChanged": 0,
+              "protectedDisplaySamplesChanged": 0
+            },
+            {
+              "case": "auto_ev-3_wb-1000",
+              "max_scene_float_error_identity": 5.402415990829468e-05,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 2833.948042,
+              "outsideDisplaySamplesChanged": 0,
+              "protectedDisplaySamplesChanged": 0
+            },
+            {
+              "case": "neutral_ev-3_wb+0",
+              "max_scene_float_error_identity": 3.0428171157836914e-05,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1745.5851249999998,
+              "outsideDisplaySamplesChanged": 0,
+              "protectedDisplaySamplesChanged": 0
+            },
+            {
+              "case": "auto_ev-3_wb+0",
+              "max_scene_float_error_identity": 3.0428171157836914e-05,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1745.5851249999998,
+              "outsideDisplaySamplesChanged": 0,
+              "protectedDisplaySamplesChanged": 0
+            },
+            {
+              "case": "neutral_ev-3_wb+1000",
+              "max_scene_float_error_identity": 2.3286789655685425e-05,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1910.872291,
+              "outsideDisplaySamplesChanged": 0,
+              "protectedDisplaySamplesChanged": 0
+            },
+            {
+              "case": "auto_ev-3_wb+1000",
+              "max_scene_float_error_identity": 2.3286789655685425e-05,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1910.872291,
+              "outsideDisplaySamplesChanged": 0,
+              "protectedDisplaySamplesChanged": 0
+            },
+            {
+              "case": "neutral_ev+0_wb-1000",
+              "max_scene_float_error_identity": 0.0004321932792663574,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1805.188375,
+              "outsideDisplaySamplesChanged": 0,
+              "protectedDisplaySamplesChanged": 0
+            },
+            {
+              "case": "auto_ev+0_wb-1000",
+              "max_scene_float_error_identity": 0.0004321932792663574,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1805.188375,
+              "outsideDisplaySamplesChanged": 0,
+              "protectedDisplaySamplesChanged": 0
+            },
+            {
+              "case": "neutral_ev+0_wb+0",
+              "max_scene_float_error_identity": 0.0002434253692626953,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1700.984458,
+              "outsideDisplaySamplesChanged": 0,
+              "protectedDisplaySamplesChanged": 0
+            },
+            {
+              "case": "auto_ev+0_wb+0",
+              "max_scene_float_error_identity": 0.0002434253692626953,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1700.984458,
+              "outsideDisplaySamplesChanged": 0,
+              "protectedDisplaySamplesChanged": 0
+            },
+            {
+              "case": "neutral_ev+0_wb+1000",
+              "max_scene_float_error_identity": 0.0001862943172454834,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1934.883542,
+              "outsideDisplaySamplesChanged": 0,
+              "protectedDisplaySamplesChanged": 0
+            },
+            {
+              "case": "auto_ev+0_wb+1000",
+              "max_scene_float_error_identity": 0.0001862943172454834,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1934.883542,
+              "outsideDisplaySamplesChanged": 0,
+              "protectedDisplaySamplesChanged": 0
+            },
+            {
+              "case": "neutral_ev+3_wb-1000",
+              "max_scene_float_error_identity": 0.0034575462341308594,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1755.473541,
+              "outsideDisplaySamplesChanged": 0,
+              "protectedDisplaySamplesChanged": 0
+            },
+            {
+              "case": "auto_ev+3_wb-1000",
+              "max_scene_float_error_identity": 0.0034575462341308594,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1755.473541,
+              "outsideDisplaySamplesChanged": 0,
+              "protectedDisplaySamplesChanged": 0
+            },
+            {
+              "case": "neutral_ev+3_wb+0",
+              "max_scene_float_error_identity": 0.0019474029541015625,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1593.821875,
+              "outsideDisplaySamplesChanged": 0,
+              "protectedDisplaySamplesChanged": 0
+            },
+            {
+              "case": "auto_ev+3_wb+0",
+              "max_scene_float_error_identity": 0.0019474029541015625,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1593.821875,
+              "outsideDisplaySamplesChanged": 0,
+              "protectedDisplaySamplesChanged": 0
+            },
+            {
+              "case": "neutral_ev+3_wb+1000",
+              "max_scene_float_error_identity": 0.0014903545379638672,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1551.3978339999999,
+              "outsideDisplaySamplesChanged": 0,
+              "protectedDisplaySamplesChanged": 0
+            },
+            {
+              "case": "auto_ev+3_wb+1000",
+              "max_scene_float_error_identity": 0.0014903545379638672,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1551.3978339999999,
+              "outsideDisplaySamplesChanged": 0,
+              "protectedDisplaySamplesChanged": 0
+            }
+          ]
+        },
+        "semanticVisualReview": "Residual blue outline is removed, but reconstruction is a conspicuous diffuse green/gray smear across the missing person. Photographic quality fails visual review.",
+        "visualArtifact": {
+          "path": "/Users/riabuz/.cache/maple-removal-research/lama-expanded16-native-bake-20261003/auto_ev+0_wb+0-removal.png",
+          "sha256": "00724a961fcd56aa076358381f23a2ae537287615e58a22a44a9a33f37864d19",
+          "bytes": 1605173
+        }
+      },
+      {
+        "case": "original8",
+        "preparation": {
+          "path": "/Users/riabuz/.cache/maple-removal-research/bologna-person-current-contrast-8-20261003/preparation.json",
+          "sha256": "6c808a761fe9195a66577424fe6ffced27a7f647b89b7bba2723560c3d4f915b",
+          "bytes": 4177
+        },
+        "inference": {
+          "path": "/Users/riabuz/.cache/maple-removal-research/lama-original8-native-20261003/report.json",
+          "sha256": "eaca934bc4178e92fc77be15bedc0f4bd0f54e7853962118c1d744ff6155556d",
+          "bytes": 2008,
+          "report": {
+            "cancelled_reconstruction_rejected": true,
+            "candidate_digest": "blake3:940f9dc889b3d1c4ec6a747cdad52285e16ad0b31b188094ba714761fd112eed",
+            "candidate_known_samples_changed": 0,
+            "clamped": false,
+            "context": {
+              "encoding": {
+                "high": 3.577129211400544,
+                "low": -1.6838237074610694,
+                "method": "signed-log-photographic-contrast-v1"
+              },
+              "model_input": "blake3:9bd6ca0d3cf29a6b5a2bb9834e03e320b25b3a4f895edc21183cb7b8f19f4864",
+              "original": "blake3:2019a5cbd7bcdcf8405528789cde7c05ed4bee8d31c533df786be64f42c97718",
+              "plate": "LinearCalibrationV1",
+              "release_qualified": false,
+              "scene": "blake3:f920aac4690f61e12ac296d120ee1895e3023816e2d9393d20ebb4e7fff80ccb",
+              "source_anchor": {
+                "decode": "blake3:add2c2b7017c74c40e3b2229acc1804ab1ca5be9700e99f448093dd044bf87c9",
+                "height": 4000,
+                "original": "blake3:2019a5cbd7bcdcf8405528789cde7c05ed4bee8d31c533df786be64f42c97718",
+                "width": 6000
+              },
+              "source_height": 4000,
+              "source_width": 6000,
+              "window": {
+                "height": 1024,
+                "width": 1024,
+                "x": 2850,
+                "y": 1300
+              }
+            },
+            "context_digest": "blake3:97befa4ef67dceb32c7105564e68448472d7e64034046a763b183f54c96f8b18",
+            "generation_masks_digest": "blake3:6b96d7fd5ccfb9c902ea5826a9ab4f7502a5c52a5839755c17e29a2c29b435c6",
+            "inference_ms": 18124.356917,
+            "input_digest": "blake3:9bd6ca0d3cf29a6b5a2bb9834e03e320b25b3a4f895edc21183cb7b8f19f4864",
+            "input_quantized_to_u8": false,
+            "model": "blake3:11d91ba3f522282c1b0f0a3b9aa2be1646a1a65fd406b65f08e4d90740a4c492",
+            "model_open_ms": 1684.394209,
+            "model_output_known_samples_changed": 2842551,
+            "provider": "CPUExecutionProvider",
+            "qualification": "Actual deployed Rust CPU adapter only; independent RAW bake, photographic quality, native UI and device budgets remain required.",
+            "release_qualified": false,
+            "result_digest": "blake3:ed76942133a2192b1a7e03d8abbd80d56a41ed3b8b25cda0184a942707d7803f",
+            "runtime": "1.23.2",
+            "source_resampled": false
+          }
+        },
+        "processTimeLog": {
+          "path": "/Users/riabuz/.cache/maple-removal-research/lama-original8-native-20261003.log",
+          "sha256": "aea6a6da3b1cdf0a8a65a25f9dc46b8fba9d04828afceb597f6cde0fd34919ad",
+          "bytes": 2543
+        },
+        "maximumResidentBytes": 2471182336,
+        "peakMemoryFootprintBytes": 2453195272,
+        "candidate": {
+          "path": "/Users/riabuz/.cache/maple-removal-research/lama-original8-native-20261003/candidate.f32",
+          "sha256": "8aa9acb44324113068cac9e301c56b80101e1879bbeac6ed7d2b74fd1d43fe80",
+          "bytes": 12582912
+        },
+        "preservation": {
+          "nativeRawReport": {
+            "path": "/Users/riabuz/.cache/maple-removal-research/lama-original8-native-bake-20261003/report.json",
+            "sha256": "10d3294ce24169d1d4ec7089311d934fa9ebc9b7b23d40f5039e9ff39028c76a",
+            "bytes": 4471
+          },
+          "independentDisplayReport": {
+            "path": "/Users/riabuz/.cache/maple-removal-research/lama-original8-native-grade-checks-20261003.json",
+            "sha256": "fa07f12ed54f465efa5bdde08c6c6b6b8342c94566f0ad958c64d63ff6eba500",
+            "bytes": 10260
+          },
+          "grades": [
+            {
+              "case": "neutral_ev-3_wb-1000",
+              "max_scene_float_error_identity": 2.734363079071045e-05,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1332.755666,
+              "outsideDisplaySamplesChanged": 0,
+              "protectedDisplaySamplesChanged": 0
+            },
+            {
+              "case": "auto_ev-3_wb-1000",
+              "max_scene_float_error_identity": 2.734363079071045e-05,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1332.755666,
+              "outsideDisplaySamplesChanged": 0,
+              "protectedDisplaySamplesChanged": 0
+            },
+            {
+              "case": "neutral_ev-3_wb+0",
+              "max_scene_float_error_identity": 1.52587890625e-05,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1393.7190420000002,
+              "outsideDisplaySamplesChanged": 0,
+              "protectedDisplaySamplesChanged": 0
+            },
+            {
+              "case": "auto_ev-3_wb+0",
+              "max_scene_float_error_identity": 1.52587890625e-05,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1393.7190420000002,
+              "outsideDisplaySamplesChanged": 0,
+              "protectedDisplaySamplesChanged": 0
+            },
+            {
+              "case": "neutral_ev-3_wb+1000",
+              "max_scene_float_error_identity": 1.1788681149482727e-05,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1465.75675,
+              "outsideDisplaySamplesChanged": 0,
+              "protectedDisplaySamplesChanged": 0
+            },
+            {
+              "case": "auto_ev-3_wb+1000",
+              "max_scene_float_error_identity": 1.1788681149482727e-05,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1465.75675,
+              "outsideDisplaySamplesChanged": 0,
+              "protectedDisplaySamplesChanged": 0
+            },
+            {
+              "case": "neutral_ev+0_wb-1000",
+              "max_scene_float_error_identity": 0.0002187490463256836,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1475.959541,
+              "outsideDisplaySamplesChanged": 0,
+              "protectedDisplaySamplesChanged": 0
+            },
+            {
+              "case": "auto_ev+0_wb-1000",
+              "max_scene_float_error_identity": 0.0002187490463256836,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1475.959541,
+              "outsideDisplaySamplesChanged": 0,
+              "protectedDisplaySamplesChanged": 0
+            },
+            {
+              "case": "neutral_ev+0_wb+0",
+              "max_scene_float_error_identity": 0.0001220703125,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1450.0962909999998,
+              "outsideDisplaySamplesChanged": 0,
+              "protectedDisplaySamplesChanged": 0
+            },
+            {
+              "case": "auto_ev+0_wb+0",
+              "max_scene_float_error_identity": 0.0001220703125,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1450.0962909999998,
+              "outsideDisplaySamplesChanged": 0,
+              "protectedDisplaySamplesChanged": 0
+            },
+            {
+              "case": "neutral_ev+0_wb+1000",
+              "max_scene_float_error_identity": 9.430944919586182e-05,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1416.176084,
+              "outsideDisplaySamplesChanged": 0,
+              "protectedDisplaySamplesChanged": 0
+            },
+            {
+              "case": "auto_ev+0_wb+1000",
+              "max_scene_float_error_identity": 9.430944919586182e-05,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1416.176084,
+              "outsideDisplaySamplesChanged": 0,
+              "protectedDisplaySamplesChanged": 0
+            },
+            {
+              "case": "neutral_ev+3_wb-1000",
+              "max_scene_float_error_identity": 0.0017499923706054688,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1509.116708,
+              "outsideDisplaySamplesChanged": 0,
+              "protectedDisplaySamplesChanged": 0
+            },
+            {
+              "case": "auto_ev+3_wb-1000",
+              "max_scene_float_error_identity": 0.0017499923706054688,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1509.116708,
+              "outsideDisplaySamplesChanged": 0,
+              "protectedDisplaySamplesChanged": 0
+            },
+            {
+              "case": "neutral_ev+3_wb+0",
+              "max_scene_float_error_identity": 0.0009765625,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1440.874417,
+              "outsideDisplaySamplesChanged": 0,
+              "protectedDisplaySamplesChanged": 0
+            },
+            {
+              "case": "auto_ev+3_wb+0",
+              "max_scene_float_error_identity": 0.0009765625,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1440.874417,
+              "outsideDisplaySamplesChanged": 0,
+              "protectedDisplaySamplesChanged": 0
+            },
+            {
+              "case": "neutral_ev+3_wb+1000",
+              "max_scene_float_error_identity": 0.0007544755935668945,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1476.697792,
+              "outsideDisplaySamplesChanged": 0,
+              "protectedDisplaySamplesChanged": 0
+            },
+            {
+              "case": "auto_ev+3_wb+1000",
+              "max_scene_float_error_identity": 0.0007544755935668945,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1476.697792,
+              "outsideDisplaySamplesChanged": 0,
+              "protectedDisplaySamplesChanged": 0
+            }
+          ]
+        },
+        "semanticVisualReview": "Thin blue outline remains around shoulder/torso; fill is blurred and smeared. Photographic quality fails visual review.",
+        "visualArtifact": {
+          "path": "/Users/riabuz/.cache/maple-removal-research/lama-original8-native-bake-20261003/auto_ev+0_wb+0-removal.png",
+          "sha256": "c4814f6c8ce6128d82743cf603ce0be45d29e8663179be539d50565bf9e12f2e",
+          "bytes": 1611629
+        }
+      }
+    ],
+    "limit": "CPU-only process telemetry. Expanded case overlaps a compiler check; original case overlaps the expanded-case RAW bake. Their times are not controlled throughput comparisons or current-app end-to-end latency. Both execute the same pinned Rust adapter, no source resizing or u8 input quantization.",
+    "inputRecipeScope": "The source-bound LinearCalibrationV1 photographic-contrast research recipe is held fixed. Running the deployed adapter/model/runtime does not qualify the editor preprocessing or end-to-end UI latency."
+  },
+  "validation": {
+    "preservationComparisons": 54,
+    "powerpaintTests": [
+      {
+        "path": "/Users/riabuz/.cache/maple-removal-research/powerpaint-attention-native-tests-20261003.log",
+        "sha256": "bd050b06daf1b08fc10632027f421813caaaea550e200091e9dca881fc922f46",
+        "bytes": 447,
+        "passed": 5,
+        "skipped": 0
+      },
+      {
+        "path": "/Users/riabuz/.cache/maple-removal-research/powerpaint-attention-float-tests-20261003.log",
+        "sha256": "47e24c226d0059cac268febc31ecba7ea59c34360a56f21fef35fe71edcb5d53",
+        "bytes": 1442,
+        "passed": 7,
+        "skipped": 0
+      },
+      {
+        "path": "/Users/riabuz/.cache/maple-removal-research/powerpaint-attention-orientation-tests-20261003.log",
+        "sha256": "5a480aa7bd2ca02c985130fb64720d952c74448ed9f20618302ae8ac51e101d6",
+        "bytes": 102,
+        "passed": 4,
+        "skipped": 0
+      }
+    ],
+    "nativeInputRefusals": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/native-reconstruction-refusals-20261003.json",
+      "sha256": "609a4e12ee2d4561c927315b0e6bb34c53089bc78c5beb9eb8e03f3880da22eb",
+      "bytes": 597,
+      "report": [
+        {
+          "case": "changed-input",
+          "exit": 1,
+          "stderr": "Error: \"input differs from its shared Rust context identity\"",
+          "outputCreated": false,
+          "absentModelsAndRuntimeReached": false
+        },
+        {
+          "case": "partial-input",
+          "exit": 1,
+          "stderr": "Error: \"native float file length mismatch\"",
+          "outputCreated": false,
+          "absentModelsAndRuntimeReached": false
+        },
+        {
+          "case": "wrong-native-extent",
+          "exit": 1,
+          "stderr": "Error: \"research input must retain native1024 context\"",
+          "outputCreated": false,
+          "absentModelsAndRuntimeReached": false
+        }
+      ]
+    },
+    "clippy": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/native-reconstruction-clippy-20261003.log",
+      "sha256": "4ab090df0d0e4a53a7c8171f9abdca830e23a3567cecb1d118aa0e6174ab119c",
+      "bytes": 2797
+    },
+    "nativeAdapterUnitTests": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/native-reconstruction-unit-tests-20261003.log",
+      "sha256": "45789a9182c2a8603f79231c60c03c126a2fce5149a9ca823838d3b2e38ccb0b",
+      "passed": 2,
+      "ignored": 0
+    }
+  },
+  "sourceSnapshots": [
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/powerpaint-attention-executed-20261003/sources.json",
+      "sha256": "3265a9589189c39c45aaec2dc0a1bd46b1eb6c1f88ac3776c4e2e7ddd41ff157",
+      "bytes": 2952
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/native-reconstruction-executed-20261003/sources.json",
+      "sha256": "9b6bb5e6520fe4ebbd154ee7bfc4afebf364ae4b51c2feb9dac46767b50eb510",
+      "bytes": 1278
+    }
+  ],
+  "originalAfter": {
+    "path": "/Users/riabuz/.cache/maple-removal-research/raws/_DSC7409.NEF",
+    "sha256": "2ed291a09d7d4f72c8588b0c12d6cc5c470ad42ab9e3aaad1f888f34526b959f",
+    "bytes": 29019786
+  },
+  "decision": "Selection expansion reduces residual outlines but does not repair LaMa photographic texture/structure. SDPA does not improve this PowerPaint configuration. Continue native-detail model/recipe qualification; no model admission, automatic intent dilation or accepted-edit policy changes.",
+  "remaining": [
+    "Practical supported-device local reconstruction and photographic quality",
+    "Independent closure/ownership/crowd truth and wider photographic corpus",
+    "Complete Apple/Web UI, durable transport, parity, recovery and performance qualification under epic1472"
+  ],
+  "references": [
+    {
+      "title": "Diffusers attention slicing/SDPA warning",
+      "url": "https://huggingface.co/docs/diffusers/api/pipelines/stable_diffusion/upscale"
+    },
+    {
+      "title": "PyTorch SDPA API",
+      "url": "https://docs.pytorch.org/docs/stable/generated/torch.nn.functional.scaled_dot_product_attention"
+    }
+  ],
+  "originalUnchanged": true,
+  "nativeBuild": {
+    "frameworkLog": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/removal-probe-xcframework-20261003.log",
+      "sha256": "9befe53d4fadcb671f7975c5ffbb0738501ff0b020fb758b6b913ba691f82563",
+      "bytes": 210864
+    },
+    "symbolsVerified": 181,
+    "inputHash": "77cd0d2e27a2a6bf317e7c50ec719ff3a17263d4",
+    "macBuildLog": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/removal-probe-mac-build-20261003.log",
+      "sha256": "3d9d8512faa956ad5c7c92c5b904d4bcfb1713ef0f88dfeeeca647e39f24b72c",
+      "bytes": 856069
+    },
+    "macApp": "/Users/riabuz/.cache/maple-removal-research/mac-main-update-20261003/Build/Products/Debug/Maple.app",
+    "macExecutable": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/mac-main-update-20261003/Build/Products/Debug/Maple.app/Contents/MacOS/Maple",
+      "sha256": "08194de21ffdafcfc8809ad6f0fdbe36e562e76d88936007e34953fe4d8b29a9",
+      "bytes": 60256
+    },
+    "limit": "Fresh release Rust libraries and Mac build; no UI behavior or shipping model changed by these research controls."
+  }
+}

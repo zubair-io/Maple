@@ -1,0 +1,112 @@
+{
+  "issue": 1472,
+  "date": "2026-10-02",
+  "baseCommit": "d566cde82e9865bbd4f32298105aa7304821e2fc",
+  "scope": "Windows local C# saved-removal decode, scene reuse, sidecar preservation and native export/derivative consumers; actual Rust on macOS",
+  "host": "macOS-27.0-arm64-arm-64bit-Mach-O",
+  "inputsSha256": {
+    "src/raw-pipeline/target/aarch64-apple-darwin/release/libraw_ffi.dylib": "a9faf390e64dc87866d389e6f78372713038c5a894f121dfdb4b21f640890e36",
+    "test-fixtures/removal/calibration/source.dng": "24450571460687ee53852658deec26946c4a7877fe111a6ba5bb059c116f2618",
+    "test-fixtures/removal/calibration/saved.xmp": "fa466f58b17c1a7d073ffb751e300e3b9eebac4bba453d3e12d9ff02caa6e20a",
+    "test-fixtures/removal/calibration/mask.mimf": "227416ea26ec9956771ecbec1923f0111ac322fc94416d6d140d73451f62a05b",
+    "test-fixtures/removal/calibration/patch.f16": "60b485914633a2cf3673b123e1df95cc6fa4a323a2907c7a9371ff4d6df99e27"
+  },
+  "implementation": [
+    "Exact owned removal JSON survives model clones and stripped decode XMP; no C# schema/codec or color math duplication",
+    "Unique RDF attribute or scalar property across descriptions and both Maple URIs canonicalizes once; duplicate/nested layouts are refused",
+    "Decode preflight refuses an unreadable/malformed existing XMP or a changed removal stack before opening a stripped snapshot",
+    "Removal-stack changes invalidate the decoded base; scalar-only changes reuse it",
+    "Ordinary saves reload foreign metadata and refuse introducing, clearing or replacing stored removal records; active exports refuse stale stacks",
+    "Scalar undo/redo/reset/revert retain the current stack; editor save failure retains dirty state and surfaces status"
+  ],
+  "qualified": [
+    "Before the fix, real C# decode omitted saved HDR pixels at native/reduced sizes and failed to reject missing companions: three native tests failed",
+    "After the fix, native/reduced f32 buffers exactly match the full saved Rust reference, including values above one",
+    "Actual source/mask/patch files: missing/corrupt companions, changed original and future schema refuse decode",
+    "Four valid scalar/secondary/namespace layouts survive actual native decode and real sidecar save; duplicate/nested/malformed or stale disk snapshots refuse original-only decode",
+    "Exposure ticks reuse the same scratch and prepared scene after companions are deleted; source bytes and XMP remain unchanged",
+    "Actual native export queue writes affected PNG/JPEG/TIFF16/AVIF; missing patch fails without final/temp output",
+    "Cold native derivative publication leaves prior output unchanged on a missing patch",
+    "Real sidecar files retain foreign values/subtree and RAW bytes; changed histories refuse ordinary save and active export"
+  ],
+  "checks": {
+    "nativeBuild": {
+      "command": "cd src/raw-pipeline && cargo build -p raw-ffi --release --target aarch64-apple-darwin --features gpu",
+      "result": "PASS",
+      "log": "/tmp/maple-removal-windows-native-gpu-build.log"
+    },
+    "focused": {
+      "counts": {
+        "total tests": 50,
+        "passed": 50
+      },
+      "result": "PASS; native DLL supplied, no skip-pass output",
+      "log": "/tmp/maple-removal-windows-saved-layout-qualified.log",
+      "filter": "SavedRemoval, RawFfiLayoutTests, SidecarStoreRoundTrip, ExportSnapshot, XmpParser, XmpWriter"
+    },
+    "fullMacOS": {
+      "counts": {
+        "total tests": 1206,
+        "passed": 1185,
+        "failed": 21
+      },
+      "result": "FAIL; same 21 test names as unchanged baseline",
+      "log": "/tmp/maple-removal-windows-saved-full-tests-final.log"
+    },
+    "unchangedBaseline": {
+      "counts": {
+        "total tests": 1178,
+        "passed": 1157,
+        "failed": 21
+      },
+      "commit": "d566cde82e9865bbd4f32298105aa7304821e2fc",
+      "result": "FAIL; exact same 21 failures",
+      "log": "/tmp/maple-removal-windows-saved-full-baseline-final.log",
+      "method": "git archive HEAD Windows sources, film resources, shared fixtures, CLAUDE.md root marker and committed Apple synthetic RAW; same actual GPU-enabled dylib and RAW environment"
+    },
+    "baselineFailureNames": [
+      "Maple.WinUI.Tests.DragMoveLogicTests.DetectCollisions_MixedBatch_OnlyCollidingKeysReturned",
+      "Maple.WinUI.Tests.DragMoveLogicTests.DetectCollisions_OccupiedDestinationName_Flagged",
+      "Maple.WinUI.Tests.DropMountLogicTests.CommonAncestor_SameDrive_ReturnsRealAncestorNotNull",
+      "Maple.WinUI.Tests.DropMountLogicTests.CommonAncestor_TwoDifferentDriveLetters_ReturnsNull",
+      "Maple.WinUI.Tests.DropMountLogicTests.CommonAncestor_TwoDifferentUncShares_ReturnsNull",
+      "Maple.WinUI.Tests.RelocateCollisionTests.AutoSuffix_DestinationIsADirectory_SuffixesPastIt",
+      "Maple.WinUI.Tests.RelocateCollisionTests.AutoSuffix_PicksNextFreeNumberedSibling",
+      "Maple.WinUI.Tests.RelocateCollisionTests.Fail_DestinationIsADirectory_ThrowsDestinationExists",
+      "Maple.WinUI.Tests.RelocateCollisionTests.Fail_ThrowsDestinationExistsAndLeavesBothFilesUntouched",
+      "Maple.WinUI.Tests.RelocateCollisionTests.NewBasename_ContainsDirectoryTraversal_ThrowsInvalidDestinationBeforeAnyCopy",
+      "Maple.WinUI.Tests.RelocateCollisionTests.Replace_DestinationIsADirectory_ThrowsInvalidDestination",
+      "Maple.WinUI.Tests.RelocateCollisionTests.Replace_OverwritesExistingDestinationAndItsSidecar",
+      "Maple.WinUI.Tests.RelocateCrashSafetyTests.PlanOnly_SourceAndStagedCopyBothExist_MoveNeverStarted",
+      "Maple.WinUI.Tests.RelocateCrashSafetyTests.Replace_SourceHasNoSidecar_ClearsDestinationsStaleSidecarAfterPublish",
+      "Maple.WinUI.Tests.RelocateSidecarFollowTests.LivePhotoPair_VideoSidecarNeverCollidesWithSameStemPhotoSidecar",
+      "Maple.WinUI.Tests.RelocateSidecarFollowTests.Video_FullNameSidecarFollowsToNewNameKeepingExtension",
+      "Maple.WinUI.Tests.RenameIndexStoreTests.IndexPathFor_IsCaseAndTrailingSlashInsensitiveForTheSameFolder",
+      "Maple.WinUI.Tests.StorageReportTests.TryMapleThumbsSizeBytes_SumsEveryNestedThumbsDir_AndOnlyThose",
+      "Maple.WinUI.Tests.TrashRestorePathTraversalTests.RestoreFromMapleTrashAsync_OrigpathIsWindowsAbsolutePath_ThrowsAndLeavesTrashedFileInPlace",
+      "Maple.WinUI.Tests.TrashSelectionLogicTests.PredictDestinationKind_UncPath_PredictsMapleTrashFolder",
+      "Maple.WinUI.Tests.TrashTests.TrashAsync_RecycleBinUnavailable_FallsBackToMapleTrashFolder"
+    ],
+    "style": {
+      "prettier": "PASS using installed src/web/node_modules/.bin/prettier and explicit config; qualification JSON checked with ignore-path /dev/null",
+      "fileBudget": "PASS: zero hard violations, four soft warnings in existing files",
+      "headroom": "PASS against HEAD; parser 554 LOC, largest changed source below 570",
+      "diff": "PASS: git diff --check"
+    }
+  },
+  "earlierFailures": [
+    "API non-GPU dylib omitted two GPU layout symbols; rebuilt the actual raw-ffi GPU-enabled library and all seven layout tests pass",
+    "Initial isolated archive omitted the repository fixture root marker and Apple grey fixture, adding seven baseline failures; final exact-HEAD archive includes these dependencies and reproduces precisely the same 21 failures",
+    "Root bun x prettier could not run because the configured security scanner was absent from the root dependencies; used the already installed workspace formatter without disabling the scanner"
+  ],
+  "limits": [
+    "The broader macOS run is not green: Windows path/backslash/UNC semantics produce the same failures in unchanged HEAD; actual Windows CI is still required",
+    "No WinUI app build, live controls, DX12 presentation, Windows Cloud Files or Windows-host execution is qualified",
+    "Windows cloud companion transport and move/copy/backup/sync remain open; local consumption does not complete the platform",
+    "Sidecar save is preflight plus atomic rename, not a cross-process compare-and-swap; noncooperating writers can race",
+    "Small synthetic signed HDR assets prove transport/composition and refusals, not AI reconstruction quality, 100MP performance or photographic parity",
+    "Scratch reuse proves that boundary only, not zero render-loop allocations or the 16ms budget",
+    "No Rust color math, ABI, model, shipping binary or budget changes; API dylib and Apple xcframework were not replaced",
+    "Full original #1472 goal remains active; native saved-controls UI remains unqualified; no push/PR/merge or fresh-main CI claim"
+  ]
+}

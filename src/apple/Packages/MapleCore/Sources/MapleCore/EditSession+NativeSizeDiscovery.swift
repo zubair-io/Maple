@@ -25,12 +25,17 @@ extension EditSession {
           let scope = ownedAsset.scopeParentURL ?? url.deletingLastPathComponent()
           let accessing = scope.startAccessingSecurityScopedResource()
           defer { if accessing { scope.stopAccessingSecurityScopedResource() } }
-          return autoreleasepool { ImageMetadataReader.readPixelSize(from: url) }
+          return autoreleasepool {
+            ImageMetadataReader.readPixelSize(from: url)
+              ?? (ownedAsset.isRaw ? RawDimensions.read(from: url) : nil)
+          }
         }
         guard let data = try? await ownedAsset.bytesProvider?() else { return nil }
         guard !Task.isCancelled else { return nil }
         return autoreleasepool {
           ImageMetadataReader.readPixelSize(from: data, identifierHint: ownedAsset.hintExtension)
+            ?? (ownedAsset.isRaw
+              ? RawDimensions.read(from: data, hint: ownedAsset.hintExtension) : nil)
         }
       }
       nativeSizeTask = task

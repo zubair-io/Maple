@@ -1,0 +1,248 @@
+{
+  "issues": [
+    3941,
+    1472
+  ],
+  "recordedAt": "2026-10-04T18:32:46.943072+00:00",
+  "testedHeadBeforeCommit": "7e6e989fb45bc6e0ad53f855d5525d21a07d2bcb",
+  "testedMainBase": "e010ee47747476f7d17337cd3268b884d7d90f2d",
+  "releaseQualified": false,
+  "change": "Research-only large-encode --photographic-contrast reuses the existing reversible photographic recipe at native2048. Prior reference recipe is independently recomputed from exact RAW pixels; default mask comparisons still refuse recipe drift. No app model, capability limit, view transform, XMP or saved edit changes.",
+  "sourceFiles": [
+    {
+      "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/src/raw-pipeline/raw-core/examples/removal-scene-probe.rs",
+      "sha256": "f77b0296f7ba7e7e4b36daf4dd7e687c009e87b25a04f2bd9955f39352958bbc",
+      "bytes": 18477
+    },
+    {
+      "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/src/raw-pipeline/raw-core/examples/removal_scene/large.rs",
+      "sha256": "3510655087ed2f3e9333ac6f9a803c8d1381c00cf447e42ffb9d494ad8e2d510",
+      "bytes": 10389
+    },
+    {
+      "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/src/raw-pipeline/raw-core/examples/removal_scene/encoding.rs",
+      "sha256": "5f4903b2b496150ca9aeb29629baede251b3403813c24681287f6e16e1e4089d",
+      "bytes": 3944
+    },
+    {
+      "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/src/raw-pipeline/raw-core/examples/removal_scene/photographic_encoding.rs",
+      "sha256": "627cd84368f99e8202cb1d0a378a7248883da3fe525c298e4caba8dc2b3c6f36",
+      "bytes": 4911
+    },
+    {
+      "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/tools/removal/lama_large_scene_test.py",
+      "sha256": "3248dcc837f598ec759f886cec30908695ab0f3bec3259a7343f7bcac90e3e78",
+      "bytes": 6781
+    },
+    {
+      "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/tools/removal/probe_lama_large_scene.py",
+      "sha256": "fb3ebbaba6cc74705fa4a18c04046b426d64616c3658ed49dbd37b5e64e21d64",
+      "bytes": 7591
+    },
+    {
+      "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/tools/removal/verify_large_photo_bake.py",
+      "sha256": "d448daad5174e6ea27d0ef2e9d90deb56417461c8a0967ed34c03b295fc5a623",
+      "bytes": 5163
+    }
+  ],
+  "context": {
+    "prior": "/Users/riabuz/.cache/maple-removal-research/corrected-person4-fixed-context-20261004",
+    "photographic": "/Users/riabuz/.cache/maple-removal-research/corrected-person4-photographic-context-20261004",
+    "finalProbeReplay": "/Users/riabuz/.cache/maple-removal-research/corrected-person4-photographic-final-context-20261004",
+    "source": {
+      "original": "blake3:2019a5cbd7bcdcf8405528789cde7c05ed4bee8d31c533df786be64f42c97718",
+      "decode": "blake3:add2c2b7017c74c40e3b2229acc1804ab1ca5be9700e99f448093dd044bf87c9",
+      "width": 6000,
+      "height": 4000
+    },
+    "window": {
+      "x": 944,
+      "y": 1348,
+      "width": 2048,
+      "height": 2048
+    },
+    "encoding": {
+      "method": "signed-log-photographic-contrast-v1",
+      "low": -2.1188589178325308,
+      "high": 4.053674175684352
+    },
+    "identicalSourceMaskCoverageFiles": [
+      {
+        "path": "/Users/riabuz/.cache/maple-removal-research/corrected-person4-photographic-context-20261004/scene.f32",
+        "sha256": "9be5e820bf747fdf36c014545ac02abac52311992c9445c2d7226959f63672e6",
+        "bytes": 50331648
+      },
+      {
+        "path": "/Users/riabuz/.cache/maple-removal-research/corrected-person4-photographic-context-20261004/masks.f32",
+        "sha256": "fbd08b1c80ee6bd4504c5817e11710a4daaabdbf0faedd2a8aa8e4863d01b16f",
+        "bytes": 33554432
+      },
+      {
+        "path": "/Users/riabuz/.cache/maple-removal-research/corrected-person4-photographic-context-20261004/intent.mimf",
+        "sha256": "cbbbc1fce2b29866e9acf60abb63c010fe359a222143c4f647b04354ed36e077",
+        "bytes": 226142
+      },
+      {
+        "path": "/Users/riabuz/.cache/maple-removal-research/corrected-person4-photographic-context-20261004/protected.mimf",
+        "sha256": "67fb0fb69b5618657f2a4e56b603f1e1727f7190d6bd5aa531812f29265378e1",
+        "bytes": 328376
+      },
+      {
+        "path": "/Users/riabuz/.cache/maple-removal-research/corrected-person4-photographic-context-20261004/inputs.json",
+        "sha256": "c1c4137b3be9cc7749e6c9e90af836502354599597851dad75620307acb2af42",
+        "bytes": 416
+      }
+    ],
+    "finalEncodeReplayAllNineFilesExact": true,
+    "resampled": false
+  },
+  "model": {
+    "artifact": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/lama-native2048-20261004/lama-native-2048.onnx",
+      "sha256": "06c3a4fefd33e371c696ef00b0004bb8a16515d6d540f5bc2be50c219ca1c97b",
+      "bytes": 204794328
+    },
+    "manifest": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/lama-native2048-20261004/lama-native-2048.json",
+      "sha256": "53cf2a5e66c8747f0d24a917a6dce3a640b861ea9fb47426fcda6a2faa94f4ca",
+      "bytes": 1085
+    },
+    "runtimeReport": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/corrected-person4-photographic-runtime-20261004/report.json",
+      "sha256": "ecedc86d341bd76c52fb61f3b02a581514040135f2292e9e63492c4615a40461",
+      "bytes": 1359
+    },
+    "referenceReport": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/corrected-person4-photographic-reference-20261004/report.json",
+      "sha256": "6ee387fec1d404bbd7efb9ba7c4140063582f6177c6dbc848042d02db3b6c7de",
+      "bytes": 1361
+    },
+    "runtimeResult": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/corrected-person4-photographic-runtime-20261004/result.f32",
+      "sha256": "157dc061db3dbd6c37882c499a3dfa6e7e556b354f683dc1b8652446c1ab2b5f",
+      "bytes": 50331648
+    },
+    "referenceResult": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/corrected-person4-photographic-reference-20261004/result.f32",
+      "sha256": "d7a1525e25e54207ad14f6ee905db4597890f75c1c9d89dc93afe6ca317a01f9",
+      "bytes": 50331648
+    },
+    "upstreamTrackedSourceClean": true,
+    "memoryAndLatencyScope": "Separate Python CPU observations on shared M5Max128GiB, not app/native dylib or supported-device budgets."
+  },
+  "rawDevelop": {
+    "runtimeBake": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/corrected-person4-photographic-bake-20261004/report.json",
+      "sha256": "f2f3d4f0c7bd746c625e1d54d1ff51919146d8245c8713ac396b4d66a55e49c3",
+      "bytes": 4494
+    },
+    "referenceBake": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/corrected-person4-photographic-reference-bake-20261004/report.json",
+      "sha256": "e7b8c385d2892639848d3eda7bd51af0375cffc8fba3aca3533d1b1b47b50710",
+      "bytes": 4494
+    },
+    "runtimeIndependentPreservation": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/photographic-large-grade-verification-20261004.json",
+      "sha256": "ab7397e3424ef3598ca20f834cc927b2c6cf3b4c07ad1b103b75ca0b0d7f3218",
+      "bytes": 10605
+    },
+    "referenceIndependentPreservation": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/photographic-large-reference-grade-verification-20261004.json",
+      "sha256": "535d4ad062283ae78112f50c31b818d747e3f34eee7296bd16ed94763a3640ff",
+      "bytes": 10605
+    },
+    "pairedGrades": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/photographic-large-paired-grades-20261004.json",
+      "sha256": "d4df999100672db5d3152e68feee5b37d314a1799683f32301114b7e6c64eae6",
+      "bytes": 10641
+    },
+    "maxDisplayDifferenceU8": 1,
+    "priorSameMaskSignedLogMaxDisplayDifferenceU8": 24,
+    "maxModelFloatDifference": 0.0006812214851379395,
+    "knownProtectedPixelsChanged": 0,
+    "gradesPerEngine": 18,
+    "maxSceneFloatIdentityErrorIncludingHalfTransport": 0.001739501953125,
+    "qualificationScope": "Exact known/protected samples and diagnostic ORT/upstream display comparison; not ACR color, GPU/Web, physical device, complete silhouette ownership or release qualification."
+  },
+  "validation": {
+    "exampleTestsPassed": 9,
+    "actualContextControlsPassed": 14,
+    "implicitRecipeChangeControl": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/photographic-large-reference-policy-control-20261004.json",
+      "sha256": "5aa9f047d22e2c4c6790eceef30081de62d499e56165b1f5844e3c7037128936",
+      "bytes": 264
+    },
+    "comparisonScript": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/compare-photographic-large-grades-20261004.py",
+      "sha256": "885e1f268c1f1b13a68cd02504a570e5445ecc2f769f36ade6abd0f76f5ed8c0",
+      "bytes": 2277
+    },
+    "logs": [
+      {
+        "path": "/Users/riabuz/.cache/maple-removal-research/photographic-large-probe-build-final-20261004.log",
+        "sha256": "45fe803b67aeb60083a628d2567c66e41dead630cb6cb34f48d16e871211136b",
+        "bytes": 2507
+      },
+      {
+        "path": "/Users/riabuz/.cache/maple-removal-research/photographic-large-example-tests-final-20261004.log",
+        "sha256": "469ffe15940c1517a9373e1e091b57eecaedef5def8122f5db43082f53965695",
+        "bytes": 3706
+      },
+      {
+        "path": "/Users/riabuz/.cache/maple-removal-research/photographic-large-preflight-tests-final-20261004.log",
+        "sha256": "23709daccd26910c9bd38d374302655fe13f85bff633dba3cf4e8b234fee7a32",
+        "bytes": 2061
+      },
+      {
+        "path": "/Users/riabuz/.cache/maple-removal-research/photographic-large-runtime-20261004.log",
+        "sha256": "ecedc86d341bd76c52fb61f3b02a581514040135f2292e9e63492c4615a40461",
+        "bytes": 1359
+      },
+      {
+        "path": "/Users/riabuz/.cache/maple-removal-research/photographic-large-reference-20261004.log",
+        "sha256": "6df177f1fdddd54c0bb97edc7dba8b238619f9c7c956bae785ac39b92045292a",
+        "bytes": 1502
+      },
+      {
+        "path": "/Users/riabuz/.cache/maple-removal-research/photographic-large-bake-20261004.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "bytes": 0
+      },
+      {
+        "path": "/Users/riabuz/.cache/maple-removal-research/photographic-large-reference-bake-20261004.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "bytes": 0
+      },
+      {
+        "path": "/Users/riabuz/.cache/maple-removal-research/photographic-large-native-freshness-20261004.log",
+        "sha256": "1d4e583dcb1be5357b4fd66959b325ca26549286dd00aafe5264b9f173db6537",
+        "bytes": 91
+      },
+      {
+        "path": "/Users/riabuz/.cache/maple-removal-research/photographic-large-headroom-20261004.log",
+        "sha256": "e5ab2a25f8061db32ffdb922fed42f0e27b479832ba0cc573d056ef342acf495",
+        "bytes": 55
+      }
+    ],
+    "nativeLibrariesRemainFresh": true,
+    "inferenceAndBakesBeforeFinalEncodePolicyStrengthening": true,
+    "bakeAndInferenceImplementationsChangedAfterRuns": false
+  },
+  "visualReview": {
+    "admission": "rejected",
+    "reviewedImages": [
+      {
+        "path": "/Users/riabuz/.cache/maple-removal-research/corrected-person4-photographic-bake-20261004/auto_ev+0_wb+0-removal.png",
+        "sha256": "ef2a1082d0edbcdd2b5ccc9774f3f3a255a773c2d5b06a0fde2d17d61d6a9a71",
+        "bytes": 6076480
+      },
+      {
+        "path": "/Users/riabuz/.cache/maple-removal-research/fp16-fixed-person4-native2048-bake-20261004/auto_ev+0_wb+0-removal.png",
+        "sha256": "707c923a5edce8b46da9c4e4a909b58a63f5e5db763c45a6c2b7b367fb4c950e",
+        "bytes": 6616284
+      }
+    ],
+    "finding": "Photographic contrast reduces extreme purple/black speckling but leaves an obvious person-shaped uniform textured blob and dark bag-shaped fringe, without plausible hidden market background. Encoding alone does not solve reconstruction."
+  },
+  "remaining": "Useful whole-object photographic fill and complete ownership, controlled supported-device performance, full Apple/Web flow and parity/recovery/portable consumers. Full ACR gate39403 remains running on original pre-rebase executable; no current-base pass. Epic remains active; no external blocker."
+}

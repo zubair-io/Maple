@@ -1,3 +1,8 @@
+@use '@angular/cdk' as cdk;
+
+// Live announcements stay accessible without resizing the RAW canvas (#3984).
+@include cdk.a11y-visually-hidden();
+
 // Shared app-chrome baseline used by both app entrypoints — extracted from
 // the two apps' styles.scss (#3000 fallow dedup). Covers html/body sizing,
 // body colors/font, webkit scrollbar theming, input/button reset, and

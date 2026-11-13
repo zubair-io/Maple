@@ -1,3 +1,4 @@
+import type { RemovalCompanionBundle } from '../removal/removal-companion-bundle';
 // Persistent GPU live-session request dispatch (epic #925, P4b-web / #1038) —
 // extracted from `raw-pipeline.service.ts` so that file stays inside the
 // file-size budget headroom (tools/check-budget-headroom.sh). Mirrors
@@ -50,6 +51,7 @@ export function openLiveSessionRequest(
   xmp: string | undefined,
   maxLongEdge: number | undefined,
   targetColorSpace: string | undefined,
+  savedRemovals?: RemovalCompanionBundle,
 ): Promise<OpenedLiveSession> {
   // Copy the bytes off the caller's view before transferring (the view stays
   // usable for a later 2D fallback / re-open), mirroring `decodeOnce`.
@@ -57,6 +59,7 @@ export function openLiveSessionRequest(
     bytes.byteOffset,
     bytes.byteOffset + bytes.byteLength,
   ) as ArrayBuffer;
+  const companions = savedRemovals?.bytes.slice().buffer as ArrayBuffer | undefined;
   const request: OpenSessionRequest = {
     id,
     type: 'open-session',
@@ -66,12 +69,15 @@ export function openLiveSessionRequest(
     canvas,
     maxLongEdge,
     targetColorSpace,
+    ...(savedRemovals && companions
+      ? { savedRemovals: { manifest: savedRemovals.manifest, bytes: companions } }
+      : {}),
   };
   // Transfer BOTH the byte buffer and the OffscreenCanvas to the worker.
   return dispatchWithMark<OpenedLiveSession>(
     worker,
     request,
-    [buffer, canvas],
+    [buffer, canvas, ...(companions ? [companions] : [])],
     'maple:open-session',
     ({ resolve, reject }) => ({ kind: 'open-session', resolve, reject }),
     register,
@@ -91,12 +97,22 @@ export function renderLiveSessionRequest(
   register: RegisterPending,
   xmp: string | undefined,
   params: Float32Array | undefined,
+  savedRemovals?: RemovalCompanionBundle,
 ): Promise<RenderedLiveSession> {
-  const request: RenderSessionRequest = { id, type: 'render-session', xmp, params };
+  const companions = savedRemovals?.bytes.slice().buffer as ArrayBuffer | undefined;
+  const request: RenderSessionRequest = {
+    id,
+    type: 'render-session',
+    xmp,
+    params,
+    ...(savedRemovals && companions
+      ? { savedRemovals: { manifest: savedRemovals.manifest, bytes: companions } }
+      : {}),
+  };
   return dispatchWithMark<RenderedLiveSession>(
     worker,
     request,
-    params ? [params.buffer] : [],
+    [...(params ? [params.buffer] : []), ...(companions ? [companions] : [])],
     'maple:render-session',
     ({ resolve, reject }) => ({ kind: 'render-session', resolve, reject }),
     register,

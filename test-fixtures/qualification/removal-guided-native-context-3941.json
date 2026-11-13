@@ -1,0 +1,481 @@
+{
+  "issue": 3941,
+  "epic": 1472,
+  "recorded_at": "2026-10-03T06:05:06.029629+00:00",
+  "parent_commit": "01f071b775f9e3845a67c735b0576d2e9195c42b",
+  "main_base": "89c88db906a42983552e0ac1a4621ee5ef451ac9",
+  "releaseQualified": false,
+  "app_limit_changed": false,
+  "purpose": "Evaluate coarse structural guidance plus votes from native source patches for greater-than-1024 source-pixel selections. Record actual failures before changing Mac admission or Keep.",
+  "algorithm": {
+    "description": "Independent RGB-only approximate PatchMatch correspondence on a four-source-pixel grid, five iterations with deterministic random search; known 12x12 native donor support and overlapping weighted source votes. Only selected pixels are assigned. Coarse guide contributes no final RGB pixels.",
+    "known_guide_policy": "Known coarse guide blocks are replaced with native source block means, and donors require fully known source support.",
+    "source_code_from_published_project": false,
+    "limitations": [
+      "No segmentation/depth guidance, published raster propagation or candidate auto-curation.",
+      "Block-aligned translation-only voting can average incoherent donors and smear texture; it does not reproduce the full published method.",
+      "Lower correspondence RGB MSE and higher Laplacian energy are objective diagnostics only; neither proves realistic removal quality."
+    ]
+  },
+  "input": {
+    "source": {
+      "path": "/tmp/maple-removal-corpus/public-raws/market-auto.png",
+      "sha256": "f3849bc239641640749f76a1d44c8060c9d12f073385da37b632e703573a84dc"
+    },
+    "crop": {
+      "path": "/tmp/maple-removal-lama-native2048-input-20261003/market-native-2048.png",
+      "sha256": "d1298bd00fef7093a896d1657b6f88aa4c7181084b68add1d837d8ffedbd027b"
+    },
+    "crop_bounds": [
+      2700,
+      1240,
+      4748,
+      3288
+    ],
+    "source_resampled": false,
+    "domain": "RAW-developed Auto SDR PNG, not canonical scene-linear RAW inference plate",
+    "license_manifest": {
+      "path": "/tmp/maple-removal-corpus/public-raws/sources.json",
+      "sha256": "0aa7d215b3e3e89fe342bd492440bf9332588116ce8c0155b4a5c973fc15d8bc"
+    },
+    "original_raw_verification": [
+      {
+        "file": "P1010153.RW2",
+        "sha256": "874b652b9d2605030aac18eab4a687903083ac4b8a73029a35f46c36b1f7ba82",
+        "unchanged": true
+      },
+      {
+        "file": "DSC06078.ARW",
+        "sha256": "ec04e3ac69d54e7300ba0ff582d10ade0fc3ad28f48507b4c35cacc115e4ee86",
+        "unchanged": true
+      }
+    ],
+    "crop_matches_native_source_samples": true
+  },
+  "selection": {
+    "report": {
+      "source_sha256": "d1298bd00fef7093a896d1657b6f88aa4c7181084b68add1d837d8ffedbd027b",
+      "selection_proxy_extent": [
+        1024,
+        1024
+      ],
+      "native_extent": [
+        2048,
+        2048
+      ],
+      "selection_proxy_resampled": true,
+      "native_rgb_resampled": false,
+      "points_proxy_xy": [
+        [
+          350.0,
+          290.0
+        ],
+        [
+          565.0,
+          900.0
+        ],
+        [
+          460.0,
+          540.0
+        ],
+        [
+          469.0,
+          320.0
+        ],
+        [
+          210.0,
+          520.0
+        ],
+        [
+          600.0,
+          490.0
+        ]
+      ],
+      "labels": [
+        2.0,
+        3.0,
+        1.0,
+        1.0,
+        0.0,
+        0.0
+      ],
+      "candidate_scores": [
+        0.9223130941390991,
+        0.9424728155136108,
+        0.9704785346984863,
+        0.9736143350601196
+      ],
+      "candidate_prompt_checks": [
+        [
+          true,
+          true,
+          true,
+          true
+        ],
+        [
+          true,
+          true,
+          true,
+          true
+        ],
+        [
+          true,
+          true,
+          true,
+          true
+        ],
+        [
+          true,
+          true,
+          true,
+          true
+        ]
+      ],
+      "choice": 3,
+      "mask_native_dilation_radius": 6,
+      "hole_bounds_xywh": [
+        678,
+        584,
+        452,
+        1206
+      ],
+      "selected_pixels": 345996,
+      "elapsed_ms": 902.512124972418,
+      "onnxruntime": "1.23.2",
+      "selection_sha256": "6f23e01ef318d1745da37393bd1e8900114123f7331cbabab34d0bb18d60cac6",
+      "hole_sha256": "923f14de4500e1053f16d6d48fa93e9ccc5d28dbcfc93d3c00828063c68e9666",
+      "models": [
+        {
+          "id": "encoder",
+          "file": "mobile-sam-encoder.onnx",
+          "probe_path": "mobile-sam/native-build/mobile-sam-encoder.onnx",
+          "size": 27996392,
+          "sha256": "e12aec77d292b119aaa8add4e23a21114d3ff4fac44a1abfb8ca2a391f03bf2b",
+          "source_revision": "f706ad9c4eb7f219c00d9050e46328518ffb65d2",
+          "checkpoint_sha256": "6dbb90523a35330fedd7f1d3dfc66f995213d81b29a5ca8108dbcdd4e37d6c2f",
+          "license": "Apache-2.0",
+          "native_side": 1024,
+          "release_qualified": false
+        },
+        {
+          "id": "decoder",
+          "file": "mobile-sam-decoder.onnx",
+          "probe_path": "mobile-sam/native-build/mobile-sam-decoder.onnx",
+          "size": 16496934,
+          "sha256": "878e0ba9952d4d35c78d8cbd3ee57cdc3691fda0deb39d2cf1f0c8004f2f38e7",
+          "source_revision": "f706ad9c4eb7f219c00d9050e46328518ffb65d2",
+          "checkpoint_sha256": "6dbb90523a35330fedd7f1d3dfc66f995213d81b29a5ca8108dbcdd4e37d6c2f",
+          "license": "Apache-2.0",
+          "native_side": 1024,
+          "release_qualified": false
+        }
+      ],
+      "release_qualified": false
+    },
+    "artifacts": {
+      "report.json": {
+        "path": "/tmp/maple-removal-guided-native-person-mask-20261003/report.json",
+        "sha256": "1c1eed88f333573ac3c76d295ae51d6b4db4d2961e783044ef4df77625f1219e"
+      },
+      "selection-proxy.png": {
+        "path": "/tmp/maple-removal-guided-native-person-mask-20261003/selection-proxy.png",
+        "sha256": "2d6e2da2a0d10bf8954410d8dacba9778bc52fc95da2d3b1f1fe02bbcdb1f038"
+      },
+      "person-selection.png": {
+        "path": "/tmp/maple-removal-guided-native-person-mask-20261003/person-selection.png",
+        "sha256": "6f23e01ef318d1745da37393bd1e8900114123f7331cbabab34d0bb18d60cac6"
+      },
+      "person-hole.png": {
+        "path": "/tmp/maple-removal-guided-native-person-mask-20261003/person-hole.png",
+        "sha256": "923f14de4500e1053f16d6d48fa93e9ccc5d28dbcfc93d3c00828063c68e9666"
+      }
+    },
+    "executed_recipe": {
+      "path": "/tmp/maple-removal-market-person-mask-20261003.py",
+      "sha256": "13bd86847ab8c121aba23dc1df304c6f95748a9471b55bba4e885cc391312012"
+    },
+    "replay_protocol": [
+      "Verify encoder/decoder size and SHA256 against tools/removal/removal-models.generated.json.",
+      "Bilinear 2048 RGB source to 1024 for selection only; encoder image=float32 NCHW 0..255.",
+      "Use points_proxy_xy and labels in report; zero mask_input [1,1,256,256], has_mask_input [1], orig_im_size=[1024,1024].",
+      "Select highest decoder score among finite shape-correct masks satisfying every positive/negative point after threshold >0.",
+      "Nearest project binary selection to 2048; dilate with PIL MaxFilter(13), six native pixels; save single-channel 0/255 PNG.",
+      "Confirm source-space hole bounds [678,584,452,1206] and mask SHA256 before reconstruction."
+    ],
+    "limits": "Prompt satisfaction is verified; silhouette-boundary accuracy, disconnected selections and real shadows/reflections are not qualified."
+  },
+  "cases": [
+    {
+      "case": "broad rectangle",
+      "measurement": {
+        "grid_stride_source_pixels": 4,
+        "donor_support_source_pixels": 12,
+        "iterations": 5,
+        "seed": 3941,
+        "selected_source_pixels": 1680000,
+        "selected_blocks": 105000,
+        "valid_donor_blocks": 153796,
+        "invalid_donors": 0,
+        "initial_guide_mse": 0.04086657240986824,
+        "final_guide_mse": 0.00029114834615029395,
+        "outside_changed_samples": 0,
+        "final_pixels": "Weighted native source copies; coarse guide contributes no RGB pixels",
+        "release_qualified": false,
+        "source_path": "/tmp/maple-removal-lama-native2048-input-20261003/market-native-2048.png",
+        "source_sha256": "d1298bd00fef7093a896d1657b6f88aa4c7181084b68add1d837d8ffedbd027b",
+        "model_sha256": "339d078d9d1376d76a49efd4fa42f328c3f276af775505ae8b57c84db187c4f6",
+        "checkpoint_sha256": "fccb7adffd53ec0974ee5503c3731c2c2f1e7e07856fd9228cdcc0b46fd5d423",
+        "model_source_revision": "786f5936b27fb3dacd2b1ad799e4de968ea697e7",
+        "rectangle": [
+          180,
+          540,
+          1200,
+          1400
+        ],
+        "mask_path": null,
+        "mask_sha256": null,
+        "hole_bounds_xywh": [
+          180,
+          540,
+          1200,
+          1400
+        ],
+        "native_extent": [
+          2048,
+          2048
+        ],
+        "guide_extent": [
+          1024,
+          1024
+        ],
+        "coarse_inference_ms": 7978.241208009422,
+        "native_refinement_ms": 790.4726669657975,
+        "model_open_through_refinement_ms": 9014.491625130177,
+        "peak_rss_bytes": 2848505856,
+        "memory_scope": "Python ORT wheel, model open, coarse tensors and native patch voting in one process",
+        "onnxruntime": "1.23.2",
+        "providers": [
+          "CPUExecutionProvider"
+        ],
+        "native_hole_mean_absolute_laplacian": 0.015538531355559826,
+        "guide_hole_mean_absolute_laplacian": 0.004728458821773529,
+        "outside_changed_u8_samples": 0,
+        "result_sha256": "c973788750de367c979a4eead145dd854097ddb065d108c21ce64a1a19301d7d",
+        "guide_sha256": "98bf4a4d7b20a3edc67ac4e98e65adaff3a74ad45d49f44b1c4cde51d255a55b",
+        "qualification": "Single RGB-guide/native-vote diagnostic; no semantic/depth guides, auto-curation, canonical RAW conversion or release quality claim"
+      },
+      "artifacts": {
+        "report.json": {
+          "path": "/tmp/maple-removal-guided-native-market-final-20261003/report.json",
+          "sha256": "70105412dcfbdbca23b9cdfc19300ec87b7f5c7abb2fe0b4e60e25c3406a206d"
+        },
+        "native-votes.png": {
+          "path": "/tmp/maple-removal-guided-native-market-final-20261003/native-votes.png",
+          "sha256": "95001c5abc20873022514b16ca496141dfadea381a8e15d081bd3ce3541b41e2"
+        },
+        "coarse-guide.png": {
+          "path": "/tmp/maple-removal-guided-native-market-final-20261003/coarse-guide.png",
+          "sha256": "e71899b1a29529a8afd4bac43c7b13725e99b06bcf4a2b4dcc96c17d28d4c5a9"
+        },
+        "hole.png": {
+          "path": "/tmp/maple-removal-guided-native-market-final-20261003/hole.png",
+          "sha256": "ae1f75c945d8557d30240b783effd3997f1a54b9708159d79e30040660fef41d"
+        }
+      },
+      "repeat": {
+        "first_report": {
+          "path": "/tmp/maple-removal-guided-native-market-20261003/report.json",
+          "sha256": "58883c52328dcde9b49694ce30be061858845fcc192ca0389f6e55bc1e0e5aea"
+        },
+        "rgb_and_guide_float_digests_equal": true,
+        "first_elapsed_scope": "First report accidentally included diagnostic output I/O in model_open_through_refinement_ms; final measurement excludes output writing."
+      },
+      "visual_assessment": {
+        "passed": false,
+        "scope": "Qualitative challenge rejection, no ground-truth photographic score or color-pipeline qualification",
+        "observations": [
+          "Coarse guide loses plausible shelf and produce structure; broad muted fill and boundary discontinuities remain.",
+          "Native voting adds detail energy but does not restore scene geometry."
+        ]
+      },
+      "persisted_output_recheck": {
+        "outside_mask_float_bits_changed": 0,
+        "outside_mask_u8_samples_changed": 0,
+        "finite": true,
+        "min": 0.0,
+        "max": 1.0,
+        "scope": "Independent persisted f32/PNG reload against actual native source pixels, no photographic ground-truth claim"
+      }
+    },
+    {
+      "case": "MobileSAM tall foreground person",
+      "measurement": {
+        "grid_stride_source_pixels": 4,
+        "donor_support_source_pixels": 12,
+        "iterations": 5,
+        "seed": 3941,
+        "selected_source_pixels": 345996,
+        "selected_blocks": 21988,
+        "valid_donor_blocks": 236765,
+        "invalid_donors": 0,
+        "initial_guide_mse": 0.060685671865940094,
+        "final_guide_mse": 0.0005030821776017547,
+        "outside_changed_samples": 0,
+        "final_pixels": "Weighted native source copies; coarse guide contributes no RGB pixels",
+        "release_qualified": false,
+        "source_path": "/tmp/maple-removal-lama-native2048-input-20261003/market-native-2048.png",
+        "source_sha256": "d1298bd00fef7093a896d1657b6f88aa4c7181084b68add1d837d8ffedbd027b",
+        "model_sha256": "339d078d9d1376d76a49efd4fa42f328c3f276af775505ae8b57c84db187c4f6",
+        "checkpoint_sha256": "fccb7adffd53ec0974ee5503c3731c2c2f1e7e07856fd9228cdcc0b46fd5d423",
+        "model_source_revision": "786f5936b27fb3dacd2b1ad799e4de968ea697e7",
+        "rectangle": null,
+        "mask_path": "/tmp/maple-removal-guided-native-person-mask-20261003/person-hole.png",
+        "mask_sha256": "923f14de4500e1053f16d6d48fa93e9ccc5d28dbcfc93d3c00828063c68e9666",
+        "hole_bounds_xywh": [
+          678,
+          584,
+          452,
+          1206
+        ],
+        "native_extent": [
+          2048,
+          2048
+        ],
+        "guide_extent": [
+          1024,
+          1024
+        ],
+        "coarse_inference_ms": 7942.50995805487,
+        "native_refinement_ms": 396.4563338086009,
+        "model_open_through_refinement_ms": 8597.231709165499,
+        "peak_rss_bytes": 2865725440,
+        "memory_scope": "Python ORT wheel, model open, coarse tensors and native patch voting in one process",
+        "onnxruntime": "1.23.2",
+        "providers": [
+          "CPUExecutionProvider"
+        ],
+        "native_hole_mean_absolute_laplacian": 0.016954943537712097,
+        "guide_hole_mean_absolute_laplacian": 0.006055073346942663,
+        "outside_changed_u8_samples": 0,
+        "result_sha256": "eee6dc62c88a0a0fe4f356f3fa05821e652dae22a6189f6fb3d7d3a9caca64ab",
+        "guide_sha256": "69792fe77dbaf49ce1a97a6357ef5cc54b6838a047b6437699f94403cc0ae307",
+        "qualification": "Single RGB-guide/native-vote diagnostic; no semantic/depth guides, auto-curation, canonical RAW conversion or release quality claim"
+      },
+      "artifacts": {
+        "report.json": {
+          "path": "/tmp/maple-removal-guided-native-person-final-20261003/report.json",
+          "sha256": "eea85a963bfde239d1488543526f4d65af73dbc26aed17f55cb3369b7f81eadf"
+        },
+        "native-votes.png": {
+          "path": "/tmp/maple-removal-guided-native-person-final-20261003/native-votes.png",
+          "sha256": "ac01056466df924cdcecc374df93e2477126d2956a109b72985300ffb58ec765"
+        },
+        "coarse-guide.png": {
+          "path": "/tmp/maple-removal-guided-native-person-final-20261003/coarse-guide.png",
+          "sha256": "bbd78fc794f52a49bcde2a54a035bbc9c57b8945262242f86cc2b22fe016b67c"
+        },
+        "hole.png": {
+          "path": "/tmp/maple-removal-guided-native-person-final-20261003/hole.png",
+          "sha256": "923f14de4500e1053f16d6d48fa93e9ccc5d28dbcfc93d3c00828063c68e9666"
+        },
+        "native-detail.png": {
+          "path": "/tmp/maple-removal-guided-native-person-final-20261003/native-detail.png",
+          "sha256": "c7455fa6ed0e52d2c0e7acf10b3c91634dd3a052e223b6b0b524a7f012f5f947"
+        },
+        "guide-detail.png": {
+          "path": "/tmp/maple-removal-guided-native-person-final-20261003/guide-detail.png",
+          "sha256": "296e85fd4605196cda23da4fbb21df4fe22e15533820b055cf5995ef9a061a95"
+        }
+      },
+      "repeat": {
+        "first_report": {
+          "path": "/tmp/maple-removal-guided-native-person-20261003/report.json",
+          "sha256": "ad828bf0ca18fe2533d7bece6a3b8527e9621ecae1c7f714f4dde56911dbb74e"
+        },
+        "rgb_and_guide_float_digests_equal": true,
+        "first_elapsed_scope": "First report accidentally included diagnostic output I/O in model_open_through_refinement_ms; final measurement excludes output writing."
+      },
+      "visual_assessment": {
+        "passed": false,
+        "scope": "Qualitative challenge rejection, no ground-truth photographic score or color-pipeline qualification",
+        "observations": [
+          "Both coarse guidance and native votes leave a visibly smeared silhouette-shaped region rather than plausible produce/display reconstruction.",
+          "Native donor votes have visible block-pattern smearing; other people, bags and arms outside the selected mask remain, as required by pixel preservation.",
+          "Full scene inspected; native 560x1250 crops at bounds [640,560,1200,1810] also inspected without scaling."
+        ]
+      },
+      "persisted_output_recheck": {
+        "outside_mask_float_bits_changed": 0,
+        "outside_mask_u8_samples_changed": 0,
+        "finite": true,
+        "min": 0.0,
+        "max": 1.0,
+        "scope": "Independent persisted f32/PNG reload against actual native source pixels, no photographic ground-truth claim"
+      }
+    }
+  ],
+  "checks": {
+    "tests": 8,
+    "failed": 0,
+    "skip": 0,
+    "scope": "Native one-pixel controlled texture, deterministic donor/source isolation, partial/edge masks, dtype/range/shape rejection, real PNG mask admission, refusal before model I/O. Not app, sidecar or photographic quality tests.",
+    "ruff_format": "passed",
+    "ruff_check": "passed",
+    "file_budget": "passed"
+  },
+  "logs": {
+    "tests": {
+      "path": "/tmp/maple-removal-guided-native-tests-final2-20261003.log",
+      "sha256": "c96c9ad4d0c323448bd7eeba88ebb5f8116d08e8f8326dc1a387590d6bb887fc"
+    },
+    "format": {
+      "path": "/tmp/maple-removal-guided-native-format-final-20261003.log",
+      "sha256": "177f260a5645724013185e4b140c7045cc39e56c0c97b120f5cb23599f85f0de"
+    },
+    "lint": {
+      "path": "/tmp/maple-removal-guided-native-lint-final-20261003.log",
+      "sha256": "82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18"
+    },
+    "file_budget": {
+      "path": "/tmp/maple-removal-guided-native-budget-20261003.log",
+      "sha256": "90b0b928cdd3fad543c7281614414e5a789d3bdbddcb9c5ec4011485ccf00f1c"
+    },
+    "market_runtime": {
+      "path": "/tmp/maple-removal-guided-native-market-final-20261003.log",
+      "sha256": "70105412dcfbdbca23b9cdfc19300ec87b7f5c7abb2fe0b4e60e25c3406a206d"
+    },
+    "person_runtime": {
+      "path": "/tmp/maple-removal-guided-native-person-final-20261003.log",
+      "sha256": "eea85a963bfde239d1488543526f4d65af73dbc26aed17f55cb3369b7f81eadf"
+    },
+    "selection": {
+      "path": "/tmp/maple-removal-market-person-mask-20261003.log",
+      "sha256": "1c1eed88f333573ac3c76d295ae51d6b4db4d2961e783044ef4df77625f1219e"
+    }
+  },
+  "source_sha256": {
+    "tools/removal/guided_native_patches.py": "ab599eab89a5c17969ccf0916b170a7b470f2d61f6c2ad8483dc9302680e18e4",
+    "tools/removal/guided_native_patches_test.py": "56f7cf3f9b8a8b395b5c4915707fe49ab2be0adb63dc5c6c1a35d50936b5097e",
+    "tools/removal/probe_guided_native.py": "89a86ce7f97b5fe5dd801cd2ceaf0105f0b4aa3e586cb999b644d9624df5304d",
+    "tools/removal/guided_native_probe_test.py": "41e6892c40684dc154ff5007dee7c9543d7fab00644c0becb1d5db3ff4175767"
+  },
+  "host": {
+    "cpu": "Apple M5 Max",
+    "physical_memory_bytes": 137438953472,
+    "scope": "Shared active host, Python ONNX Runtime 1.23.2 CPU wheel, four intra-op and one inter-op threads; no controlled p50/p95, app dylib, GPU provider or lower-memory device qualification."
+  },
+  "comparison_to_native_2048": "Prior direct 2048 graph cost ~147 s and 8.12 GB RSS on same broad rectangle. Current two bounded guide/vote points cost ~8.6-9.0 s and 2.85-2.87 GB RSS; uncontrolled separate runs do not establish a performance ratio or release budget.",
+  "decision": "Do not integrate this RGB-only experiment into accepted edits or raise native generation limits. Current structure quality fails both challenges despite exact preservation outside the mask.",
+  "next": [
+    "Evaluate stronger structural reconstruction or guided high-resolution refinement before revisiting Mac large-selection admission. More native texture energy cannot repair an implausible coarse guide.",
+    "Run canonical scene-linear RAW/HDR/seam/noise and accepted patch persistence/export validation on the selected approach.",
+    "Qualify labeled crowd/subject protection and shadow/reflection cases, lower-memory physical Macs and live editor performance, then remaining Apple/Web and portable consumers."
+  ],
+  "full_goal_status": "ACTIVE; Mac prioritized. These tools/evidence complete an experiment, not the feature or epic.",
+  "references": [
+    "https://arxiv.org/abs/2208.03552",
+    "https://pixl.cs.princeton.edu/gfx/pubs/Barnes_2009_PAR/index.php",
+    "https://www.connellybarnes.com/work/publications/2011_patchmatch_cacm.pdf"
+  ],
+  "no_push_pr_merge": true
+}

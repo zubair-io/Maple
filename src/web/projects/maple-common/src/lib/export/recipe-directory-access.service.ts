@@ -63,6 +63,7 @@ export class RecipeDirectoryAccessService {
       const name = parts.pop()!;
       for (const part of parts) directory = await directory.getDirectoryHandle(part);
       target.sourceHandle = await directory.getFileHandle(name);
+      target.sourceDirectory = directory;
     }
   }
 }

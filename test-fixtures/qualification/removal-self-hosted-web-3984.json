@@ -1,0 +1,134 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-10-02",
+  "epic": 1472,
+  "issue": 3984,
+  "scope": "Self Hosted Web removal authoring, confirmed history and saved consumers; workflow qualification only",
+  "baselineCommit": "9bbd170fb",
+  "environment": {
+    "os": "macOS 27.0 (26A428)",
+    "bun": "1.4.3",
+    "playwright": "1.59.1",
+    "browser": "Playwright Chromium, forced CPU and asserted WebGPU canvas; real Angular dev server and isolated authenticated API/SQLite/native workers"
+  },
+  "inputs": [
+    {
+      "path": "test-fixtures/removal/basic/source.dng",
+      "bytes": 774,
+      "sha256": "24450571460687ee53852658deec26946c4a7877fe111a6ba5bb059c116f2618"
+    },
+    {
+      "path": "test-fixtures/removal/basic/prior.xmp",
+      "bytes": 306,
+      "sha256": "a17dfaa72ef5c056c351e507afa9b01ca765af76994621542eef6aa6cec3ccbe"
+    },
+    {
+      "path": "test-fixtures/raws/test_0002.dng",
+      "bytes": 50681152,
+      "sha256": "4a4154b2595dc76a7d5e10cdcb65a386319e31647a585c23e262fe62b969c0fe"
+    },
+    {
+      "path": "src/api/native/libraw_ffi.dylib",
+      "bytes": 26482448,
+      "sha256": "b9563f9b1126039471f8631f4696db8e1094bcb48b511a315318068330a9ef14"
+    }
+  ],
+  "implementation": [
+    "Observable authenticated companion and exact-XMP snapshot/CAS HTTP client; concrete local and server asset owners",
+    "Paint/Smart/People authoring without a browser native folder handle",
+    "Companions verify before publication; complete original/asset verification precedes authoritative server XMP confirmation",
+    "Confirmed server XML and SHA-256 refresh memory/IndexedDB, restore base and accumulated develop patch before model/history adoption",
+    "Normal saved preview and export resolve server companions; scalar ticks reuse prepared worker state",
+    "Ordinary full-document XMP cannot change accepted history; cached known whole-document revisions reject stale metadata saves",
+    "Confirmed passthrough handoff retains active review/save session; foreign namespace serialization reaches a fixed point",
+    "Late As-Shot display hydration updates the save base only when the serialized RAW recipe is unchanged"
+  ],
+  "checks": [
+    {
+      "command": "bun x playwright test --config playwright.removal-self-hosted.config.ts",
+      "result": "6 passed, 0 failed; 3.7m",
+      "log": "/tmp/maple-removal-server-browser-all-fourth.log",
+      "coverage": [
+        "Paint: actual pinned LaMa over synthetic 16x8 RAW; draft unpublished; actual offline failure preserves prior XML/assets and permits retry",
+        "Keep: verified HTTP companion publication and confirmed XMP; foreign XML retained; immutable original",
+        "Global Undo/Redo after closing Remove; exact XMP round trip; exposure metadata save retains history",
+        "PNG export byte-identical to independent native Rust CLI oracle; cold reopen without folder handle",
+        "Saved-row Disable/Enable/Delete and Undo; companions retained",
+        "Smart: actual pinned MobileSAM on photographic test_0002.dng, negative prompt rejection preserves intent, stroke Undo/Redo; no XMP or removal assets",
+        "People: actual pinned RT-DETR and MobileSAM on photographic test_0002.dng, automatic subject protection, deliberate override, per-person refinement and stroke Undo/Redo; no XMP or removal assets",
+        "Both forced CPU and asserted real WebGPU projects"
+      ]
+    },
+    {
+      "command": "MAPLE_E2E_REMOVAL_PORT=4202 bun x playwright test --config playwright.removal.config.ts e2e/removal-experimental/authoring.spec.ts --project removal-cpu",
+      "result": "1 passed; 1.2m; uninterrupted current-source dev-server run",
+      "log": "/tmp/maple-removal-local-authoring-regression-dev-cpu-final.log"
+    },
+    {
+      "command": "MAPLE_E2E_REMOVAL_PORT=4202 bun x playwright test --config playwright.removal.config.ts e2e/removal-experimental/authoring.spec.ts",
+      "result": "WebGPU individual test passed, 1.2m; CPU was invalidated by a verified Vite reload during a test-file edit and replaced by the uninterrupted CPU run above",
+      "log": "/tmp/maple-removal-local-authoring-regression-dev-final.log"
+    },
+    {
+      "command": "bun x ng test Maple-common --watch=false",
+      "result": "3906 tests passed, 477 files; 0 failures",
+      "log": "/tmp/maple-removal-server-web-full-common-final.log"
+    },
+    {
+      "command": "bun test (src/api)",
+      "result": "5462 passed, 8 existing optional skips, 0 failed; 19963 assertions across 598 files; 85.67s",
+      "log": "/tmp/maple-removal-server-web-integration-full-api.log"
+    },
+    {
+      "command": "bun x tsc --noEmit --declaration false --declarationMap false -p projects/maple-common/tsconfig.lib.json",
+      "result": "passed",
+      "log": "/tmp/maple-removal-server-web-typecheck-final2.log"
+    },
+    {
+      "command": "bun x ng build maple-syrup --configuration production",
+      "result": "passed; existing compiler/CommonJS warnings",
+      "log": "/tmp/maple-removal-server-web-hosted-build-final.log"
+    },
+    {
+      "command": "bun run check:hosted-capabilities",
+      "result": "passed on freshly rebuilt production artifact: 831523/1165600 eager bytes, 11 chunks",
+      "log": "/tmp/maple-removal-server-web-hosted-capabilities-final2.log"
+    },
+    {
+      "command": "bash tools/check-budget-headroom.sh origin/main",
+      "result": "passed before final As-Shot regression; final changed-source check against HEAD also passed",
+      "log": "/tmp/maple-removal-server-web-headroom.log"
+    },
+    {
+      "command": "bash tools/check-file-budget.sh <changed Web sources>",
+      "result": "0 hard violations; 3 below-headroom soft warnings, 1 historical allowlisted source"
+    },
+    {
+      "command": "explicit-config Prettier, git diff --check, normal commit hooks",
+      "result": "checked before commit; no hook bypass"
+    }
+  ],
+  "regressionsResolved": [
+    "IPv6-only dev-server readiness and LAN/fallback UI banners in new harness",
+    "Paint test waited for model installation and actual source geometry before painting",
+    "Confirmed cache passthrough reopened session and erased Saved; now guarded by exact before/after model",
+    "Foreign namespace attribute order changed on repeated parse/save; self-contained root normalizes before preservation",
+    "Angular HttpErrorResponse is not an Error; offline failure now has a connection/retry message",
+    "Selection fixture rejects only durable removal assets, permitting legitimate thumbnail caches",
+    "Late As-Shot UI pair changed full-model equality while XMP recipe stayed identical; real filesystem regression failed before fix and passes after",
+    "Transient saving and message statuses required a message-specific accessible locator",
+    "Local CPU run interrupted by verified Vite reload is not counted as a pass; uninterrupted replacement passes",
+    "Prettier second-pass chain layout warning corrected without changing test semantics"
+  ],
+  "limits": [
+    "The 16x8 synthetic Paint fixture proves workflow/transport/export, not photographic reconstruction quality",
+    "The 39MP portrait proves photographic selection mechanics, not crowded-scene role quality, tiny/uncertain people or broad subject protection",
+    "No Safari/Firefox, other server OS, SMB or physical-device qualification",
+    "No 100MP allocation/memory/gesture/scanout or performance ratchet qualification",
+    "No shipping model distribution/signing/license completion; files are manually imported for the experiment",
+    "Native saved-controls UI, passive/indexer relocation recovery, catalogue acknowledgement-loss, backup/package/sync portability, Windows saved consumers and remaining native-detail consumers remain open",
+    "Existing color harness breaches and required current-main/CI/landing gates remain open; budgets unchanged",
+    "Failed native UI diagnostic remains uncommitted; no push, PR or merge"
+  ],
+  "goalStatus": "active; complete original objective preserved"
+}

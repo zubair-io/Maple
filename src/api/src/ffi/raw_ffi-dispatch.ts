@@ -16,6 +16,11 @@ import { clearLensProfiles, registerLensProfile } from '../lens-profiles/native.
 import { restoreLensProfile } from '../lens-profiles/restore.ts';
 import { renderImageThumbToFile } from '../thumbs/render.ts';
 import { checkAvifOutput } from '../thumbs/avif-checks.ts';
+import {
+  verifyRemovalFileAssets,
+  verifyRemovalFileSource,
+  verifyRemovalAssetFile,
+} from './raw_ffi-removal-assets.ts';
 
 /**
  * Dispatch one IPC request against the loaded native binding. One arm per
@@ -63,10 +68,26 @@ export async function handleFfiRequest(
   if (req.type === 'sidecarAdjustments') {
     // A dylib that predates the check cannot tell, so it develops every
     // sidecar exactly as it did before #5231.
-    const verdict = ffi.xmpHasRenderAdjustments?.(req.xmp) ?? { authored: true };
+    const verdict = ffi.xmpHasRenderAdjustments?.(req.xmp) ?? {
+      authored: true,
+    };
     return 'error' in verdict
       ? { type: req.type, id: req.id, ok: false, error: verdict.error }
       : { type: req.type, id: req.id, ok: true, authored: verdict.authored };
+  }
+  if (req.type === 'removalAssets' || req.type === 'removalSource') {
+    return {
+      type: req.type,
+      id: req.id,
+      ok: true,
+      assets: await (
+        req.type === 'removalAssets' ? verifyRemovalFileAssets : verifyRemovalFileSource
+      )(req.rawPath, req.records),
+    };
+  }
+  if (req.type === 'validateRemovalAsset') {
+    await verifyRemovalAssetFile(req.filePath, req.name);
+    return { type: req.type, id: req.id, ok: true };
   }
   if (req.type === 'asShot') {
     const baseline = ffi.asShotWhiteBalance(req.rawPath);
@@ -124,7 +145,12 @@ export async function handleFfiRequest(
       const result = await checkAvifOutput(req.filePath, req.expectedLongEdgePx);
       return result.ok
         ? { type: 'validateAvif', id: req.id, ok: true }
-        : { type: 'validateAvif', id: req.id, ok: false, reason: result.reason };
+        : {
+            type: 'validateAvif',
+            id: req.id,
+            ok: false,
+            reason: result.reason,
+          };
     } catch (e) {
       return {
         type: 'validateAvif',

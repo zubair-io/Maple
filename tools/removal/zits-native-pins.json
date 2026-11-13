@@ -1,0 +1,82 @@
+{
+  "revision": "6f4a47bb03bfb82a4860fc55ae0719ab0db8f6eb",
+  "repository": "https://github.com/DQiaole/ZITS_inpainting",
+  "official_weights_folder": "https://drive.google.com/drive/folders/1Dg_6ZCAi0U3HzrYgXwr9nSaOLnPsf9n-",
+  "source_sha256": {
+    "LICENSE": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
+    "README.md": "d8d5498b6093061380faef93d31d9aa1f12c15978e2dd6107a536f8d80e64e82",
+    "single_image_test.py": "627aae6e8238d16cb7c72736804bf2baa1661fda88a68f0209e25cda1e30e75e",
+    "config_list/config_ZITS_HR_places2.yml": "8030c4f8a168ec66d6bb4c66e1eabcba33e8ed6083735166c78ca480aada684f",
+    "src/utils.py": "7e5a4461cb0fae7aa0dea730f32dfce14eb6cdeec0679f023d9ea90194a95ca4",
+    "src/models/FTR_model.py": "cc79f613ad102149caad175700cadf19a4d680258809aa3a266befbda9bb7186",
+    "src/models/LaMa.py": "447ff3ab5950d35e4e45301184de8f82eded1714f1b57a7d8a5df49700a11e62",
+    "src/models/ffc.py": "06eecfb1641da4b022a473424e22a8d2a9a9b9fd5dd7912bb96513bb55e13325",
+    "src/models/layers.py": "0ca8d26de822e5b7d194191a1249bb48e850bc495d8f308d44e4d8351f162cae",
+    "src/models/TSR_model.py": "c444bf03cbd18600f4c7ded106473aa3263a81c640534234683260e390d8fa99",
+    "src/models/transformer.py": "562426d1acf463e372f86e1e7c7848f58ede91bee4e1e9ad5a28d0fc1fa1b5f5",
+    "src/models/upsample.py": "4614f36b9fbbd57a1195b871c0e71e72834b6c503cdf2ecee33f8f8693e4050e",
+    "src/lsm_hawp/detector.py": "176b08ebfd74c659cb825bf29f1bd6204646cbe88afabf09ece7e139e6517fa1",
+    "src/lsm_hawp/model_config.py": "9f0aaef77e065133b2bf34701774881ae05b335c43b55db0629a3f90b2d3c690",
+    "src/lsm_hawp/multi_task_head.py": "6acf6b5aa8d762e59eafa1c4289023db4d51397b417a1debf349df580a8a8059",
+    "src/lsm_hawp/stacked_hg.py": "c594f2d9a690e489a977e4e27c27655a1a7e65245329d6be0b742dafa4a474d0",
+    "src/models/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "checkpoints": {
+    "InpaintingModel_best_gen.pth": {
+      "bytes": 198866279,
+      "sha256": "527b26ecce28656dbbf30939a0f4db9fb89b61f22408562d63a6bb0ffdea3eb7",
+      "keys": ["generator", "str_encoder"],
+      "states": {
+        "generator": {
+          "count": 519,
+          "first": ["conv1.weight", "conv1.bias", "bn1.weight"]
+        },
+        "str_encoder": {
+          "count": 99,
+          "first": ["alpha1", "alpha2", "alpha3"]
+        }
+      },
+      "official_drive_id": "1Jw5NWK_Svw4XjgWJZHtNot7onN42MB4D"
+    },
+    "StructureUpsampling.pth": {
+      "bytes": 315894,
+      "sha256": "d728f4f0c34ffd44b5a5847f184e232944d0e72222aa7fec9a0540ca8e3dca81",
+      "keys": ["model"],
+      "states": {
+        "model": {
+          "count": 12,
+          "first": ["convs.1.weight", "convs.1.bias", "convs.3.weight"]
+        }
+      },
+      "official_drive_id": "1bU-igrtPsAmLAozVL9px5l8qnNeh8hcI"
+    },
+    "best_lsm_hawp.pth": {
+      "bytes": 165799619,
+      "sha256": "6f72a60ec895f11830763069a40cb548dfb0ba77aca5282ffeea8afc72dc1723",
+      "keys": ["model", "optimizer"],
+      "states": {
+        "model": {
+          "count": 729,
+          "first": ["tspan", "backbone.conv1.weight", "backbone.conv1.bias"]
+        },
+        "optimizer": {
+          "count": 2,
+          "first": ["state", "param_groups"]
+        }
+      },
+      "official_drive_id": "1p8vQVZvgswuCxI4aWkDVseOgsV_WWsr8"
+    },
+    "best_transformer_places2.pth": {
+      "bytes": 73906017,
+      "sha256": "4a6dee74c82eb7d8fcc20cbd38634159cffa75dc8ad53cdd57358424082799c6",
+      "keys": ["model"],
+      "states": {
+        "model": {
+          "count": 379,
+          "first": ["pos_emb", "conv1.weight", "conv1.bias"]
+        }
+      },
+      "official_drive_id": "1akr9072pizIRJ6-HaZao9rpE3Ncf3lTN"
+    }
+  }
+}

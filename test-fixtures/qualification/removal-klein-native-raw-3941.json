@@ -1,0 +1,1544 @@
+{
+  "issue": 3941,
+  "epic": 1472,
+  "recorded_at": "2026-10-03T09:06:55.100632+00:00",
+  "parent_commit": "eda99b3eea6501670b9e7c0855471e58884b3851",
+  "releaseQualified": false,
+  "app_limit_changed": false,
+  "purpose": "Evaluate native learned edit conditioning on local Apple MLX and carry one actual generated output through reversible fixed linear RAW calibration, shared inverse, real fp16 patch codec, camera WB/DCP and Auto/Neutral displays. Diagnostic qualification only, no editor admission.",
+  "model_manifest": {
+    "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/tools/removal/klein-research-models.json",
+    "bytes": 6583,
+    "sha256": "692b837c6c70b9db3808ae9502a2fdf6c5e9cea6dd7baf612e2045ce6814523b"
+  },
+  "model_records": {
+    "releaseQualified": false,
+    "repo": "AbstractFramework/flux.2-klein-4b-8bit",
+    "revision": "21764997c7d92ab919d4a51a3ac7f8fb0f36c4a6",
+    "files": [
+      {
+        "path": "LICENSE.md",
+        "bytes": 11358,
+        "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+        "hubBlobId": "d645695673349e3947e8e5ae42332d0ac3164cd7"
+      },
+      {
+        "path": "README.md",
+        "bytes": 1719,
+        "sha256": "bb6f2a20bfbe84308a27e2d295c98b699d3aafb7085e16d0b229f14b38127e65",
+        "hubBlobId": "15e59bc4920992b2f1867e0b89f2987d4fd29567"
+      },
+      {
+        "path": "text_encoder/0.safetensors",
+        "bytes": 2145931311,
+        "sha256": "f6809bd90892b0a2857847f789d294a76f4494a76e65ddbd224da69e70018edc",
+        "hubBlobId": "55b4ffaf734524c21b29fb65f90cdf4a51ebe262"
+      },
+      {
+        "path": "text_encoder/1.safetensors",
+        "bytes": 2128222146,
+        "sha256": "54ec81423abf46be7400817e05113024070197bc4e3f9c56e438ed6b5e3b3705",
+        "hubBlobId": "2489fac4ad8cc621d55bf82b86d82a5cb4ddd36a"
+      },
+      {
+        "path": "text_encoder/model.safetensors.index.json",
+        "bytes": 51332,
+        "sha256": "76bbca3cb3fed818cd052e1c30e32524b65fa982680b5f32fbbdae709930a058",
+        "hubBlobId": "54871c97b63bd327ce434d7d8d5495d1fcbca31f"
+      },
+      {
+        "path": "tokenizer/chat_template.jinja",
+        "bytes": 4168,
+        "sha256": "a55ee1b1660128b7098723e0abcd92caa0788061051c62d51cbe87d9cf1974d8",
+        "hubBlobId": "01be9b307daa2d425f7c168c9fb145a286e0afb4"
+      },
+      {
+        "path": "tokenizer/tokenizer.json",
+        "bytes": 11422650,
+        "sha256": "be75606093db2094d7cd20f3c2f385c212750648bd6ea4fb2bf507a6a4c55506",
+        "hubBlobId": "c7afbed2efcdf019f88ab0572ec29d3bf595dfe2"
+      },
+      {
+        "path": "tokenizer/tokenizer_config.json",
+        "bytes": 703,
+        "sha256": "12d954e6dd43cefa344345292406442871ea7f3237065d2f068f6a0402f92bf6",
+        "hubBlobId": "3ee05b3fdc8db76babb37dbc3730682c4b080b87"
+      },
+      {
+        "path": "transformer/0.safetensors",
+        "bytes": 2142058104,
+        "sha256": "4e892cbe30fa619a146485403c2ba7bec660d50d5123699f790e20800e4015f2",
+        "hubBlobId": "502d84a3410ccbd0016c71f48558f2c1854c6000"
+      },
+      {
+        "path": "transformer/1.safetensors",
+        "bytes": 1975761704,
+        "sha256": "9c43f5b84ac65180c0e996397ccd47b8291e9fd8c1649e7b6661dc48c19accf2",
+        "hubBlobId": "24fd57572fe4e75608a7aacb118b4af84b81d463"
+      },
+      {
+        "path": "transformer/model.safetensors.index.json",
+        "bytes": 26908,
+        "sha256": "eb8263215b0870003797683b85e758f8562e0db0c2578d516d0a462e9e0dafc3",
+        "hubBlobId": "ef433dc3832302e3dfac45631cbcbb53908a6c81"
+      },
+      {
+        "path": "vae/0.safetensors",
+        "bytes": 166156496,
+        "sha256": "01723641b0fe437a08b2b9a1980149ea5d962d904db3cc6cec70508074387278",
+        "hubBlobId": "17bf078b4b143e0fea8b04603fe768a02347a7a5"
+      },
+      {
+        "path": "vae/model.safetensors.index.json",
+        "bytes": 17547,
+        "sha256": "5d6f9a7e3740906edb82a517a27f7d8046757ec3ac1acd704cb514325643266e",
+        "hubBlobId": "a7673a901c32e3bac21b45f1ab81b205f8be5e1f"
+      }
+    ],
+    "baseModel": {
+      "repo": "black-forest-labs/FLUX.2-klein-4B",
+      "revision": "e7b7dc27f91deacad38e78976d1f2b499d76a294",
+      "records": [
+        {
+          "path": "MODEL-CARD-KLEIN-OFFICIAL.md",
+          "upstreamPath": "README.md",
+          "bytes": 9991,
+          "sha256": "bd447051cf2db4bf67b992e563d89c35ebf1123f009c063361a222ab14e1c4f7"
+        },
+        {
+          "path": "LICENSE-KLEIN-OFFICIAL.md",
+          "upstreamPath": "LICENSE.md",
+          "bytes": 9584,
+          "sha256": "ca02bc51900ab07789d1b70283329e7137f5af98f5161c23a1c81fc38a4af1fe"
+        },
+        {
+          "path": "TEXT-ENCODER-OFFICIAL.json",
+          "upstreamPath": "text_encoder/config.json",
+          "bytes": 1536,
+          "sha256": "214b4c29a0d975e9fddf9994a5673f22cb2c4c5750352f9227c2c3251ebeab40"
+        }
+      ],
+      "declaredLicense": "Apache-2.0"
+    },
+    "scope": "Converted local research checkpoint; production conversion/transitive/distribution review incomplete.",
+    "runtimeSource": {
+      "repo": "https://github.com/lpalbou/mlx-gen",
+      "revision": "99fb94dd3eaa9dd1931cd3cd8eae1ae3e20f2ef3",
+      "version": "0.38.0",
+      "declaredLicense": "MIT",
+      "python_tree_sha256": "a976f1281842e8fc4e4427b1808c849874c8f33447734cd173347f66701d5a15",
+      "records": [
+        {
+          "path": "LICENSE",
+          "bytes": 1068,
+          "sha256": "4a232d09478519580a5c00d6eb9aa402ba4f672ac15fb80edd459ba863769064"
+        },
+        {
+          "path": "pyproject.toml",
+          "bytes": 7073,
+          "sha256": "17bb277145623beebe41fda1c625b29728e844c0e1390e789fb1ca13d06968af"
+        },
+        {
+          "path": "docs/masked-editing.md",
+          "bytes": 10606,
+          "sha256": "344614aba8e59e7e260f3e9792147895fcb6d0da1bd760e692b3e492bf4617e9"
+        },
+        {
+          "path": "src/mflux/models/flux2/variants/edit/flux2_klein_inpaint.py",
+          "bytes": 10006,
+          "sha256": "81f340fc799339ef7933cac24cca65fe0fa3d3f411016c61c7265e433c6e3769"
+        },
+        {
+          "path": "src/mflux/models/flux2/variants/edit/flux2_klein_edit_helpers.py",
+          "bytes": 19381,
+          "sha256": "76ea7455dc03b9561f034b462169fb87a02bf53eeb82ebdb07a796404108bbde"
+        },
+        {
+          "path": "src/mflux/models/flux2/flux2_initializer.py",
+          "bytes": 3932,
+          "sha256": "78fa2d3fe12d963e16c3ca6ddfd3e9fdb0839f93fc703f3f2a535cab887b9980"
+        },
+        {
+          "path": "src/mflux/models/common/weights/loading/weight_applier.py",
+          "bytes": 5457,
+          "sha256": "0b63a589c0c2cf473695f4e31ca65c8bdf68a9971acdd38a8b3a8b0e0693529a"
+        },
+        {
+          "path": "src/mflux/models/common/weights/loading/weight_loader.py",
+          "bytes": 22081,
+          "sha256": "255186d56aa16435eebd4f0b6122b233cde48127e795d41e0a914407b40f02e9"
+        },
+        {
+          "path": "src/mflux/utils/image_util.py",
+          "bytes": 16968,
+          "sha256": "cbaad89993d768dd9bfcbf8d5ddd508fc3e98e5f08e9d6c015bb6deb1cea143b"
+        },
+        {
+          "path": "src/mflux/utils/mask_util.py",
+          "bytes": 4536,
+          "sha256": "a12604f6b2fc9097d3086929a4db518257470a396a4ec3050acafd6295ecc18c"
+        },
+        {
+          "path": "src/mflux/models/common/latent_creator/latent_creator.py",
+          "bytes": 4184,
+          "sha256": "bf40f1b749480133db691f6da3ace30f3cb8b879ee25d689190727dd571575cc"
+        },
+        {
+          "path": "src/mflux/models/flux2/model/flux2_vae/vae.py",
+          "bytes": 3084,
+          "sha256": "58685fa0018b7c24fcf88d4ce2d1d3c61cb403ccb6315991ac4c98ec0fded4e3"
+        }
+      ]
+    }
+  },
+  "cases": [
+    {
+      "name": "paint",
+      "report": {
+        "repo": "AbstractFramework/flux.2-klein-4b-8bit",
+        "revision": "21764997c7d92ab919d4a51a3ac7f8fb0f36c4a6",
+        "model_manifest_sha256": "692b837c6c70b9db3808ae9502a2fdf6c5e9cea6dd7baf612e2045ce6814523b",
+        "runtime_source_revision": "99fb94dd3eaa9dd1931cd3cd8eae1ae3e20f2ef3",
+        "strict_loaded_tensors": [
+          {
+            "component": "vae",
+            "tensors": 266
+          },
+          {
+            "component": "transformer",
+            "tensors": 387
+          },
+          {
+            "component": "text_encoder",
+            "tensors": 905
+          }
+        ],
+        "quantization": 8,
+        "source_sha256": "d1298bd00fef7093a896d1657b6f88aa4c7181084b68add1d837d8ffedbd027b",
+        "mask_sha256": "4f84dc7398bc99915fda4c7ff180dc60ace6357d505e4133218ac549a8b3cc57",
+        "crop_xywh": [
+          384,
+          384,
+          1024,
+          1536
+        ],
+        "native_extent_hw": [
+          1536,
+          1024
+        ],
+        "source_preprocessor_samples_exact": true,
+        "pixel_mask_preprocessor_exact": true,
+        "source_resampled": false,
+        "selected_pixels": 990000,
+        "prompt": "Remove the people inside the selected region and their carried objects. Reconstruct the existing background naturally, preserving the scene's perspective, lighting, materials and photographic detail.",
+        "negative_prompt": "",
+        "seed": 3941,
+        "requested_steps": 4,
+        "actual_steps": 4,
+        "guidance": 1.0,
+        "verification_ms": 4207.44395814836,
+        "model_open_ms": 1571.4835419785231,
+        "inference_ms": 19342.70541719161,
+        "steps": [
+          {
+            "step": 1,
+            "scheduler_index": 0,
+            "latent_shape": [
+              1,
+              6144,
+              128
+            ],
+            "elapsed_ms": 7024.587334133685,
+            "mlx_allocated_bytes": 8577267090,
+            "mlx_cache_bytes": 8315953486
+          },
+          {
+            "step": 2,
+            "scheduler_index": 1,
+            "latent_shape": [
+              1,
+              6144,
+              128
+            ],
+            "elapsed_ms": 10517.664584098384,
+            "mlx_allocated_bytes": 8579626520,
+            "mlx_cache_bytes": 8572223172
+          },
+          {
+            "step": 3,
+            "scheduler_index": 2,
+            "latent_shape": [
+              1,
+              6144,
+              128
+            ],
+            "elapsed_ms": 14349.943209206685,
+            "mlx_allocated_bytes": 8579626522,
+            "mlx_cache_bytes": 8574850746
+          },
+          {
+            "step": 4,
+            "scheduler_index": 3,
+            "latent_shape": [
+              1,
+              6144,
+              128
+            ],
+            "elapsed_ms": 18025.177375180647,
+            "mlx_allocated_bytes": 8578053658,
+            "mlx_cache_bytes": 8507203258
+          }
+        ],
+        "decoder_unclipped_range": [
+          -1.0546875,
+          1.0625
+        ],
+        "decoder_unclipped_sha256": "1ca4c54f67b79130ca4604b46761c8f13fc315ee2e0b894420533a5a809b8963",
+        "prediction_sha256": "bac73b4a610865d083d460db3bcdd8ca2fc282919acf23574934f2f84b0434d1",
+        "result": {
+          "sha256": "da335348d9856809c177ce3e9827cba33f59b1dc2086b7c05f11d01a907b9ef9",
+          "outside_float_bits_changed": 0,
+          "outside_u8_samples_changed": 0
+        },
+        "mlx_peak_allocated_bytes": 23683612110,
+        "process_peak_resident_bytes": 9063022592,
+        "memory_scope": "MLX allocations/cache and process RSS are distinct. Do not sum or claim a total device peak.",
+        "toolchain": {
+          "mlx": "0.32.3",
+          "mlx-gen": "0.38.0",
+          "numpy": "2.4.6",
+          "pillow": "12.3.0",
+          "transformers": "5.18.0"
+        },
+        "releaseQualified": false,
+        "qualification": "Public-RAW Auto SDR challenge only. No canonical scene-linear RAW/HDR, accepted edit, corpus, supported Mac tier or production distribution proof."
+      },
+      "report_artifact": {
+        "path": "/tmp/maple-removal-klein-native-paint-20261003/report.json",
+        "bytes": 3355,
+        "sha256": "52c92b0d4e06070eb9efed5364841ad56ee0b61c44ff655d7168d4be3253deb9"
+      },
+      "independent_checks": {
+        "outside_float_bits_changed": 0,
+        "outside_png_samples_changed": 0,
+        "all_result_finite": true,
+        "native_extent_hw": [
+          1536,
+          1024
+        ],
+        "actual_steps": 4,
+        "unclipped_finite": true,
+        "unclipped_channels_outside_minus1_plus1": 38
+      },
+      "artifacts": [
+        {
+          "path": "/tmp/maple-removal-klein-native-paint-20261003/source.png",
+          "bytes": 2324780,
+          "sha256": "2c2ba6964bb016c9c393cc970453c75fc6be0e1549369a7c2011f011e1e3f290"
+        },
+        {
+          "path": "/tmp/maple-removal-klein-native-paint-20261003/hole.png",
+          "bytes": 4272,
+          "sha256": "b61caf6d29d198236288343fa7f61a7edcf84fa4f356655b7f68124413ace12b"
+        },
+        {
+          "path": "/tmp/maple-removal-klein-native-paint-20261003/result.png",
+          "bytes": 2450718,
+          "sha256": "cfff041c0354678d1ac5a46daf6632627ac9020f488cea6789585e770c6ca3f3"
+        },
+        {
+          "path": "/tmp/maple-removal-klein-native-paint-20261003/result.f32",
+          "bytes": 18874368,
+          "sha256": "da335348d9856809c177ce3e9827cba33f59b1dc2086b7c05f11d01a907b9ef9"
+        },
+        {
+          "path": "/tmp/maple-removal-klein-native-paint-20261003/prediction.f32",
+          "bytes": 18874368,
+          "sha256": "bac73b4a610865d083d460db3bcdd8ca2fc282919acf23574934f2f84b0434d1"
+        },
+        {
+          "path": "/tmp/maple-removal-klein-native-paint-20261003/decoder-unclipped.f32",
+          "bytes": 18874368,
+          "sha256": "1ca4c54f67b79130ca4604b46761c8f13fc315ee2e0b894420533a5a809b8963"
+        },
+        {
+          "path": "/tmp/maple-removal-klein-native-paint-20261003/upstream.png",
+          "bytes": 2504281,
+          "sha256": "a1d694c66a636e96bdfae9c7d6cbe382fe4e936f04c73235c645ef9b20fc4f4a"
+        },
+        {
+          "path": "/tmp/maple-removal-klein-native-paint-20261003/upstream.metadata.json",
+          "bytes": 1889,
+          "sha256": "e3c26efced45d474979ad7edae67bf0579aad39a862963afc55d728e375a8bec"
+        },
+        {
+          "path": "/tmp/maple-removal-klein-native-paint-20261003/independent-checks.json",
+          "bytes": 249,
+          "sha256": "dcc5735d78bbed587c02b00e929e7c7050e508b691c21636fb5519fae7bca0f8"
+        }
+      ],
+      "executed_source": [
+        {
+          "path": "/tmp/maple-removal-klein-executed-sdr-20261003/probe_klein_native.py",
+          "bytes": 10502,
+          "sha256": "95644fd33975fd01c85a100cbd51029e4efc4a7451b406f9c451479f3a711041"
+        },
+        {
+          "path": "/tmp/maple-removal-klein-executed-sdr-20261003/native_probe_pixels.py",
+          "bytes": 2313,
+          "sha256": "b7327a50ed73250d859b9ded4dc808427b112768ea9643f52620ff81a1071ebc"
+        },
+        {
+          "path": "/tmp/maple-removal-klein-executed-sdr-20261003/klein-research-models.json",
+          "bytes": 6583,
+          "sha256": "692b837c6c70b9db3808ae9502a2fdf6c5e9cea6dd7baf612e2045ce6814523b"
+        }
+      ]
+    },
+    {
+      "name": "person",
+      "report": {
+        "repo": "AbstractFramework/flux.2-klein-4b-8bit",
+        "revision": "21764997c7d92ab919d4a51a3ac7f8fb0f36c4a6",
+        "model_manifest_sha256": "692b837c6c70b9db3808ae9502a2fdf6c5e9cea6dd7baf612e2045ce6814523b",
+        "runtime_source_revision": "99fb94dd3eaa9dd1931cd3cd8eae1ae3e20f2ef3",
+        "strict_loaded_tensors": [
+          {
+            "component": "vae",
+            "tensors": 266
+          },
+          {
+            "component": "transformer",
+            "tensors": 387
+          },
+          {
+            "component": "text_encoder",
+            "tensors": 905
+          }
+        ],
+        "quantization": 8,
+        "source_sha256": "d1298bd00fef7093a896d1657b6f88aa4c7181084b68add1d837d8ffedbd027b",
+        "mask_sha256": "923f14de4500e1053f16d6d48fa93e9ccc5d28dbcfc93d3c00828063c68e9666",
+        "crop_xywh": [
+          384,
+          384,
+          1024,
+          1536
+        ],
+        "native_extent_hw": [
+          1536,
+          1024
+        ],
+        "source_preprocessor_samples_exact": true,
+        "pixel_mask_preprocessor_exact": true,
+        "source_resampled": false,
+        "selected_pixels": 345996,
+        "prompt": "Remove the people inside the selected region and their carried objects. Reconstruct the existing background naturally, preserving the scene's perspective, lighting, materials and photographic detail.",
+        "negative_prompt": "",
+        "seed": 3941,
+        "requested_steps": 4,
+        "actual_steps": 4,
+        "guidance": 1.0,
+        "verification_ms": 2906.295167049393,
+        "model_open_ms": 1172.8046669159085,
+        "inference_ms": 15791.964875068516,
+        "steps": [
+          {
+            "step": 1,
+            "scheduler_index": 0,
+            "latent_shape": [
+              1,
+              6144,
+              128
+            ],
+            "elapsed_ms": 3855.7258748915046,
+            "mlx_allocated_bytes": 8577267218,
+            "mlx_cache_bytes": 8512048422
+          },
+          {
+            "step": 2,
+            "scheduler_index": 1,
+            "latent_shape": [
+              1,
+              6144,
+              128
+            ],
+            "elapsed_ms": 7174.66283403337,
+            "mlx_allocated_bytes": 8579626522,
+            "mlx_cache_bytes": 8552625942
+          },
+          {
+            "step": 3,
+            "scheduler_index": 2,
+            "latent_shape": [
+              1,
+              6144,
+              128
+            ],
+            "elapsed_ms": 10614.345124922693,
+            "mlx_allocated_bytes": 8579626522,
+            "mlx_cache_bytes": 8565217046
+          },
+          {
+            "step": 4,
+            "scheduler_index": 3,
+            "latent_shape": [
+              1,
+              6144,
+              128
+            ],
+            "elapsed_ms": 14299.43370888941,
+            "mlx_allocated_bytes": 8578053658,
+            "mlx_cache_bytes": 8477388566
+          }
+        ],
+        "decoder_unclipped_range": [
+          -1.046875,
+          1.046875
+        ],
+        "decoder_unclipped_sha256": "8607f712ea20937a8163b271b135972d6384f74bd7207584cf54ecfcbec3b070",
+        "prediction_sha256": "d46a9b320ececa27338e0f376f0bad8f5267288ffd017456060268b1a3cbe86f",
+        "result": {
+          "sha256": "d30ccd7253f87d2e5286f812ac7666faedd282f902dff73f68512fa5c13aacf8",
+          "outside_float_bits_changed": 0,
+          "outside_u8_samples_changed": 0
+        },
+        "mlx_peak_allocated_bytes": 23683612110,
+        "process_peak_resident_bytes": 9051193344,
+        "memory_scope": "MLX allocations/cache and process RSS are distinct. Do not sum or claim a total device peak.",
+        "toolchain": {
+          "mlx": "0.32.3",
+          "mlx-gen": "0.38.0",
+          "numpy": "2.4.6",
+          "pillow": "12.3.0",
+          "transformers": "5.18.0"
+        },
+        "releaseQualified": false,
+        "qualification": "Public-RAW Auto SDR challenge only. No canonical scene-linear RAW/HDR, accepted edit, corpus, supported Mac tier or production distribution proof."
+      },
+      "report_artifact": {
+        "path": "/tmp/maple-removal-klein-native-person-20261003/report.json",
+        "bytes": 3356,
+        "sha256": "faea753a4f8b24b372b1b018aa1b2580088d720ea7467dcc9f221da297ef25b7"
+      },
+      "independent_checks": {
+        "outside_float_bits_changed": 0,
+        "outside_png_samples_changed": 0,
+        "all_result_finite": true,
+        "native_extent_hw": [
+          1536,
+          1024
+        ],
+        "actual_steps": 4,
+        "unclipped_finite": true,
+        "unclipped_channels_outside_minus1_plus1": 44
+      },
+      "artifacts": [
+        {
+          "path": "/tmp/maple-removal-klein-native-person-20261003/source.png",
+          "bytes": 2324780,
+          "sha256": "2c2ba6964bb016c9c393cc970453c75fc6be0e1549369a7c2011f011e1e3f290"
+        },
+        {
+          "path": "/tmp/maple-removal-klein-native-person-20261003/hole.png",
+          "bytes": 5995,
+          "sha256": "69ba21109f380aee62af9ab4e11246d4f66b27325fefe4714c352a6fbb4ff93d"
+        },
+        {
+          "path": "/tmp/maple-removal-klein-native-person-20261003/result.png",
+          "bytes": 2392756,
+          "sha256": "cfc4bfc67e1d5619e01d74ef612f4755ff1fba64d0d82fb1ec8ba684d5327a7a"
+        },
+        {
+          "path": "/tmp/maple-removal-klein-native-person-20261003/result.f32",
+          "bytes": 18874368,
+          "sha256": "d30ccd7253f87d2e5286f812ac7666faedd282f902dff73f68512fa5c13aacf8"
+        },
+        {
+          "path": "/tmp/maple-removal-klein-native-person-20261003/prediction.f32",
+          "bytes": 18874368,
+          "sha256": "d46a9b320ececa27338e0f376f0bad8f5267288ffd017456060268b1a3cbe86f"
+        },
+        {
+          "path": "/tmp/maple-removal-klein-native-person-20261003/decoder-unclipped.f32",
+          "bytes": 18874368,
+          "sha256": "8607f712ea20937a8163b271b135972d6384f74bd7207584cf54ecfcbec3b070"
+        },
+        {
+          "path": "/tmp/maple-removal-klein-native-person-20261003/upstream.png",
+          "bytes": 2493219,
+          "sha256": "1837968ee8b2f9f844fb6c85a340d19ed9a57c1ebba14a2c9cf4db24c141c631"
+        },
+        {
+          "path": "/tmp/maple-removal-klein-native-person-20261003/upstream.metadata.json",
+          "bytes": 1892,
+          "sha256": "a1c8e38e80ba9c7b103992f6d9e42f0f97109ce9d9a491d4bd3aae4e780c3aeb"
+        },
+        {
+          "path": "/tmp/maple-removal-klein-native-person-20261003/independent-checks.json",
+          "bytes": 249,
+          "sha256": "1e108dbb102ef26e1c0516c1f228b3e00149ada90a30df5c7142256e329cef96"
+        }
+      ],
+      "executed_source": [
+        {
+          "path": "/tmp/maple-removal-klein-executed-sdr-20261003/probe_klein_native.py",
+          "bytes": 10502,
+          "sha256": "95644fd33975fd01c85a100cbd51029e4efc4a7451b406f9c451479f3a711041"
+        },
+        {
+          "path": "/tmp/maple-removal-klein-executed-sdr-20261003/native_probe_pixels.py",
+          "bytes": 2313,
+          "sha256": "b7327a50ed73250d859b9ded4dc808427b112768ea9643f52620ff81a1071ebc"
+        },
+        {
+          "path": "/tmp/maple-removal-klein-executed-sdr-20261003/klein-research-models.json",
+          "bytes": 6583,
+          "sha256": "692b837c6c70b9db3808ae9502a2fdf6c5e9cea6dd7baf612e2045ce6814523b"
+        }
+      ]
+    },
+    {
+      "name": "scene",
+      "report": {
+        "repo": "AbstractFramework/flux.2-klein-4b-8bit",
+        "revision": "21764997c7d92ab919d4a51a3ac7f8fb0f36c4a6",
+        "model_manifest_sha256": "692b837c6c70b9db3808ae9502a2fdf6c5e9cea6dd7baf612e2045ce6814523b",
+        "runtime_source_revision": "99fb94dd3eaa9dd1931cd3cd8eae1ae3e20f2ef3",
+        "strict_loaded_tensors": [
+          {
+            "component": "vae",
+            "tensors": 266
+          },
+          {
+            "component": "transformer",
+            "tensors": 387
+          },
+          {
+            "component": "text_encoder",
+            "tensors": 905
+          }
+        ],
+        "quantization": 8,
+        "source_sha256": "dafffed28c809b0b6b80426b5a2315a30d3098c217c3a3ecd98c60da7dd65f41",
+        "float_input_sha256": "2204ecb9ed54ff0e9f858ed9c22b81a978e71f67b046359ce6f93133f17f6e32",
+        "model_input_quantized_to_u8": false,
+        "model_input_tensor_samples_exact": true,
+        "mask_sha256": "118dbec747abb8f25bd398033d745efaf5e76df9c6ba74fd79d9c5eee32e70b3",
+        "crop_xywh": [
+          0,
+          0,
+          1024,
+          1024
+        ],
+        "native_extent_hw": [
+          1024,
+          1024
+        ],
+        "source_preprocessor_samples_exact": true,
+        "pixel_mask_preprocessor_exact": true,
+        "source_resampled": false,
+        "selected_pixels": 22753,
+        "prompt": "Remove the people inside the selected region and their carried objects. Reconstruct the existing background naturally, preserving the scene's perspective, lighting, materials and photographic detail.",
+        "negative_prompt": "",
+        "seed": 3941,
+        "requested_steps": 4,
+        "actual_steps": 4,
+        "guidance": 1.0,
+        "verification_ms": 3101.978834019974,
+        "model_open_ms": 1453.9228328503668,
+        "inference_ms": 9105.692292097956,
+        "steps": [
+          {
+            "step": 1,
+            "scheduler_index": 0,
+            "latent_shape": [
+              1,
+              4096,
+              128
+            ],
+            "elapsed_ms": 2741.959417006001,
+            "mlx_allocated_bytes": 8575624730,
+            "mlx_cache_bytes": 8516440584
+          },
+          {
+            "step": 2,
+            "scheduler_index": 1,
+            "latent_shape": [
+              1,
+              4096,
+              128
+            ],
+            "elapsed_ms": 4488.696125103161,
+            "mlx_allocated_bytes": 8575624730,
+            "mlx_cache_bytes": 8245899776
+          },
+          {
+            "step": 3,
+            "scheduler_index": 2,
+            "latent_shape": [
+              1,
+              4096,
+              128
+            ],
+            "elapsed_ms": 6349.337666993961,
+            "mlx_allocated_bytes": 8575624730,
+            "mlx_cache_bytes": 8513333760
+          },
+          {
+            "step": 4,
+            "scheduler_index": 3,
+            "latent_shape": [
+              1,
+              4096,
+              128
+            ],
+            "elapsed_ms": 8313.029458047822,
+            "mlx_allocated_bytes": 8574576154,
+            "mlx_cache_bytes": 8514382336
+          }
+        ],
+        "decoder_unclipped_range": [
+          -0.9375,
+          0.875
+        ],
+        "decoder_unclipped_sha256": "08830844f8c931839fd5d008a42089b869477b15032b0a601903913640c57563",
+        "prediction_sha256": "b0cf09a5f8e411c141e67e748e52c80710dd8c799ee94f2f85b061d62eb7f9c3",
+        "result": {
+          "sha256": "508df41add86a51b12ebcd44050291d36f1df4e7afb65957c97c0244f2b56048",
+          "outside_float_bits_changed": 0,
+          "outside_u8_samples_changed": 0
+        },
+        "mlx_peak_allocated_bytes": 18658487758,
+        "process_peak_resident_bytes": 9008267264,
+        "memory_scope": "MLX allocations/cache and process RSS are distinct. Do not sum or claim a total device peak.",
+        "toolchain": {
+          "mlx": "0.32.3",
+          "mlx-gen": "0.38.0",
+          "numpy": "2.4.6",
+          "pillow": "12.3.0",
+          "transformers": "5.18.0"
+        },
+        "releaseQualified": false,
+        "qualification": "Public-RAW Auto SDR challenge only. No canonical scene-linear RAW/HDR, accepted edit, corpus, supported Mac tier or production distribution proof."
+      },
+      "report_artifact": {
+        "path": "/tmp/maple-removal-klein-native-scene-20261003/report.json",
+        "bytes": 3520,
+        "sha256": "d6d4eb3444f21872748383c3fbe033b47ccde759bd5ae490a9aa1e17ddf0ade4"
+      },
+      "independent_checks": {
+        "outside_float_bits_changed": 0,
+        "outside_png_samples_changed": 0,
+        "all_result_finite": true,
+        "native_extent_hw": [
+          1024,
+          1024
+        ],
+        "actual_steps": 4,
+        "unclipped_finite": true,
+        "unclipped_channels_outside_minus1_plus1": 0
+      },
+      "artifacts": [
+        {
+          "path": "/tmp/maple-removal-klein-native-scene-20261003/source.png",
+          "bytes": 1189955,
+          "sha256": "61f5a025915eee63337d5ab013074b76bd45483ab0ce472798d3cec841645453"
+        },
+        {
+          "path": "/tmp/maple-removal-klein-native-scene-20261003/hole.png",
+          "bytes": 2280,
+          "sha256": "118dbec747abb8f25bd398033d745efaf5e76df9c6ba74fd79d9c5eee32e70b3"
+        },
+        {
+          "path": "/tmp/maple-removal-klein-native-scene-20261003/result.png",
+          "bytes": 1195733,
+          "sha256": "3201dfc09ea2524f19ec22b3b1d6b37b1b74cd174aafe2ff8a2a130ca06e613d"
+        },
+        {
+          "path": "/tmp/maple-removal-klein-native-scene-20261003/result.f32",
+          "bytes": 12582912,
+          "sha256": "508df41add86a51b12ebcd44050291d36f1df4e7afb65957c97c0244f2b56048"
+        },
+        {
+          "path": "/tmp/maple-removal-klein-native-scene-20261003/prediction.f32",
+          "bytes": 12582912,
+          "sha256": "b0cf09a5f8e411c141e67e748e52c80710dd8c799ee94f2f85b061d62eb7f9c3"
+        },
+        {
+          "path": "/tmp/maple-removal-klein-native-scene-20261003/decoder-unclipped.f32",
+          "bytes": 12582912,
+          "sha256": "08830844f8c931839fd5d008a42089b869477b15032b0a601903913640c57563"
+        },
+        {
+          "path": "/tmp/maple-removal-klein-native-scene-20261003/upstream.png",
+          "bytes": 1171050,
+          "sha256": "1c243e4882a1568e64ce317b4433cf488a0266b40e28447edd2ea7b36fbac7ef"
+        },
+        {
+          "path": "/tmp/maple-removal-klein-native-scene-20261003/upstream.metadata.json",
+          "bytes": 1886,
+          "sha256": "c75e572a85d1fb2265d3d5ffd05a277465bab41ef793b03ce69bdbed66f02792"
+        },
+        {
+          "path": "/tmp/maple-removal-klein-native-scene-20261003/independent-checks.json",
+          "bytes": 248,
+          "sha256": "3e853667c8d4beeaa15c28603da459ded63a6d2e9a13d52ccc3f1f27ead3152e"
+        }
+      ],
+      "executed_source": [
+        {
+          "path": "/tmp/maple-removal-klein-executed-scene-20261003/probe_klein_native.py",
+          "bytes": 12645,
+          "sha256": "0663ac7e4f6ab4893201f88643b56e30be5be0e2a4bcada5129aa125ebb6e398"
+        },
+        {
+          "path": "/tmp/maple-removal-klein-executed-scene-20261003/native_probe_pixels.py",
+          "bytes": 2313,
+          "sha256": "b7327a50ed73250d859b9ded4dc808427b112768ea9643f52620ff81a1071ebc"
+        },
+        {
+          "path": "/tmp/maple-removal-klein-executed-scene-20261003/klein-research-models.json",
+          "bytes": 6583,
+          "sha256": "692b837c6c70b9db3808ae9502a2fdf6c5e9cea6dd7baf612e2045ce6814523b"
+        }
+      ]
+    }
+  ],
+  "raw_verification": [
+    {
+      "path": "/tmp/maple-removal-corpus/public-raws/P1010153.RW2",
+      "bytes": 19678208,
+      "sha256": "874b652b9d2605030aac18eab4a687903083ac4b8a73029a35f46c36b1f7ba82"
+    },
+    {
+      "path": "/tmp/maple-removal-corpus/public-raws/DSC06078.ARW",
+      "bytes": 24969216,
+      "sha256": "ec04e3ac69d54e7300ba0ff582d10ade0fc3ad28f48507b4c35cacc115e4ee86"
+    }
+  ],
+  "canonical_raw_case": {
+    "context": {
+      "plate": "LinearCalibrationV1",
+      "original": "blake3:7846a4170e1a3aa18bc18ef20e3e4738845c26e61150f17e50ffa4beec9173c8",
+      "source_anchor": {
+        "original": "blake3:7846a4170e1a3aa18bc18ef20e3e4738845c26e61150f17e50ffa4beec9173c8",
+        "decode": "blake3:0111e20f9c55c069e911c7edc250a9bd7c425276b2898e7259b864af88db187c",
+        "width": 4928,
+        "height": 3288
+      },
+      "window": {
+        "x": 750,
+        "y": 1500,
+        "width": 1024,
+        "height": 1024
+      },
+      "source_width": 4928,
+      "source_height": 3288,
+      "scene": "blake3:0e79d057f30c445837f006898f922db0f1db46da7301f18e22717dc12d234adb",
+      "model_input": "blake3:632aa5acf998d4feca3176e7ecab18956327b37965c19c5ecb67a223f8c751e3",
+      "encoding": {
+        "version": 1,
+        "low": -0.03480941980694387,
+        "span": 3.739743307597713
+      },
+      "release_qualified": false
+    },
+    "artifacts": [
+      {
+        "path": "/tmp/maple-removal-klein-scene-context-20261003/context.json",
+        "bytes": 814,
+        "sha256": "55a168698c59aed1a70af83d36ca9d7d7b87eba1ce210fb40d842e3c260398f7"
+      },
+      {
+        "path": "/tmp/maple-removal-klein-scene-context-20261003/scene.f32",
+        "bytes": 12582912,
+        "sha256": "b55e28134374566bd379b4d6d4add9afe17e2a697046d61d52ecced99519cacf"
+      },
+      {
+        "path": "/tmp/maple-removal-klein-scene-context-20261003/input.f32",
+        "bytes": 12582912,
+        "sha256": "2204ecb9ed54ff0e9f858ed9c22b81a978e71f67b046359ce6f93133f17f6e32"
+      },
+      {
+        "path": "/tmp/maple-removal-klein-scene-context-20261003/input.png",
+        "bytes": 1211594,
+        "sha256": "dafffed28c809b0b6b80426b5a2315a30d3098c217c3a3ecd98c60da7dd65f41"
+      },
+      {
+        "path": "/tmp/maple-removal-klein-scene-context-20261003/intent.mimf",
+        "bytes": 4103,
+        "sha256": "b066b27d8ab71834033288949f243e5dead0348beb251659e186814dfd2f63fa"
+      },
+      {
+        "path": "/tmp/maple-removal-klein-scene-context-20261003/masks.json",
+        "bytes": 409,
+        "sha256": "174570d22e0161bb0893575906e5570900b96add63ad3a1ffb7974bf29b600b7"
+      },
+      {
+        "path": "/tmp/maple-removal-klein-scene-context-20261003/masks.f32",
+        "bytes": 8388608,
+        "sha256": "3931e0e7fa76e44efd4ae39c0e5afdc8689356e1847e15a54082fea1d1602e13"
+      },
+      {
+        "path": "/tmp/maple-removal-klein-scene-context-20261003/hole.png",
+        "bytes": 2280,
+        "sha256": "118dbec747abb8f25bd398033d745efaf5e76df9c6ba74fd79d9c5eee32e70b3"
+      }
+    ],
+    "scene_range": [
+      0.0006015925901010633,
+      3.227797508239746
+    ],
+    "scene_negative_channels": 0,
+    "scene_above_one_channels": 5367,
+    "source_scope": "Unoriented native DefaultCrop at XY750,1500; 1024x1024 pre-user-WB/HSM linear Rec.2020 plate. Rust fitted signed-asinh encoding and shared inverse; f32 input reaches model normalization without uint8 round-trip. VAE/internal learned operations retain their actual numerical precision.",
+    "mask_scope": "Reused explicitly stored native background-person intent, validated by shared Rust preparation with8pixel hole expansion and4pixel coverage fringe. No new automatic role or helper-mask policy claim.",
+    "bake_report": {
+      "as_shot_temperature": 5241.63671875,
+      "as_shot_tint": 15.853179931640625,
+      "auto_profile_engaged": true,
+      "encoding": {
+        "low": -0.03480941980694387,
+        "span": 3.739743307597713,
+        "version": 1
+      },
+      "generation_masks": "blake3:56fcb0a9c03b3789460445000ca717bebfeeae22e6e4971383989700ec2c6f26",
+      "grades": [
+        {
+          "case": "neutral_ev-3_wb-1000",
+          "max_scene_float_error_identity": 4.581175744533539e-06,
+          "outside_mask_max_error": 0,
+          "three_native_develops_ms": 736.370542
+        },
+        {
+          "case": "auto_ev-3_wb-1000",
+          "max_scene_float_error_identity": 4.581175744533539e-06,
+          "outside_mask_max_error": 0,
+          "three_native_develops_ms": 736.370542
+        },
+        {
+          "case": "neutral_ev-3_wb+0",
+          "max_scene_float_error_identity": 3.8053840398788452e-06,
+          "outside_mask_max_error": 0,
+          "three_native_develops_ms": 784.1784590000001
+        },
+        {
+          "case": "auto_ev-3_wb+0",
+          "max_scene_float_error_identity": 3.8053840398788452e-06,
+          "outside_mask_max_error": 0,
+          "three_native_develops_ms": 784.1784590000001
+        },
+        {
+          "case": "neutral_ev-3_wb+1000",
+          "max_scene_float_error_identity": 4.178844392299652e-06,
+          "outside_mask_max_error": 0,
+          "three_native_develops_ms": 939.810708
+        },
+        {
+          "case": "auto_ev-3_wb+1000",
+          "max_scene_float_error_identity": 4.178844392299652e-06,
+          "outside_mask_max_error": 0,
+          "three_native_develops_ms": 939.810708
+        },
+        {
+          "case": "neutral_ev+0_wb-1000",
+          "max_scene_float_error_identity": 3.664940595626831e-05,
+          "outside_mask_max_error": 0,
+          "three_native_develops_ms": 779.51675
+        },
+        {
+          "case": "auto_ev+0_wb-1000",
+          "max_scene_float_error_identity": 3.664940595626831e-05,
+          "outside_mask_max_error": 0,
+          "three_native_develops_ms": 779.51675
+        },
+        {
+          "case": "neutral_ev+0_wb+0",
+          "max_scene_float_error_identity": 3.0443072319030762e-05,
+          "outside_mask_max_error": 0,
+          "three_native_develops_ms": 752.2620410000001
+        },
+        {
+          "case": "auto_ev+0_wb+0",
+          "max_scene_float_error_identity": 3.0443072319030762e-05,
+          "outside_mask_max_error": 0,
+          "three_native_develops_ms": 752.2620410000001
+        },
+        {
+          "case": "neutral_ev+0_wb+1000",
+          "max_scene_float_error_identity": 3.343075513839722e-05,
+          "outside_mask_max_error": 0,
+          "three_native_develops_ms": 746.684833
+        },
+        {
+          "case": "auto_ev+0_wb+1000",
+          "max_scene_float_error_identity": 3.343075513839722e-05,
+          "outside_mask_max_error": 0,
+          "three_native_develops_ms": 746.684833
+        },
+        {
+          "case": "neutral_ev+3_wb-1000",
+          "max_scene_float_error_identity": 0.0002931952476501465,
+          "outside_mask_max_error": 0,
+          "three_native_develops_ms": 762.6585
+        },
+        {
+          "case": "auto_ev+3_wb-1000",
+          "max_scene_float_error_identity": 0.0002931952476501465,
+          "outside_mask_max_error": 0,
+          "three_native_develops_ms": 762.6585
+        },
+        {
+          "case": "neutral_ev+3_wb+0",
+          "max_scene_float_error_identity": 0.0002435445785522461,
+          "outside_mask_max_error": 0,
+          "three_native_develops_ms": 840.945833
+        },
+        {
+          "case": "auto_ev+3_wb+0",
+          "max_scene_float_error_identity": 0.0002435445785522461,
+          "outside_mask_max_error": 0,
+          "three_native_develops_ms": 840.945833
+        },
+        {
+          "case": "neutral_ev+3_wb+1000",
+          "max_scene_float_error_identity": 0.00026744604110717773,
+          "outside_mask_max_error": 0,
+          "three_native_develops_ms": 931.6452079999999
+        },
+        {
+          "case": "auto_ev+3_wb+1000",
+          "max_scene_float_error_identity": 0.00026744604110717773,
+          "outside_mask_max_error": 0,
+          "three_native_develops_ms": 931.6452079999999
+        }
+      ],
+      "max_scene_float_error_identity": 0.0002931952476501465,
+      "model_result": "blake3:a1425bf417bc136db4a9d66ece08f32dcc3e5e666e43430f78afe5b31a4b29c6",
+      "native_context": {
+        "height": 1024,
+        "width": 1024,
+        "x": 750,
+        "y": 1500
+      },
+      "original": "blake3:7846a4170e1a3aa18bc18ef20e3e4738845c26e61150f17e50ffa4beec9173c8",
+      "outside_mask_max_error": 0,
+      "plate": "LinearCalibrationV1",
+      "profile_tier": "BundleConfident",
+      "qualification": "Full native camera-WB/DCP experiment. Bounded authoring, recipe quality, clone/heal, GPU/live/tile/export integration and supported-device gates remain.",
+      "release_qualified": false
+    },
+    "bake_report_artifact": {
+      "path": "/tmp/maple-removal-klein-scene-bake-20261003/report.json",
+      "bytes": 4460,
+      "sha256": "30688485dbbb7acd7fd1de01365438a2792e243205d08de8581106d53b4d9a6b"
+    },
+    "independent_display_checks": [
+      {
+        "case": "neutral_ev-3_wb-1000",
+        "outside_coverage_png_channels_changed": 0,
+        "artifacts": [
+          {
+            "path": "/tmp/maple-removal-klein-scene-bake-20261003/neutral_ev-3_wb-1000-truth.png",
+            "bytes": 660159,
+            "sha256": "201a0b9fbe325bada476ceadf7e650f85cf09827770bab5f2db3e16d49d7c41d"
+          },
+          {
+            "path": "/tmp/maple-removal-klein-scene-bake-20261003/neutral_ev-3_wb-1000-identity.png",
+            "bytes": 660151,
+            "sha256": "9005880a4d0350cb62558222bd00f03a4135044a08a9c2f742c40509fcfd2acf"
+          },
+          {
+            "path": "/tmp/maple-removal-klein-scene-bake-20261003/neutral_ev-3_wb-1000-removal.png",
+            "bytes": 667003,
+            "sha256": "73168cd61803a75e2865f360f05ffd64f1eaced083a9fdf0277f375a20c213c0"
+          }
+        ]
+      },
+      {
+        "case": "auto_ev-3_wb-1000",
+        "outside_coverage_png_channels_changed": 0,
+        "artifacts": [
+          {
+            "path": "/tmp/maple-removal-klein-scene-bake-20261003/auto_ev-3_wb-1000-truth.png",
+            "bytes": 1280243,
+            "sha256": "b47da9a82358fbf023b94daf12cd282bae74da35480d1615b4ab431f5c238e35"
+          },
+          {
+            "path": "/tmp/maple-removal-klein-scene-bake-20261003/auto_ev-3_wb-1000-identity.png",
+            "bytes": 1280246,
+            "sha256": "d113bb38910a0bf8e2943049d5d0ce06e796e5f39fc054ea2a8814a1ea7f8b8c"
+          },
+          {
+            "path": "/tmp/maple-removal-klein-scene-bake-20261003/auto_ev-3_wb-1000-removal.png",
+            "bytes": 1285233,
+            "sha256": "9202a5cec9ecbf8284808b0e06184f9227c3f0afe15aeb4eaf3c66f4a44026e4"
+          }
+        ]
+      },
+      {
+        "case": "neutral_ev-3_wb+0",
+        "outside_coverage_png_channels_changed": 0,
+        "artifacts": [
+          {
+            "path": "/tmp/maple-removal-klein-scene-bake-20261003/neutral_ev-3_wb+0-truth.png",
+            "bytes": 641916,
+            "sha256": "2556dd54be30358b3e19a52c2ceb6bba3c3049d80fc08bc1fc426067e1386fea"
+          },
+          {
+            "path": "/tmp/maple-removal-klein-scene-bake-20261003/neutral_ev-3_wb+0-identity.png",
+            "bytes": 641922,
+            "sha256": "232c4c2c09a68e7350fff522b2f742e0718fefad75d7b8557a8de1902ec950cc"
+          },
+          {
+            "path": "/tmp/maple-removal-klein-scene-bake-20261003/neutral_ev-3_wb+0-removal.png",
+            "bytes": 649566,
+            "sha256": "d0e6b3c109188be4a4a963cd27757dad55f81e7bd4157da2ccb581b1798aee46"
+          }
+        ]
+      },
+      {
+        "case": "auto_ev-3_wb+0",
+        "outside_coverage_png_channels_changed": 0,
+        "artifacts": [
+          {
+            "path": "/tmp/maple-removal-klein-scene-bake-20261003/auto_ev-3_wb+0-truth.png",
+            "bytes": 1271281,
+            "sha256": "97736009ffe9f5585680ab1bacdb4f4966c1c2b8d5db933089c844d82a0af4bf"
+          },
+          {
+            "path": "/tmp/maple-removal-klein-scene-bake-20261003/auto_ev-3_wb+0-identity.png",
+            "bytes": 1271287,
+            "sha256": "fdecc08e6df06e97e6f43a08879663ba418add1ea7b87e990c2977c489685bb1"
+          },
+          {
+            "path": "/tmp/maple-removal-klein-scene-bake-20261003/auto_ev-3_wb+0-removal.png",
+            "bytes": 1275887,
+            "sha256": "bcd99f5c9735e31aaec6d0e35562e47b69fcbc75561496192f8871b9ca4390db"
+          }
+        ]
+      },
+      {
+        "case": "neutral_ev-3_wb+1000",
+        "outside_coverage_png_channels_changed": 0,
+        "artifacts": [
+          {
+            "path": "/tmp/maple-removal-klein-scene-bake-20261003/neutral_ev-3_wb+1000-truth.png",
+            "bytes": 637056,
+            "sha256": "34aeec55802ef7ae55e487627fc37df0ead50e1b5f91cd7b4007765e5a9ba284"
+          },
+          {
+            "path": "/tmp/maple-removal-klein-scene-bake-20261003/neutral_ev-3_wb+1000-identity.png",
+            "bytes": 637063,
+            "sha256": "3bf2b869148549807cb4771485ff848d02f36acd42f9ec7629723090c8d6cb23"
+          },
+          {
+            "path": "/tmp/maple-removal-klein-scene-bake-20261003/neutral_ev-3_wb+1000-removal.png",
+            "bytes": 644847,
+            "sha256": "af50a809eb805ca79e14e10b79d6c0dca7225215d289b7d2f01e4df3fe09126f"
+          }
+        ]
+      },
+      {
+        "case": "auto_ev-3_wb+1000",
+        "outside_coverage_png_channels_changed": 0,
+        "artifacts": [
+          {
+            "path": "/tmp/maple-removal-klein-scene-bake-20261003/auto_ev-3_wb+1000-truth.png",
+            "bytes": 1266958,
+            "sha256": "e1890b538ae73cdb9696dae80ed35c17205273ba753e04c0a9a9921c029ce58c"
+          },
+          {
+            "path": "/tmp/maple-removal-klein-scene-bake-20261003/auto_ev-3_wb+1000-identity.png",
+            "bytes": 1266963,
+            "sha256": "bfd8d58d530238a56118db912d04b730bc8791f9aab5f44e2fd13e263f0d3a9b"
+          },
+          {
+            "path": "/tmp/maple-removal-klein-scene-bake-20261003/auto_ev-3_wb+1000-removal.png",
+            "bytes": 1271408,
+            "sha256": "0f84f03c8af996eab8479385dc5d7165d8683e308763c64acd3127f9c627f985"
+          }
+        ]
+      },
+      {
+        "case": "neutral_ev+0_wb-1000",
+        "outside_coverage_png_channels_changed": 0,
+        "artifacts": [
+          {
+            "path": "/tmp/maple-removal-klein-scene-bake-20261003/neutral_ev+0_wb-1000-truth.png",
+            "bytes": 1530846,
+            "sha256": "8261428d840b19a397efb81406456766880ffb9b937310ddfc3689826b0ae5eb"
+          },
+          {
+            "path": "/tmp/maple-removal-klein-scene-bake-20261003/neutral_ev+0_wb-1000-identity.png",
+            "bytes": 1530840,
+            "sha256": "74b468176f613db1ef5210de6acf4d37de576956d739ce0cf5e94f0c038461e6"
+          },
+          {
+            "path": "/tmp/maple-removal-klein-scene-bake-20261003/neutral_ev+0_wb-1000-removal.png",
+            "bytes": 1537405,
+            "sha256": "c89bbf6de31b84cf89d2fdbfd45205d146d557fa41a8136b267bf31763a2b9a9"
+          }
+        ]
+      },
+      {
+        "case": "auto_ev+0_wb-1000",
+        "outside_coverage_png_channels_changed": 0,
+        "artifacts": [
+          {
+            "path": "/tmp/maple-removal-klein-scene-bake-20261003/auto_ev+0_wb-1000-truth.png",
+            "bytes": 1838000,
+            "sha256": "12e9173238a08456d4c0277c7457db1140d9d24faeeac95483584d1b50a27af7"
+          },
+          {
+            "path": "/tmp/maple-removal-klein-scene-bake-20261003/auto_ev+0_wb-1000-identity.png",
+            "bytes": 1838000,
+            "sha256": "d1fd8c0895916c68f36e0f49d7e0164adb701bfa6cf6719ac3f3187a78bf5e13"
+          },
+          {
+            "path": "/tmp/maple-removal-klein-scene-bake-20261003/auto_ev+0_wb-1000-removal.png",
+            "bytes": 1838246,
+            "sha256": "7bcfcfe878b7a178fdb17035a009ebd74f388cdbd3494228a87c23f3f9ea9200"
+          }
+        ]
+      },
+      {
+        "case": "neutral_ev+0_wb+0",
+        "outside_coverage_png_channels_changed": 0,
+        "artifacts": [
+          {
+            "path": "/tmp/maple-removal-klein-scene-bake-20261003/neutral_ev+0_wb+0-truth.png",
+            "bytes": 1515044,
+            "sha256": "3df2fea92ea610bc23a3ae4bb6af8eca1d36e85addd69d931bd4f2f54f36e255"
+          },
+          {
+            "path": "/tmp/maple-removal-klein-scene-bake-20261003/neutral_ev+0_wb+0-identity.png",
+            "bytes": 1515044,
+            "sha256": "57db641c60ebea91f051761201f4341d74d14231d48b02123c1999316dc63a52"
+          },
+          {
+            "path": "/tmp/maple-removal-klein-scene-bake-20261003/neutral_ev+0_wb+0-removal.png",
+            "bytes": 1521902,
+            "sha256": "780a88e7de7902096eaae8d3bc7b5ab26955c3c3f6a85ebaca75bf771867cff5"
+          }
+        ]
+      },
+      {
+        "case": "auto_ev+0_wb+0",
+        "outside_coverage_png_channels_changed": 0,
+        "artifacts": [
+          {
+            "path": "/tmp/maple-removal-klein-scene-bake-20261003/auto_ev+0_wb+0-truth.png",
+            "bytes": 1813631,
+            "sha256": "5a1113e0629bf5e3c8db8f29d17090896431552d527308aef249314c2e0ed0c5"
+          },
+          {
+            "path": "/tmp/maple-removal-klein-scene-bake-20261003/auto_ev+0_wb+0-identity.png",
+            "bytes": 1813634,
+            "sha256": "bc11729b6639408f6a0b680d0c0cf9b40f9150460f63cfff9bf0fafd07abe811"
+          },
+          {
+            "path": "/tmp/maple-removal-klein-scene-bake-20261003/auto_ev+0_wb+0-removal.png",
+            "bytes": 1814382,
+            "sha256": "bb691673369db4dcd47c02b1d357c311345114c8cdf474b685e34f52c3874569"
+          }
+        ]
+      },
+      {
+        "case": "neutral_ev+0_wb+1000",
+        "outside_coverage_png_channels_changed": 0,
+        "artifacts": [
+          {
+            "path": "/tmp/maple-removal-klein-scene-bake-20261003/neutral_ev+0_wb+1000-truth.png",
+            "bytes": 1519608,
+            "sha256": "13769de3e612be8288baeca949a3810bb39b242bfb2715e8a355bbae2437b157"
+          },
+          {
+            "path": "/tmp/maple-removal-klein-scene-bake-20261003/neutral_ev+0_wb+1000-identity.png",
+            "bytes": 1519604,
+            "sha256": "f433921adc484b456d189782f40ec9ab31a461889da731733beae454a3be038a"
+          },
+          {
+            "path": "/tmp/maple-removal-klein-scene-bake-20261003/neutral_ev+0_wb+1000-removal.png",
+            "bytes": 1526504,
+            "sha256": "e157636f74226e35c2b65a6246bb14f6194ad34045b4f67211554c1bf1c1fe05"
+          }
+        ]
+      },
+      {
+        "case": "auto_ev+0_wb+1000",
+        "outside_coverage_png_channels_changed": 0,
+        "artifacts": [
+          {
+            "path": "/tmp/maple-removal-klein-scene-bake-20261003/auto_ev+0_wb+1000-truth.png",
+            "bytes": 1806095,
+            "sha256": "755412fedac78600ec2579939935f2557baf548c57f2dd1f73ad522eae3d585d"
+          },
+          {
+            "path": "/tmp/maple-removal-klein-scene-bake-20261003/auto_ev+0_wb+1000-identity.png",
+            "bytes": 1806101,
+            "sha256": "d2e6f0ea7b430f6d26c522905a3ee637ca065ff4ebfd93c980c3a02812771617"
+          },
+          {
+            "path": "/tmp/maple-removal-klein-scene-bake-20261003/auto_ev+0_wb+1000-removal.png",
+            "bytes": 1807516,
+            "sha256": "8730bc5487827f3df976c1244b7057a89b1665c03401c73e21bcec57a2064a50"
+          }
+        ]
+      },
+      {
+        "case": "neutral_ev+3_wb-1000",
+        "outside_coverage_png_channels_changed": 0,
+        "artifacts": [
+          {
+            "path": "/tmp/maple-removal-klein-scene-bake-20261003/neutral_ev+3_wb-1000-truth.png",
+            "bytes": 1749689,
+            "sha256": "5a76353b8752db3485077805cb6dd5682809e026153f7b27fa86da5ffbc377d2"
+          },
+          {
+            "path": "/tmp/maple-removal-klein-scene-bake-20261003/neutral_ev+3_wb-1000-identity.png",
+            "bytes": 1749689,
+            "sha256": "e893955ba553aa438bc91fcedc8f38f68fc8f34ba7e0cbb58d651116d10bdf67"
+          },
+          {
+            "path": "/tmp/maple-removal-klein-scene-bake-20261003/neutral_ev+3_wb-1000-removal.png",
+            "bytes": 1744648,
+            "sha256": "663c714b610f29761a3f164a48ae4bf9075ca0cae8f6425a6283506a85bc2df6"
+          }
+        ]
+      },
+      {
+        "case": "auto_ev+3_wb-1000",
+        "outside_coverage_png_channels_changed": 0,
+        "artifacts": [
+          {
+            "path": "/tmp/maple-removal-klein-scene-bake-20261003/auto_ev+3_wb-1000-truth.png",
+            "bytes": 1780379,
+            "sha256": "9fd780fdd2b56f44aceb6c21101d45c5f3288bd91dd11abdffd95a53fc18bf3e"
+          },
+          {
+            "path": "/tmp/maple-removal-klein-scene-bake-20261003/auto_ev+3_wb-1000-identity.png",
+            "bytes": 1780380,
+            "sha256": "9750b02646adce03203553be1c63b4f4500da57083395f149234a9425c430d92"
+          },
+          {
+            "path": "/tmp/maple-removal-klein-scene-bake-20261003/auto_ev+3_wb-1000-removal.png",
+            "bytes": 1777253,
+            "sha256": "e27743c79ba0e8d6c14fc8a1835eeed96c1fbb24d3aced03a018a34711944c34"
+          }
+        ]
+      },
+      {
+        "case": "neutral_ev+3_wb+0",
+        "outside_coverage_png_channels_changed": 0,
+        "artifacts": [
+          {
+            "path": "/tmp/maple-removal-klein-scene-bake-20261003/neutral_ev+3_wb+0-truth.png",
+            "bytes": 1779492,
+            "sha256": "5089717c12af6e06479187321619eb5aabe78f2a0c6cf2fc0562b7742638995c"
+          },
+          {
+            "path": "/tmp/maple-removal-klein-scene-bake-20261003/neutral_ev+3_wb+0-identity.png",
+            "bytes": 1779489,
+            "sha256": "cd04d2312c1e39404d3d263ca9cfb9c8bae545e35e462439b79c02f0d4bf5208"
+          },
+          {
+            "path": "/tmp/maple-removal-klein-scene-bake-20261003/neutral_ev+3_wb+0-removal.png",
+            "bytes": 1774233,
+            "sha256": "d362b37ad62a45e810a2d305c292718650a271bd92accdc3db96346d22f546c9"
+          }
+        ]
+      },
+      {
+        "case": "auto_ev+3_wb+0",
+        "outside_coverage_png_channels_changed": 0,
+        "artifacts": [
+          {
+            "path": "/tmp/maple-removal-klein-scene-bake-20261003/auto_ev+3_wb+0-truth.png",
+            "bytes": 1767689,
+            "sha256": "5bf690ca9dd87af8da045f913e49155c4d2bb946ee62aecc06afe5371dd1ef3f"
+          },
+          {
+            "path": "/tmp/maple-removal-klein-scene-bake-20261003/auto_ev+3_wb+0-identity.png",
+            "bytes": 1767686,
+            "sha256": "7331b2178a9d30d6fcfafe5c926ac867f49440f2e0f1ecb7cbbf3da7a21ee236"
+          },
+          {
+            "path": "/tmp/maple-removal-klein-scene-bake-20261003/auto_ev+3_wb+0-removal.png",
+            "bytes": 1764453,
+            "sha256": "24c7c9192978b697ef235bbdae4578c00a58264184a1648e928a1c8cd7056228"
+          }
+        ]
+      },
+      {
+        "case": "neutral_ev+3_wb+1000",
+        "outside_coverage_png_channels_changed": 0,
+        "artifacts": [
+          {
+            "path": "/tmp/maple-removal-klein-scene-bake-20261003/neutral_ev+3_wb+1000-truth.png",
+            "bytes": 1777754,
+            "sha256": "fc2173a2dde268bfa547bd443bff416413be74a42301d93a55f514542ac39ed4"
+          },
+          {
+            "path": "/tmp/maple-removal-klein-scene-bake-20261003/neutral_ev+3_wb+1000-identity.png",
+            "bytes": 1777756,
+            "sha256": "9d5af99b17558f948a9f71045c742583a6ec5d7874cd1a4850dfcde7914b979c"
+          },
+          {
+            "path": "/tmp/maple-removal-klein-scene-bake-20261003/neutral_ev+3_wb+1000-removal.png",
+            "bytes": 1772466,
+            "sha256": "af716b5d744dfbe154fa71070678f4a05a24519280194c75b944eb785f4fd623"
+          }
+        ]
+      },
+      {
+        "case": "auto_ev+3_wb+1000",
+        "outside_coverage_png_channels_changed": 0,
+        "artifacts": [
+          {
+            "path": "/tmp/maple-removal-klein-scene-bake-20261003/auto_ev+3_wb+1000-truth.png",
+            "bytes": 1735001,
+            "sha256": "d5fdccea3a36687b18e51cf90458cc3ce48835ca63000ee78f1f2c4b992f65c5"
+          },
+          {
+            "path": "/tmp/maple-removal-klein-scene-bake-20261003/auto_ev+3_wb+1000-identity.png",
+            "bytes": 1735000,
+            "sha256": "dc3d46ccca1f6c4a1f92483c11f71c546a6956dfe93a8f24d15618a33d7ba996"
+          },
+          {
+            "path": "/tmp/maple-removal-klein-scene-bake-20261003/auto_ev+3_wb+1000-removal.png",
+            "bytes": 1730972,
+            "sha256": "12078c2adc5da257c7a75dae7c4af6952ee5c9efb92979759196f52e10ae6786"
+          }
+        ]
+      }
+    ],
+    "replacement_codec": {
+      "path": "/tmp/maple-removal-klein-scene-bake-20261003/replacement.f16",
+      "bytes": 8388640,
+      "sha256": "14882636ccfe96df93853ce77dcd56ecd908d6db68dd5ab5c1937410f0c6ef41"
+    },
+    "model_result_nchw": {
+      "path": "/tmp/maple-removal-klein-native-scene-20261003/prediction-nchw.f32",
+      "bytes": 12582912,
+      "sha256": "3bb781e1ee1b2d3a097f4bbb9f21526b305d59d169b22914a22e04e0aa537a33"
+    },
+    "harness_binary": {
+      "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/src/raw-pipeline/target/release/examples/removal-scene-probe",
+      "bytes": 14621344,
+      "sha256": "fe5d31783c20074c21486a22380daa353cb5c12b94b566b0fd64b07b4b35a30d"
+    },
+    "harness_source": [
+      {
+        "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/src/raw-pipeline/raw-core/examples/removal-scene-probe.rs",
+        "bytes": 16264,
+        "sha256": "56f46f7e0cc19d1551abc428a2b69f59a615c3054ad1fbce731c3c642db8a041"
+      },
+      {
+        "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/src/raw-pipeline/raw-core/examples/removal_scene/calibration.rs",
+        "bytes": 13105,
+        "sha256": "fd512d6064e83f5805eaa878b5b1954b4319184f4d865db1a9a1e04c51c4f051"
+      },
+      {
+        "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/src/raw-pipeline/raw-core/examples/removal_scene/encoding.rs",
+        "bytes": 3161,
+        "sha256": "5512d73fa5a15a36066304915ff3911956dd6e7077dbad02a2344839047b42fe"
+      },
+      {
+        "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/src/raw-pipeline/raw-core/examples/removal_scene/masks.rs",
+        "bytes": 4277,
+        "sha256": "6a119c4768fa48be1122e0c3a67038f5a821aae91d11364d0f8a4f19fdf2fa66"
+      },
+      {
+        "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/src/raw-pipeline/raw-core/src/pipeline/removal_encoding.rs",
+        "bytes": 5189,
+        "sha256": "c7d5b82dc7ae8bf3698b1d977299cd58090bf0216340a6ab35bf1e761e77f16b"
+      }
+    ],
+    "scope_limit": "This is a qualification harness, not XMP accepted-record publication/Keep, live GPU/tiles/export or portable runtime qualification. Eighteen outputs share nine scene develops; timing rows duplicated across profile pairs must not be summed as independent runs. The reported identity error includes real fp16 codec loss, not a model-reconstruction error metric."
+  },
+  "visual_findings": {
+    "paint": "Best structure among these evaluated market diagnostics: both selected people removed, fruit/crates/stall cloth/pavement continue plausibly. Visible hard boundary near left side and generated object/details remain; not a release acceptance or ground-truth reconstruction.",
+    "person": "Selected woman removed, but preserved overlapping vendor fragments remain and the tightly shaped replacement creates awkward/malformed stall/cloth/crate geometry and seams. Not an automatic People success.",
+    "scene": "Small selected background person is replaced with stall/aisle content in reversible native float context, but new geometry/detail and tonal boundaries remain. No hidden-background truth, broad crowd or HDR/noise/seam qualification."
+  },
+  "decision": "Retain Klein4B as a promising native local candidate, not an admitted shipping model. It improves structure without scene-specific user prompts in the broad Paint case and demonstrates reversible native RAW-context transport in one small mask. Continue seam/protection/overlap and canonical larger-mask/device/runtime/distribution qualification before Mac authoring integration. Do not increase current app caps from these diagnostics.",
+  "verification": {
+    "tests": {
+      "passed": 5,
+      "failed": 0,
+      "skipped": 0,
+      "log": {
+        "path": "/tmp/maple-removal-klein-tests-postscope-20261003.log",
+        "bytes": 987,
+        "sha256": "1fa787f302bf76d94b0bd071681eb11b8b211efd2424484e0a6f76a07321c81b"
+      }
+    },
+    "format": {
+      "path": "/tmp/maple-removal-klein-format-20261003.log",
+      "bytes": 26,
+      "sha256": "3bc53bf3e981a98a34a852e175bf9b77af841edea74fca595d9aedcbaf9a4938"
+    },
+    "lint": {
+      "path": "/tmp/maple-removal-klein-lint-20261003.log",
+      "bytes": 19,
+      "sha256": "82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18"
+    },
+    "raw_harness_build": {
+      "path": "/tmp/maple-removal-klein-scene-build-20261003.log",
+      "bytes": 2710,
+      "sha256": "8ebc5346de39175f947b05621693e720d6c5b79b6fd0b9570afb5f52cc5422c0"
+    },
+    "timing_scope": "Fresh separate processes on shared M5Max128GB, compiler/cache/concurrency uncontrolled; phase observations only, not workflow p50/p95 or lower-memory Mac/device targets. MLX peak allocations and process RSS are distinct, not a total peak. Native1536 inference19.343s/15.792s; native1024 reversible-context inference9.106s.",
+    "source_loading": "All source Python content SHA256 plus clean exact Git revision verified before source imports; MIT file and critical helper hashes pinned. Concrete source modules override installed package path. Safe tensors only; strictly loaded266VAE/387transformer/905text encoder tensors, no silent learned defaults. Runtime downloads disabled by upstream default, local tokenizer class with local_files_only.",
+    "source_budget": {
+      "path": "/tmp/maple-removal-klein-budget-20261003.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "incremental_headroom": {
+      "path": "/tmp/maple-removal-klein-headroom-20261003.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  },
+  "executed_source_differences": "First two SDR cases use the saved source before the float-context extension. Scene case uses the saved float-source implementation before a subsequent report-only scope/docstring clarification. Its original qualification text incorrectly says Auto SDR; authoritative float_input_sha256/model_input_quantized_to_u8=false/model_input_tensor_samples_exact and separately verified Rust context/bake identify the actual input. The pre-model failed attempt was four positive half-code rounding ties (NumPy ties-to-even versus Rust half-away); corrected to Rust f32 rounding, no source values or input geometry changed. No failed attempt accepted.",
+  "source_files": {
+    "tools/removal/probe_klein_native.py": {
+      "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/tools/removal/probe_klein_native.py",
+      "bytes": 12964,
+      "sha256": "8d8de72f84eccee42a3d68e47aaa7a75b78d49dc56d647d9b22e57e9e6190ebf"
+    },
+    "tools/removal/klein_native_probe_test.py": {
+      "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/tools/removal/klein_native_probe_test.py",
+      "bytes": 4516,
+      "sha256": "39cafb2edc4a0b46e979793e7ccf43b166092f0dc300c54bf5b388db0b4f0827"
+    },
+    "tools/removal/klein-research-models.json": {
+      "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/tools/removal/klein-research-models.json",
+      "bytes": 6583,
+      "sha256": "692b837c6c70b9db3808ae9502a2fdf6c5e9cea6dd7baf612e2045ce6814523b"
+    },
+    "tools/removal/native_probe_pixels.py": {
+      "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/tools/removal/native_probe_pixels.py",
+      "bytes": 2313,
+      "sha256": "b7327a50ed73250d859b9ded4dc808427b112768ea9643f52620ff81a1071ebc"
+    }
+  },
+  "remaining": [
+    "Native large/overlapping person mask coherence and protected-subject context",
+    "Photographic seam/noise/detail and labeled corpus budgets",
+    "Supported lower-memory physical Macs and model packaging/native runtime",
+    "Canonical RAW/HDR mapping across cameras and larger native contexts",
+    "Transitive conversion/model/license/distribution review",
+    "Accepted XMP/render/export/recovery/portable consumers and full epic gates"
+  ],
+  "primary_sources": [
+    "https://huggingface.co/black-forest-labs/FLUX.2-klein-4B",
+    "https://huggingface.co/AbstractFramework/flux.2-klein-4b-8bit",
+    "https://github.com/lpalbou/mlx-gen/blob/99fb94dd3eaa9dd1931cd3cd8eae1ae3e20f2ef3/docs/masked-editing.md",
+    "https://huggingface.co/Qwen/Qwen-Image-Edit-2511"
+  ],
+  "candidate_selection": "Official QwenEdit2511 and converted q8 cards declare Apache2 and native MLX masked runtime exists, but its recorded package is30.3GB. Klein4B q8 actual verified payload8,569,666,146B is tested first for Mac practicality. No Qwen image model weights downloaded/executed this turn; semantic QwenVL model from previous checkpoint is a different model. Licensing declarations do not constitute complete legal/redistribution clearance. No paid licensing preference response, purchase, author contact or cloud photo inference."
+}

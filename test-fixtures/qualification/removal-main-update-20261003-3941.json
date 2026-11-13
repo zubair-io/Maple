@@ -1,0 +1,502 @@
+{
+  "issue": 3941,
+  "epic": 1472,
+  "recordedAt": "2026-10-03T21:37:28.737946+00:00",
+  "scope": "Local main integration and regression validation; complete removal release qualification remains open.",
+  "releaseQualified": false,
+  "branch": "codex/ai-object-removal",
+  "sourceHeadBeforeValidationFixCommit": "4e0418d4c9b1f1e20c43435c4e7161ca6634480f",
+  "rebase": {
+    "previousBase": "057bc604c619f2ef6e071a7ae38d25dfb1fa5d64",
+    "currentBase": "a1c76ae31e299600d265dc6d2acb5610988eaa09",
+    "preservedFeatureCommits": 121,
+    "subjectsAndOrderPreserved": true,
+    "conflictsResolved": [
+      "Both main and removal regression class lists retained.",
+      "Windows reset uses main DefaultAdjustments and retains saved removal records."
+    ],
+    "rawPipelineTrackedSourceChangedByRebase": false,
+    "audit": [
+      {
+        "path": "/Users/riabuz/.cache/maple-removal-research/rebase-before-20261003-coverage.json",
+        "bytes": 5954,
+        "sha256": "07c363dba1c861d1f2eb6766b8c2c759e9f4a4fbaf41ee7f83073b65bd6d9ae0"
+      },
+      {
+        "path": "/Users/riabuz/.cache/maple-removal-research/rebase-after-20261003-coverage.json",
+        "bytes": 6261,
+        "sha256": "b9c3f8eb89148ff72ca19581bd098842ed4084a3fd06c9dedf62332b9ba77568"
+      },
+      {
+        "path": "/Users/riabuz/.cache/maple-removal-research/rebase-range-diff-20261003-coverage.txt",
+        "bytes": 13671,
+        "sha256": "69a1d8bdc2f938c2144d995299566a5ef1442c7d8e8539fe2f6d8acc17c17380"
+      }
+    ]
+  },
+  "fixes": [
+    "Native xcframework input hash now includes maple-removal source and Cargo manifest; source/add/delete/dependency mutation regressions exercise the actual script.",
+    "Two Apple calibration fixture copies now equal the existing canonical shared Rust bytes; no canonical golden was regenerated. CI checks missing/extra/changed files.",
+    "Owned SMB removal publication test passes testCase:self required by main.",
+    "Photographic Auto controls are regenerated independently with current proxy sampling metadata in a new versioned directory; older controls remain intact."
+  ],
+  "validation": {
+    "nativeRemovalAndMainRegressions": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/main-update-swift-gate-20261003.log",
+      "bytes": 45438,
+      "sha256": "aa454b6036faa71a6974fcc50daa6b904b821af0c90af706c801755099b2b88a",
+      "passed": 141,
+      "skipped": 0,
+      "selection": {
+        "path": "/Users/riabuz/.cache/maple-removal-research/main-update-swift-gate-20261003.selection.json",
+        "bytes": 1770,
+        "sha256": "31700cdda1d14d2c595fc207fa562f9809ac24de05d749e2776f641c015b064d"
+      }
+    },
+    "mapleMCP": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/main-update-maplemcp-20261003.log",
+      "bytes": 11912,
+      "sha256": "cfed2ee4b1090ae5d9fb1c528e4afd855f4b60ae06ad5039989bac0b156fa34e",
+      "passed": 32
+    },
+    "apiExportAndJobCreation": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/main-update-api-export-20261003.log",
+      "bytes": 5288,
+      "sha256": "6c76893d676d7ae091f6e336a774e3b10e5cb860fc45b7166f17e6466098fff4",
+      "passed": 37
+    },
+    "webLensAndRemoval": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/main-update-web-removal-20261003.log",
+      "bytes": 9525,
+      "sha256": "364a72fa7669e3f38e581088ac510bdf7c96b86f47732bd554caa1cfe69cf493",
+      "passed": 101,
+      "files": 13
+    },
+    "windowsRealXMPSidecars": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/main-update-windows-sidecar-20261003.log",
+      "bytes": 2343,
+      "sha256": "5f98e6b57b4111f85fd513490db140573f3371f0d7260010dfe2d7c2c3170b0b",
+      "passed": 8,
+      "skipped": 0,
+      "limitation": "Cross-platform .NET sidecar tests; WinUI history runtime is not validated on macOS."
+    },
+    "ciEvidenceTools": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/main-update-ci-tools-repaired-20261003.log",
+      "bytes": 2393,
+      "sha256": "11c0056a12b1d44fa5ea2c0d8a852e17109baa95ebb80d1f16de132e7f43af58",
+      "passed": 15
+    },
+    "shippingRustSavedPreview": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/main-update-removal-ffi-shipping-preview-20261003.log",
+      "bytes": 55262,
+      "sha256": "7df77723ef749351f40beacfbe3a1679f2b3a86fce7a319dccd92abaa63c48d0",
+      "passed": 1,
+      "features": "gpu,pano,removal",
+      "target": "aarch64-apple-darwin"
+    },
+    "photographicExport": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/main-update-photographic-controls-test-20261003.log",
+      "bytes": 10456,
+      "sha256": "7a9f2d9e156440926a5c9984aefaf2a797889deb4ad8a87aafdd488a7d10cbcf",
+      "passed": 1,
+      "skipped": 0,
+      "diagnostics": [
+        {
+          "accepted": false,
+          "artifact": "/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/maple-1472-photographic-export-parity",
+          "case": "photographic-removal-export",
+          "channelsOver1": 0,
+          "height": 5412,
+          "limit": "Native full export parity gate: maximum channel error <=1/255",
+          "maximumChannelError": 1,
+          "meanChannelError": 0.25007013547131035,
+          "profile": "neutral",
+          "stage": "developed",
+          "width": 7216
+        },
+        {
+          "accepted": false,
+          "artifact": "/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/maple-1472-photographic-export-parity",
+          "case": "photographic-removal-export",
+          "channelsOver1": 0,
+          "height": 5412,
+          "limit": "Native full export parity gate: maximum channel error <=1/255",
+          "maximumChannelError": 1,
+          "meanChannelError": 0.25007013547131035,
+          "profile": "neutral",
+          "stage": "delivered",
+          "width": 7216
+        },
+        {
+          "accepted": true,
+          "artifact": "/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/maple-1472-photographic-export-parity",
+          "case": "photographic-removal-export",
+          "channelsOver1": 0,
+          "height": 5412,
+          "limit": "Native full export parity gate: maximum channel error <=1/255",
+          "maximumChannelError": 1,
+          "meanChannelError": 0.25008143635533314,
+          "profile": "neutral",
+          "stage": "developed",
+          "width": 7216
+        },
+        {
+          "accepted": true,
+          "artifact": "/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/maple-1472-photographic-export-parity",
+          "case": "photographic-removal-export",
+          "channelsOver1": 0,
+          "height": 5412,
+          "limit": "Native full export parity gate: maximum channel error <=1/255",
+          "maximumChannelError": 1,
+          "meanChannelError": 0.25008143635533314,
+          "profile": "neutral",
+          "stage": "delivered",
+          "width": 7216
+        },
+        {
+          "accepted": false,
+          "artifact": "/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/maple-1472-photographic-export-parity",
+          "case": "photographic-removal-export",
+          "channelsOver1": 0,
+          "height": 5412,
+          "limit": "Native full export parity gate: maximum channel error <=1/255",
+          "maximumChannelError": 1,
+          "meanChannelError": 0.2500657738763439,
+          "profile": "auto",
+          "stage": "developed",
+          "width": 7216
+        },
+        {
+          "accepted": false,
+          "artifact": "/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/maple-1472-photographic-export-parity",
+          "case": "photographic-removal-export",
+          "channelsOver1": 0,
+          "height": 5412,
+          "limit": "Native full export parity gate: maximum channel error <=1/255",
+          "maximumChannelError": 1,
+          "meanChannelError": 0.2500657738763439,
+          "profile": "auto",
+          "stage": "delivered",
+          "width": 7216
+        },
+        {
+          "accepted": true,
+          "artifact": "/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/maple-1472-photographic-export-parity",
+          "case": "photographic-removal-export",
+          "channelsOver1": 0,
+          "height": 5412,
+          "limit": "Native full export parity gate: maximum channel error <=1/255",
+          "maximumChannelError": 1,
+          "meanChannelError": 0.25006096844001097,
+          "profile": "auto",
+          "stage": "developed",
+          "width": 7216
+        },
+        {
+          "accepted": true,
+          "artifact": "/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/maple-1472-photographic-export-parity",
+          "case": "photographic-removal-export",
+          "channelsOver1": 0,
+          "height": 5412,
+          "limit": "Native full export parity gate: maximum channel error <=1/255",
+          "maximumChannelError": 1,
+          "meanChannelError": 0.25006096844001097,
+          "profile": "auto",
+          "stage": "delivered",
+          "width": 7216
+        },
+        {
+          "case": "photographic-removal-auto-cube",
+          "channelsOver1": 6946766,
+          "dimension": 33,
+          "fitOrigin": "standalone-proxy",
+          "limit": "Attribution diagnostic; production cube unchanged",
+          "maximumChannelError": 10,
+          "meanChannelError": 0.5322662174855471
+        },
+        {
+          "case": "photographic-removal-auto-cube",
+          "channelsOver1": 6832759,
+          "dimension": 49,
+          "fitOrigin": "standalone-proxy",
+          "limit": "Attribution diagnostic; production cube unchanged",
+          "maximumChannelError": 10,
+          "meanChannelError": 0.5323370699313725
+        },
+        {
+          "case": "photographic-removal-auto-cube",
+          "channelsOver1": 6702823,
+          "dimension": 65,
+          "fitOrigin": "standalone-proxy",
+          "limit": "Attribution diagnostic; production cube unchanged",
+          "maximumChannelError": 10,
+          "meanChannelError": 0.5258240649013525
+        },
+        {
+          "case": "photographic-removal-auto-cube",
+          "channelsOver1": 46169,
+          "dimension": 33,
+          "fitOrigin": "native-control",
+          "limit": "Uncached diagnostic native fit; production policy unchanged",
+          "maximumChannelError": 3,
+          "meanChannelError": 0.30508190853426376
+        },
+        {
+          "case": "photographic-removal-auto-cube",
+          "channelsOver1": 966365,
+          "dimension": 49,
+          "fitOrigin": "native-control",
+          "limit": "Uncached diagnostic native fit; production policy unchanged",
+          "maximumChannelError": 4,
+          "meanChannelError": 0.3075535330728736
+        },
+        {
+          "case": "photographic-removal-auto-cube",
+          "channelsOver1": 91,
+          "dimension": 65,
+          "fitOrigin": "native-control",
+          "limit": "Uncached diagnostic native fit; production policy unchanged",
+          "maximumChannelError": 2,
+          "meanChannelError": 0.2826351520859998
+        },
+        {
+          "case": "photographic-removal-full-metal",
+          "channelsOver1": 5863373,
+          "height": 5412,
+          "limit": "Attribution diagnostic; full-resolution readback is not a live-slider benchmark",
+          "maximumChannelError": 10,
+          "meanChannelError": 0.4321491594463919,
+          "width": 7216
+        }
+      ]
+    }
+  },
+  "photographicControls": {
+    "original": {
+      "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/test-fixtures/raws/removal-photographic/portrait.dng",
+      "bytes": 50681152,
+      "sha256": "4a4154b2595dc76a7d5e10cdcb65a386319e31647a585c23e262fe62b969c0fe"
+    },
+    "manifest": {
+      "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/test-fixtures/raws/removal-photographic/auto-fit-20261003/manifest.json",
+      "bytes": 3186,
+      "sha256": "8f9318b00d476387184ee87af9203fe825a1781ce5c856beffd3877978da3c89"
+    },
+    "metadataAndArtifactDigests": {
+      "artifacts": [
+        {
+          "blake3": "36fe333ed9a0f35f60f700c055b19bf24ed4f6d80bb884d7c64cce7204bf85e7",
+          "bytes": 880,
+          "edge": 0,
+          "fit": "proxy",
+          "kind": "curve",
+          "path": "proxy-curve.f32"
+        },
+        {
+          "blake3": "d9a35e436614c4700139c133cd4768aa3456d847ef17b53a081f766b907f1814",
+          "bytes": 431244,
+          "edge": 33,
+          "fit": "proxy",
+          "kind": "residual",
+          "path": "proxy-residual.f32"
+        },
+        {
+          "blake3": "36fe333ed9a0f35f60f700c055b19bf24ed4f6d80bb884d7c64cce7204bf85e7",
+          "bytes": 880,
+          "edge": 0,
+          "fit": "native",
+          "kind": "curve",
+          "path": "native-curve.f32"
+        },
+        {
+          "blake3": "91b35f4f7d5f84ff0c9d7d997d477596a858b005c22211d3f8b3adda2950ec9d",
+          "bytes": 431244,
+          "edge": 33,
+          "fit": "native",
+          "kind": "residual",
+          "path": "native-residual.f32"
+        }
+      ],
+      "cubes": [
+        {
+          "blake3": "9f386d5c7e6ffec2725b4d9275238e627f7c34b9fe0a956b3c9f9cab522dd10a",
+          "bytes": 431244,
+          "dimension": 33,
+          "fit": "proxy",
+          "path": "proxy-33.f32"
+        },
+        {
+          "blake3": "44c56fdea7dd5e39f36a55d96c1935fd4573297b25aef2845ea829e7e3dea9fc",
+          "bytes": 1411788,
+          "dimension": 49,
+          "fit": "proxy",
+          "path": "proxy-49.f32"
+        },
+        {
+          "blake3": "dcfaa9b2b7c809f125903d68c3be3505dd47a0386291c5b90fc81792b5c898b9",
+          "bytes": 3295500,
+          "dimension": 65,
+          "fit": "proxy",
+          "path": "proxy-65.f32"
+        },
+        {
+          "blake3": "e4b88f4571cbb94acea16784254640bd3a720c05e3c869759f4b78a2d1839526",
+          "bytes": 10952076,
+          "dimension": 97,
+          "fit": "proxy",
+          "path": "proxy-97.f32"
+        },
+        {
+          "blake3": "8a404d4082452b0427849bd2893cf5a03c921fdbd960513cbc1bb9f902734624",
+          "bytes": 25165824,
+          "dimension": 128,
+          "fit": "proxy",
+          "path": "proxy-128.f32"
+        },
+        {
+          "blake3": "7828ccfb7716e3b1f0eb94ddca13ee8919f90f3207024dc96b1459f067337083",
+          "bytes": 431244,
+          "dimension": 33,
+          "fit": "native",
+          "path": "native-33.f32"
+        },
+        {
+          "blake3": "d831afa48b0d8d9fe909ead506ef215627b4fc6e1772fe102233549b2ca5b477",
+          "bytes": 1411788,
+          "dimension": 49,
+          "fit": "native",
+          "path": "native-49.f32"
+        },
+        {
+          "blake3": "04b8999c2c7a66bcb7355a4d5b3dca3269793f0f6719d4c394d02bf4bd5b8f33",
+          "bytes": 3295500,
+          "dimension": 65,
+          "fit": "native",
+          "path": "native-65.f32"
+        },
+        {
+          "blake3": "351a9b79972c4ed99991dd070342b6ead0a3dab44e1913327f3de04c5d3d5cb8",
+          "bytes": 10952076,
+          "dimension": 97,
+          "fit": "native",
+          "path": "native-97.f32"
+        },
+        {
+          "blake3": "c9e96772233400c242577d8eb31c0b99b3d208af33f88ceaff52b75913b8f6cd",
+          "bytes": 25165824,
+          "dimension": 128,
+          "fit": "native",
+          "path": "native-128.f32"
+        }
+      ],
+      "encoding": "little-endian f32 RGB, red fastest",
+      "issue": 1472,
+      "limit": "Native fit is an uncached diagnostic control; production policy unchanged",
+      "quality": "amaze",
+      "sensorHeight": 5412,
+      "sensorWidth": 7216,
+      "sourceDigest": "220c6f28339dd600e1f7eea7ee9ee85be4ebee3e3ade7d74275c08d85f53b61c"
+    },
+    "generatorLog": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/main-update-auto-fit-controls-20261003.log",
+      "bytes": 8178,
+      "sha256": "15648eef2047e32f3a2f164df15c35d4413f90d9f825cff742b28086378b45d3"
+    },
+    "limit": "Source-bound diagnostic controls, not new ACR references or an altered production Auto policy."
+  },
+  "nativeBuild": {
+    "frameworkLog": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/main-update-xcframework-inputs-20261003.log",
+      "bytes": 195380,
+      "sha256": "bb3a9e3955b5985c18b3889d79747a7ba934d8de55258c423d075177dfc4a098",
+      "verifiedSymbols": 181
+    },
+    "frameworkInputHash": "5e530e1d26a89871773a0e4c49210c3ca7b9f65d",
+    "macFatStaticLibrary": {
+      "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/src/apple/Frameworks/RawPipeline.xcframework/macos-arm64_x86_64/libraw_ffi.a",
+      "bytes": 213252440,
+      "sha256": "d52c512fd70fd5fb17ee770dd715781f379502642e0b5d1e5c9a60b878539e47"
+    },
+    "macBuildLog": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/main-update-mac-fresh-build-20261003.log",
+      "bytes": 873570,
+      "sha256": "7253e61c722d87402bfa76beca6d4830e8241f918986fcf8fac7837b3abad756"
+    },
+    "macApp": "/Users/riabuz/.cache/maple-removal-research/mac-main-update-20261003/Build/Products/Debug/Maple.app",
+    "macExecutable": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/mac-main-update-20261003/Build/Products/Debug/Maple.app/Contents/MacOS/Maple",
+      "bytes": 60256,
+      "sha256": "58b30d3dfbd0376682049b52799ea5b2751bc4efbde5af9625318950f618d7de"
+    },
+    "limit": "Built on the rebased feature source with fresh release Rust libraries. Later tracked changes are tests/CI/build invalidation only; this app was not launched for UI qualification."
+  },
+  "failedAttempts": [
+    "Initial Swift compile needed the main SMB fixture testCase argument. The broad follow-up run had five assertions against stale bundled display bytes and stale photographic proxy controls; corrected targeted runs are recorded separately.",
+    "First forced xcframework script was edited while running, causing a streamed-tail syntax failure after compilation. The subsequent unchanged-script run completed and verified all slices.",
+    "Initial API command used missing bare bun in that shell PATH, Angular used the wrong lowercase project name, CI Python imports needed PYTHONPATH=tools, and a Rust test filter matched zero tests. Corrected positive-test runs are recorded above.",
+    "First new photographic test command ran from the repository root without Package.swift; the recorded successful command ran in MapleCore."
+  ],
+  "sourceFiles": [
+    {
+      "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/.github/workflows/apple.yml",
+      "bytes": 18089,
+      "sha256": "77860b9215c9b1c9123215db0b76e0f1301b22c28e8845c4b48ad263b2f02dc2",
+      "repositoryPath": ".github/workflows/apple.yml"
+    },
+    {
+      "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/src/apple/scripts/build-xcframework.sh",
+      "bytes": 37963,
+      "sha256": "c593b506caddad5582a7526936d6e1631cbd0233d26d55038e5fa0b88e44c3df",
+      "repositoryPath": "src/apple/scripts/build-xcframework.sh"
+    },
+    {
+      "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/tools/check_removal_fixture_copies.py",
+      "bytes": 1313,
+      "sha256": "c37fe5b1fa18b5abbb5271843f65e4af831ac56c294c0f849cc16598af354b47",
+      "repositoryPath": "tools/check_removal_fixture_copies.py"
+    },
+    {
+      "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/tools/test_removal_fixture_copies.py",
+      "bytes": 1745,
+      "sha256": "fa8f8b26f190c2da2c54f3b996e06ffad35a2744b747a01ab6483c2ed872345c",
+      "repositoryPath": "tools/test_removal_fixture_copies.py"
+    },
+    {
+      "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/tools/test_xcframework_removal_inputs.py",
+      "bytes": 3740,
+      "sha256": "7a86c522c1d53add7ccc6f7f8162f445e5512091ffb2c069e7a8953bb5614a0e",
+      "repositoryPath": "tools/test_xcframework_removal_inputs.py"
+    },
+    {
+      "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/src/apple/Packages/MapleCore/Tests/MapleCoreTests/NativeSavedRemovalSessionTests.swift",
+      "bytes": 10234,
+      "sha256": "a0caa3175576be06e32a4c8ed81d34d35f8df4a7596479d58a000c0ec67525b5",
+      "repositoryPath": "src/apple/Packages/MapleCore/Tests/MapleCoreTests/NativeSavedRemovalSessionTests.swift"
+    },
+    {
+      "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/src/apple/Packages/MapleCore/Tests/MapleCoreTests/SMBRemovalPublicationTests.swift",
+      "bytes": 2439,
+      "sha256": "36054113250dcdc08f62c74172539687de0dd96f7a932933d3c8b84b841b56e0",
+      "repositoryPath": "src/apple/Packages/MapleCore/Tests/MapleCoreTests/SMBRemovalPublicationTests.swift"
+    },
+    {
+      "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/src/apple/Packages/MapleCore/Tests/MapleCoreTests/ReportedExportParityTests+Removal.swift",
+      "bytes": 12532,
+      "sha256": "47596e921733de9d982b3736ce701faf65f034f9a8a191ea3c66bacccde7357a",
+      "repositoryPath": "src/apple/Packages/MapleCore/Tests/MapleCoreTests/ReportedExportParityTests+Removal.swift"
+    },
+    {
+      "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/src/raw-pipeline/raw-core/examples/removal-auto-fit-attribution.rs",
+      "bytes": 3896,
+      "sha256": "d922bfeea3cb4fabb2b8de9cbdb5f2e2c81127c206bff7af5768296980ff5acf",
+      "repositoryPath": "src/raw-pipeline/raw-core/examples/removal-auto-fit-attribution.rs"
+    }
+  ],
+  "limits": [
+    "No push, publish or merge; all feature commits retained locally.",
+    "This does not admit PowerPaint as a shipping model or change the native LaMa adapter/default.",
+    "The preceding actual PowerPaint RAW evidence is removal-powerpaint-edge-coverage-3941.json; 72 preservation grades do not prove photographic plausibility or practical Mac performance.",
+    "Full-resolution Metal attribution remains diagnostic; no controlled 100MP slider, lower-memory device, complete quality corpus or Apple/Web UI qualification is claimed.",
+    "Epic1472 and named variants3984 remain active; this is a progress checkpoint, not feature completion."
+  ]
+}

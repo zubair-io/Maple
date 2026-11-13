@@ -1,0 +1,225 @@
+{
+  "issues": [3984, 3941, 1472],
+  "releaseQualified": false,
+  "testedHeadBeforeCommit": "f139683730ffa7e348b0c0695419100c3cd98bca",
+  "testedMainBase": "e5f92bca9a88518188f72e7a02ce7369bec2f401",
+  "sourceFiles": [
+    {
+      "path": "src/apple/Maple/Views/Removal/RemovalPanel.swift",
+      "sha256": "b978ac07533b75907222239782c5c28da735bba012aceff59eba0b044448f859",
+      "bytes": 11678
+    },
+    {
+      "path": "src/apple/Packages/MapleCore/Sources/MapleCore/Removal/RemovalSession.swift",
+      "sha256": "600d58ff120bfa90b2cfcf127c94a9902df02893c8c6931dabfa862eee362b12",
+      "bytes": 10834
+    },
+    {
+      "path": "src/apple/Packages/MapleCore/Sources/MapleCore/Removal/RemovalSession+Painting.swift",
+      "sha256": "c6991238e840b222869d9c8e0ed6c1490353dde93e9510fb99cd7adda61a7d1d",
+      "bytes": 3992
+    },
+    {
+      "path": "src/apple/Packages/MapleCore/Sources/MapleCore/Removal/RemovalBridge.swift",
+      "sha256": "84dd6275eb1ea6414fdd429da304db955eb8b9bc45158fed1b8192ccfdb81939",
+      "bytes": 13846
+    },
+    {
+      "path": "src/apple/Packages/MapleCore/Tests/MapleCoreTests/RemovalSessionTests.swift",
+      "sha256": "440252672e7dc263305214212ed190462feb186255e9ff1bde19ca0812cb445c",
+      "bytes": 12660
+    },
+    {
+      "path": "src/apple/Packages/MapleCore/Tests/MapleCoreTests/PhotographicRemovalSmartPaintTests.swift",
+      "sha256": "af2e18116ece651c3d0ea988483cab878761916291c76bc35cce30a49c004abe",
+      "bytes": 19091
+    }
+  ],
+  "change": "Explicit Refine with Paint retains the Smart selection as the base of shared native brush replay. Failed model prompts preserve selection/protection/history; manual corrections support exact undo/redo. Clear, direct mode switch and close discard the transient base. Actual native prompt-refusal and connected-area-cap messages now guide the photographer. No automatic fallback or model/color/XMP changes.",
+  "validation": {
+    "nativeSwift": {
+      "log": {
+        "path": "/Users/riabuz/.cache/maple-removal-research/smart-paint-explicit-refinement-tests-final-20261004.log",
+        "sha256": "71d9096de59da4c66b009994a76338fc6d59b9eba66c81f3664237ba615a0494",
+        "bytes": 13813
+      },
+      "passed": 25,
+      "failures": 0,
+      "skips": 0,
+      "classes": [
+        "NativeSavedRemovalSessionTests",
+        "PhotographicRemovalSmartPaintTests",
+        "RemovalPersonRefinementTests",
+        "RemovalSessionTests"
+      ]
+    },
+    "builds": [
+      {
+        "path": "/Users/riabuz/.cache/maple-removal-research/smart-paint-explicit-refinement-mac-build-final-20261004.log",
+        "sha256": "55666655ed53967804efa558e4f2f03c59b44faf965010fbba0f0aaf33aa59fa",
+        "bytes": 401844
+      },
+      {
+        "path": "/Users/riabuz/.cache/maple-removal-research/smart-paint-explicit-refinement-ios-build-20261004.log",
+        "sha256": "df377b56ada53d34383ed99dbf9872311270daec59b651307c9fb7daf9a92998",
+        "bytes": 565349
+      }
+    ],
+    "signedPlists": [
+      {
+        "path": "/Users/riabuz/.cache/maple-removal-research/smart-paint-refinement-mac-plist-20261004.plist",
+        "sha256": "3e52fcc04f4dc40e63dc8cf71fa0b74961836933da6aceebd7e19cd77d70d268",
+        "bytes": 4234
+      },
+      {
+        "path": "/Users/riabuz/.cache/maple-removal-research/smart-paint-refinement-ios-plist-20261004.plist",
+        "sha256": "6a26005562b0cc60c5a9b24f3083e0b55730f25adacb690da113fefd4aa55ee1",
+        "bytes": 4818
+      }
+    ],
+    "codesign": [
+      {
+        "path": "/Users/riabuz/.cache/maple-removal-research/smart-paint-refinement-mac-codesign-20261004.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "bytes": 0
+      },
+      {
+        "path": "/Users/riabuz/.cache/maple-removal-research/smart-paint-refinement-ios-codesign-20261004.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "bytes": 0
+      }
+    ],
+    "nativeFramework": "check-only current cc91a048d3fbbf77ea8256b46fb04621c2aa28fe",
+    "liveMac": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/smart-paint-refinement-ui-receipt-20261004.json",
+      "sha256": "a7616eaf00a21fe91627ad6729316658492ad569f5f0943377ebe60eb08cc4e8",
+      "bytes": 1168
+    }
+  },
+  "photographicNative": {
+    "reports": [
+      {
+        "path": "test-fixtures/raws/removal-photographic/boundary-runs/1ACEF9A8-DC2B-45BE-9B6B-F0DCA3FF7D08/report.json",
+        "sha256": "888bedd0f93ca261919bcdf27053aa38e32e0e1370aa307da63ad162028b97a5",
+        "bytes": 1756
+      },
+      {
+        "path": "test-fixtures/raws/removal-photographic/smart-runs/D2A37D16-A731-4619-88A6-F6310BBEA93E/report.json",
+        "sha256": "f6292b46cf5f8073a5fb2e8cb59cb153bfa84f4cb8d3d8a5c62cccc8f82437b0",
+        "bytes": 2674
+      }
+    ],
+    "results": {
+      "bagGestureUndoRedoExact": true,
+      "intentDigest": "blake3:51d879bc41fdac097a67717b05360967aab3797463a799348d12d3dc67f44f95",
+      "largeRefusedBeforeInference": true,
+      "nativeSamples": [
+        [2214, 1703],
+        [1818, 2144],
+        [1638, 2304],
+        [1536, 2970],
+        [2394, 2791],
+        [2022, 3098]
+      ],
+      "neighborPreviouslySelected": true,
+      "neighborSample": [1728, 1664],
+      "neighborSelectedAfterExplicitPaint": false,
+      "originalUnchanged": true,
+      "paintCorrectionUndoRedoExact": true,
+      "protectionDigest": "blake3:e454a33c82d24468c31bd9074a2def599f2ad2283f572f74acbe2a6501b5e5a7",
+      "rejectedGesturePreservedSelectionAndHistory": true,
+      "releaseQualified": false,
+      "scope": "Actual native Smart paint recovers six observed interior sleeve/bag/body samples but leaks a neighboring face. A rejected negative preserves selection/history. Explicit Refine with Paint removes that face sample with exact undo/redo and retained protection. Sparse samples do not prove complete silhouette/ownership; large-object fill, UI, cross-host and supported-device qualification remain open (#3941/#3984).",
+      "sidecarWritten": false,
+      "smartNegativeRejectedMessage": "Smart paint could not follow all of your strokes. Your selection is unchanged. Try another stroke or use Refine with Paint.",
+      "source": {
+        "decode": "blake3:add2c2b7017c74c40e3b2229acc1804ab1ca5be9700e99f448093dd044bf87c9",
+        "height": 4000,
+        "original": "blake3:2019a5cbd7bcdcf8405528789cde7c05ed4bee8d31c533df786be64f42c97718",
+        "width": 6000
+      },
+      "visibleSamples": [true, true, true, true, true, true]
+    },
+    "masks": [
+      {
+        "path": "test-fixtures/raws/removal-photographic/boundary-runs/1ACEF9A8-DC2B-45BE-9B6B-F0DCA3FF7D08/smart-intent.mimf",
+        "sha256": "ef1de151df40beda424e31ea104daf8e44d1ef3b888f358b57b10d4e602e3db2",
+        "bytes": 225324
+      },
+      {
+        "path": "test-fixtures/raws/removal-photographic/boundary-runs/1ACEF9A8-DC2B-45BE-9B6B-F0DCA3FF7D08/intent.mimf",
+        "sha256": "a40625d3742bddd6137eb72d012f5710ad4c6e2205a0e3571a2c7ce850f776fa",
+        "bytes": 225117
+      },
+      {
+        "path": "test-fixtures/raws/removal-photographic/boundary-runs/1ACEF9A8-DC2B-45BE-9B6B-F0DCA3FF7D08/protection.mimf",
+        "sha256": "85e5a70ba638fd79c10d2dcb2e7af06de16481906a921e52f684ad0cd83e7720",
+        "bytes": 358
+      }
+    ]
+  },
+  "excludedFailedRuns": [
+    {
+      "log": {
+        "path": "/Users/riabuz/.cache/maple-removal-research/person4-boundary-native-session-final-20261004.log",
+        "sha256": "f7f64ce17d785c0d86fb6eaad0d90c32041fc3e165d444c42e79d5d3af7b3bec",
+        "bytes": 7379
+      },
+      "failures": 2,
+      "reason": "The old test expected a successful negative correction and undo of a nonexistent gesture despite the actual model refusal. Its hard-coded success flags are disqualified."
+    },
+    {
+      "log": {
+        "path": "/Users/riabuz/.cache/maple-removal-research/smart-paint-explicit-refinement-tests-20261004.log",
+        "sha256": "5fffe310ab62801b0c8f5e569a51554dcb1445464127debb50ca7fa31bf99570",
+        "bytes": 18788
+      },
+      "failures": 2,
+      "reason": "Explicit correction worked, but actual native refusal/cap messages were not mapped. Both exact message cases fixed before final passing run."
+    }
+  ],
+  "selectionChallenge": {
+    "report": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/person4-boundary-mobile-neighbor-20261004/report.json",
+      "sha256": "0f609458baf84247cd0586676b8cf8c8a40f121536ef10aa8db65f0a40e71910",
+      "bytes": 8605
+    },
+    "executedProbe": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/probe-person4-boundary-neighbor-20261004.py",
+      "sha256": "c6b509c5861797d29ae19fea54b7c31058ac871c4e94d29545b0aaf4bc702aeb",
+      "bytes": 7184
+    },
+    "pointProtocol": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/person4-boundary-points-neighbor-20261004.json",
+      "sha256": "dae23c74aab95c60619dfffc6cd04e50dbb0e4737479d6767f89936f77d39161",
+      "bytes": 1266
+    },
+    "outcome": "Six manually observed sleeve/bag/body points recovered; gesture selection also leaks a neighboring face. All candidates fail the final negative request; shared Rust refuses it. Sparse points do not prove complete silhouette/ownership."
+  },
+  "reconstructionChallenge": {
+    "runtimeReport": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/person4-boundary-smart-native-runtime-20261004/report.json",
+      "sha256": "4edb579f88f056f306dfacdbec29a81fef85de67c1a137966de4bebe1559d5d0",
+      "bytes": 1359
+    },
+    "nativeContext": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/person4-boundary-smart-context-20261004/preparation.json",
+      "sha256": "031f41dee02f5fd18392fb71b5063a7ddffb3d52a3a26d2c5c762a3553bdefa7",
+      "bytes": 427
+    },
+    "bakeLog": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/person4-boundary-smart-native-bake-20261004.log",
+      "sha256": "269d2d3b50dc9dee5754cf4ce6dd922c3d9bee8446fec05f6fb7f74a877f936c",
+      "bytes": 2813
+    },
+    "admission": "rejected",
+    "observation": "Native 2048 refined-mask fill leaves textile silhouette/dark bag-like content and erases the wrongly selected neighbor. Context changed with the mask, so no single-variable attribution. No production admission follows.",
+    "scope": "18 actual RAW grade bakes report shared f32 preservation; no independent PNG preservation verification or paired upstream run on this new context."
+  },
+  "limits": [
+    "Apple brush handoff is implemented; Web port remains under #3984 after Mac focus.",
+    "One 24MP photo with sparse manual intent; complete person ownership/duplicates/main-subject roles and photographic fill quality remain incomplete.",
+    "Live Mac handoff/Subtract/Undo/Redo verified with screenshots in chat; no recovery/transport/physical-device/controlled-memory/100MP performance qualification.",
+    "Epic and dependent issues remain open and In Progress."
+  ]
+}

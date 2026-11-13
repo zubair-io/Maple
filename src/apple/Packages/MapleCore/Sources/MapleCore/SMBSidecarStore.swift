@@ -132,6 +132,14 @@ public actor SMBSidecarStore: WorkflowVariantSidecarStoreProtocol {
       // edits must still fail rather than silently replacing the other client.
       adoptedXML = edit.publishedDocument
       pendingEdits.removeAll { $0.id == edit.id }
+      // Adopt the disk-preserved removal stack (#3955) only after the
+      // acknowledged edit is retired; a parse failure must not undo that.
+      if let adoptedXML, RemovalXMPRecords.mayCarryRecords(adoptedXML), let cached,
+        edit.represents(model: cached.0, culling: cached.1),
+        let saved = try? XMPParser.parse(adoptedXML)
+      {
+        self.cached = saved
+      }
       try renderSidecar.write(xml)
     }
   }

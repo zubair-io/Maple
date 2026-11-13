@@ -138,6 +138,12 @@ export class XmpParserService {
 
     const bucket = collectXmpPassthrough(sourceDescription ?? desc, model, document);
     markLegacyRetouchFrame(model, desc, sawPappAnywhere);
+    const records = bucket.unknownAttributes.find((a) => a.name === 'papp:InpaintRemovals')?.value;
+    if (records !== undefined) {
+      const list: unknown = JSON.parse(records);
+      if (!Array.isArray(list)) throw new Error('Invalid saved removal record list.');
+      model.inpaintRemovals = list.length ? records : undefined;
+    }
 
     return {
       model,

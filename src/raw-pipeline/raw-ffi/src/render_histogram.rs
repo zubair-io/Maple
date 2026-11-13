@@ -132,12 +132,24 @@ pub unsafe extern "C" fn maple_histogram_file(
             };
             // AMaZE render so the histogram reflects the authoritative export pixels
             // (mirrors `maple_render_file` with quality_preview = 2, the export path).
-            let (_w, _h, bytes) = match render_from_raw_with_quality_and_source(
+            let rendered = crate::removal_file::render_saved(
                 &raw_img,
+                &raw_bytes,
                 &model,
-                RenderQuality::Amaze,
+                raw_path.parent(),
                 Some(RawInput::Path(raw_path)),
-            ) {
+                RenderQuality::Amaze,
+                None,
+            )
+            .unwrap_or_else(|| {
+                render_from_raw_with_quality_and_source(
+                    &raw_img,
+                    &model,
+                    RenderQuality::Amaze,
+                    Some(RawInput::Path(raw_path)),
+                )
+            });
+            let (_w, _h, bytes) = match rendered {
                 Ok(t) => t,
                 Err(e) => {
                     set_last_error(format!("render: {}", e));
@@ -263,15 +275,30 @@ pub unsafe extern "C" fn maple_histogram_bytes(
                 3 => RenderQuality::Auto,
                 _ => RenderQuality::Full,
             };
-            let (_w, _h, bytes) = match render_from_raw_with_quality_and_source(
+            let rendered = crate::removal_file::render_saved(
                 &raw_img,
+                &input,
                 &model,
-                quality,
+                None,
                 Some(RawInput::Bytes {
                     bytes: &input,
                     ext: &ext_owned,
                 }),
-            ) {
+                quality,
+                None,
+            )
+            .unwrap_or_else(|| {
+                render_from_raw_with_quality_and_source(
+                    &raw_img,
+                    &model,
+                    quality,
+                    Some(RawInput::Bytes {
+                        bytes: &input,
+                        ext: &ext_owned,
+                    }),
+                )
+            });
+            let (_w, _h, bytes) = match rendered {
                 Ok(t) => t,
                 Err(e) => {
                     set_last_error(format!("render: {}", e));

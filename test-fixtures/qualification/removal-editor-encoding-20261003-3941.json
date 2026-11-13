@@ -1,0 +1,619 @@
+{
+  "issue": 3941,
+  "epic": 1472,
+  "recordedAt": "2026-10-03T22:27:23.175055+00:00",
+  "headBeforeCommit": "56949cb8db26f7e31d15ce6f38c28ebc1509d29c",
+  "mainBase": "cbf00d6ccd3014a7b05fef271f8c3053003a06cd",
+  "releaseQualified": false,
+  "scope": "Actual current PreparedRemovalGeneration encoding and finish, deployed Mac CPU model, and byte-identical durable patch through full RAW development. Explicit fixed native research window/mask controls; no planner, default mask or UI claim.",
+  "model": {
+    "path": "/Users/riabuz/Library/Containers/app.justmaple.aperture/Data/Library/Application Support/app.justmaple.aperture/removal-models/b2f3c5cad721907d5263723f1da65ca485df798bcedb138974feddf4fe34a552/lama-native-1024.onnx",
+    "sha256": "339d078d9d1376d76a49efd4fa42f328c3f276af775505ae8b57c84db187c4f6",
+    "bytes": 204794328
+  },
+  "runtime": {
+    "path": "/Users/riabuz/Library/Containers/app.justmaple.aperture/Data/Library/Application Support/app.justmaple.aperture/removal-models/b2f3c5cad721907d5263723f1da65ca485df798bcedb138974feddf4fe34a552/runtime.dylib",
+    "sha256": "d306d2bc768540766c7ed8a1e0ff05d2870c77a934ebeee4a7bafa1b732ef299",
+    "bytes": 35138784
+  },
+  "original": {
+    "path": "/Users/riabuz/.cache/maple-removal-research/raws/_DSC7409.NEF",
+    "sha256": "2ed291a09d7d4f72c8588b0c12d6cc5c470ad42ab9e3aaad1f888f34526b959f",
+    "bytes": 29019786
+  },
+  "original_sha256_unchanged": true,
+  "native": {
+    "path": "/Users/riabuz/.cache/maple-removal-research/lama-expanded16-signed-log-native-20261003/report.json",
+    "sha256": "0bd319050b7fee5036377806c3798c5d3de1d4ca12f59be1bee728517f5d3c31",
+    "bytes": 3339,
+    "report": {
+      "cancelled_reconstruction_rejected": true,
+      "candidate_digest": "blake3:7c9a96ccd24d7702669ed2eb380dd7b6723ae78192b0c533cb8cc224a13d7510",
+      "candidate_known_samples_changed": 0,
+      "clamped": false,
+      "context": {
+        "encoding": {
+          "low": -1.6838237074610694,
+          "span": 5.260952918861613,
+          "version": 1
+        },
+        "model_input": "blake3:7a035c8376f84f5480a44e9b9a893791558aa49a995a360b81146e5146b8b423",
+        "original": "blake3:2019a5cbd7bcdcf8405528789cde7c05ed4bee8d31c533df786be64f42c97718",
+        "plate": "LinearCalibrationV1",
+        "release_qualified": false,
+        "scene": "blake3:f920aac4690f61e12ac296d120ee1895e3023816e2d9393d20ebb4e7fff80ccb",
+        "source_anchor": {
+          "decode": "blake3:add2c2b7017c74c40e3b2229acc1804ab1ca5be9700e99f448093dd044bf87c9",
+          "height": 4000,
+          "original": "blake3:2019a5cbd7bcdcf8405528789cde7c05ed4bee8d31c533df786be64f42c97718",
+          "width": 6000
+        },
+        "source_height": 4000,
+        "source_width": 6000,
+        "window": {
+          "height": 1024,
+          "width": 1024,
+          "x": 2850,
+          "y": 1300
+        }
+      },
+      "context_digest": "blake3:0734c0a5738faa1da5bc3b694f01622f4942a7d66c1cf795139c9afc626ce9ca",
+      "editor_encoding": {
+        "hole_bits_equal": true,
+        "identity_digest": "blake3:085591bd4140210f5caa40f2aeac415c4648183af228c0869e49ac3617588f01",
+        "patch_digest": "blake3:4561433b1f85abf77788540b3ebcec27b280c37d36f594b37748a4582f04336a",
+        "request": {
+          "bake": {
+            "ev": 0,
+            "temp": 6500,
+            "tint": 0
+          },
+          "context_window": {
+            "height": 1024,
+            "width": 1024,
+            "x": 2850,
+            "y": 1300
+          },
+          "model": "blake3:11d91ba3f522282c1b0f0a3b9aa2be1646a1a65fd406b65f08e4d90740a4c492",
+          "model_version": "339d078d9d1376d76a49efd4fa42f328c3f276af775505ae8b57c84db187c4f6",
+          "patch_window": {
+            "height": 1024,
+            "width": 1024,
+            "x": 2850,
+            "y": 1300
+          },
+          "plate": "linear-calibration-v1",
+          "recipe": "blake3:bba186032bbf0db0e4c4775deca1ea08bc5d8d5952568db399512fdb284ffb72",
+          "source": {
+            "decode": "blake3:add2c2b7017c74c40e3b2229acc1804ab1ca5be9700e99f448093dd044bf87c9",
+            "height": 4000,
+            "original": "blake3:2019a5cbd7bcdcf8405528789cde7c05ed4bee8d31c533df786be64f42c97718",
+            "width": 6000
+          }
+        },
+        "rgb_bits_equal": true,
+        "scope": "Current PreparedRemovalGeneration encoding/finish at the recorded native window and mask parameters. Planner/default-mask policy and editor UI are not exercised."
+      },
+      "generation_masks_digest": "blake3:083b197d425f21d1526d8cf6a88e0bc144b9a51f893d91ed804cfb20d2a781a7",
+      "inference_ms": 14429.9025,
+      "input_digest": "blake3:7a035c8376f84f5480a44e9b9a893791558aa49a995a360b81146e5146b8b423",
+      "input_quantized_to_u8": false,
+      "model": "blake3:11d91ba3f522282c1b0f0a3b9aa2be1646a1a65fd406b65f08e4d90740a4c492",
+      "model_open_ms": 959.065667,
+      "model_output_known_samples_changed": 2782302,
+      "provider": "CPUExecutionProvider",
+      "qualification": "Actual deployed Rust CPU adapter only; independent RAW bake, photographic quality, native UI and device budgets remain required.",
+      "release_qualified": false,
+      "result_digest": "blake3:0740a94ea489e9ab4928704cc0375d795a305c0da31c90898af208241401be02",
+      "runtime": "1.23.2",
+      "source_resampled": false
+    }
+  },
+  "context": {
+    "path": "/Users/riabuz/.cache/maple-removal-research/bologna-expanded16-signed-log-20261003/context.json",
+    "sha256": "717cf1fe466d6a2e353c6893eacc42d4abfb84e7b82d927bfaee3e75e6657996",
+    "bytes": 814,
+    "report": {
+      "plate": "LinearCalibrationV1",
+      "original": "blake3:2019a5cbd7bcdcf8405528789cde7c05ed4bee8d31c533df786be64f42c97718",
+      "source_anchor": {
+        "original": "blake3:2019a5cbd7bcdcf8405528789cde7c05ed4bee8d31c533df786be64f42c97718",
+        "decode": "blake3:add2c2b7017c74c40e3b2229acc1804ab1ca5be9700e99f448093dd044bf87c9",
+        "width": 6000,
+        "height": 4000
+      },
+      "window": {
+        "x": 2850,
+        "y": 1300,
+        "width": 1024,
+        "height": 1024
+      },
+      "source_width": 6000,
+      "source_height": 4000,
+      "scene": "blake3:f920aac4690f61e12ac296d120ee1895e3023816e2d9393d20ebb4e7fff80ccb",
+      "model_input": "blake3:7a035c8376f84f5480a44e9b9a893791558aa49a995a360b81146e5146b8b423",
+      "encoding": {
+        "version": 1,
+        "low": -1.6838237074610694,
+        "span": 5.260952918861613
+      },
+      "release_qualified": false
+    }
+  },
+  "heldControls": [
+    {
+      "file": "scene.f32",
+      "sha256": "684ce409a8d9472018b7581395d7523dbd0fbb436aecec9f0d15457739cd498a",
+      "bytes_equal": true
+    },
+    {
+      "file": "intent.mimf",
+      "sha256": "547da105b3b87b713cfdcc2542b482c76743295f8c8d740a9e35cfd587245087",
+      "bytes_equal": true
+    },
+    {
+      "file": "protected.mimf",
+      "sha256": "4e8eb83762d8ed3e01d71a7c5d2e3648be2a19f80ed416cf679702667958f03b",
+      "bytes_equal": true
+    },
+    {
+      "file": "masks.f32",
+      "sha256": "0bea390462a1801afca19e80deb60f3ef04e36529d8efda0026e9b6daa1f803c",
+      "bytes_equal": true
+    },
+    {
+      "file": "masks.json",
+      "sha256": "fa930912422f147e3eb0c8bd869ed08163616abc2ea2c5ec3476ae218e796296",
+      "bytes_equal": true
+    },
+    {
+      "file": "hole.png",
+      "sha256": "2ce494fb9e0909abbcb1f849c73776acbeca9b4d043eb2d63bb8f1b04fbb1458",
+      "bytes_equal": true
+    },
+    {
+      "file": "domain.png",
+      "sha256": "9bf2e034e1b41b4e718779c475c2429d026fe79d319ab9ec0406b552e1cbfb6a",
+      "bytes_equal": true
+    }
+  ],
+  "inputTensorDiffersFromPhotographicContrast": true,
+  "photographicContrastControl": {
+    "path": "/Users/riabuz/.cache/maple-removal-research/lama-expanded16-native-20261003/report.json",
+    "sha256": "d5bd3c4f5714b18bbcf675734f86a5af00fb46c7c1e3154fa96fc5c243c54b76",
+    "bytes": 2003
+  },
+  "actualPatchConsumer": {
+    "path": "/Users/riabuz/.cache/maple-removal-research/lama-expanded16-signed-log-editor-bake-20261003/editor-patch-proof.json",
+    "sha256": "3790a7536cf02b02fb05d1f1c385f185ce58a39c53a860a2df34cac22218f8a5",
+    "bytes": 528,
+    "report": {
+      "hole_bits_equal": true,
+      "identity_bytes_equal": true,
+      "input_bits_equal": true,
+      "reconstruction_report": "blake3:ba84117c9aa8f2e419d41c0fa4e8a3fdce2b1c762ebe70565b57834d5ffc0a4f",
+      "release_qualified": false,
+      "replacement": "blake3:4561433b1f85abf77788540b3ebcec27b280c37d36f594b37748a4582f04336a",
+      "replacement_bytes_equal": true,
+      "scope": "Actual source-bound editor generation finish bytes developed across 18 native RAW grades. Planner, UI, live GPU, export and supported-device gates are not exercised."
+    }
+  },
+  "rawDevelop": {
+    "path": "/Users/riabuz/.cache/maple-removal-research/lama-expanded16-signed-log-editor-bake-20261003/report.json",
+    "sha256": "a5c3a0f182d483fe209dd59d2b528dbeaf0f0f344c9d12bf10df439e57dc5a02",
+    "bytes": 4504,
+    "report": {
+      "as_shot_temperature": 4084.04931640625,
+      "as_shot_tint": 42.26961898803711,
+      "auto_profile_engaged": true,
+      "encoding": {
+        "low": -1.6838237074610694,
+        "span": 5.260952918861613,
+        "version": 1
+      },
+      "generation_masks": "blake3:083b197d425f21d1526d8cf6a88e0bc144b9a51f893d91ed804cfb20d2a781a7",
+      "grades": [
+        {
+          "case": "neutral_ev-3_wb-1000",
+          "max_scene_float_error_identity": 5.402415990829468e-05,
+          "outside_mask_max_error": 0,
+          "three_native_develops_ms": 2200.565583
+        },
+        {
+          "case": "auto_ev-3_wb-1000",
+          "max_scene_float_error_identity": 5.402415990829468e-05,
+          "outside_mask_max_error": 0,
+          "three_native_develops_ms": 2200.565583
+        },
+        {
+          "case": "neutral_ev-3_wb+0",
+          "max_scene_float_error_identity": 3.0428171157836914e-05,
+          "outside_mask_max_error": 0,
+          "three_native_develops_ms": 2098.046584
+        },
+        {
+          "case": "auto_ev-3_wb+0",
+          "max_scene_float_error_identity": 3.0428171157836914e-05,
+          "outside_mask_max_error": 0,
+          "three_native_develops_ms": 2098.046584
+        },
+        {
+          "case": "neutral_ev-3_wb+1000",
+          "max_scene_float_error_identity": 2.3286789655685425e-05,
+          "outside_mask_max_error": 0,
+          "three_native_develops_ms": 2116.902209
+        },
+        {
+          "case": "auto_ev-3_wb+1000",
+          "max_scene_float_error_identity": 2.3286789655685425e-05,
+          "outside_mask_max_error": 0,
+          "three_native_develops_ms": 2116.902209
+        },
+        {
+          "case": "neutral_ev+0_wb-1000",
+          "max_scene_float_error_identity": 0.0004321932792663574,
+          "outside_mask_max_error": 0,
+          "three_native_develops_ms": 2168.522084
+        },
+        {
+          "case": "auto_ev+0_wb-1000",
+          "max_scene_float_error_identity": 0.0004321932792663574,
+          "outside_mask_max_error": 0,
+          "three_native_develops_ms": 2168.522084
+        },
+        {
+          "case": "neutral_ev+0_wb+0",
+          "max_scene_float_error_identity": 0.0002434253692626953,
+          "outside_mask_max_error": 0,
+          "three_native_develops_ms": 2008.5360830000002
+        },
+        {
+          "case": "auto_ev+0_wb+0",
+          "max_scene_float_error_identity": 0.0002434253692626953,
+          "outside_mask_max_error": 0,
+          "three_native_develops_ms": 2008.5360830000002
+        },
+        {
+          "case": "neutral_ev+0_wb+1000",
+          "max_scene_float_error_identity": 0.0001862943172454834,
+          "outside_mask_max_error": 0,
+          "three_native_develops_ms": 1867.9582500000001
+        },
+        {
+          "case": "auto_ev+0_wb+1000",
+          "max_scene_float_error_identity": 0.0001862943172454834,
+          "outside_mask_max_error": 0,
+          "three_native_develops_ms": 1867.9582500000001
+        },
+        {
+          "case": "neutral_ev+3_wb-1000",
+          "max_scene_float_error_identity": 0.0034575462341308594,
+          "outside_mask_max_error": 0,
+          "three_native_develops_ms": 2010.709375
+        },
+        {
+          "case": "auto_ev+3_wb-1000",
+          "max_scene_float_error_identity": 0.0034575462341308594,
+          "outside_mask_max_error": 0,
+          "three_native_develops_ms": 2010.709375
+        },
+        {
+          "case": "neutral_ev+3_wb+0",
+          "max_scene_float_error_identity": 0.0019474029541015625,
+          "outside_mask_max_error": 0,
+          "three_native_develops_ms": 1901.0592499999998
+        },
+        {
+          "case": "auto_ev+3_wb+0",
+          "max_scene_float_error_identity": 0.0019474029541015625,
+          "outside_mask_max_error": 0,
+          "three_native_develops_ms": 1901.0592499999998
+        },
+        {
+          "case": "neutral_ev+3_wb+1000",
+          "max_scene_float_error_identity": 0.0014903545379638672,
+          "outside_mask_max_error": 0,
+          "three_native_develops_ms": 1963.1635840000001
+        },
+        {
+          "case": "auto_ev+3_wb+1000",
+          "max_scene_float_error_identity": 0.0014903545379638672,
+          "outside_mask_max_error": 0,
+          "three_native_develops_ms": 1963.1635840000001
+        }
+      ],
+      "max_scene_float_error_identity": 0.0034575462341308594,
+      "model_result": "blake3:0740a94ea489e9ab4928704cc0375d795a305c0da31c90898af208241401be02",
+      "native_context": {
+        "height": 1024,
+        "width": 1024,
+        "x": 2850,
+        "y": 1300
+      },
+      "original": "blake3:2019a5cbd7bcdcf8405528789cde7c05ed4bee8d31c533df786be64f42c97718",
+      "outside_mask_max_error": 0,
+      "plate": "LinearCalibrationV1",
+      "profile_tier": "BundleConfident",
+      "qualification": "Full native camera-WB/DCP experiment. Bounded authoring, recipe quality, clone/heal, GPU/live/tile/export integration and supported-device gates remain.",
+      "release_qualified": false
+    }
+  },
+  "independentPreservation": {
+    "artifact": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/lama-expanded16-signed-log-editor-grade-checks-20261003.json",
+      "sha256": "90a019fa138ebc042d047ee414dc8ca30d9fd78d718ad2af16fcbca76a07b517",
+      "bytes": 10261
+    },
+    "grades": [
+      {
+        "case": "neutral_ev-3_wb-1000",
+        "outside_u8_samples_changed": 0,
+        "protected_u8_samples_changed": 0,
+        "identity_outside_u8_samples_changed": 0
+      },
+      {
+        "case": "auto_ev-3_wb-1000",
+        "outside_u8_samples_changed": 0,
+        "protected_u8_samples_changed": 0,
+        "identity_outside_u8_samples_changed": 0
+      },
+      {
+        "case": "neutral_ev-3_wb+0",
+        "outside_u8_samples_changed": 0,
+        "protected_u8_samples_changed": 0,
+        "identity_outside_u8_samples_changed": 0
+      },
+      {
+        "case": "auto_ev-3_wb+0",
+        "outside_u8_samples_changed": 0,
+        "protected_u8_samples_changed": 0,
+        "identity_outside_u8_samples_changed": 0
+      },
+      {
+        "case": "neutral_ev-3_wb+1000",
+        "outside_u8_samples_changed": 0,
+        "protected_u8_samples_changed": 0,
+        "identity_outside_u8_samples_changed": 0
+      },
+      {
+        "case": "auto_ev-3_wb+1000",
+        "outside_u8_samples_changed": 0,
+        "protected_u8_samples_changed": 0,
+        "identity_outside_u8_samples_changed": 0
+      },
+      {
+        "case": "neutral_ev+0_wb-1000",
+        "outside_u8_samples_changed": 0,
+        "protected_u8_samples_changed": 0,
+        "identity_outside_u8_samples_changed": 0
+      },
+      {
+        "case": "auto_ev+0_wb-1000",
+        "outside_u8_samples_changed": 0,
+        "protected_u8_samples_changed": 0,
+        "identity_outside_u8_samples_changed": 0
+      },
+      {
+        "case": "neutral_ev+0_wb+0",
+        "outside_u8_samples_changed": 0,
+        "protected_u8_samples_changed": 0,
+        "identity_outside_u8_samples_changed": 0
+      },
+      {
+        "case": "auto_ev+0_wb+0",
+        "outside_u8_samples_changed": 0,
+        "protected_u8_samples_changed": 0,
+        "identity_outside_u8_samples_changed": 0
+      },
+      {
+        "case": "neutral_ev+0_wb+1000",
+        "outside_u8_samples_changed": 0,
+        "protected_u8_samples_changed": 0,
+        "identity_outside_u8_samples_changed": 0
+      },
+      {
+        "case": "auto_ev+0_wb+1000",
+        "outside_u8_samples_changed": 0,
+        "protected_u8_samples_changed": 0,
+        "identity_outside_u8_samples_changed": 0
+      },
+      {
+        "case": "neutral_ev+3_wb-1000",
+        "outside_u8_samples_changed": 0,
+        "protected_u8_samples_changed": 0,
+        "identity_outside_u8_samples_changed": 0
+      },
+      {
+        "case": "auto_ev+3_wb-1000",
+        "outside_u8_samples_changed": 0,
+        "protected_u8_samples_changed": 0,
+        "identity_outside_u8_samples_changed": 0
+      },
+      {
+        "case": "neutral_ev+3_wb+0",
+        "outside_u8_samples_changed": 0,
+        "protected_u8_samples_changed": 0,
+        "identity_outside_u8_samples_changed": 0
+      },
+      {
+        "case": "auto_ev+3_wb+0",
+        "outside_u8_samples_changed": 0,
+        "protected_u8_samples_changed": 0,
+        "identity_outside_u8_samples_changed": 0
+      },
+      {
+        "case": "neutral_ev+3_wb+1000",
+        "outside_u8_samples_changed": 0,
+        "protected_u8_samples_changed": 0,
+        "identity_outside_u8_samples_changed": 0
+      },
+      {
+        "case": "auto_ev+3_wb+1000",
+        "outside_u8_samples_changed": 0,
+        "protected_u8_samples_changed": 0,
+        "identity_outside_u8_samples_changed": 0
+      }
+    ],
+    "coveragePixels": 115714,
+    "protectedPixels": 302216
+  },
+  "mutationRefusals": [
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/native-editor-encoding-refusals-20261003/report.json",
+      "sha256": "d84064374cf2a05dac4523787043b890ddee98c2f9c7f54243dda3899fb80059",
+      "bytes": 494,
+      "report": [
+        {
+          "case": "contrast-input",
+          "exit": 1,
+          "stderr": "Error: \"recorded tensors differ from current editor preparation\"",
+          "output_created": false
+        },
+        {
+          "case": "altered-scene",
+          "exit": 1,
+          "stderr": "Error: \"scene differs from its shared Rust context identity\"",
+          "output_created": false
+        },
+        {
+          "case": "altered-hole",
+          "exit": 1,
+          "stderr": "Error: \"recorded tensors differ from current editor preparation\"",
+          "output_created": false
+        }
+      ]
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/native-editor-patch-refusals-20261003/report.json",
+      "sha256": "65d3d3e8d56aac717c4361493a15eb7c741023a7957f75d98615eb09d310b381",
+      "bytes": 539,
+      "report": [
+        {
+          "case": "altered-patch",
+          "exit": 1,
+          "stderr": "Error: \"stored editor patches differ from current generation finish\"",
+          "output_created": false
+        },
+        {
+          "case": "altered-model-result",
+          "exit": 1,
+          "stderr": "Error: \"editor-patch tensors, request or reconstruction identity differs\"",
+          "output_created": false
+        },
+        {
+          "case": "mismatched-report-context",
+          "exit": 1,
+          "stderr": "Error: \"editor-patch tensors, request or reconstruction identity differs\"",
+          "output_created": false
+        }
+      ]
+    }
+  ],
+  "executedSources": [
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/native-editor-encoding-executed-20261003/sources.json",
+      "sha256": "62abb0024edb4333829e5754dd610f15ce8220448c28a20c238f289129c84517",
+      "bytes": 1671,
+      "report": {
+        "recorded_at": "2026-10-03T22:22:24.953262+00:00",
+        "snapshot_timing": "After native run; source unchanged since successful compile, executable retained.",
+        "files": [
+          {
+            "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/src/raw-pipeline/maple-removal/examples/native-reconstruction-probe.rs",
+            "snapshot": "/Users/riabuz/.cache/maple-removal-research/native-editor-encoding-executed-20261003/native-reconstruction-probe.rs",
+            "sha256": "810f9b0fdc67c914653f7e29f4ce824e7c9fd728685dec612f97fd98a6cfce99",
+            "bytes": 7415
+          },
+          {
+            "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/src/raw-pipeline/target/release/examples/native-reconstruction-probe",
+            "snapshot": "/Users/riabuz/.cache/maple-removal-research/native-editor-encoding-executed-20261003/native-reconstruction-probe",
+            "sha256": "531dd9ef4569431878db84b54ddb47604011a78c7d12260ebc5be78f8584841a",
+            "bytes": 1119600
+          },
+          {
+            "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/src/raw-pipeline/raw-core/src/pipeline/removal_encoding.rs",
+            "snapshot": "/Users/riabuz/.cache/maple-removal-research/native-editor-encoding-executed-20261003/removal_encoding.rs",
+            "sha256": "c7d5b82dc7ae8bf3698b1d977299cd58090bf0216340a6ab35bf1e761e77f16b",
+            "bytes": 5189
+          },
+          {
+            "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/src/raw-pipeline/raw-core/src/pipeline/removal_proposal.rs",
+            "snapshot": "/Users/riabuz/.cache/maple-removal-research/native-editor-encoding-executed-20261003/removal_proposal.rs",
+            "sha256": "af26be2ff597f7a7582882f9206b4ee93d3e07f6d11040eb8811fb0c45888961",
+            "bytes": 7679
+          }
+        ]
+      }
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/native-editor-patch-bake-executed-20261003/sources.json",
+      "sha256": "2440789e8ca6d4d4ffdfa1703a45c0b9f61930b41f6d14342a9f80f1413df32c",
+      "bytes": 1949,
+      "report": {
+        "recorded_at": "2026-10-03T22:23:41.795158+00:00",
+        "snapshot_timing": "Before full RAW bake execution.",
+        "files": [
+          {
+            "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/src/raw-pipeline/raw-core/examples/removal-scene-probe.rs",
+            "snapshot": "/Users/riabuz/.cache/maple-removal-research/native-editor-patch-bake-executed-20261003/removal-scene-probe.rs",
+            "sha256": "1058bedc74287f2ea0b841a1456f7e1a45063a5f697cea9a73d68561844af8b6",
+            "bytes": 17112
+          },
+          {
+            "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/src/raw-pipeline/raw-core/examples/removal_scene/editor_patch.rs",
+            "snapshot": "/Users/riabuz/.cache/maple-removal-research/native-editor-patch-bake-executed-20261003/editor_patch.rs",
+            "sha256": "1e55fbd205030302ef53c88af4c25208a2b43a6f06c54ca3cda9e120c85c6e7c",
+            "bytes": 5392
+          },
+          {
+            "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/src/raw-pipeline/raw-core/examples/removal_scene/calibration.rs",
+            "snapshot": "/Users/riabuz/.cache/maple-removal-research/native-editor-patch-bake-executed-20261003/calibration.rs",
+            "sha256": "03efd8e2713c2bc912c692dabdf6dd1af32856fe0a74d060844bfade400b7e1f",
+            "bytes": 13924
+          },
+          {
+            "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/src/raw-pipeline/raw-core/examples/removal_scene/masks.rs",
+            "snapshot": "/Users/riabuz/.cache/maple-removal-research/native-editor-patch-bake-executed-20261003/masks.rs",
+            "sha256": "6a119c4768fa48be1122e0c3a67038f5a821aae91d11364d0f8a4f19fdf2fa66",
+            "bytes": 4277
+          },
+          {
+            "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/src/raw-pipeline/target/release/examples/removal-scene-probe",
+            "snapshot": "/Users/riabuz/.cache/maple-removal-research/native-editor-patch-bake-executed-20261003/removal-scene-probe",
+            "sha256": "6386211649e5c3983412e702ded36e5b7fcc6c6b9ada46c4cdad2ab19df3b096",
+            "bytes": 14864432
+          }
+        ]
+      }
+    }
+  ],
+  "timingScope": "One shared M5 Max 128GiB observation, actual inference 14429.9025ms; no active task compiler or bake during inference. Background machine load/thermal state are uncontrolled; no p50/p95, native editor latency or supported-device performance qualification.",
+  "qualityReview": {
+    "signedLog": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/lama-expanded16-signed-log-editor-bake-20261003/auto_ev+0_wb+0-removal.png",
+      "sha256": "06df1df5441c9de2aaa46f207fd05cd2f73f46c50c04418e8212bf86c52322e3",
+      "bytes": 1625920
+    },
+    "photographicContrast": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/lama-expanded16-native-bake-20261003/auto_ev+0_wb+0-removal.png",
+      "sha256": "00724a961fcd56aa076358381f23a2ae537287615e58a22a44a9a33f37864d19",
+      "bytes": 1605173
+    },
+    "verdict": "Both fail photographic visual review in this scene: broad smeared vertical fill and discontinuous market-stall structure. Signed-log changes texture but does not repair the result. One scene does not establish a general model or encoding conclusion.",
+    "qualityQualified": false,
+    "ACRParityClaim": false
+  },
+  "checks": {
+    "nativeProbeStrictClippy": "pass",
+    "rawCoreExampleClippy": "pass without deny-warnings; 172 inherited raw-core library warnings, zero example diagnostics",
+    "rawCoreStrictClippy": "failed on 171 inherited library diagnostics; library files unchanged",
+    "xcframeworkCheck": "up to date, build input hash 77cd0d2e27a2a6bf317e7c50ec719ff3a17263d4; example-only changes do not alter native library inputs"
+  },
+  "remaining": [
+    "Photographic quality over independent role/ownership/closure truth and a broader scene corpus",
+    "Practical supported-device latency/memory and native cancellation/feedback",
+    "Main planner, default mask policy and complete Mac UI validation",
+    "Live Metal parity, saved rendering/export/recovery and portable assets",
+    "Web authoring port and all remaining epic1472 requirements"
+  ]
+}

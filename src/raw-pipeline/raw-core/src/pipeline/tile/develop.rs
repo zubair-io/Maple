@@ -77,6 +77,9 @@ pub(super) struct TileAnchors<'a> {
     /// The full frame's haze maps (#3287); `Some` whenever dehaze is
     /// engaged, globally or in a layer.
     pub haze: Option<&'a crate::stages::dehaze::FrameHaze>,
+    /// Verified saved-removal replacements composited in camera space before
+    /// user white balance and DCP (#3955); empty for every ordinary tile.
+    pub patches: &'a [crate::types::InpaintPatch],
 }
 
 pub(super) struct DevelopedTile {
@@ -146,6 +149,7 @@ pub(super) fn develop_scene_linear_from_padded_mosaic(
         tile_origin,
         highlight_frame,
         haze,
+        patches,
     } = anchors;
     if raw.cfa == crate::image::CfaPattern::LinearRgb {
         return Err(crate::error::Error::Pipeline(
@@ -242,6 +246,22 @@ pub(super) fn develop_scene_linear_from_padded_mosaic(
     });
     let (profile, profile_source) =
         stage("tile_dcp_profile_for", || dcp::profile_for_with_source(raw))?;
+    let mut camera_rgb = camera_rgb;
+    if !patches.is_empty() {
+        let footprint = [
+            window.origin.0 as f32 / window.full.0 as f32,
+            window.origin.1 as f32 / window.full.1 as f32,
+            camera_rgb.width as f32 / window.full.0 as f32,
+            camera_rgb.height as f32 / window.full.1 as f32,
+        ];
+        crate::pipeline::removal_calibration::composite_camera_sampled(
+            &mut camera_rgb,
+            patches,
+            &profile,
+            footprint,
+            effective_quality_divisor(quality, raw.cfa),
+        )?;
+    }
     let (decoded_wb_anchor, ae_gain) = match output {
         TileOutput::Scene {
             decoded_wb_anchor,

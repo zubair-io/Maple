@@ -26,6 +26,7 @@ const CARD_TOOLS: ReadonlySet<ToolId> = new Set<ToolId>([
   'crop',
   'mask',
   'heal',
+  'remove',
   'hsl',
   'bwMix',
   'colorGrade',
@@ -59,7 +60,7 @@ function togglePanel(
   shell: EditorShellComponent,
   panel: 'curveOpen' | 'presetsOpen' | 'scopesOpen',
 ): void {
-  if (shell.cropArmed() || shell.maskArmed() || shell.noiseArmed()) return;
+  if (shell.cropArmed() || shell.maskArmed() || shell.noiseArmed() || shell.removalArmed()) return;
   const wasOpen = shell[panel]();
   closePanels(shell);
   shell[panel].set(!wasOpen);

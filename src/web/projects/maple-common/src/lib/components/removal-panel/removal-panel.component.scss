@@ -1,0 +1,23 @@
+:host {
+  display: block;
+}
+.removal-panel {
+  max-height: min(75vh, 640px);
+  overflow-y: auto;
+
+  > * {
+    flex-shrink: 0;
+  }
+}
+.people-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 140px;
+  overflow-y: auto;
+}
+input {
+  display: block;
+  max-width: 100%;
+  margin-top: 4px;
+}

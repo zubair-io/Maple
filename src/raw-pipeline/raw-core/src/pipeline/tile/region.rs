@@ -56,6 +56,34 @@ impl TileWindow {
     }
 }
 
+/// Sensor witness bounds translated into the padded tile's buffer frame.
+/// Shared by ordinary tile development and the #3955 fixed calibration context.
+pub(super) fn active_area_for_padded_crop(
+    raw: &crate::image::RawImage,
+    rx: u32,
+    ry: u32,
+    divisor: u32,
+) -> Option<crate::image::CropRect> {
+    crate::pipeline::develop::highlight_active_area(raw, divisor).map(|area| {
+        let x = area.x.saturating_sub(rx / divisor);
+        let y = area.y.saturating_sub(ry / divisor);
+        crate::image::CropRect {
+            x,
+            y,
+            w: area
+                .x
+                .saturating_add(area.w)
+                .saturating_sub(rx / divisor)
+                .saturating_sub(x),
+            h: area
+                .y
+                .saturating_add(area.h)
+                .saturating_sub(ry / divisor)
+                .saturating_sub(y),
+        }
+    })
+}
+
 /// Pad a `(src_x, src_y, src_w, src_h)` source-pixel rect by `pad` pixels on
 /// each edge, clamp to `(0..mosaic_w, 0..mosaic_h)`, and round the resulting
 /// rect's start corners DOWN to the nearest even multiple to preserve

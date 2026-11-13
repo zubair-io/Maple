@@ -4,6 +4,8 @@ import type { RawPipelineService } from '../../raw-pipeline/raw-pipeline.service
 import type { DetailRect } from '../../raw-pipeline/raw-pipeline.native-detail.types';
 import { imageDataToBitmap } from '../../raw-pipeline/image-utils';
 import type { RenderSizing } from './image-canvas.two-phase';
+import { savedRemovalRecords } from '../../removal/saved-removal-records';
+import type { RemovalCompanionBundle } from '../../removal/removal-companion-bundle';
 import {
   containsDetailRect,
   expandDetailRect,
@@ -37,6 +39,7 @@ export interface NativeDetailHost {
   } | null;
   /** Null for GPU, crop, before/after, non-RAW, or a zoom below true 100%. */
   detailView(): DetailView | null;
+  loadRemovals?(assetId: string, xmp: string): Promise<RemovalCompanionBundle | undefined>;
 }
 
 /** One patch over the sized CPU base. All asynchronous results are generation guarded. */
@@ -45,6 +48,7 @@ export class ImageCanvasNativeDetail {
   private base: DetailBase | null = null;
   private revision = 0;
   private failedRect: string | null = null;
+  private removalRecords?: string;
 
   constructor(
     private readonly host: NativeDetailHost,
@@ -58,11 +62,17 @@ export class ImageCanvasNativeDetail {
   recordBase(base: DetailBase): void {
     this.clearPatch();
     this.base = base;
+    // XML names cannot encode this identifier. Discovery still validates the
+    // namespace; Rust refuses unresolved records even if no bundle is sent.
+    this.removalRecords = base.renderXmp?.includes('InpaintRemovals')
+      ? savedRemovalRecords(base.renderXmp)
+      : undefined;
   }
 
   reset(): void {
     this.clearPatch();
     this.base = null;
+    this.removalRecords = undefined;
     this.host.pipeline.closeNativeDetail();
   }
 
@@ -150,6 +160,13 @@ export class ImageCanvasNativeDetail {
         maxLongEdge: base.sizing.maxLongEdge,
         qualityPreview: base.sizing.qualityPreview,
         filmLut: base.filmLut,
+        removalRecords: this.removalRecords,
+        loadRemovals:
+          this.removalRecords && base.renderXmp
+            ? () =>
+                this.host.loadRemovals?.(input.assetId, base.renderXmp!) ??
+                Promise.resolve(undefined)
+            : undefined,
       });
       if (!this.isCurrent(base, revision)) return true;
       if (pixels.width !== rect.width || pixels.height !== rect.height)

@@ -12,7 +12,7 @@ extension EditSession {
   /// hoping an unstructured update reaches the store before `flush()`.
   func scheduleSidecarUpdate(model: AdjustmentModel, culling: CullingState) {
     // Nothing is persisted before the sidecar has loaded (#4708).
-    guard hasLoadedSidecar, !workflow.isApplying else { return }
+    guard hasLoadedSidecar, !workflow.isApplying, !isSavingRemoval else { return }
     if sidecarWritesDisabled {
       sidecarDirtyWhileDisabled = true
       return
@@ -96,6 +96,8 @@ extension EditSession {
   public func flushPendingSidecarWriteConfirmed() async throws {
     // A rating queued before load is merged and saved once the load lands (#4708).
     if !hasLoadedSidecar, queuedCullingPatch != nil { await loadSidecar() }
+    // A removal commit is its own confirmed CAS write, independent of load.
+    _ = try? await removalCommitTask?.value
     // An unloaded session holds defaults, not the photo's edits: never write
     // them, even when the store would accept it. A queued rating that cannot
     // be merged is an unpersisted edit, so it fails the confirmed flush —
@@ -107,6 +109,7 @@ extension EditSession {
     }
     while true {
       await workflow.waitForIdle()
+      _ = try? await removalCommitTask?.value
       // A flush is a commit boundary (#2432): close the open transaction
       // so the sidecar describes a recorded action, not a half-gesture.
       endEdit()

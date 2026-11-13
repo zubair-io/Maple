@@ -1,0 +1,76 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-10-02",
+  "epic": 1472,
+  "issue": 3984,
+  "baselineCommit": "e259d3f2b",
+  "scope": "Actual Self Hosted browser stale-save and lost HTTP acknowledgement qualification; no production source changes",
+  "environment": {
+    "os": "macOS 27.0 (26A428)",
+    "bun": "1.4.3",
+    "playwright": "1.59.1",
+    "browser": "Playwright Chromium, forced CPU and asserted WebGPU canvas",
+    "servers": "Owned Angular 4203 and authenticated isolated API/SQLite/native workers 4204; stopped after the run. User Angular 4202 retained."
+  },
+  "inputs": [
+    {
+      "path": "test-fixtures/removal/basic/source.dng",
+      "sha256": "24450571460687ee53852658deec26946c4a7877fe111a6ba5bb059c116f2618"
+    },
+    {
+      "path": "test-fixtures/removal/basic/prior.xmp",
+      "sha256": "a17dfaa72ef5c056c351e507afa9b01ca765af76994621542eef6aa6cec3ccbe"
+    },
+    {
+      "path": "src/api/native/libraw_ffi.dylib",
+      "sha256": "b9563f9b1126039471f8631f4696db8e1094bcb48b511a315318068330a9ef14"
+    },
+    {
+      "path": "src/raw-pipeline/target/release/maple-cli",
+      "sha256": "8fe784640ad51f0c6eafd91c7f55a919e0fd2eddcf2696bd6613385ccc61999f"
+    }
+  ],
+  "faultInjection": "Playwright route.fetch executes the real authenticated XMP POST and validates its success before route.abort drops only the acknowledgement. No model, asset, XMP or success response is fabricated.",
+  "checks": [
+    {
+      "command": "bun x playwright test --config playwright.removal-self-hosted.config.ts",
+      "result": "12 passed, 0 failed, 0 skipped; terminal exit 0; 6.6m",
+      "log": "/tmp/maple-removal-server-browser-save-and-selection-final2.log",
+      "coverage": [
+        "Original Paint, confirmed Keep/history, metadata, saved controls, independent native PNG oracle and cold-reopen regression on CPU and WebGPU",
+        "Stale full-XMP before Keep: authoritative XML unchanged, Review/Compare retained, repeat commit 409, Cancel leaves external edits intact",
+        "Lost response after real publication: no premature model/history adoption, retry carries original revision/record precondition and identical XML, exact postcondition accepted without changing XMP mtime",
+        "Confirmed retry creates one operation; one global Undo removes it and Redo restores exact XML; native PNG oracle matches",
+        "Lost response followed by external exposure/foreign-XML edit: retry 409 preserves that document and Review; Cancel and cold reload retain the one actually saved operation",
+        "Cold reopen restores exposure 1.25, expected zero/one saved rows and authoritative XML before export; export's documented canonical refresh retains exposure, foreign attributes/subtree and accepted records",
+        "All new exports publish the exact requested XML and produce byte-identical PNGs to independent Rust CLI exports from on-disk sidecar/companions",
+        "Original RAW and immutable companion names/bytes remain unchanged; no page errors",
+        "Actual MobileSAM photographic negative-prompt/history and RT-DETR/MobileSAM subject protection/override/refinement regressions on CPU and WebGPU"
+      ]
+    },
+    {
+      "command": "explicit-config Prettier, git diff --check, scoped file-budget",
+      "result": "passed; zero hard violations, soft warnings or allowlisted files"
+    }
+  ],
+  "earlierRuns": [
+    "Initial fault harness used a non-input slider value assertion and a path glob that missed the real HTTP endpoint; interrupted owned runner, corrected both",
+    "Second run: 2 passed, 4 failed because unroute preceded abort and released the handled route; corrected to abort then unroute",
+    "Third save-only run: 6 passed, 0 failed; expanded cold-export coverage afterward",
+    "First combined run: 8 passed, 4 failed; two ambiguous Dismiss selectors and two incorrect whole-document no-rewrite export assertions",
+    "Canonical refresh is an existing explicit #943 export contract, not a removal defect; trace showed retained values/records and exact native PNG output",
+    "Next combined run interrupted after identifying the test assumed JSON for ordinary /api/xmp, which sends raw XML; corrected encoding-aware assertion",
+    "Final uninterrupted combined run above passes all 12; prior failures and interrupted runs are not counted as green qualification"
+  ],
+  "limits": [
+    "Synthetic 16x8 Paint proves workflow/transport/export, not photographic reconstruction quality",
+    "Photographic portrait selection is not crowded-scene, tiny-person, depth or broad protected-subject qualification",
+    "No production model/source/ABI/color-math/performance-budget changes; broader suites are prior checkpoint evidence, not rerun claims",
+    "Native saved-controls/device UI, Windows saved consumers, Safari/Firefox, portable SMB/backup/package/sync and recovery UI remain open",
+    "Real SQLite IPC writer-kill acknowledgement window, whole-library recovery before HTTP readiness/while discovery is paused, other server hosts and power-loss durability remain unqualified",
+    "Model signing/distribution/licenses/settings, large-object/HDR/seam quality, physical 100MP allocation/memory/gesture/scanout/cold-open and parity qualification remain open",
+    "Existing color-corpus breaches, fresh current-main required CI and ordered landing work remain open; budgets unchanged",
+    "Failed native UI diagnostic remains unstaged; no push, PR or merge"
+  ],
+  "goalStatus": "active; full original objective preserved"
+}

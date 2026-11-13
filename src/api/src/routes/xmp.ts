@@ -226,6 +226,10 @@ export const xmpPathRoutes = new Elysia()
         );
         if (conditional.kind === 'conflict')
           return status(412, { error: 'XMP changed; reload before saving.' });
+        if (conditional.kind === 'removal-conflict')
+          return status(409, {
+            error: 'Removal history changed; use a confirmed removal commit.',
+          });
         if (conditional.kind === 'error') return status(500, { error: conditional.error });
         await publishSidecarChange(rawPath, true);
         set.headers['Content-Type'] = 'application/xml';

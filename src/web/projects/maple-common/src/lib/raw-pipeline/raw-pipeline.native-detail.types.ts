@@ -27,6 +27,7 @@ export interface NativeDetailRequest {
   maxLongEdge: number;
   qualityPreview: boolean;
   filmLut?: ArrayBuffer;
+  removals?: { manifest: string; companions: ArrayBuffer } | null;
 }
 export interface CloseNativeDetailRequest {
   id: number;
@@ -36,6 +37,13 @@ export type NativeDetailResponse =
   | { id: number; type: 'native-detail-success'; width: number; height: number; rgb: ArrayBuffer }
   | { id: number; type: 'native-detail-error'; message: string; superseded?: boolean };
 
-export interface NativeDetailArgs extends Omit<NativeDetailRequest, 'id' | 'type' | 'bytes'> {
+export interface NativeDetailArgs extends Omit<
+  NativeDetailRequest,
+  'id' | 'type' | 'bytes' | 'removals'
+> {
   bytes: Uint8Array;
+  removalRecords?: string;
+  loadRemovals?: () => Promise<
+    import('../removal/removal-companion-bundle').RemovalCompanionBundle | undefined
+  >;
 }

@@ -1,0 +1,560 @@
+{
+  "issue": 3941,
+  "recordedAt": "2026-10-04T02:44:20.996133+00:00",
+  "releaseQualified": false,
+  "admittedToApp": false,
+  "purpose": "Evaluate a joint person instance detector for whole-person boxes before changing existing SAM or introducing unsafe automatic duplicate grouping.",
+  "officialSources": [
+    "https://docs.pytorch.org/vision/main/models/generated/torchvision.models.detection.maskrcnn_resnet50_fpn_v2.html",
+    "https://github.com/pytorch/vision/blob/main/torchvision/models/detection/mask_rcnn.py",
+    "https://github.com/pytorch/vision/blob/main/LICENSE",
+    "https://docs.pytorch.org/vision/stable/models.html"
+  ],
+  "model": {
+    "source": {
+      "revision": "1f1a920d685d46dfbe187934b785b7ecb7a182f2",
+      "files": {
+        "_utils.py": "a87fa117ddc8c0d3b22ad0e8380eb13a665f98a781de3e55630edb758d22f64f",
+        "models/_api.py": "fdcb80072255feca18b21f43d1cb9433630118ec925e1a89cc66d0b2a39efe50",
+        "models/_utils.py": "972289ecdb2b81d2eedaba50b3e62f4d6e30704affcc26e15e2001ef62717036",
+        "models/detection/__init__.py": "270626fdf4c63bf15e460e1e4ce40bc103d9f650bd8e1799f90128260a8a4e38",
+        "models/detection/_utils.py": "6ad943e4bb650904c8f8d360a1658753204a7bca994b8e4fd9953ef0b1029325",
+        "models/detection/anchor_utils.py": "078515268414cf8483812268e1bc478ad7ffd41b3dce60c5371d1fd365f9fb48",
+        "models/detection/backbone_utils.py": "23283dc7597676459b29b130177d4e27d43cdf8b35dccd68666ccdfec3f4db9d",
+        "models/detection/faster_rcnn.py": "54e05318954718c9cf269996cd56fbe35dc935ae0c2df108a7098b25a52b2dc2",
+        "models/detection/fcos.py": "b316db1ea0dd0848ec828fa82028707197ac8f4bb7473ad287eba28feb693e28",
+        "models/detection/generalized_rcnn.py": "a6928bb128839cb9995e8f5f8e64db47caccecccbe5761cddc94e6004926a874",
+        "models/detection/image_list.py": "319a71a31f0be325e4de07520033fffd7ab8d0e70def9a747651b684621bd841",
+        "models/detection/keypoint_rcnn.py": "bf36999735a556697bab25ec4f1cb8b6e32c58178b86e80ba040c372fb9d022d",
+        "models/detection/mask_rcnn.py": "28aff430b1193fd1967c20c497a989b9804789d5a874661f3f18b246629684d1",
+        "models/detection/retinanet.py": "2bb5699a6abfd3d84d1b87190ffc4b0c25b36dab576795602aba2da17cb028e2",
+        "models/detection/roi_heads.py": "ddf91a1c89603c86c0e7b30f3ad9f1613adf4623ed1c1688ed03e9af47579ff8",
+        "models/detection/rpn.py": "17eb939224b28c435839b7958c6ab25765f041c151be1cf137507dd0e4d5ddd5",
+        "models/detection/ssd.py": "997913443d1742e549279140b7f38335c2d3cb1857f8e78367a2317660638979",
+        "models/detection/ssdlite.py": "f69f0d6883c80a2d80f9d6c3e286b5c99c8a3b7d31e54486cf65cd6ff974f597",
+        "models/detection/transform.py": "8f53149cd93c3bc291cf081535686282137ae29b2362938e7329f2361325061f",
+        "models/resnet.py": "9faf2f321fdaf7edbd791aedc6e3610c7edf9c892112cbd75861beae1e9518d1",
+        "ops/__init__.py": "795bf5e90481c2029aa233941cc3c2cb8a2ef5978587e1e8095e03a6aad91b85",
+        "ops/_box_convert.py": "428750729957ef8770f52b8fdb532228039ec048a991af6e62b3b95d22a2a467",
+        "ops/_register_onnx_ops.py": "1726f5902da6d8ea9975f5bf33cea9b7df92eba7b5a8d5215cdbb511045ad37e",
+        "ops/_utils.py": "884a666754f507b2a442f6953add2d6af2c07c66df814d18e8bbe09727d624ae",
+        "ops/boxes.py": "69dbb63d76d724015a3889d709396f2f0369b4fe1bc72272a971d4cc9f9ffb2d",
+        "ops/ciou_loss.py": "f49a33bb45e301476730d8cbbb59238ea246ca436977b96318bf79d691bd110e",
+        "ops/deform_conv.py": "517caa6a27670ff385b2c8e906f1b86ace7e163f6bfb02279ef03539962ce7ab",
+        "ops/diou_loss.py": "5a1f598cec8381c067464f07b5d9ba0aa68f0f3fbb4f5fe37fae27d64b0223b0",
+        "ops/drop_block.py": "4b879bd3db4848b1fde62e35263c4ba0ff8abc99ac76eb0cfcd1f4cc91415ac0",
+        "ops/feature_pyramid_network.py": "e8227faedfc3b2d9e13aef94df8f922d86ada9c3627b458b8490c8242224d82d",
+        "ops/focal_loss.py": "9966fcf7f8635a9380c822b9af2930d0a98e8e6ff4b10e2e91fa798af8650427",
+        "ops/giou_loss.py": "7b2315f6cd200ea100168c2eadc15a47e78749e4f7a8fec1ebfb071c5f1e5a34",
+        "ops/misc.py": "a2bb1f3af1d3b854761ea4bc35d0b9deb5e49771f0dc919b390643f081a1ab7e",
+        "ops/poolers.py": "6357230e5e36497ae46a30161ebfd65cd2dcfbc38e129cf82ae1909f44bb45e1",
+        "ops/ps_roi_align.py": "e2201b7945537acb00731bc986e01137f6851944d90bd4782ab282fe6047dcc4",
+        "ops/ps_roi_pool.py": "8cebfeda901974b16fbede2be0dc2245fc54e5600ecbfbe2ea0c598ccbe5bacc",
+        "ops/roi_align.py": "1939ff5a5bbde21cd3a7fdb8f632491321bd363543fd6e368c1a941f5ef1b268",
+        "ops/roi_pool.py": "e5352fefd7a9676304f26835fe76122530064fe8804846cb77998a085caa1e9f",
+        "ops/stochastic_depth.py": "21267d9e827264bc694c6fb06b65663ecebaaa3855b0fed9c561efba65923f75"
+      },
+      "licenseSHA256": "6502f676851cfe25f8af75531dfb32375b7325b73c37e7b43741fa422893e71d"
+    },
+    "weightsSHA256": "73cbd0190fcbe3ba339921fbce2c3a0b6bb9126c9a133c85e43a2a8e060a109e",
+    "weightsURL": "https://download.pytorch.org/models/maskrcnn_resnet50_fpn_v2_coco-73cbd019.pth",
+    "weightsBytes": 185828065,
+    "stateTensorEntries": 432,
+    "torch": "2.14.1",
+    "torchvision": "0.29.1",
+    "device": "CPU",
+    "threads": 4,
+    "upstreamDefaultTransform": {
+      "minSize": [800],
+      "maxSize": 1333,
+      "mean": [0.485, 0.456, 0.406],
+      "std": [0.229, 0.224, 0.225]
+    },
+    "personScoreThreshold": 0.5,
+    "maskThreshold": 0.5,
+    "sharedProbeSHA256": "124fd14e10083a5b363c1b759ed977b6c590a89021481f895c414ad7ade35e9c"
+  },
+  "licenseAdmission": "Official TorchVision BSD source is not a determination of COCO weight distribution terms. No model export, download installer, app pin or distribution added.",
+  "runs": [
+    {
+      "case": "bologna",
+      "path": "/Users/riabuz/.cache/maple-removal-research/maskrcnn-bologna-20261004/report.json",
+      "sha256": "8529210dfdd2ca23ba09b9c3f1d77b187776f42fcb20fe56aced317921337890",
+      "rawSHA256": "2ed291a09d7d4f72c8588b0c12d6cc5c470ad42ab9e3aaad1f888f34526b959f",
+      "selectionInput": {
+        "contentSize": [1024, 683],
+        "encoderDigest": "blake3:c8e250333ea3666a6c9d05305018122c2fc1c7dbe15dfc808c756a7afaad60f9",
+        "encoderDomain": "RGB float32 LE 0..255",
+        "encoderShape": [1, 3, 1024, 1024],
+        "proxyDigest": "blake3:f14887558e3e0bd5f54984c3ba43a8307c073b9d6199299b8a40263db7a35bff",
+        "proxySize": [1024, 683]
+      },
+      "allOutputCount": 100,
+      "personProposals": 13,
+      "elapsedSeconds": 4.153948584000318,
+      "personCases": [
+        {
+          "id": 1,
+          "modelIndex": 0,
+          "score": 0.998836100101471,
+          "proxyXYXY": [
+            0.34304627776145935, 201.99960327148438, 100.96041107177734, 679.7861328125
+          ],
+          "sourceXYXY": [
+            2.010036783758551, 1183.0137819706258, 591.5649086236954, 3981.1779374084917
+          ],
+          "proxyPixels": 31596,
+          "nativePixels": 1083564,
+          "maskDigest": "blake3:6b62c3831bcc1392a9ce7bbc1435299ad8e1a3765086d3da8f4f1e65100e7702",
+          "commonWithProduction": {
+            "1": 0,
+            "2": 5744,
+            "3": 969337,
+            "4": 0,
+            "5": 0,
+            "6": 0,
+            "7": 0,
+            "8": 0,
+            "9": 0,
+            "10": 60583,
+            "11": 0,
+            "12": 0,
+            "13": 0,
+            "14": 0,
+            "15": 1016611
+          }
+        },
+        {
+          "id": 2,
+          "modelIndex": 1,
+          "score": 0.998559296131134,
+          "proxyXYXY": [56.7283935546875, 206.5594482421875, 227.0252227783203, 683.0],
+          "sourceXYXY": [332.39293098449707, 1209.7185841416544, 1330.2259147167206, 4000.0],
+          "proxyPixels": 52940,
+          "nativePixels": 1816364,
+          "maskDigest": "blake3:f854e1c08b07dcbf37d4841d1409dedbbbe7d2df81703d8fb1e0527612cbdee8",
+          "commonWithProduction": {
+            "1": 0,
+            "2": 1723771,
+            "3": 1224,
+            "4": 0,
+            "5": 5266,
+            "6": 0,
+            "7": 0,
+            "8": 0,
+            "9": 0,
+            "10": 0,
+            "11": 0,
+            "12": 0,
+            "13": 1556,
+            "14": 0,
+            "15": 1152
+          }
+        },
+        {
+          "id": 3,
+          "modelIndex": 2,
+          "score": 0.997687578201294,
+          "proxyXYXY": [403.1100769042969, 226.12677001953125, 585.8515625, 576.2792358398438],
+          "sourceXYXY": [
+            2361.9731068611145, 1324.3149049460103, 3432.7239990234375, 3374.9882040400807
+          ],
+          "proxyPixels": 26375,
+          "nativePixels": 904816,
+          "maskDigest": "blake3:7d7e251f48b3bbca5a86a183b516011b511f397b1660c128659df9bc1e437e5c",
+          "commonWithProduction": {
+            "1": 799409,
+            "2": 0,
+            "3": 0,
+            "4": 4286,
+            "5": 0,
+            "6": 0,
+            "7": 420,
+            "8": 4760,
+            "9": 0,
+            "10": 0,
+            "11": 72,
+            "12": 0,
+            "13": 0,
+            "14": 0,
+            "15": 0
+          }
+        },
+        {
+          "id": 4,
+          "modelIndex": 3,
+          "score": 0.9965196847915649,
+          "proxyXYXY": [
+            263.15740966796875, 266.1419677734375, 427.7349853515625, 553.9431762695312
+          ],
+          "sourceXYXY": [
+            1541.9379472732544, 1558.664525759517, 2506.2596797943115, 3244.17672778642
+          ],
+          "proxyPixels": 32265,
+          "nativePixels": 1107260,
+          "maskDigest": "blake3:4bbb23d9983ab0e1936fd5dccd092ffbaf2e9d8a71c450cf5a70b20ab70f1466",
+          "commonWithProduction": {
+            "1": 840,
+            "2": 0,
+            "3": 0,
+            "4": 990945,
+            "5": 0,
+            "6": 0,
+            "7": 138,
+            "8": 0,
+            "9": 0,
+            "10": 0,
+            "11": 0,
+            "12": 0,
+            "13": 0,
+            "14": 0,
+            "15": 0
+          }
+        },
+        {
+          "id": 5,
+          "modelIndex": 4,
+          "score": 0.9936740398406982,
+          "proxyXYXY": [199.26239013671875, 265.5243835449219, 270.71270751953125, 512.8427734375],
+          "sourceXYXY": [
+            1167.5530672073364, 1555.0476342308748, 1586.2072706222534, 3003.471586749634
+          ],
+          "proxyPixels": 8598,
+          "nativePixels": 295106,
+          "maskDigest": "blake3:e86e5b8af1003c84c88b7fcf7bfa8e5aab01f53f680aa107f638d661c4f02c08",
+          "commonWithProduction": {
+            "1": 0,
+            "2": 0,
+            "3": 0,
+            "4": 0,
+            "5": 279897,
+            "6": 0,
+            "7": 0,
+            "8": 0,
+            "9": 0,
+            "10": 0,
+            "11": 0,
+            "12": 0,
+            "13": 150871,
+            "14": 0,
+            "15": 0
+          }
+        },
+        {
+          "id": 6,
+          "modelIndex": 5,
+          "score": 0.9932069182395935,
+          "proxyXYXY": [567.82666015625, 264.2362060546875, 615.2136840820312, 338.38641357421875],
+          "sourceXYXY": [
+            3327.1093368530273, 1547.50340295571, 3604.767680168152, 1981.7652332311493
+          ],
+          "proxyPixels": 2408,
+          "nativePixels": 82686,
+          "maskDigest": "blake3:b4258a5fdadf25edfd78547b71bcb1756b296afe2771ed47445937d489b3283e",
+          "commonWithProduction": {
+            "1": 0,
+            "2": 0,
+            "3": 0,
+            "4": 0,
+            "5": 0,
+            "6": 80825,
+            "7": 0,
+            "8": 0,
+            "9": 0,
+            "10": 0,
+            "11": 0,
+            "12": 0,
+            "13": 0,
+            "14": 0,
+            "15": 0
+          }
+        },
+        {
+          "id": 7,
+          "modelIndex": 7,
+          "score": 0.9418292045593262,
+          "proxyXYXY": [523.9374389648438, 269.17230224609375, 570.659912109375, 339.5819396972656],
+          "sourceXYXY": [
+            3069.9459314346313, 1576.4117261850292, 3343.710422515869, 1988.7668503500183
+          ],
+          "proxyPixels": 2247,
+          "nativePixels": 77220,
+          "maskDigest": "blake3:1a12c8449d2dd7b0e8d9ddf1ddb20fad1907d9f70f3ae5cdfb9c216992d67612",
+          "commonWithProduction": {
+            "1": 0,
+            "2": 0,
+            "3": 0,
+            "4": 0,
+            "5": 0,
+            "6": 0,
+            "7": 0,
+            "8": 0,
+            "9": 40066,
+            "10": 0,
+            "11": 74766,
+            "12": 0,
+            "13": 0,
+            "14": 0,
+            "15": 0
+          }
+        },
+        {
+          "id": 8,
+          "modelIndex": 8,
+          "score": 0.9218306541442871,
+          "proxyXYXY": [265.0302734375, 259.93194580078125, 333.81536865234375, 370.9820861816406],
+          "sourceXYXY": [
+            1552.9117584228516, 1522.2954366077965, 1955.9494256973267, 2172.662290961292
+          ],
+          "proxyPixels": 4612,
+          "nativePixels": 158207,
+          "maskDigest": "blake3:5471560f34a04fbc0e8a0cde3d34f38c95528758834e0526526a90c254f237f7",
+          "commonWithProduction": {
+            "1": 0,
+            "2": 0,
+            "3": 0,
+            "4": 0,
+            "5": 0,
+            "6": 0,
+            "7": 0,
+            "8": 0,
+            "9": 0,
+            "10": 0,
+            "11": 0,
+            "12": 24002,
+            "13": 0,
+            "14": 0,
+            "15": 0
+          }
+        },
+        {
+          "id": 9,
+          "modelIndex": 9,
+          "score": 0.9204946756362915,
+          "proxyXYXY": [
+            443.3077392578125, 245.19778442382812, 470.7801208496094, 275.85321044921875
+          ],
+          "sourceXYXY": [2597.506284713745, 1436.0045939902086, 2758.47727060318, 1615.53856778459],
+          "proxyPixels": 562,
+          "nativePixels": 19290,
+          "maskDigest": "blake3:42d0d01cd72436e55391a1bf8a1b9a70653a72a44d7275649be35e1beddcba44",
+          "commonWithProduction": {
+            "1": 9016,
+            "2": 0,
+            "3": 0,
+            "4": 0,
+            "5": 0,
+            "6": 0,
+            "7": 0,
+            "8": 18257,
+            "9": 0,
+            "10": 0,
+            "11": 0,
+            "12": 0,
+            "13": 0,
+            "14": 0,
+            "15": 0
+          }
+        },
+        {
+          "id": 10,
+          "modelIndex": 14,
+          "score": 0.7940106391906738,
+          "proxyXYXY": [
+            254.81655883789062, 260.63079833984375, 295.55645751953125, 319.7709045410156
+          ],
+          "sourceXYXY": [
+            1493.0657744407654, 1526.3882772465226, 1731.7761182785034, 1872.7432183954063
+          ],
+          "proxyPixels": 941,
+          "nativePixels": 32252,
+          "maskDigest": "blake3:f15fcd2b912737ef541172eb416998498eca4d6e1040e0eca45c1985a31af695",
+          "commonWithProduction": {
+            "1": 0,
+            "2": 0,
+            "3": 0,
+            "4": 0,
+            "5": 0,
+            "6": 0,
+            "7": 0,
+            "8": 0,
+            "9": 0,
+            "10": 0,
+            "11": 0,
+            "12": 30452,
+            "13": 0,
+            "14": 0,
+            "15": 0
+          }
+        },
+        {
+          "id": 11,
+          "modelIndex": 16,
+          "score": 0.7581382989883423,
+          "proxyXYXY": [
+            399.5328063964844, 250.59829711914062, 442.6097106933594, 300.63177490234375
+          ],
+          "sourceXYXY": [
+            2341.0125374794006, 1467.6327796142937, 2593.4162735939026, 1760.6546114339312
+          ],
+          "proxyPixels": 1145,
+          "nativePixels": 39298,
+          "maskDigest": "blake3:cd85ed001a3bc3e530fee8fb74c5095d25eeff75b4678ab405057e91ebb1f749",
+          "commonWithProduction": {
+            "1": 0,
+            "2": 0,
+            "3": 0,
+            "4": 0,
+            "5": 0,
+            "6": 0,
+            "7": 37538,
+            "8": 0,
+            "9": 0,
+            "10": 0,
+            "11": 0,
+            "12": 0,
+            "13": 0,
+            "14": 0,
+            "15": 0
+          }
+        },
+        {
+          "id": 12,
+          "modelIndex": 28,
+          "score": 0.5322315096855164,
+          "proxyXYXY": [
+            400.30462646484375, 250.80287170410156, 426.95599365234375, 271.3629150390625
+          ],
+          "sourceXYXY": [
+            2345.534920692444, 1468.8308738161145, 2501.6952753067017, 1589.2410836841143
+          ],
+          "proxyPixels": 378,
+          "nativePixels": 12962,
+          "maskDigest": "blake3:1e22e2467a825b81161aeea2ca0df3a53dac3e0c8c85b3d6d6d9b4e1d1e04e72",
+          "commonWithProduction": {
+            "1": 0,
+            "2": 0,
+            "3": 0,
+            "4": 0,
+            "5": 0,
+            "6": 0,
+            "7": 11526,
+            "8": 0,
+            "9": 0,
+            "10": 0,
+            "11": 0,
+            "12": 0,
+            "13": 0,
+            "14": 0,
+            "15": 0
+          }
+        },
+        {
+          "id": 13,
+          "modelIndex": 31,
+          "score": 0.5066988468170166,
+          "proxyXYXY": [335.916259765625, 246.5247344970703, 391.2171936035156, 296.5612487792969],
+          "sourceXYXY": [
+            1968.259334564209, 1443.775897493823, 2292.2882437705994, 1736.8155126166728
+          ],
+          "proxyPixels": 869,
+          "nativePixels": 29821,
+          "maskDigest": "blake3:99c9df16c2791cde7f6f2ea26a538574d44f8d2f8e8f11c4661c2a02b5cc7f67",
+          "commonWithProduction": {
+            "1": 0,
+            "2": 0,
+            "3": 0,
+            "4": 156,
+            "5": 0,
+            "6": 0,
+            "7": 0,
+            "8": 0,
+            "9": 0,
+            "10": 0,
+            "11": 0,
+            "12": 0,
+            "13": 0,
+            "14": 17643,
+            "15": 0
+          }
+        }
+      ],
+      "scope": "Unmodified official Mask R-CNN instance model on an exact native RAW selection proxy; native MIMF mapping is shared Rust. No ONNX/native adapter, independent ownership/closure labels, fill or device-performance qualification. TorchVision BSD source is not a determination of COCO weight distribution terms."
+    },
+    {
+      "case": "coast",
+      "path": "/Users/riabuz/.cache/maple-removal-research/maskrcnn-coast-20261004/report.json",
+      "sha256": "ebff01c09a67853d04ab1f821106be910f269a6b637b49d40a0187951cc920db",
+      "rawSHA256": "ec04e3ac69d54e7300ba0ff582d10ade0fc3ad28f48507b4c35cacc115e4ee86",
+      "selectionInput": {
+        "contentSize": [1024, 683],
+        "proxyDigest": "blake3:e2d1fff4e7ac9beca0b5a12a08099fae18b663d7d32c2a42aab4f43299d5c1e2",
+        "proxySize": [1024, 683]
+      },
+      "allOutputCount": 1,
+      "personProposals": 1,
+      "elapsedSeconds": 1.360113500002626,
+      "personCases": [
+        {
+          "id": 1,
+          "modelIndex": 0,
+          "score": 0.7138731479644775,
+          "proxyXYXY": [401.1348876953125, 382.3973388671875, 408.9449157714844, 389.1869812011719],
+          "sourceXYXY": [
+            2350.3997325897217, 2239.515893804905, 2396.1616158485413, 2279.279538513452
+          ],
+          "proxyPixels": 46,
+          "nativePixels": 1574,
+          "maskDigest": "blake3:83a5fc6b85f5f1d7d76053b30658258d53cae775865ac83f8c618d55257640b2",
+          "commonWithProduction": {}
+        }
+      ],
+      "scope": "Unmodified official Mask R-CNN instance model on an exact native RAW selection proxy; native MIMF mapping is shared Rust. No ONNX/native adapter, independent ownership/closure labels, fill or device-performance qualification. TorchVision BSD source is not a determination of COCO weight distribution terms."
+    },
+    {
+      "case": "night",
+      "path": "/Users/riabuz/.cache/maple-removal-research/maskrcnn-night-20261004/report.json",
+      "sha256": "fce15de2cb6f8204370cdd759c4c25ad99ededabaa9a95c22fdd10f75ffb9ddb",
+      "rawSHA256": "8cc49f506d3ebde3f3c87862e23497c639c806a54765bf8cb8a7fcaf664e10e5",
+      "selectionInput": {
+        "contentSize": [1024, 680],
+        "proxyDigest": "blake3:3d6064b32bc0a09f26ad2790f986ab57a36586d9f73c31039c352474228b9dda",
+        "proxySize": [1024, 680]
+      },
+      "allOutputCount": 23,
+      "personProposals": 0,
+      "elapsedSeconds": 1.358844374997716,
+      "personCases": [],
+      "scope": "Unmodified official Mask R-CNN instance model on an exact native RAW selection proxy; native MIMF mapping is shared Rust. No ONNX/native adapter, independent ownership/closure labels, fill or device-performance qualification. TorchVision BSD source is not a determination of COCO weight distribution terms."
+    }
+  ],
+  "jointBoxesWithDeployedSAM": {
+    "path": "/Users/riabuz/.cache/maple-removal-research/maskrcnn-sam-bologna-20261004/report.json",
+    "sha256": "bd583293e3be1b497c216de5f5da43b8b6ebecac87fbd8bb9b79b3791d0f189e",
+    "nativeReportSHA256": "85ebd81386c7640fecb6c686a8b239f6bc5123d524f0a777c0797102bbec3ea3",
+    "instanceReportSHA256": "8529210dfdd2ca23ba09b9c3f1d77b187776f42fcb20fe56aced317921337890",
+    "rawSHA256": "2ed291a09d7d4f72c8588b0c12d6cc5c470ad42ab9e3aaad1f888f34526b959f",
+    "onnxruntime": "1.23.2",
+    "boxCount": 13,
+    "candidateCount": 52,
+    "productionReplayedExactly": null,
+    "interpretation": "All52 tokens are actual SAM outputs for13 new joint-instance boxes. There is no expected production mask for these new prompts. Null replay/comparison fields cannot be read as passing parity."
+  },
+  "observations": [
+    "The source-bound Bologna joint detector produces13 proposals instead of15 from deployed RT-DETR. Whole-left-wearer box plus SAM covers hat/body together; direct MaskRCNN silhouette itself misses upper hat.",
+    "Several weaker partial duplicates remain, including head/gray-haired proposals. Joint detector does not establish independently labelled ownership or closure correctness.",
+    "Adjacent occluding people and some SAM masks still leak across instances; mask containment alone must not be treated as identity.",
+    "Coast has one small partially occluded proposal. Night has zero on an un-oriented EXIF8 proxy; do not use that arm to reject upright capability. It exposed the native portrait orientation bug, tested and fixed separately."
+  ],
+  "sourceFiles": {
+    "tools/removal/probe_maskrcnn_people.py": "8f7b92a13d2b606f748f1338704359d2bde49d68f004f05df4df152093cd26fc",
+    "tools/removal/probe_person_candidates.py": "b93bfb13234655c73006680e746b08628adaec9af5199e0d216459fb1b1f3fbd",
+    "src/raw-pipeline/raw-core/examples/removal-people-proxy.rs": "50b06ad8d8208ab35de8ca4e7cc2949ff22db3e1839c16fd8dac20abeb6b914e"
+  },
+  "limits": [
+    "No ONNX export/native adapter or Web port.",
+    "No independent person ownership/role/complete-silhouette annotations or acceptance corpus.",
+    "No photographic fill or controlled supported-device performance qualification. Timings are uncontrolled CPU research on a shared M5Max128GiB machine.",
+    "Originals unchanged; no accepted edits or sidecar writes from these probes."
+  ]
+}

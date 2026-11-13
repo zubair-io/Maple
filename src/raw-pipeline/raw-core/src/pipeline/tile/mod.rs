@@ -26,6 +26,7 @@
 //! * [`overlap`] — the per-render pad calculator.
 //! * [`develop`] — the develop chain run on the padded crop.
 
+mod camera;
 mod colour;
 mod context;
 mod develop;
@@ -47,6 +48,11 @@ pub(in crate::pipeline) use highlight_frame::recover_full_frame;
 mod overlap;
 mod prefix;
 mod region;
+mod removal;
+pub(in crate::pipeline) use removal::{
+    develop_saved_capture_tile, develop_saved_tile, render_removal_camera_context,
+    render_saved_tile,
+};
 
 #[cfg(test)]
 mod tests;
@@ -251,6 +257,23 @@ fn develop_tile_with_frame(
     haze: Option<&crate::stages::dehaze::FrameHaze>,
     cancel: crate::CancelToken<'_>,
 ) -> Result<(u32, u32, Vec<f32>)> {
+    develop_tile_with_patches(raw, model, rect, quality, output, frame, haze, &[], cancel)
+}
+
+/// [`develop_tile_with_frame`] with verified saved-removal replacements
+/// composited before user white balance and DCP (#3955).
+#[allow(clippy::too_many_arguments)]
+pub(in crate::pipeline) fn develop_tile_with_patches(
+    raw: &RawImage,
+    model: &AdjustmentModel,
+    rect: TileRect,
+    quality: RenderQuality,
+    output: TileOutput,
+    frame: Option<&HighlightFrameContext>,
+    haze: Option<&crate::stages::dehaze::FrameHaze>,
+    patches: &[crate::types::InpaintPatch],
+    cancel: crate::CancelToken<'_>,
+) -> Result<(u32, u32, Vec<f32>)> {
     if cancel.is_cancelled() {
         return Err(crate::error::Error::Cancelled);
     }
@@ -366,6 +389,7 @@ fn develop_tile_with_frame(
             tile_origin: (rx / divisor, ry / divisor),
             highlight_frame,
             haze,
+            patches,
         },
         cancel,
     )?;

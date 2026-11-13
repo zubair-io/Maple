@@ -36,9 +36,10 @@ import type {
 // `DecodeRequest` lives in its own file (#3479, file-size budget) and is
 // re-exported here so existing import paths keep working.
 import type { DecodeRequest } from './raw-pipeline.decode.types';
+import type { CropInputDimensions } from './raw-pipeline.crop-dimensions.types';
 export type { DecodeRequest } from './raw-pipeline.decode.types';
 
-export interface DecodeSuccess {
+export interface DecodeSuccess extends CropInputDimensions {
   id: number;
   type: 'decode-success';
   width: number;
@@ -128,6 +129,8 @@ export interface OpenSessionRequest {
   bytes: ArrayBuffer; // transferable RAW bytes
   ext: string;
   xmp?: string;
+  /** Complete immutable saved companions, copied/transferred once at open. */
+  savedRemovals?: { manifest: string; bytes: ArrayBuffer };
   /** The editor canvas, transferred via `transferControlToOffscreen()`. */
   canvas: OffscreenCanvas; // transferable
   /**
@@ -155,6 +158,7 @@ export interface RenderSessionRequest {
   type: 'render-session';
   xmp?: string;
   params?: Float32Array;
+  savedRemovals?: OpenSessionRequest['savedRemovals'];
 }
 
 /** Tear down the open session (asset switch / component destroy). */
@@ -212,7 +216,7 @@ export interface ScopeSnapshot {
 }
 
 /** Reply to `open-session`: the session is live + presenting its first frame. */
-export interface OpenSessionSuccess {
+export interface OpenSessionSuccess extends CropInputDimensions {
   id: number;
   type: 'open-session-success';
   /** Developed (viewport-sized per #1080) dims — also the canvas dims. */
@@ -245,7 +249,7 @@ export interface OpenSessionSuccess {
 }
 
 /** Reply to `render-session`: a frame was presented to the surface. */
-export interface RenderSessionSuccess {
+export interface RenderSessionSuccess extends CropInputDimensions {
   id: number;
   type: 'render-session-success';
   colorSpace: string;
@@ -324,6 +328,7 @@ import type {
 } from './raw-pipeline.brush-raster.types';
 
 export type WorkerResponse =
+  | import('./raw-pipeline.removal.types').RemovalAuthoringResponse
   | import('./raw-pipeline.guided-geometry').GuidedGeometryResponse
   | import('./raw-pipeline.native-detail.types').NativeDetailResponse
   | LensProfileSuccess
@@ -398,6 +403,8 @@ export interface ExportRequest {
   /** Sidecar XMP text, so the export reads the same edits the canvas showed. */
   xmp?: string;
   options: RawExportOptions;
+  /** Complete durable companions for the captured XMP recipe (#3955). */
+  removals?: { manifest: string; companions: ArrayBuffer };
   /**
    * A baked film-look `.mlut` grid (epic #2683, Task 9) — transferable. The
    * export counterpart of the GPU live session's `set-film-lut` upload, so a
@@ -442,6 +449,7 @@ export interface ExportedFile {
 
 /** All request messages the raw-pipeline worker accepts. */
 export type WorkerRequest =
+  | import('./raw-pipeline.removal.types').RemovalAuthoringRequest
   | import('./raw-pipeline.guided-geometry').GuidedGeometryRequest
   | import('./raw-pipeline.native-detail.types').NativeDetailRequest
   | import('./raw-pipeline.native-detail.types').CloseNativeDetailRequest
@@ -465,7 +473,7 @@ export type WorkerRequest =
   | RegisterBrushRasterRequest
   | ExportRequest;
 
-export interface DecodedImage {
+export interface DecodedImage extends CropInputDimensions {
   width: number;
   height: number;
   rgb: Uint8Array; // view over the transferred buffer

@@ -403,15 +403,21 @@ public enum RawCoreBridge {
     guard original != nil || profileOverride != nil || autoExposureOverride != nil else {
       return try body(nil)
     }
+    // Decode must carry the namespace-owned stack into its stripped XMP
+    // (#3955). Malformed owned metadata fails instead of becoming a
+    // successful original-only preview.
+    let originalXML = original.flatMap { try? String(contentsOf: $0, encoding: .utf8) }
+    let carriesRemovals = originalXML.map(RemovalXMPRecords.mayCarryRecords) == true
     var stripped: AdjustmentModel
     let culling: CullingState
     if let original {
       do {
-        let xml = try String(contentsOf: original, encoding: .utf8)
-        let parsed = try XMPParser.parse(xml)
+        guard let originalXML else { throw CocoaError(.fileReadUnknown) }
+        let parsed = try XMPParser.parse(originalXML)
         stripped = stripAppleGPUStages(parsed.0)
         culling = parsed.1
       } catch {
+        if carriesRemovals { throw error }
         bridgeLog.warning(
           "withStrippedXMP: failed to read/parse \(original.path, privacy: .public): \(error.localizedDescription, privacy: .public). Falling back to defaults."
         )
@@ -506,6 +512,7 @@ public enum RawCoreBridge {
     body: (URL?) throws -> T
   ) throws -> T {
     guard let tmp = writeTemporaryXMP(model: model, culling: culling) else {
+      if model.inpaintRemovals != nil { throw CocoaError(.fileWriteUnknown) }
       // Fall back to nil — FFI uses AdjustmentModel::default,
       // which is the same defaults the strip would produce.
       return try body(nil)

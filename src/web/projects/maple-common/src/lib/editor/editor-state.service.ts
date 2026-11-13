@@ -30,6 +30,7 @@ import {
   type RestoreCommand,
 } from './editor-workflow-commands.service';
 import { replayWorkflow, restoreWorkflow, workflowRingBinding } from './editor-state.workflow';
+import { EditorRemovalHistory } from './editor-state.removal-history';
 import type { AssetId } from '../models/asset';
 import { applyAutoInto } from './editor-state.auto';
 import { applyWhiteBalancePresetInto } from './editor-state.wb-preset';
@@ -88,6 +89,7 @@ export class EditorStateService {
   readonly pipeline = inject(RawPipelineService);
   readonly serializer = inject(XmpSerializerService); // read via WbSampleHost
   readonly announcer = inject(LiveAnnouncer);
+  readonly removal = new EditorRemovalHistory(this);
 
   // ── Identity / arming ────────────────────────────────────────────────────
   readonly imageId = signal<AssetId | null>(null);
@@ -206,8 +208,6 @@ export class EditorStateService {
     return fieldFor(tool) != null && displayRange(tool) != null;
   });
 
-  // ── Lifecycle ────────────────────────────────────────────────────────────
-
   /** Bind the editor to an asset. Resets undo/redo stacks. The armed
    * sub-param is re-resolved from the session memory (it is per-session
    * state, so an image switch keeps the selection). */
@@ -215,6 +215,7 @@ export class EditorStateService {
     untracked(() => this.endEdit());
     this.bindingGeneration += 1;
     this.workflowReplay = null;
+    this.removal.rebind();
     this.imageId.set(id);
     this.autoResult.set(null);
     this.ring.reset();
@@ -281,6 +282,7 @@ export class EditorStateService {
       void replayWorkflow(this, 'undo');
       return;
     }
+    if (this.removal.takes('undo')) return;
     this.workflowReplay = null;
     const tx = this.ring.popUndo();
     if (!tx) return;
@@ -299,6 +301,7 @@ export class EditorStateService {
       void replayWorkflow(this, 'redo');
       return;
     }
+    if (this.removal.takes('redo')) return;
     this.workflowReplay = null;
     const tx = this.ring.popRedo();
     if (!tx) return;
@@ -307,8 +310,6 @@ export class EditorStateService {
     if (edit) this.workflowHistory.record(edit, tx.after, 'redo', `Redo ${tx.description}`);
     void this.announcer.announce(`Redo ${tx.description}`);
   }
-
-  // ── Arming ──────────────────────────────────────────────────────────────
 
   restoreWorkflow(command: RestoreCommand): Promise<void> {
     this.endEdit();
@@ -360,8 +361,6 @@ export class EditorStateService {
     if (remembered && subParamById(tool, remembered)) return remembered;
     return defaultSubParamId(tool);
   }
-
-  // ── Value pipe ──────────────────────────────────────────────────────────
 
   /** Mark the start of a continuous value gesture (drag-bar press, canvas
    * scrub). Only meaningful for commit-on-release sub-params; harmless
@@ -510,6 +509,7 @@ export class EditorStateService {
     patch.whiteBalancePreset = 'As Shot';
     patch.profile = 'Auto';
 
+    if (this.currentAdjustment()?.inpaintRemovals) return this.removal.resetAll(patch);
     this.commit('reset', 'Reset all adjustments');
     this.library.updateAdjustment(id, patch);
     this.endEdit();

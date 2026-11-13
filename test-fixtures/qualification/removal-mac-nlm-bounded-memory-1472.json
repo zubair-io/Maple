@@ -1,0 +1,389 @@
+{
+  "issue": 1472,
+  "date": "2026-10-02",
+  "baseRevision": "05bb9233e450ff0c57b5428db7693156b2877eec",
+  "scope": "Mac-first bounded NLM scratch for native Auto fitting and full-resolution export; no Auto fit policy, color math, GPU stage, ABI or model change",
+  "finalSourceHashes": {
+    "src/raw-pipeline/raw-core/src/stages/nlm.rs": "c7718f6fb3ec86cad1b42cf1c6f6f51e57838d97872a4a96b02e8c38e0de70ad",
+    "src/raw-pipeline/raw-core/src/stages/nlm_bounded.rs": "bdb9d26148182e35b81f051039008d5a69c5532bc95fdf1afe148330474cab4e",
+    "src/raw-pipeline/raw-core/src/stages/nlm_shift.rs": "33474798ed7f8fc19ed42a741c3000089b5777fc2b3b06d663dc14866c350d10",
+    "src/raw-pipeline/raw-core/src/stages/nlm_radius.rs": "7b7498fffc7f0b645496baeedf65546fa66244d970c804162ed6d891ce837e0a",
+    "src/raw-pipeline/raw-core/src/stages/nlm_tests_bounded.rs": "d621d4a244c9a4de1527f96c3b0da6f217b0ae9ff3f3134370e27407841f67c1",
+    "src/raw-pipeline/raw-core/examples/nlm_bench.rs": "9ef262676498afedafef8271be9b1614ed7b30b0885a932db54b1e483b2cf700"
+  },
+  "device": {
+    "model": "Mac17,6",
+    "cpu": "Apple M5 Max",
+    "ramBytes": 137438953472,
+    "macOS": "27.0",
+    "osBuild": "26A428"
+  },
+  "implementation": {
+    "dispatch": "Full-plane weight/radius metadata estimate above 256 MiB; small viewport planes retain original parallel-strip path",
+    "workers": "Persistent 512x256 output tiles; atomic tile queue keeps workers busy; output mutex held only while copying finished rows",
+    "scratch": "256 MiB target excludes input and required output; at least one worker, so unusual public patch radii may exceed target",
+    "arithmetic": "Original global adaptive vertical seeds, horizontal reseed phase, dy/dx order, dynamic radii, borders and self-weight normalization preserved",
+    "cancellation": "Check between regional shifts; discard entire partial/completed output on cancellation; no per-pixel atomic or partial publication",
+    "allocation": "All plane and worker buffers allocated before tile/shift loops; no full-frame weight, max-weight or dynamic-radius planes in bounded path"
+  },
+  "validation": {
+    "frozenFloatOutputs": {
+      "cases": 11,
+      "components": 432497794,
+      "bitIdentical": true,
+      "fixedCases": [
+        {
+          "case": "maple-removal-nlm-bounded-final-1472_chroma_1024x768.f32",
+          "components": 786432,
+          "sha256": "7df87ce320d552e99889b7173ef8ed8092efb15270542dd94357f414291d6ba0"
+        },
+        {
+          "case": "maple-removal-nlm-bounded-final-1472_chroma_257x193.f32",
+          "components": 49601,
+          "sha256": "02363c4e54e8c32ab15edc64f68b2b5f65cde26370a58936d0ece7b7ceae35ac"
+        },
+        {
+          "case": "maple-removal-nlm-bounded-final-1472_chroma_4000x3000.f32",
+          "components": 12000000,
+          "sha256": "f0acce79d2085a2ed9bb8d3c339403dd94b912047b56f6bfb6024e945313748f"
+        },
+        {
+          "case": "maple-removal-nlm-bounded-final-1472_luma_1024x768.f32",
+          "components": 786432,
+          "sha256": "0d2a64d662a865729254425d726f4fd9999204619a1f047f5aa95bc66ef3ab72"
+        },
+        {
+          "case": "maple-removal-nlm-bounded-final-1472_luma_2048x1536.f32",
+          "components": 3145728,
+          "sha256": "cba981b620cac7da3ca985698a35a1779e7a452c0147e3fefe57d685459fb316"
+        },
+        {
+          "case": "maple-removal-nlm-bounded-final-1472_luma_257x193.f32",
+          "components": 49601,
+          "sha256": "b21b30550d20b934d8c8febaaaabee0eee5f09673e266c406724393f77588e13"
+        },
+        {
+          "case": "maple-removal-nlm-bounded-final-1472_luma_4000x3000.f32",
+          "components": 12000000,
+          "sha256": "ccf3e42f68e91deeac11c083114844d44c84503fe66f8159a254c569bccc4d04"
+        }
+      ],
+      "full100MPCases": [
+        {
+          "case": "classic",
+          "components": 100920000,
+          "blake3F32LE": "504ea13489e2542aea82a6b4b368e400e5e170fe7e3625d55134c5095858f046",
+          "beforeMs": 1782.165708,
+          "afterMs": 2249.058416,
+          "beforePeakRSSBytes": 1840988160,
+          "afterPeakRSSBytes": 852377600
+        },
+        {
+          "case": "camera6",
+          "components": 100920000,
+          "blake3F32LE": "86a18c30964c01f09a0c5b26924f34183b13bab0b3e8f6b9a91da05320813768",
+          "beforeMs": 2051.725167,
+          "afterMs": 2589.073958,
+          "beforePeakRSSBytes": 2345746432,
+          "afterPeakRSSBytes": 859357184
+        },
+        {
+          "case": "camera8",
+          "components": 100920000,
+          "blake3F32LE": "86a18c30964c01f09a0c5b26924f34183b13bab0b3e8f6b9a91da05320813768",
+          "beforeMs": 2062.992375,
+          "afterMs": 2428.556208,
+          "beforePeakRSSBytes": 2345795584,
+          "afterPeakRSSBytes": 848756736
+        },
+        {
+          "case": "fallback",
+          "components": 100920000,
+          "blake3F32LE": "7ed2bacf2663349dc1eaaab3897b513481107b7f03cd568ead4c1d6ccbc1315d",
+          "beforeMs": 2104.984708,
+          "afterMs": 2843.939708,
+          "beforePeakRSSBytes": 2345730048,
+          "afterPeakRSSBytes": 843513856
+        }
+      ]
+    },
+    "boundedKernel": "5 new tests: forced regional/full-path bit comparisons across 1/3/7/23 workers, column/row boundaries, positive/negative/HDR inputs, camera6/camera8/fallback profiles, zero ISO, partial guides, byte-radius boundary, scratch extent and whole-input cancellation",
+    "rust": {
+      "core": {
+        "passed": 2606,
+        "failed": 0,
+        "ignored": 92,
+        "seconds": 34.26
+      },
+      "metal": {
+        "passed": 255,
+        "failed": 0,
+        "ignored": 3,
+        "seconds": 5.8
+      },
+      "ffi": {
+        "passed": 266,
+        "failed": 0,
+        "ignored": 1,
+        "seconds": 68.86
+      }
+    },
+    "nativeLibrary": {
+      "profile": "release",
+      "inputHash": "656b69c6467961b71b261efa261243b93aa757a0",
+      "slices": 4,
+      "symbols": 159,
+      "fresh": true
+    },
+    "macBuild": "BUILD SUCCEEDED",
+    "appleCI": {
+      "classes": 247,
+      "passed": 2028,
+      "failed": 0,
+      "skipped": 0,
+      "seconds": 31.289
+    },
+    "fullExports": {
+      "passed": 6,
+      "failed": 0,
+      "skipped": 0,
+      "dimensions": [
+        12288,
+        8192
+      ],
+      "RGBChannelsComparedPerCase": 301989888,
+      "maximumChannelError": 1,
+      "channelsOver1": 0,
+      "allDeliveryDigestsEqualBaseline": true,
+      "reports": [
+        {
+          "patchCount": 0,
+          "format": "png",
+          "bitsPerComponent": 8,
+          "exportMs": 9824.379,
+          "deliveryPeakRSSBytes": 8704933888,
+          "baselineDeliveryPeakRSSBytes": 11282464768,
+          "RSSReductionBytes": 2577530880,
+          "deliveredRGBADigest": "blake3:1a46b2300808083ef61a060ea30bcd4cf37d628fd5d4c60d2eeb2994e5aa3dfa",
+          "thermalState": "nominal",
+          "exportBytes": 180860108
+        },
+        {
+          "patchCount": 1,
+          "format": "png",
+          "bitsPerComponent": 8,
+          "exportMs": 17020.70775,
+          "deliveryPeakRSSBytes": 9967566848,
+          "baselineDeliveryPeakRSSBytes": 12499042304,
+          "RSSReductionBytes": 2531475456,
+          "deliveredRGBADigest": "blake3:1aeb21b947f922775fe75cc8c77beba57c69a48bfba9d402daa7fe6c12385acc",
+          "thermalState": "nominal",
+          "exportBytes": 180334047
+        },
+        {
+          "patchCount": 10,
+          "format": "png",
+          "bitsPerComponent": 8,
+          "exportMs": 19596.829625,
+          "deliveryPeakRSSBytes": 10001186816,
+          "baselineDeliveryPeakRSSBytes": 12444172288,
+          "RSSReductionBytes": 2442985472,
+          "deliveredRGBADigest": "blake3:cfb4a621e57d160475fa0f06acea0868592846862d8dafa37abe4fb82f76e65b",
+          "thermalState": "fair",
+          "exportBytes": 176429974
+        },
+        {
+          "patchCount": 0,
+          "format": "tiff_16",
+          "bitsPerComponent": 16,
+          "exportMs": 8074.234459,
+          "deliveryPeakRSSBytes": 9208872960,
+          "baselineDeliveryPeakRSSBytes": 11778310144,
+          "RSSReductionBytes": 2569437184,
+          "deliveredRGBADigest": "blake3:bbf3a2c7d158ccd6129e7724e5840b2b21b31cdddc7539e6a13faf5dfc255933",
+          "thermalState": "fair",
+          "exportBytes": 805372698
+        },
+        {
+          "patchCount": 1,
+          "format": "tiff_16",
+          "bitsPerComponent": 16,
+          "exportMs": 14814.925292,
+          "deliveryPeakRSSBytes": 10444308480,
+          "baselineDeliveryPeakRSSBytes": 13004275712,
+          "RSSReductionBytes": 2559967232,
+          "deliveredRGBADigest": "blake3:feca77979ae8bb690cd9dec9daae18844e8c16e89f017468fa90199b57795210",
+          "thermalState": "fair",
+          "exportBytes": 805372698
+        },
+        {
+          "patchCount": 10,
+          "format": "tiff_16",
+          "bitsPerComponent": 16,
+          "exportMs": 14707.346541,
+          "deliveryPeakRSSBytes": 10441736192,
+          "baselineDeliveryPeakRSSBytes": 13076021248,
+          "RSSReductionBytes": 2634285056,
+          "deliveredRGBADigest": "blake3:1ba646bd9bc5cad241d8d949d07978ea3c175b6f761b5b07061619d7306dcabb",
+          "thermalState": "fair",
+          "exportBytes": 805372698
+        }
+      ]
+    },
+    "colorReferences": {
+      "cases": 40,
+      "passed": 39,
+      "failed": 1,
+      "allRowsEqualBaseline": true,
+      "existingFailure": "Neutral test_0011 bias, tracked in #3633; budgets unchanged, no new breach"
+    },
+    "ownedFixtures": {
+      "files": 24,
+      "allHashesUnchanged": true,
+      "manifest": "removal-mac-100mp-export-1472.json"
+    },
+    "originalRAWsUnchanged": true
+  },
+  "focusedDenoiseBenchmark": [
+    {
+      "case": "TICK luma  (2MP)",
+      "runs": 3,
+      "beforeMedianMs": 30.33,
+      "afterMedianMs": 27.96,
+      "afterRangeMs": [
+        27.87,
+        29.9
+      ]
+    },
+    {
+      "case": "TICK chroma(2MP)",
+      "runs": 3,
+      "beforeMedianMs": 60.04,
+      "afterMedianMs": 48.42,
+      "afterRangeMs": [
+        47.65,
+        50.79
+      ]
+    },
+    {
+      "case": "REFINE luma  (100MP)",
+      "runs": 3,
+      "beforeMedianMs": 1011.33,
+      "afterMedianMs": 1086.54,
+      "afterRangeMs": [
+        1068.64,
+        1115.74
+      ]
+    },
+    {
+      "case": "REFINE chroma(100MP)",
+      "runs": 3,
+      "beforeMedianMs": 1984.1,
+      "afterMedianMs": 1968.26,
+      "afterRangeMs": [
+        1955.48,
+        2001.88
+      ]
+    }
+  ],
+  "nativeAutoFitResources": [
+    {
+      "source": "test-fixtures/raws/removal-photographic/portrait.dng",
+      "sourceSha256": "4a4154b2595dc76a7d5e10cdcb65a386319e31647a585c23e262fe62b969c0fe",
+      "cap": "proxy",
+      "beforeFitMs": 167.86541699999998,
+      "afterFitMs": 169.577375,
+      "beforePeakRSSBytes": 952549376,
+      "afterPeakRSSBytes": 953237504,
+      "curveDigest": "36fe333ed9a0f35f60f700c055b19bf24ed4f6d80bb884d7c64cce7204bf85e7",
+      "residualDigest": "84588ddc9bc47523eebca8f7abb85233e372ec6510a45d3345e5e960c7d10f30"
+    },
+    {
+      "source": "test-fixtures/raws/removal-photographic/portrait.dng",
+      "sourceSha256": "4a4154b2595dc76a7d5e10cdcb65a386319e31647a585c23e262fe62b969c0fe",
+      "cap": "native",
+      "beforeFitMs": 2428.738167,
+      "afterFitMs": 2231.802333,
+      "beforePeakRSSBytes": 2834759680,
+      "afterPeakRSSBytes": 2137260032,
+      "curveDigest": "36fe333ed9a0f35f60f700c055b19bf24ed4f6d80bb884d7c64cce7204bf85e7",
+      "residualDigest": "91b35f4f7d5f84ff0c9d7d997d477596a858b005c22211d3f8b3adda2950ec9d"
+    },
+    {
+      "source": "test-fixtures/raws/dji-mavic3pro-100mp.dng",
+      "sourceSha256": "f4b60b3672bdf7ff7f4376fba9da1b1d22c925ebc3e16baa5fd4a64fa1045aa5",
+      "cap": "proxy",
+      "beforeFitMs": 401.86575000000005,
+      "afterFitMs": 392.48287500000004,
+      "beforePeakRSSBytes": 2792194048,
+      "afterPeakRSSBytes": 2789670912,
+      "curveDigest": "36fe333ed9a0f35f60f700c055b19bf24ed4f6d80bb884d7c64cce7204bf85e7",
+      "residualDigest": "9a1676071f6334cbd614f3bdb7dba19d048e5acb41902d5471dad9764efebecd"
+    },
+    {
+      "source": "test-fixtures/raws/dji-mavic3pro-100mp.dng",
+      "sourceSha256": "f4b60b3672bdf7ff7f4376fba9da1b1d22c925ebc3e16baa5fd4a64fa1045aa5",
+      "cap": "native",
+      "beforeFitMs": 6923.909207999999,
+      "afterFitMs": 7022.948125,
+      "beforePeakRSSBytes": 9186983936,
+      "afterPeakRSSBytes": 6601981952,
+      "curveDigest": "36fe333ed9a0f35f60f700c055b19bf24ed4f6d80bb884d7c64cce7204bf85e7",
+      "residualDigest": "c626d1700f6c546c62cb55b61d04343ee3cedf76001548ac2b8af48950baa049"
+    }
+  ],
+  "measurement": [
+    "Standalone timing uses deterministic noisy planes, release build and 18 Rayon workers; warm benchmarks have three samples, fresh-process digests one sample per profile.",
+    "Auto probe runs each source/cap in a fresh process with source pages warmed by digest verification; timings exclude initial RAW read and output hashing; RSS includes complete probe, excludes editor/GPU/inference residency.",
+    "Native exports each run in a fresh XCTest process with the rebuilt release native archive forcibly relinked; RSS covers production render/encode before verification, includes fixture staging/test runtime.",
+    "Focused probes preceded comment-only workspace/cancellation documentation edits; final-source Rust/native/App/export/reference gates passed afterward.",
+    "Cold standalone NLM points are slower by 18-35%; native 100MP Auto fit point is 1.4% slower, 39MP point is faster. This change reduces memory; it does not establish universal speed improvement.",
+    "Benchmark/probe timing is not live UI frame timing, p95, device-fleet qualification or a 16ms claim."
+  ],
+  "discardedCandidates": [
+    "Sequential row-tile worker limit: identical 403680000 floats, but approximately 2x slower fresh NLM; rejected.",
+    "Synchronized column waves: identical outputs and Auto artifacts; 100MP native fit 9732.33ms/6680412160B; rejected for scheduling overhead."
+  ],
+  "logManifestSha256": "67c0860b7daed9fdedecfe888423844c9680dac72612368a3305208ec9b30ae2",
+  "logPaths": [
+    "/tmp/maple-removal-nlm-bounded-core-20261002.log",
+    "/tmp/maple-removal-nlm-bounded-metal-20261002.log",
+    "/tmp/maple-removal-nlm-bounded-ffi-20261002.log",
+    "/tmp/maple-removal-nlm-bounded-xcframework-20261002.log",
+    "/tmp/maple-removal-nlm-bounded-native-fresh-20261002.log",
+    "/tmp/maple-removal-nlm-bounded-mac-build-20261002.log",
+    "/tmp/maple-removal-nlm-bounded-swift-ci-20261002.log",
+    "/tmp/maple-removal-nlm-bounded-export-driver-20261002.log",
+    "/tmp/maple-removal-nlm-bounded-color-baseline-20261002.log",
+    "/tmp/maple-removal-nlm-bounded-before-classic-1472.log",
+    "/tmp/maple-removal-nlm-bounded-before-camera6-1472.log",
+    "/tmp/maple-removal-nlm-bounded-before-camera8-1472.log",
+    "/tmp/maple-removal-nlm-bounded-before-fallback-1472.log",
+    "/tmp/maple-removal-nlm-bounded-steal-classic-1472.log",
+    "/tmp/maple-removal-nlm-bounded-steal-camera6-1472.log",
+    "/tmp/maple-removal-nlm-bounded-steal-camera8-1472.log",
+    "/tmp/maple-removal-nlm-bounded-steal-fallback-1472.log",
+    "/tmp/maple-removal-native-fit-profile-portrait-proxy-bounded-steal-20261002.log",
+    "/tmp/maple-removal-native-fit-profile-portrait-native-bounded-steal-20261002.log",
+    "/tmp/maple-removal-native-fit-profile-100mp-proxy-bounded-steal-20261002.log",
+    "/tmp/maple-removal-native-fit-profile-100mp-native-bounded-steal-20261002.log",
+    "/tmp/maple-removal-nlm-bounded-export-ZeroRemovalPNG-20261002.log",
+    "/tmp/maple-removal-nlm-bounded-export-OneRemovalPNG-20261002.log",
+    "/tmp/maple-removal-nlm-bounded-export-TenRemovalPNG-20261002.log",
+    "/tmp/maple-removal-nlm-bounded-export-ZeroRemovalTIFF-20261002.log",
+    "/tmp/maple-removal-nlm-bounded-export-OneRemovalTIFF-20261002.log",
+    "/tmp/maple-removal-nlm-bounded-export-TenRemovalTIFF-20261002.log",
+    "/tmp/maple-removal-nlm-bounded-before-bench-1472.log",
+    "/tmp/maple-removal-nlm-bounded-steal-bench-1472.log",
+    "/tmp/maple-removal-nlm-bounded-fixed-20261002.log",
+    "/tmp/maple-removal-nlm-bounded-steal-tests-20261002.log"
+  ],
+  "baselineProbeBinarySha256": "3d47a0c9efef7bb98d01a7123ac4662259e5305139c178d174f9c4901aa573d2",
+  "measuredProbeBinarySha256": "f1a64102ae36ab54235e3d4719897aec261aca160ae01e75a7e2d8b452208d51",
+  "limitations": [
+    "This proves bounded native scratch and unchanged controlled saved pixels; the 100MP accepted patches are synthetic compositor fixtures, not semantic removal-quality evidence.",
+    "PNG and TIFF16 container delivery verified against full RGB8 rendering within 1/255; no new full RGB16 precision claim.",
+    "Existing Neutral #3633 reference gate remains red; no push/PR/merge or release readiness claim.",
+    "Native fit remains diagnostic/control here. Preview/export Auto artifact convergence, consented labeled photographic corpus, model distribution, hardware tiers and release gates remain open; Mac is prioritized before ports."
+  ]
+}

@@ -204,6 +204,15 @@ describe('ToolDockComponent — vertical (default) orientation', () => {
     expect(groupEmitted).toBe(false);
   });
 
+  it('Remove arms its real panel and takes the exclusive control slot', () => {
+    const fixture = render({ activeGroup: 'detail', activeTool: 'remove' });
+    const emit = vi.spyOn(fixture.componentInstance.toolChange, 'emit');
+    const button = buttonFor(fixture, 'Remove');
+    expect(button.disabled).toBe(false);
+    button.click();
+    expect(emit).toHaveBeenCalledWith('remove');
+  });
+
   it('Heal arms the heal tool directly (#3409)', () => {
     const fixture = render({});
     let armed: ToolId | null = null;
@@ -452,8 +461,8 @@ describe('ToolDockComponent — Presets entry (#1815)', () => {
   });
 });
 
-describe('Apple 11-entry parity', () => {
-  it('renders exactly the eleven Apple entries in order, both orientations', () => {
+describe('Apple entries plus the tracked Web Remove experiment', () => {
+  it('renders the Apple entries followed by experimental Remove, both orientations', () => {
     const expected = [
       'Light',
       'Color',
@@ -467,6 +476,7 @@ describe('Apple 11-entry parity', () => {
       'Presets',
       'Mask',
       'Heal',
+      'Remove',
     ];
     for (const orientation of ['vertical', 'horizontal'] as const) {
       const fixture = render({ orientation });

@@ -4,6 +4,7 @@
 // File naming: <raw-basename>.xmp (lowercase extension) in the same folder.
 // Writes via temp → rename so partial writes are never visible.
 
+import Darwin
 import Foundation
 
 // MARK: - XMPSidecarStore
@@ -25,6 +26,7 @@ import Foundation
 /// ```
 public actor XMPSidecarStore: WorkflowSidecarStoreProtocol {
   let primarySidecarURL: URL
+  let rawURL: URL?
   let sidecarURL: URL
   let variantId: String
   private let afterPublication: (@Sendable () throws -> Void)?
@@ -40,6 +42,10 @@ public actor XMPSidecarStore: WorkflowSidecarStoreProtocol {
   var lineageHeadID = ""
   var stagedAdoption: StagedAdoption?
   let reconciliationHub = SidecarReconciliationHub()
+  /// The sidecar text this store last observed; hashed only when removal
+  /// authoring asks for a revision, never on an ordinary read or save.
+  var removalObservedXML: String??
+  var removalRecovery = LocalRemovalCommitRecovery()
   var pendingTask: Task<Void, Never>?
   var pendingModel: AdjustmentModel?
   var pendingCulling: CullingState?
@@ -57,6 +63,7 @@ public actor XMPSidecarStore: WorkflowSidecarStoreProtocol {
 
   public init(rawURL: URL) {
     self.primarySidecarURL = SidecarPath.sidecarURL(for: rawURL)
+    self.rawURL = rawURL
     self.sidecarURL = SidecarPath.sidecarURL(for: rawURL)
     self.variantId = WorkflowContract.primaryVariantID
     self.afterPublication = nil
@@ -64,6 +71,7 @@ public actor XMPSidecarStore: WorkflowSidecarStoreProtocol {
 
   /// PhotoKit's canonical App Support file shares the same writer (#4047).
   init(sidecarURL: URL, afterPublication: (@Sendable () throws -> Void)? = nil) {
+    self.rawURL = nil
     self.primarySidecarURL = sidecarURL
     self.sidecarURL = sidecarURL
     self.variantId = WorkflowContract.primaryVariantID
@@ -72,6 +80,11 @@ public actor XMPSidecarStore: WorkflowSidecarStoreProtocol {
 
   /// Bind the existing writer to a validated UUID sibling, including Photos' canonical root (#4063).
   public init(primarySidecarURL: URL, variantId: String) throws {
+    try self.init(primarySidecarURL: primarySidecarURL, variantId: variantId, rawURL: nil)
+  }
+
+  init(primarySidecarURL: URL, variantId: String, rawURL: URL?) throws {
+    self.rawURL = rawURL
     self.primarySidecarURL = primarySidecarURL
     let filename = try WorkflowSidecarCore.variantFilename(
       primaryName: primarySidecarURL.lastPathComponent, variantId: variantId)
@@ -100,6 +113,7 @@ public actor XMPSidecarStore: WorkflowSidecarStoreProtocol {
       observedSidecarXML = nil
       hasObservedSidecar = true
       lineageHeadID = ""
+      removalObservedXML = .some(nil)
       return nil
     }
     let result = try readFromDisk()
@@ -157,10 +171,42 @@ public actor XMPSidecarStore: WorkflowSidecarStoreProtocol {
     pendingTask = nil
     task?.cancel()
     _ = await task?.result
-    try writeAtomically(model: model, culling: culling, durable: true)
+    let saved = try writeAtomically(model: model, culling: culling, durable: true)
     pendingModel = nil
     pendingCulling = nil
-    cached = (model, culling)
+    cached = (saved, culling)
+  }
+
+  /// Confirm an accepted stack only after its companions were published.
+  /// Comparing the loaded stack under the same lock as every local write
+  /// prevents an older Maple writer from replacing a newer removal (#3940).
+  public func removalRevision() throws -> RemovalSidecarRevision {
+    let xml = try existingSidecarXML(at: sidecarURL)
+    if let observed = removalObservedXML,
+      observed.map({ Data($0.utf8) }) != xml.map({ Data($0.utf8) })
+    {
+      // A retry cannot bless changed external XML while retaining the old
+      // in-memory adjustment model. Reopen the photo to hydrate a new session.
+      throw RemovalError.saveConflict
+    }
+    removalObservedXML = xml
+    return try RemovalSidecarRevision(xml: xml)
+  }
+
+  public func writeRemovalConfirmed(
+    records: String, expectedRecords: String, model: AdjustmentModel, culling: CullingState,
+    expectedSidecarRevision: RemovalSidecarRevision? = nil
+  ) throws {
+    _ = try RemovalBridge.assetNames(records: records)
+    pendingTask?.cancel()
+    pendingTask = nil
+    pendingModel = nil
+    pendingCulling = nil
+    let saved = try writeAtomically(
+      model: model, culling: culling, durable: true, removalChange: (expectedRecords, records),
+      expectedSidecarRevision: expectedSidecarRevision)
+    cached = (saved, culling)
+    removalRecovery.clear()
   }
 
   /// Returns an async stream of errors encountered during background writes.
@@ -205,6 +251,7 @@ public actor XMPSidecarStore: WorkflowSidecarStoreProtocol {
       observedSidecarXML = nil
       hasObservedSidecar = true
       lineageHeadID = ""
+      removalObservedXML = .some(nil)
       return (.default, CullingState())
     }
     let data = try Data(contentsOf: sidecarURL)
@@ -214,39 +261,80 @@ public actor XMPSidecarStore: WorkflowSidecarStoreProtocol {
     observedSidecarXML = xml
     hasObservedSidecar = true
     lineageHeadID = head
+    removalObservedXML = xml
     return result
   }
 
   private func writePending() async {
-    guard let model = pendingModel, let culling = pendingCulling else { return }
-    do {
-      try writeAtomically(model: model, culling: culling, durable: false)
-      pendingModel = nil
-      pendingCulling = nil
-    } catch {
-      for subscriber in subscribers.values {
-        subscriber.yield(error)
+    // A removal-owned photo's lease can be briefly held by a peer writer; yield
+    // and retry rather than surfacing the contention as a failed save (#3940).
+    // A flush runs on its caller's task, so cancellation only ends the retries.
+    for attempt in 0..<50 {
+      guard attempt == 0 || !Task.isCancelled, let model = pendingModel,
+        let culling = pendingCulling
+      else { return }
+      do {
+        try writeAtomically(model: model, culling: culling, durable: false)
+        pendingModel = nil
+        pendingCulling = nil
+        return
+      } catch RemovalError.saveConflict where attempt < 49 {
+        do { try await Task.sleep(for: .milliseconds(10)) } catch { return }
+      } catch {
+        for subscriber in subscribers.values { subscriber.yield(error) }
+        return
       }
     }
   }
 
+  @discardableResult
   func writeAtomically(
-    model: AdjustmentModel, culling: CullingState, durable: Bool
-  ) throws {
-    try coordinateSidecarWrite(reconciling: true) { destination, existing in
-      try self.writeSidecar(
-        model: model, culling: culling, existingXML: existing, at: destination, durable: durable)
+    model: AdjustmentModel, culling: CullingState, durable: Bool,
+    removalChange: (expected: String, records: String)? = nil,
+    expectedSidecarRevision: RemovalSidecarRevision? = nil
+  ) throws -> AdjustmentModel {
+    try coordinateSidecarWrite(reconciling: true, removalChange: removalChange != nil) {
+      destination, existing in
+      let attempt = removalChange.map {
+        LocalRemovalCommitAttempt(
+          model: model, expected: $0.expected, records: $0.records,
+          revision: expectedSidecarRevision)
+      }
+      if let existing { try self.requireVariantWorkflow(in: existing) }
+      if let recovered = try self.removalRecovery.recover(
+        attempt, xml: existing, rawURL: self.rawURL, at: destination)
+      {
+        self.pendingSemanticEdits.removeAll()
+        self.pendingMetadata = nil
+        self.removalObservedXML = existing
+        return recovered
+      }
+      if let expectedSidecarRevision,
+        try RemovalSidecarRevision(xml: existing) != expectedSidecarRevision
+      {
+        throw RemovalError.saveConflict
+      }
+      return try self.writeSidecar(
+        model: model, culling: culling, existingXML: existing, at: destination,
+        durable: durable || removalChange != nil, removalChange: removalChange, attempt: attempt)
     }
   }
 
   /// A save the file no longer matches is merged onto it, never refused (#4983).
+  @discardableResult
   func writeSidecar(
     model: AdjustmentModel, culling: CullingState, existingXML: String?, at destination: URL,
-    durable: Bool
-  ) throws {
+    durable: Bool, removalChange: (expected: String, records: String)? = nil,
+    attempt: LocalRemovalCommitAttempt? = nil
+  ) throws -> AdjustmentModel {
+    if attempt == nil { try removalRecovery.requireOrdinaryWrite(xml: existingXML) }
     if let existingXML { try requireVariantWorkflow(in: existingXML) }
-    let incoming = serializedSidecar(model: model, culling: culling, existingXML: existingXML)
-    let reconciled = try reconcile(incoming: incoming, existing: existingXML)
+    let serialized = try serializedSidecarAndModel(
+      model: model, culling: culling, existingXML: existingXML, removalChange: removalChange)
+    let incoming = serialized.xml
+    let reconciled =
+      removalChange == nil
+      ? try reconcile(incoming: incoming, existing: existingXML) : (xml: incoming, merged: false)
     let xml = try appendingSemanticHistory(to: reconciled.xml, merged: reconciled.merged)
     let adoption =
       reconciled.merged && reconciliationHub.hasSubscribers
@@ -254,11 +342,14 @@ public actor XMPSidecarStore: WorkflowSidecarStoreProtocol {
         represented: incoming, document: ReconciledSidecar(xml: xml, model: model, culling: culling)
       )
       : nil
+    if let attempt { removalRecovery.begin(attempt, xml: xml, priorXML: existingXML) }
     try publishSidecarXML(
       xml, at: destination, durable: durable, adoption: adoption,
       unchanged: reconciled.merged && xml == existingXML)
+    let saved = serialized.model
     pendingSemanticEdits.removeAll()
     pendingMetadata = nil
+    return saved
   }
 
   func requirePrimaryAbsence() throws {
@@ -272,28 +363,32 @@ public actor XMPSidecarStore: WorkflowSidecarStoreProtocol {
   /// Cooperate with separate editor/variant store instances on this same file.
   /// A `reconciling` writer decides for itself what to do with a file that no
   /// longer matches the observed revision; every other writer is refused.
+  /// Removal-owned photos additionally take the persistent lease (#3940).
   func coordinateSidecarWrite<T>(
-    reconciling: Bool = false, _ write: (URL, String?) throws -> T
+    reconciling: Bool = false, removalChange: Bool = false, _ write: (URL, String?) throws -> T
   ) throws -> T {
-    let coordinator = NSFileCoordinator(filePresenter: nil)
-    var error: NSError?
-    var result: Result<T, Error>?
-    coordinator.coordinate(writingItemAt: sidecarURL, options: [], error: &error) { url in
-      result = Result {
-        let existing = try self.existingSidecarXML(at: url)
-        if existing == nil { try self.requirePrimaryAbsence() }
-        if !reconciling, self.hasObservedSidecar, existing != self.observedSidecarXML {
-          throw XMPStoreError.externalConflict(self.sidecarURL)
+    try withRemovalLease(removalChange: removalChange) { needsLease in
+      let coordinator = NSFileCoordinator(filePresenter: nil)
+      var error: NSError?
+      var result: Result<T, Error>?
+      coordinator.coordinate(writingItemAt: sidecarURL, options: [], error: &error) { url in
+        result = Result {
+          let existing = try self.existingSidecarXML(at: url)
+          if existing == nil { try self.requirePrimaryAbsence() }
+          if !reconciling, self.hasObservedSidecar, existing != self.observedSidecarXML {
+            throw XMPStoreError.externalConflict(self.sidecarURL)
+          }
+          return try needsLease(existing)
+            ? self.holdingRemovalLease { try write(url, existing) } : write(url, existing)
         }
-        return try write(url, existing)
       }
+      if let error { throw error }
+      guard let result else {
+        throw WorkflowSidecarError(
+          message: "Unable to coordinate the sidecar save. Reopen and retry.")
+      }
+      return try result.get()
     }
-    if let error { throw error }
-    guard let result else {
-      throw WorkflowSidecarError(
-        message: "Unable to coordinate the sidecar save. Reopen and retry.")
-    }
-    return try result.get()
   }
 
   /// Keep the observed XMP revision stable while a local derivative is written.
@@ -322,8 +417,20 @@ public actor XMPSidecarStore: WorkflowSidecarStoreProtocol {
   }
 
   func serializedSidecar(
-    model: AdjustmentModel, culling: CullingState, existingXML: String?
-  ) -> String {
+    model: AdjustmentModel, culling: CullingState, existingXML: String?,
+    removalChange: (expected: String, records: String)? = nil
+  ) throws -> String {
+    try serializedSidecarAndModel(
+      model: model, culling: culling, existingXML: existingXML, removalChange: removalChange
+    ).xml
+  }
+
+  /// The serialized sidecar and the model it actually carries: an ordinary
+  /// save keeps the accepted removal stack already on disk.
+  private func serializedSidecarAndModel(
+    model: AdjustmentModel, culling: CullingState, existingXML: String?,
+    removalChange: (expected: String, records: String)?
+  ) throws -> (xml: String, model: AdjustmentModel) {
     // Non-destructive: a model/culling-only write must NOT drop an existing
     // IPTC/EXIF metadata block (e.g. one authored by the batch editor). Use
     // the pending metadata if this write carries one, otherwise preserve
@@ -337,16 +444,55 @@ public actor XMPSidecarStore: WorkflowSidecarStoreProtocol {
     // Likewise for every field Maple does not model at all (#2233) — the
     // Lightroom masks, history, snapshots and display-referred curves that
     // this writer used to delete on the first slider nudge.
-    let passthrough = existingXML.map(XMPParser.parsePassthrough) ?? .empty
+    let passthroughOnDisk = existingXML.map(XMPParser.parsePassthrough) ?? .empty
+    let existingRemoval = try existingXML.flatMap {
+      RemovalXMPRecords.mayCarryRecords($0) ? try RemovalXMPRecords.field(Data($0.utf8)) : nil
+    }
+    let canonicalRemovalName = "papp:InpaintRemovals"
+    // Canonical serialization binds papp to Maple. A foreign namespace using
+    // that spelling cannot become a Maple edit or be silently discarded.
+    if existingRemoval?.name != canonicalRemovalName || existingRemoval?.propertyNamespaces != nil,
+      passthroughOnDisk.unknownAttributes.contains(where: { $0.name == canonicalRemovalName })
+    {
+      throw RemovalError.invalid("Foreign removal attribute conflicts with Maple's XMP namespace")
+    }
+    if let existingRemoval, !existingRemoval.primary {
+      throw RemovalError.invalid(
+        "Removal records outside the primary XMP description cannot be rewritten safely")
+    }
+    if let removalChange {
+      guard let rawURL else { throw RemovalError.invalid("Removal requires a local RAW") }
+      let current = existingRemoval?.records ?? "[]"
+      guard current == removalChange.expected else { throw RemovalError.saveConflict }
+      // Clearing the stack must still refer to the same original. Verifying
+      // only the empty target would lose this binding during undo/reset.
+      try RemovalBridge.verifySource(records: current, rawURL: rawURL)
+      try RemovalBridge.verifySource(records: removalChange.records, rawURL: rawURL)
+      // A valid restored file need not have a durable publication receipt.
+      // Redo/restore can bypass publish, so verify and sync every target asset
+      // and its carrier under this writer lock before publishing XMP (#3940).
+      try LocalRemovalAssetStore.synchronizeAssets(records: removalChange.records, rawURL: rawURL)
+    }
+    // Ordinary saves preserve the disk stack even when their incoming model
+    // is stale. Only the verified CAS route above can change accepted pixels.
+    var savedModel = model
+    savedModel.inpaintRemovals = try (removalChange?.records ?? existingRemoval?.records).map {
+      try RemovalRecords(json: $0)
+    }
+    // Explicit clearing uses the default (absent) representation so an undo
+    // snapshot and a newly reopened model are equal, not nil versus empty.
+    if removalChange != nil, savedModel.inpaintRemovals?.isEmpty == true {
+      savedModel.inpaintRemovals = nil
+    }
     let xml: String
     if let metadata, !metadata.isEmpty {
       xml = XMPSerializer.serialize(
-        model: model, culling: culling, metadata: metadata, passthrough: passthrough)
+        model: savedModel, culling: culling, metadata: metadata, passthrough: passthroughOnDisk)
     } else {
       xml = XMPSerializer.serialize(
-        model: model, culling: culling, passthrough: passthrough)
+        model: savedModel, culling: culling, passthrough: passthroughOnDisk)
     }
-    return xml
+    return (xml, savedModel)
   }
 
   /// `adoption` publishes a merge the editor still has to adopt: until it
@@ -364,6 +510,7 @@ public actor XMPSidecarStore: WorkflowSidecarStoreProtocol {
     observedSidecarXML = adoption?.represented ?? xml
     hasObservedSidecar = true
     lineageHeadID = head
+    removalObservedXML = xml
     stagedAdoption = adoption.map { StagedAdoption(published: xml, document: $0.document) }
     if let adoption { reconciliationHub.publish(adoption.document) }
     try afterPublication?()

@@ -77,6 +77,7 @@ struct ToolDock: View {
           tool: .heal,
           onPresetsTap: onPresetsTap
         )
+        SpecialDockButton(state: state, tool: .remove, onPresetsTap: onPresetsTap)
       }
       .padding(horizontal ? .horizontal : .vertical, 10)
     }
@@ -188,6 +189,7 @@ extension Tool {
     if self == .filmLook { return !model.filmLook.isEmpty }
     if self == .mask { return !model.localAdjustments.isEmpty }
     if self == .heal { return !model.retouchSpots.isEmpty }
+    if self == .remove { return model.inpaintRemovals?.isEmpty == false }
     guard isWired else { return false }
     let subs = subParams
     if !subs.isEmpty {

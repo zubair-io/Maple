@@ -30,6 +30,23 @@ function setup() {
 }
 
 describe('retained native-detail client', () => {
+  it('detaches canvas reuse without closing the shared authoring owner', async () => {
+    const s = setup();
+    const revision = s.client.revision();
+    const initial = s.client.render(s.args, revision);
+    s.settle();
+    await initial;
+    s.worker.postMessage.mockClear();
+    s.client.detach();
+    expect(s.worker.postMessage).not.toHaveBeenCalled();
+    await expect(s.client.render(s.args, revision)).rejects.toThrow('superseded');
+    const next = s.client.render(s.args, s.client.revision());
+    expect(s.worker.postMessage.mock.lastCall?.[0].bytes).toBeInstanceOf(ArrayBuffer);
+    s.settle();
+    await next;
+    s.client.close();
+    expect(s.worker.postMessage.mock.lastCall?.[0].type).toBe('close-native-detail');
+  });
   it('transfers a copy once and retains originals across pan requests', async () => {
     const s = setup();
     let promise = s.client.render(s.args, s.client.revision());
@@ -55,6 +72,15 @@ describe('retained native-detail client', () => {
     s.client.close();
     expect(s.worker.postMessage.mock.lastCall?.[0].type).toBe('close-native-detail');
     await expect(s.client.render(s.args, revision)).rejects.toThrow('superseded');
+  });
+
+  it('releases a retained removal-only mosaic even when no tile used this client', () => {
+    const s = setup();
+    s.client.close(s.worker as unknown as Worker);
+    expect(s.worker.postMessage).toHaveBeenCalledExactlyOnceWith({
+      id: 1,
+      type: 'close-native-detail',
+    });
   });
 
   it('resends RAW after a worker crash and leaves no pending entry after postMessage failure', async () => {

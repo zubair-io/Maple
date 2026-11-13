@@ -1,0 +1,60 @@
+{
+  "schema": 1,
+  "issue": 3984,
+  "epic": 1472,
+  "parent_commit": "24169ecabb230ddeb071761deba35bc94252c0ef",
+  "qualification": "Mac removal failure feedback and selection-choice clarity; larger-object support remains unfinished",
+  "source_sha256": {
+    "src/apple/Maple/Views/Removal/RemovalPanel.swift": "f6d6de58975df51a4f0492a58e4ce0c55e6c66ae8d15ae552a5e59bf869b35f6",
+    "src/apple/Packages/MapleCore/Sources/MapleCore/Removal/RemovalBridge.swift": "6a22f1aefb70dc479fd6e1015f46e96dc09ae2e42bbd5a09c285af491204d3da",
+    "src/apple/Packages/MapleCore/Sources/MapleCore/Removal/RemovalSession.swift": "7b2201c6f1721f2a2b506cf01d9a39ec39efa00cb55c38501eb192df742c1f75",
+    "src/apple/Packages/MapleCore/Sources/MapleCore/Removal/RemovalSession+Inference.swift": "877673e21e693639085de22ae56d9e4b449ca54850166da5c92dffebc6deefd4",
+    "src/apple/Packages/MapleCore/Tests/MapleCoreTests/RemovalSessionTests.swift": "75c81622771e6dfe4b954cc3be1aaea9b1d3c5675d302369f753ea9573af7e8b",
+    "src/apple/Packages/MapleCore/Tests/MapleCoreTests/RemovalGenerationBridgeTests.swift": "c17de8f7dedc1bcb2ae0cad46a7c591d14878bbb0e2f0bdc285a724d3c08e7c8"
+  },
+  "observed_failure": "User screenshot shows removal generation: selection and expansion exceed native context; foreground subject marked Remove and other people Keep",
+  "changes": [
+    "Explicit Remove Person checkboxes replace ambiguous Keep/Remove toggle buttons",
+    "Detected and marked-Remove counts plus green/red legend",
+    "Person-choice changes explain Apply step and cannot enable reconstruction before successful apply",
+    "Missing selection/model/context reports an actionable reason rather than a silent early return",
+    "Model extent failure uses generated nativeSide and a readable explanation; status adjacent to Remove and visible progress during work"
+  ],
+  "validation": {
+    "final_focused": {
+      "passed": 31,
+      "failed": 0,
+      "skipped": 0,
+      "log": "/tmp/maple-removal-noop-errors-final-tests.log"
+    },
+    "actual_model_authoring_and_lifecycle": {
+      "passed": 20,
+      "failed": 0,
+      "skipped": 0,
+      "log": "/tmp/maple-removal-noop-focused-tests.log"
+    },
+    "ci_regressions": {
+      "classes": 249,
+      "passed": 2057,
+      "failed": 0,
+      "skipped": 0,
+      "log": "/tmp/maple-removal-noop-regressions-20261002.log"
+    },
+    "mac_build": {
+      "success": true,
+      "log": "/tmp/maple-removal-noop-fix-final-mac.log",
+      "app": "/tmp/maple-removal-noop-fix-build-20261002/Build/Products/Debug/Maple.app"
+    },
+    "ios_simulator_compile": {
+      "success": true,
+      "log": "/tmp/maple-removal-noop-ios-final-20261002.log"
+    },
+    "native_ui": "Updated panel opened on a disposable 39MP RAW in an isolated sandboxed test identity. CUA input was interrupted by user activity; no completed new native removal workflow is claimed."
+  },
+  "limitations": [
+    "The experimental reconstruction still requires each object plus expansion to fit the pinned 1024-source-pixel context; no silent resizing or larger-object support was added",
+    "Foreground is selected in the supplied screenshot; user must review intended keep/remove choices",
+    "No Rust/math/ABI/XMP/model pin or releaseQualified changes; photographic/hardware quality and performance remain unqualified",
+    "Original user photo and sidecar were not changed by this work; test RAW copies only"
+  ]
+}

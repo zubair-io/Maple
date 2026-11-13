@@ -145,7 +145,9 @@ describe('trashFolderRecursive / restoreFolderRecursive — nested-tree round tr
     expect(assetRow(live.db, idOther)?.deleted_at).toBeNull();
 
     // Now-empty source subtree (vacation/, vacation/beach/) was cleaned up
-    // best-effort; photos/2024 survives (still holds other.dng).
+    // best-effort; photos/2024 survives (still holds other.dng). Photos
+    // without accepted removals take no kernel lease, so no coordination
+    // inode is left behind to keep the directories alive (#1472).
     expect(await exists('photos/2024/vacation')).toBe(false);
     expect(await exists('photos/2024')).toBe(true);
 

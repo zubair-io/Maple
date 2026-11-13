@@ -2,6 +2,7 @@ import type { DecodedImage } from '../../raw-pipeline/raw-pipeline.types';
 import { settleFailedAutoFit } from './image-canvas.fit-failure';
 import { coldOpenRenderedModel } from './image-canvas.cold-open-intent';
 import { hasCalibratedWhiteBalance } from '../../state/camera-support';
+import type { SavedRemovalRenderService } from '../../removal/saved-removal-render.service';
 // image-canvas.render2d.ts — the 2D-canvas decode/paint paths for
 // ImageCanvasComponent, extracted behind a host interface so the component
 // stays inside the file-size budget. Same precedent as image-canvas.gpu-present.ts
@@ -23,6 +24,7 @@ import { isDefaultAdjustment, type AdjustmentModel } from '../../models/adjustme
 import type { RenderSizing } from './image-canvas.two-phase';
 import type { ImageCanvasNativeDetail } from './image-canvas.native-detail';
 import type { ImageCanvasFilmSync } from './image-canvas.film';
+import { savedRemovalRecords } from '../../removal/saved-removal-records';
 import { imageDataToBitmap } from '../../raw-pipeline/image-utils';
 
 /**
@@ -34,6 +36,7 @@ export interface Render2dHost {
   readonly state: LibraryStateService;
   readonly canvasSvc: ImageCanvasService;
   readonly pipeline: RawPipelineService;
+  readonly savedRemovals?: SavedRemovalRenderService;
   /** #3171 — `runRender2d` reads `cpuLutBytesForCurrent()` off this for the
    *  focused asset's currently-resolved film-look LUT bytes. */
   readonly filmSync: ImageCanvasFilmSync;
@@ -130,8 +133,15 @@ export async function coldOpen2d(
     // pixels land at viewport resolution; the refine pass sharpens past fit.
     const openModel = host.state.adjustmentFor(assetId)();
     const serializeOpened = host.captureRenderSerializer();
-    const openXmp = isDefaultAdjustment(openModel) ? undefined : serializeOpened(openModel);
-    const decoded = await host.pipeline.decode(bytes, ext, openXmp, sizing.maxLongEdge, true);
+    const serializedOpenXmp = serializeOpened(openModel);
+    const openXmp =
+      isDefaultAdjustment(openModel) && !savedRemovalRecords(serializedOpenXmp)
+        ? undefined
+        : serializedOpenXmp;
+    const decoded =
+      openXmp && savedRemovalRecords(openXmp) && host.savedRemovals
+        ? await host.savedRemovals.render(assetId, bytes, ext, openXmp, sizing.maxLongEdge, true)
+        : await host.pipeline.decode(bytes, ext, openXmp, sizing.maxLongEdge, true);
     if (!ownsRequest()) return;
 
     const bitmap = await imageDataToBitmap(decoded);
@@ -141,6 +151,11 @@ export async function coldOpen2d(
     }
     host.imageBitmap()?.close();
     host.imageBitmap.set(bitmap);
+    host.canvasSvc.cropInputDimensions.set(
+      decoded.cropInputWidth && decoded.cropInputHeight
+        ? { w: decoded.cropInputWidth, h: decoded.cropInputHeight }
+        : null,
+    );
     host.canvasSvc.currentPixels.set(decoded);
     publishColdOpenMetadata(host, assetId, decoded, openModel, fitRevision, serializeOpened);
     host.nativeDetail?.recordBase({
@@ -256,14 +271,25 @@ export async function runRender2d(
   const fitRevision = fitAsset ? state.autoFitRevisionFor(fitAsset) : undefined;
   try {
     const filmLut = host.filmSync.cpuLutBytesForCurrent();
-    const decoded = await host.pipeline.decode(
-      bytes,
-      ext,
-      xmp,
-      sizing.maxLongEdge,
-      sizing.qualityPreview,
-      filmLut,
-    );
+    const decoded =
+      host.currentAssetId && savedRemovalRecords(xmp) && host.savedRemovals
+        ? await host.savedRemovals.render(
+            host.currentAssetId,
+            bytes,
+            ext,
+            xmp,
+            sizing.maxLongEdge,
+            sizing.qualityPreview,
+            filmLut,
+          )
+        : await host.pipeline.decode(
+            bytes,
+            ext,
+            xmp,
+            sizing.maxLongEdge,
+            sizing.qualityPreview,
+            filmLut,
+          );
     // Stale guard: a newer edit (or asset switch) bumped the generation.
     if (generation !== host.renderGeneration || fitAsset !== host.currentAssetId) return;
 
@@ -275,6 +301,11 @@ export async function runRender2d(
     host.imageBitmap()?.close();
     host.imageBitmap.set(bitmap);
     host.canvasSvc.currentPixels.set(decoded);
+    host.canvasSvc.cropInputDimensions.set(
+      decoded.cropInputWidth && decoded.cropInputHeight
+        ? { w: decoded.cropInputWidth, h: decoded.cropInputHeight }
+        : null,
+    );
     // #3479: every render reply is authoritative about the imported profile
     // it consumed — the panel enables per calibrated family from this.
     if (host.currentAssetId)

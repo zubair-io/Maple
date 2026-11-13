@@ -13,6 +13,7 @@
 // the capture-sharpening pair is the one approved permanent platform
 // exception (`docs/features.md` §8).
 
+import { REMOVE_TOOL } from './editor-parity-manifest.remove';
 import type { ParityCapability } from './editor-parity-types';
 import { COLOR_TOOLS, LIGHT_TOOLS } from './editor-parity-manifest.light-color';
 import { DETAIL_TOOLS, EFFECTS_TOOLS } from './editor-parity-manifest.effects-detail';
@@ -22,4 +23,5 @@ export const TOOL_CAPABILITIES: readonly ParityCapability[] = [
   ...COLOR_TOOLS,
   ...EFFECTS_TOOLS,
   ...DETAIL_TOOLS,
+  REMOVE_TOOL,
 ];

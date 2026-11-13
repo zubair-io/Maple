@@ -38,6 +38,8 @@ import {
   SidecarWriteBindingChangedError,
   waitForAbortable,
 } from './sidecar-write-order';
+import { withSidecarMutationLease } from './sidecar-mutation-lease.ts';
+import { removalStackChanged } from './removal-records.ts';
 
 /**
  * First 16 hex chars of sha256(text) — the stem of the RETIRED hashed thumb
@@ -74,7 +76,7 @@ export async function preparePrimarySidecarWrite(
   sidecar: string,
   xmlContent: string,
   signal?: AbortSignal,
-): Promise<{ ok: true; data: string } | { ok: false; error: string }> {
+): Promise<{ ok: true; data: string } | { ok: false; error: string; removalConflict?: true }> {
   const allowed = await authorizeUnlessAborted(sidecar, signal);
   if (!allowed.ok) return { ok: false, error: allowed.error ?? 'Sidecar path not allowed' };
   try {
@@ -85,6 +87,9 @@ export async function preparePrimarySidecarWrite(
       if (isMissingSidecar(error)) return null;
       throw error;
     });
+    // Ordinary saves cannot introduce, discard or replace accepted removal pixels.
+    if (removalStackChanged(existing, xmlContent))
+      return { ok: false, error: REMOVAL_STACK_CHANGED, removalConflict: true };
     return {
       ok: true,
       data: await prepareWorkflowWrite(existing, xmlContent, signal),
@@ -113,6 +118,15 @@ async function requirePrimarySidecarDestination(rawAbsPath: string): Promise<str
   return allowed.data;
 }
 
+const REMOVAL_STACK_CHANGED =
+  'Removal history changed; use a confirmed removal commit before saving this document';
+
+class RemovalStackChangedError extends Error {
+  constructor() {
+    super(REMOVAL_STACK_CHANGED);
+  }
+}
+
 async function publishPrimarySidecar(
   destination: string,
   xmlContent: string,
@@ -120,6 +134,7 @@ async function publishPrimarySidecar(
 ): Promise<OpResult<string>> {
   signal?.throwIfAborted();
   const prepared = await preparePrimarySidecarWrite(destination, xmlContent, signal);
+  if (!prepared.ok && prepared.removalConflict) throw new RemovalStackChangedError();
   if (!prepared.ok) return prepared;
   signal?.throwIfAborted();
   const result = await writeSidecarAtomic(destination, prepared.data, 'XMP write failed', signal);
@@ -134,19 +149,27 @@ export async function writeXmpAtomic(
   admissionScope?: SidecarWriteScope,
 ): Promise<OpResult<string> & { conflict?: boolean }> {
   try {
-    return await serializeSidecarWrite(
-      xmpSidecarPath(rawAbsPath),
-      (destination) => publishPrimarySidecar(destination, xmlContent, signal),
-      {
-        admissionScope,
-        signal,
-        resolveDestination: () => requirePrimarySidecarDestination(rawAbsPath),
-      },
+    return await withSidecarMutationLease(
+      rawAbsPath,
+      () =>
+        serializeSidecarWrite(
+          xmpSidecarPath(rawAbsPath),
+          (destination) => publishPrimarySidecar(destination, xmlContent, signal),
+          {
+            admissionScope,
+            signal,
+            resolveDestination: () => requirePrimarySidecarDestination(rawAbsPath),
+          },
+        ),
+      { incomingXml: xmlContent },
     );
   } catch (error) {
     return {
       ok: false,
-      ...(error instanceof SidecarWriteBindingChangedError ? { conflict: true } : {}),
+      ...(error instanceof SidecarWriteBindingChangedError ||
+      error instanceof RemovalStackChangedError
+        ? { conflict: true }
+        : {}),
       error: error instanceof Error ? error.message : String(error),
     };
   }
@@ -163,42 +186,44 @@ export async function updateXmpAtomic(
   admissionScope?: SidecarWriteScope,
 ): Promise<OpResult<'written' | 'unchanged'>> {
   try {
-    return await serializeSidecarWrite(
-      xmpSidecarPath(rawAbsPath),
-      async (destination) => {
-        const existing = await waitForAbortable(
-          readFileWithFailover(destination, readSidecarNoFollow),
+    return await withSidecarMutationLease(rawAbsPath, () =>
+      serializeSidecarWrite(
+        xmpSidecarPath(rawAbsPath),
+        async (destination) => {
+          const existing = await waitForAbortable(
+            readFileWithFailover(destination, readSidecarNoFollow),
+            signal,
+          ).then(
+            (xml): OpResult<string> => ({ ok: true, data: xml }),
+            (error: unknown): OpResult<string> =>
+              isMissingSidecar(error)
+                ? { ok: true, data: '' }
+                : {
+                    ok: false,
+                    error: `XMP read failed: ${error instanceof Error ? error.message : String(error)}`,
+                  },
+          );
+          if (!existing.ok) return { ok: false, error: existing.error };
+          const current = existing.data ?? '';
+          signal?.throwIfAborted();
+          const prepared = await preparePrimarySidecarWrite(destination, merge(current), signal);
+          if (!prepared.ok) return prepared;
+          if (prepared.data === current) return { ok: true, data: 'unchanged' };
+          signal?.throwIfAborted();
+          const result = await writeSidecarAtomic(
+            destination,
+            prepared.data,
+            'XMP write failed',
+            signal,
+          );
+          return result.ok ? { ok: true, data: 'written' } : { ok: false, error: result.error };
+        },
+        {
+          admissionScope,
           signal,
-        ).then(
-          (xml): OpResult<string> => ({ ok: true, data: xml }),
-          (error: unknown): OpResult<string> =>
-            isMissingSidecar(error)
-              ? { ok: true, data: '' }
-              : {
-                  ok: false,
-                  error: `XMP read failed: ${error instanceof Error ? error.message : String(error)}`,
-                },
-        );
-        if (!existing.ok) return { ok: false, error: existing.error };
-        const current = existing.data ?? '';
-        signal?.throwIfAborted();
-        const prepared = await preparePrimarySidecarWrite(destination, merge(current), signal);
-        if (!prepared.ok) return prepared;
-        if (prepared.data === current) return { ok: true, data: 'unchanged' };
-        signal?.throwIfAborted();
-        const result = await writeSidecarAtomic(
-          destination,
-          prepared.data,
-          'XMP write failed',
-          signal,
-        );
-        return result.ok ? { ok: true, data: 'written' } : { ok: false, error: result.error };
-      },
-      {
-        admissionScope,
-        signal,
-        resolveDestination: () => requirePrimarySidecarDestination(rawAbsPath),
-      },
+          resolveDestination: () => requirePrimarySidecarDestination(rawAbsPath),
+        },
+      ),
     );
   } catch (error) {
     return {
@@ -393,78 +418,89 @@ export async function writeXmpWithPrecondition(
   signal?: AbortSignal,
 ): Promise<XmpWriteOutcome> {
   try {
-    return await serializeSidecarWrite(
-      xmpSidecarPath(rawAbsPath),
-      async (sidecar) => {
-        signal?.throwIfAborted();
-        // Exclusive: the movers publish conflict copies under other barriers (#5071).
-        const writeConflictCopy = async (): Promise<XmpWriteOutcome> => {
-          for (let attempt = 0; attempt < CONFLICT_COPY_ATTEMPTS; attempt++) {
+    return await withSidecarMutationLease(
+      rawAbsPath,
+      () =>
+        serializeSidecarWrite<XmpWriteOutcome>(
+          xmpSidecarPath(rawAbsPath),
+          async (sidecar) => {
             signal?.throwIfAborted();
-            const conflictPath = await pickFreeConflictPath(rawAbsPath, deviceName, signal);
+            // Exclusive: the movers publish conflict copies under other barriers (#5071).
+            const writeConflictCopy = async (): Promise<XmpWriteOutcome> => {
+              for (let attempt = 0; attempt < CONFLICT_COPY_ATTEMPTS; attempt++) {
+                signal?.throwIfAborted();
+                const conflictPath = await pickFreeConflictPath(rawAbsPath, deviceName, signal);
+                signal?.throwIfAborted();
+                const written = await writeSidecarExclusive(
+                  conflictPath,
+                  xmlContent,
+                  'Conflict-copy write failed',
+                  signal,
+                );
+                if (written.ok)
+                  return {
+                    kind: 'conflict',
+                    conflictPath,
+                    conflictMtime: written.mtime,
+                  };
+                if (!('exists' in written)) return { kind: 'error', error: written.error };
+              }
+              return {
+                kind: 'error',
+                error: `Conflict-copy write failed: no free name beside ${rawAbsPath}`,
+              };
+            };
+
+            if (requireAbsent) {
+              const created = await writeSidecarCreateOnly(
+                sidecar,
+                xmlContent,
+                'XMP write failed',
+                signal,
+              );
+              if ('exists' in created) return writeConflictCopy();
+              return created.ok
+                ? { kind: 'ok', mtime: created.mtime }
+                : { kind: 'error', error: created.error };
+            }
+
+            if (ifMtimeMatchesEpoch !== null) {
+              let onDiskEpoch: number | null = null;
+              try {
+                const st = await waitForAbortable(fs.stat(sidecar), signal);
+                onDiskEpoch = Math.floor(st.mtimeMs / 1000);
+              } catch {
+                signal?.throwIfAborted();
+                onDiskEpoch = null;
+              }
+              if (onDiskEpoch !== ifMtimeMatchesEpoch) return writeConflictCopy();
+            }
+
+            const prepared = await preparePrimarySidecarWrite(sidecar, xmlContent, signal);
+            if (!prepared.ok && prepared.removalConflict) return writeConflictCopy();
+            if (!prepared.ok)
+              return {
+                kind: 'error',
+                error: prepared.error ?? 'Workflow validation failed',
+              };
             signal?.throwIfAborted();
-            const written = await writeSidecarExclusive(
-              conflictPath,
-              xmlContent,
-              'Conflict-copy write failed',
+            const result = await writeSidecarAtomic(
+              sidecar,
+              prepared.data,
+              'XMP write failed',
               signal,
             );
-            if (written.ok)
-              return {
-                kind: 'conflict',
-                conflictPath,
-                conflictMtime: written.mtime,
-              };
-            if (!('exists' in written)) return { kind: 'error', error: written.error };
-          }
-          return {
-            kind: 'error',
-            error: `Conflict-copy write failed: no free name beside ${rawAbsPath}`,
-          };
-        };
-
-        if (requireAbsent) {
-          const created = await writeSidecarCreateOnly(
-            sidecar,
-            xmlContent,
-            'XMP write failed',
+            return result.ok
+              ? { kind: 'ok', mtime: result.mtime }
+              : { kind: 'error', error: result.error };
+          },
+          {
+            admissionScope,
             signal,
-          );
-          if ('exists' in created) return writeConflictCopy();
-          return created.ok
-            ? { kind: 'ok', mtime: created.mtime }
-            : { kind: 'error', error: created.error };
-        }
-
-        if (ifMtimeMatchesEpoch !== null) {
-          let onDiskEpoch: number | null = null;
-          try {
-            const st = await waitForAbortable(fs.stat(sidecar), signal);
-            onDiskEpoch = Math.floor(st.mtimeMs / 1000);
-          } catch {
-            signal?.throwIfAborted();
-            onDiskEpoch = null;
-          }
-          if (onDiskEpoch !== ifMtimeMatchesEpoch) return writeConflictCopy();
-        }
-
-        const prepared = await preparePrimarySidecarWrite(sidecar, xmlContent, signal);
-        if (!prepared.ok)
-          return {
-            kind: 'error',
-            error: prepared.error ?? 'Workflow validation failed',
-          };
-        signal?.throwIfAborted();
-        const result = await writeSidecarAtomic(sidecar, prepared.data, 'XMP write failed', signal);
-        return result.ok
-          ? { kind: 'ok', mtime: result.mtime }
-          : { kind: 'error', error: result.error };
-      },
-      {
-        admissionScope,
-        signal,
-        resolveDestination: () => requirePrimarySidecarDestination(rawAbsPath),
-      },
+            resolveDestination: () => requirePrimarySidecarDestination(rawAbsPath),
+          },
+        ),
+      { incomingXml: xmlContent },
     );
   } catch (error) {
     if (error instanceof SidecarWriteBindingChangedError) throw error;
@@ -485,27 +521,29 @@ export async function deleteXmpSidecar(
   signal?: AbortSignal,
 ): Promise<OpResult & { existed?: boolean }> {
   try {
-    return await serializeSidecarWrite(
-      xmpSidecarPath(rawAbsPath),
-      async (destination) => {
-        signal?.throwIfAborted();
-        const existed = await waitForAbortable(fs.lstat(destination), signal).then(
-          () => true,
-          (error: unknown) => {
-            if (isMissingSidecar(error)) return false;
-            throw error;
-          },
-        );
-        if (!existed) return { ok: true, existed };
-        signal?.throwIfAborted();
-        const deleted = await deleteSidecar(destination, 'XMP delete failed', signal);
-        return { ...deleted, existed };
-      },
-      {
-        admissionScope,
-        signal,
-        resolveDestination: () => requirePrimarySidecarDestination(rawAbsPath),
-      },
+    return await withSidecarMutationLease(rawAbsPath, () =>
+      serializeSidecarWrite(
+        xmpSidecarPath(rawAbsPath),
+        async (destination) => {
+          signal?.throwIfAborted();
+          const existed = await waitForAbortable(fs.lstat(destination), signal).then(
+            () => true,
+            (error: unknown) => {
+              if (isMissingSidecar(error)) return false;
+              throw error;
+            },
+          );
+          if (!existed) return { ok: true, existed };
+          signal?.throwIfAborted();
+          const deleted = await deleteSidecar(destination, 'XMP delete failed', signal);
+          return { ...deleted, existed };
+        },
+        {
+          admissionScope,
+          signal,
+          resolveDestination: () => requirePrimarySidecarDestination(rawAbsPath),
+        },
+      ),
     );
   } catch (error) {
     if (error instanceof SidecarWriteBindingChangedError) throw error;

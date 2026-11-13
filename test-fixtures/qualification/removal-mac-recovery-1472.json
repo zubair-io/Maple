@@ -1,0 +1,118 @@
+{
+  "issue": 1472,
+  "date": "2026-10-02",
+  "scope": "Mac-first incomplete saved-removal diagnosis and retry, manual native recovery on an actual 39MP RAW; not release qualification",
+  "baseRevision": "3c5ebdacd383b4a2d67944c7b9211097f5d43ba7",
+  "sourceHashes": {
+    "src/apple/Maple/Views/EditorRenderStatus.swift": "2d40cc693012c5d000c231d4f41480c799c336f76a7766729f9a168060ae7281",
+    "src/apple/Maple/Views/EditorView.swift": "34f167d7127cdb2452dbd776a0ce544105c259ad586f1b22dc1b3d55e159fbd5",
+    "src/apple/Maple/Views/Removal/RemovalPanel.swift": "8e4f0f5ce0ab8ea26c3eb33ea13f9688da99e784e94e2e6f801ad79a111adc1b",
+    "src/apple/Packages/MapleCore/Sources/MapleCore/EditSession+Render.swift": "6e0a5843ea50a0c263aaca5c604c736306eb90298b81d1fffc7e5ed490b6e79f",
+    "src/apple/Packages/MapleCore/Sources/MapleCore/Editor/EditorState.swift": "de35687dba8cb1159cd131b87c15c9ca885df96d5869d3c8ea11e661c70ccbeb",
+    "src/apple/Packages/MapleCore/Sources/MapleCore/RenderActor+Sidecar.swift": "c66fb52b4be84b38a24616d58260346bbf886c7681066d79dfb5e30b8982cee3",
+    "src/apple/Packages/MapleCore/Tests/MapleCoreTests/RemovalRenderRecoveryTests.swift": "447672f46026a647b5c87ff4a69449ba6f8be735f42fcd033c5d8b87865a68d5"
+  },
+  "changes": [
+    "Render failures diagnose accepted companion absence/corruption on RenderActor, only on the failure path; late generation/cancellation guard remains after diagnosis",
+    "Canvas status visibly reports Saved removal incomplete and the specific missing asset regardless of armed tool",
+    "Retry re-renders accepted pixels and independently reloads the armed Remove session; no XMP mutation or model inference",
+    "Existing Remove-panel Retry uses the same coordinator"
+  ],
+  "nativeQA": {
+    "bundleId": "app.justmaple.removalqa1472",
+    "binarySha256": "355e5ed3fe5c2d23652eefeaca7a1e9b31dd991a860f680248abb79701dce1e1",
+    "debugDylibSha256": "d27af091602422f3739fabc926f79fa7f63b0989fdc4e7ab4f1fa1535a08b11a",
+    "packaging": "Full freshly built debug app/resources, unique QA identity, association/provider registrations removed, ad hoc signed. Production hardened runtime and sandbox not qualified. Installed user Maple process remained running.",
+    "fixture": "test-fixtures/raws/test_0002.dng",
+    "dimensions": [7216, 5412],
+    "fault": "Moved exactly one mask outside .maple/inpaint in the disposable staged photo folder; original RAW and XMP untouched",
+    "checks": [
+      "Before fix: native canvas remained a loading preview with no visible render error; only Remove controls reported the missing asset",
+      "Normal Share / PNG / Full Size / Save refused the incomplete edit and published no requested PNG",
+      "Rebuilt app: Saved removal incomplete, exact missing mask identity and Retry visible with Light armed",
+      "Retry while mask remained missing preserved the failure",
+      "Restored the exact companion bytes, armed Remove, clicked one canvas Retry",
+      "Final rebuilt coordinator restored GPU canvas ready and both saved removals Enabled, clearing both stale errors without restarting the process or re-running inference",
+      "RAW, XMP and all four companions match the exact pre-fault SHA256 values"
+    ],
+    "rawSha256": "4a4154b2595dc76a7d5e10cdcb65a386319e31647a585c23e262fe62b969c0fe",
+    "xmpSha256": "eafcb3022d6de1c7cc8e6b7af2ed9301b86ae6b37f6b81af9fdd05b87b5b426d",
+    "companions": [
+      {
+        "path": ".maple/inpaint/7fb1f2a498fad9d968b885a85cf0f3290e3d922a3ae17199e2afe14f8cb610fd.mask",
+        "bytes": 12466,
+        "sha256": "74db870cd3cec5c294eb09bd9f392e2aeca55094dde9b894b063313d604050ef"
+      },
+      {
+        "path": ".maple/inpaint/87511d6477bf8abc5207b285bd05a0cd2b2290db9251a6049462fbe2914e3499.mask",
+        "bytes": 13372,
+        "sha256": "45379926e18412e089f4cd9e993ab38edf51c3fcbe569b3355ab71fb94770bdf"
+      },
+      {
+        "path": ".maple/inpaint/1d6aca14812faac0b00536844597eab605876a1f4fdd3d6d71224d160d509e4c.f16",
+        "bytes": 8388640,
+        "sha256": "611c3ee6822302971f2f8d68ac51e00996871c3bfdf0bec270bbcec8f9aaaab8"
+      },
+      {
+        "path": ".maple/inpaint/df0240597788e7c61dec80f7862076fd6922ab34ce7595946200f9fa5e706394.f16",
+        "bytes": 8388640,
+        "sha256": "ab6eb02cbad921751fde29c7a37c2acc536083e1d20d42a39b30f344f6927f51"
+      }
+    ],
+    "screenshots": {
+      "maple-removal-mac-missing-before-fix": {
+        "diagnosticPath": "/tmp/maple-removal-mac-missing-before-fix.png",
+        "sha256": "dbf8a4177e78a5bca6ed7f0fc0a93d0358c89d4e0e178798922795cda186f435"
+      },
+      "maple-removal-mac-missing-after-fix": {
+        "diagnosticPath": "/tmp/maple-removal-mac-missing-after-fix.png",
+        "sha256": "c1ad09b488c7a9544ed3ced6be1dfaa56a3f6f92773236e7d60ea3deb9761a6e"
+      },
+      "maple-removal-mac-missing-final-recovered": {
+        "diagnosticPath": "/tmp/maple-removal-mac-missing-final-recovered.png",
+        "sha256": "c7ae4fc3655223cef854051ac4158cfb74ccbeb93939e99383b3ad57b35f1cf1"
+      }
+    },
+    "finalAXSha256": "2cce8ca4f1908f3596e1df5dde40c7206d63258e48e9bb6beed64335b523626e"
+  },
+  "tests": [
+    {
+      "command": "swift test --filter 'RemovalRenderRecoveryTests|RemovalExportSnapshotTests'",
+      "result": "3 passed, 0 failures, 0 skips",
+      "phase": "Initial error panel and recovery coordinator",
+      "log": "/tmp/maple-removal-mac-recovery-core-final.log"
+    },
+    {
+      "command": "swift test --filter 'Removal|EditorState|RenderActor'",
+      "result": "194 passed, 1 opt-in 100MP skipped, 0 failures",
+      "phase": "Before final coordinator race refinement; final focused test rerun below",
+      "log": "/tmp/maple-removal-mac-recovery-focused.log"
+    },
+    {
+      "command": "swift test --filter RemovalRenderRecoveryTests",
+      "result": "1 passed, 0 failures, 0 skips",
+      "phase": "Final coordinator; actual missing and corrupt companion refusal, incomplete retry, restoration, accepted preview/export and armed Remove recovery",
+      "log": "/tmp/maple-removal-mac-recovery-settled-core.log"
+    },
+    {
+      "command": "xcodebuild -project Maple.xcodeproj -scheme Maple -destination 'platform=macOS' build",
+      "result": "BUILD SUCCEEDED",
+      "phase": "Final coordinator",
+      "log": "/tmp/maple-removal-mac-recovery-build-settled.log"
+    },
+    {
+      "command": "xcodebuild -project Maple.xcodeproj -scheme Maple -destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO build",
+      "result": "BUILD SUCCEEDED",
+      "phase": "Shared view/core compile check only; not device or removal UX qualification",
+      "log": "/tmp/maple-removal-mac-recovery-ios-final.log"
+    }
+  ],
+  "limitations": [
+    "Native manual recovery covered a missing mask; actual corruption covered by the real-file Swift regression, not a separate manual corrupt-file UI run",
+    "This covers restoring companions already known by their saved identity; no file-picker repair/import or backup-service restore workflow is qualified",
+    "Native XCTest automation remains unqualified; manual CUA evidence is separate",
+    "Prior real-photo full PNG difference up to 12/255 still requires attribution; no render color math changed here",
+    "Crowd and large-ROI/HDR/seam quality, source/file-operation/backup/sync portability, distribution/signing, physical 100MP performance, existing broad color breach and fresh-main CI/epic landing remain open",
+    "Web/Windows/mobile ports remain deferred by user Mac-first steering"
+  ]
+}

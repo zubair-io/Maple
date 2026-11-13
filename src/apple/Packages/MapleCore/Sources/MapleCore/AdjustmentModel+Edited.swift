@@ -34,11 +34,12 @@ extension AdjustmentModel {
     /// non-default value only ever comes from an explicit user or
     /// externally-authored choice — a real edit, correctly caught here.
     public var isVisuallyEditedBeyondWhiteBalance: Bool {
-        let baseline = AdjustmentModel(
+        var baseline = AdjustmentModel(
             temperature: temperature,
             tint: tint,
             wbScaleVersion: wbScaleVersion
         )
+        if inpaintRemovals?.isEmpty == true { baseline.inpaintRemovals = inpaintRemovals }
         return self != baseline
     }
 }

@@ -34,6 +34,10 @@ use super::{
     dump_after, stage, RenderQuality,
 };
 
+#[path = "develop_sized/camera.rs"]
+mod camera;
+pub(super) use camera::{camera_with_patches, develop_with_calibration_patches};
+
 /// Sized variant of `develop_scene_linear_from_raw_with_quality` that
 /// runs `linearize` + `demosaic` (or `linearraw_to_camera_rgb` for
 /// LinearRaw fixtures), then sensor highlight recovery and lens opcodes,
@@ -235,6 +239,28 @@ pub(crate) fn develop_sized_camera(
     max_long_edge: u32,
     cancel: CancelToken<'_>,
 ) -> Result<CameraReady> {
+    let (camera_rgb, skip_pre_gain, crop_divisor) =
+        develop_sized_camera_unwarped(raw, model, quality, max_long_edge, cancel)?;
+    develop_sized_camera_geometry(
+        raw,
+        model,
+        camera_rgb,
+        skip_pre_gain,
+        crop_divisor,
+        max_long_edge,
+    )
+}
+
+/// Camera RGB through highlight recovery at the sized demosaic density,
+/// before optics, DefaultCrop and the downsample; with the WB pre-gain skip
+/// and the DefaultCrop divisor that density implies.
+fn develop_sized_camera_unwarped(
+    raw: &RawImage,
+    model: &AdjustmentModel,
+    quality: RenderQuality,
+    max_long_edge: u32,
+    cancel: CancelToken<'_>,
+) -> Result<(crate::image::Image, bool, u32)> {
     if cancel.is_cancelled() {
         return Err(Error::Cancelled);
     }
@@ -337,7 +363,19 @@ pub(crate) fn develop_sized_camera(
         super::tile::recover_full_frame(&mut camera_rgb, raw, model, crop_divisor, cancel)
     })?;
     dump_after("00b_highlight_recovery", &camera_rgb);
+    Ok((camera_rgb, skip_pre_gain, crop_divisor))
+}
 
+/// OpcodeList3 / lens correction, DefaultCrop and the early downsample on
+/// the unwarped sized camera buffer, then the profile it develops through.
+fn develop_sized_camera_geometry(
+    raw: &RawImage,
+    model: &AdjustmentModel,
+    mut camera_rgb: crate::image::Image,
+    skip_pre_gain: bool,
+    crop_divisor: u32,
+    max_long_edge: u32,
+) -> Result<CameraReady> {
     // Stage 2a (#1695): OpcodeList3 still precedes DefaultCrop, so its
     // coordinates remain relative to the original ActiveArea.
     if let Some((list, aa)) = raw.opcode_list3.as_ref() {

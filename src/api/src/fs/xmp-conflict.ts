@@ -36,6 +36,7 @@ import { isVideoFilename } from '../indexer/media-types.ts';
 import { workflowSidecarBase } from './workflow-sidecar-pairing';
 import { pairedLegacyBackupSidecar } from './legacy-backup-sidecar.ts';
 import { PAIRED_SIDECAR_SUFFIX_PATTERN } from '../generated/filename-vocabulary.generated';
+import { withSidecarMutationLease } from './sidecar-mutation-lease.ts';
 
 /** Sanitize a device name for use in a conflict-copy filename. */
 function sanitizeDeviceName(raw: string | undefined): string {
@@ -197,10 +198,12 @@ export async function writeConflictSidecarAtomic(
 ): Promise<{ ok: true; mtime: Date } | { ok: false; error: string }> {
   const sidecar = resolveConflictSidecarPath(rawAbsPath, conflictBasename);
   if (!sidecar) return { ok: false, error: 'Invalid conflict basename' };
-  return serializeSidecarWrites(
-    conflictWriteKeys(rawAbsPath, sidecar),
-    () => writeSidecarAtomic(sidecar, xmlContent, 'Conflict sidecar write failed', signal),
-    { signal, admissionScope },
+  return withSidecarMutationLease(rawAbsPath, () =>
+    serializeSidecarWrites(
+      conflictWriteKeys(rawAbsPath, sidecar),
+      () => writeSidecarAtomic(sidecar, xmlContent, 'Conflict sidecar write failed', signal),
+      { signal, admissionScope },
+    ),
   ).catch((error: unknown) => {
     if (error instanceof SidecarWriteBindingChangedError) throw error;
     return {
@@ -269,10 +272,12 @@ export async function deleteConflictSidecar(
 ): Promise<OpResult> {
   const sidecar = resolveConflictSidecarPath(rawAbsPath, conflictBasename);
   if (!sidecar) return { ok: false, error: 'Invalid conflict basename' };
-  return serializeSidecarWrites(
-    conflictWriteKeys(rawAbsPath, sidecar),
-    () => deleteSidecar(sidecar, 'Conflict sidecar delete failed'),
-    { admissionScope },
+  return withSidecarMutationLease(rawAbsPath, () =>
+    serializeSidecarWrites(
+      conflictWriteKeys(rawAbsPath, sidecar),
+      () => deleteSidecar(sidecar, 'Conflict sidecar delete failed'),
+      { admissionScope },
+    ),
   ).catch((error: unknown) => {
     if (error instanceof SidecarWriteBindingChangedError) throw error;
     return {

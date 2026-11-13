@@ -1,0 +1,176 @@
+{
+  "issue": 3941,
+  "epic": 1472,
+  "recordedAt": "2026-10-04T01:33:12.190635+00:00",
+  "sourceHead": "6bef0a1d5c1f66e6488ef95f6a5a692a869b47f7",
+  "mainBase": "615a8e57f850c012e9a30773cd90982763243819",
+  "releaseQualified": false,
+  "scope": "Current-main Browse integration after ZITS research. Preserve all removal feature commits and accessibility while taking main loading/cancellation/scroll changes. No model/color/schema change or global release-quality claim.",
+  "rebase": {
+    "feature_commits": 131,
+    "subjects_and_order_preserved": true,
+    "identical_stable_patch_ids": 129,
+    "changed_patches": [
+      {
+        "before": {
+          "sha": "13bca1e9c86f59e63392858bc3a10363d8e24e75",
+          "subject": "feat(raw): retain saved removals in native tile handles",
+          "stable_patch_id": "2ca3773ea59b630684d85a184a39b53dec2c025d"
+        },
+        "after": {
+          "sha": "d40dbec7b55b483285eb3f22bd20e0b98947ddfc",
+          "subject": "feat(raw): retain saved removals in native tile handles",
+          "stable_patch_id": "67d0ed06ff98855a973443a6d19c98dc9d819163"
+        }
+      },
+      {
+        "before": {
+          "sha": "e5425539d7af8ce9e04cdec37cbf1a8acad50a68",
+          "subject": "fix(removal): recover native RAW canvas geometry and accessible controls",
+          "stable_patch_id": "7a58e621580aca6bddfed9e9d0af3439c2ea2bd3"
+        },
+        "after": {
+          "sha": "1897492d814944d961de905694351884a0a659ea",
+          "subject": "fix(removal): recover native RAW canvas geometry and accessible controls",
+          "stable_patch_id": "f338ef8471e5b2be3c8219b7caf3818c4988e9f3"
+        }
+      }
+    ],
+    "audit_file": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/zits-main-browse-rebase-audit-20261004.json",
+      "sha256": "5835c595439cf06566e55af0380659823678332ddcd53f6cca86e66c93b71005",
+      "bytes": 30728
+    },
+    "resolutions": [
+      ".github/swift-regressions/run.txt: retain main Browse cancellation and all feature native-removal tests",
+      "PhotoThumbnailCell.swift: main extracted TapWithFrame; transfer feature accessibility traits/action to extracted helper on Mac(.zero) and iOS(latest.frame), preserving main no-Mac-geometry-watcher behavior"
+    ]
+  },
+  "builds": {
+    "mac": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/zits-main-browse-mac-build-20261004.log",
+      "sha256": "b3029ef532cd520e2eda1003741cbaae40e6a8f97b9647714642d4e85eabe749",
+      "bytes": 736004
+    },
+    "ios_arm64_simulator": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/zits-main-browse-ios-build-20261004.log",
+      "sha256": "5b6c9b27231c9efee96403431b37eb1610c1a3e54983dd89a22e98b4b49057c4",
+      "bytes": 6060419
+    },
+    "mac_app": "/Users/riabuz/.cache/maple-removal-research/mac-main-update-20261003/Build/Products/Debug/Maple.app",
+    "native_input_hash": "d28f86a39ec9f2dfd28ba5c94f854fc06312ab08",
+    "native_check_only": "Pass; unchanged Rust input content and all required slice/header files present. No unnecessary native rebuild."
+  },
+  "focused_tests": {
+    "log": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/zits-main-browse-swift-tests-20261004.log",
+      "sha256": "b91b9da950328e30f9455ac0f1cc732842dccd53e931f78699656d0bfdfdfc18",
+      "bytes": 117294
+    },
+    "xctest_executed": 45,
+    "xctest_passed": 44,
+    "xctest_skipped": 1,
+    "swift_testing_passed": 2,
+    "skip": "BrowseThumbnailResponsivenessTests/test250ColdRawThumbnailsLeaveMainActorResponsive: exact test_0017.dng absent; cold-scroll hardware performance not proved.",
+    "classes": [
+      "BrowseCancellationOwnershipTests",
+      "BrowseLoadingPerformanceTests",
+      "BrowseThumbnailResponsivenessTests",
+      "ThumbnailLoaderDisplayPreviewTests",
+      "BrowseViewModelPhotosAuthTests",
+      "NativeDetailRemovalTests",
+      "RemovalSessionTests",
+      "RemovalPeopleBridgeTests"
+    ]
+  },
+  "actual_photographic_group": {
+    "log": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/zits-main-browse-photographic-group-tests-20261004.log",
+      "sha256": "ef957d03338e43ed78f780a45ab9d42f8e058da2d43db8ddd4f720fdd367961e",
+      "bytes": 1682
+    },
+    "report": {
+      "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/test-fixtures/raws/removal-photographic/group-runs/4759841C-8178-43BE-9A71-B2FAC79FABF7/report.json",
+      "sha256": "33288b4d737f62eddd5d18a6d6cea458be8522819a2a67f6716eab1f6660d827",
+      "bytes": 12786
+    },
+    "passed_without_skips": 1,
+    "total_test_seconds": 84.098,
+    "initial_remove_ids": [6],
+    "explicit_selected": [6, 10],
+    "protected_conflict": [
+      {
+        "detail": "Some selected pixels of Person 10 are protected by Person 15.",
+        "fullyProtected": false,
+        "keptPeople": [15],
+        "manual": false,
+        "person": 10
+      }
+    ],
+    "records": 2,
+    "companion_assets": 4,
+    "undo_steps": 1,
+    "review_digest": "blake3:56d7c48751a53faeb5fb5637e81d385f7921aa458e62a1388f3c8b8b2cc62985",
+    "reopened_digest": "blake3:56d7c48751a53faeb5fb5637e81d385f7921aa458e62a1388f3c8b8b2cc62985",
+    "original_unchanged": true,
+    "preparation_observed": "1.666847166 seconds",
+    "removal_observed": "26.663890333 seconds",
+    "scope": "Actual photographic detection/SAM, explicit list choices, protection-conflict pause and explicit partial-removal choice, native planner/default masks, two sequential deployed model jobs, review and one durable Keep with sidecar/companions, undo/redo and byte-exact reopening. Native UI, automatic role/closure quality, photographic fills and supported-device performance are not qualified."
+  },
+  "native_UI": {
+    "build_metadata": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/zits-main-ui-20261004/build.json",
+      "sha256": "88478fabf93c609624e036af2db25a7f473bb4ae10d1aa22ccdff68990bbf945",
+      "bytes": 501
+    },
+    "executable_sections": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/zits-main-ui-20261004/executable-sections.json",
+      "sha256": "805c38846a60a5866ae24d7e8ec31fdc0c759430a2108c9c218f2b29bf775b6f",
+      "bytes": 9511
+    },
+    "raw_check": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/zits-main-ui-20261004/raw-check.json",
+      "sha256": "6046fbf962ebe21cab92cebf7a590a7965656646cd09b35a3bdcc1e3eb6c7a4c",
+      "bytes": 184
+    },
+    "browse_AX": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/zits-main-ui-20261004/browse.ax.txt",
+      "sha256": "78df388e1d993a611ae41a72c6d0e608283b70534d519c6850ad6a266a9129b9",
+      "bytes": 3355
+    },
+    "preview_AX": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/zits-main-ui-20261004/preview.ax.txt",
+      "sha256": "1ebce8634e85dadbe7455e1e5e7d0228d9844bb641e4f49416ec6dbae6d909a7",
+      "bytes": 3723
+    },
+    "screenshots": [
+      {
+        "path": "/Users/riabuz/.cache/maple-removal-research/zits-main-ui-20261004/browse.png",
+        "sha256": "4622ec4e48c167031cea4f68ab1bf5cc53e3490f2e87edffbfa5c9da210ce5df",
+        "bytes": 157665
+      },
+      {
+        "path": "/Users/riabuz/.cache/maple-removal-research/zits-main-ui-20261004/preview.png",
+        "sha256": "6c817c730c7867f20b25544a4249c69d4f18c2a2ee33d048879ec7aad0bae9f1",
+        "bytes": 614411
+      }
+    ],
+    "steps": "Fresh QA3 source settings -> staged local folder -> Browse thumbnail exposed as button thumb-bologna -> AX activation opens photo Preview. No coordinate click, user Photos-library connection, production app/account mutation or edit. QA closed through Cmd-Q and no matching process remains.",
+    "limits": "QA has isolated bundle ID and ad-hoc sandbox signature; copied extensions removed. Screenshot initially unavailable until AX Raise; subsequent captures work. Signing/distribution/account/extension and iOS runtime qualification remain. No fresh full Remove UI run claimed; actual grouped native state/model/save tested separately.",
+    "runtime_log": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/zits-main-ui-20261004/runtime.log",
+      "sha256": "05f7de7934cf756788f84ab96ecc7009356462935ea5fc4c245200897ff6af34",
+      "bytes": 224
+    },
+    "runtime_log_scope": "Filtered log has no entries, so runtime error absence not proved."
+  },
+  "checks": {
+    "swift_regression_coverage": "493 classes,309 run,184 excluded,0 untriaged",
+    "CI_runner_tests": "6 pass",
+    "swift_format": "Extracted TapWithFrame strict lint passes",
+    "file_budget": "Research source below400; headroom gate passes",
+    "ruff": "Manual uv format/check passes; normal hook skips unavailable bare Ruff",
+    "normal_hooks": "ZITS research commit passed normal commit hooks; no bypass"
+  },
+  "remaining": "Photographic reconstruction quality, complete/deduplicated person ownership/closure, supported-device performance and full Mac authoring qualification remain. Full epic, later Web flow/portable consumers and broad correctness/performance gates remain active; no external blocker."
+}

@@ -1,0 +1,1294 @@
+{
+  "issue": 3941,
+  "epic": 1472,
+  "recorded_at": "2026-10-03T11:14:15.238473+00:00",
+  "parent_commit": "de56a25735178e2a3d7ccc710ffcdd6d58b1d65b",
+  "releaseQualified": false,
+  "goal_status": "active; incomplete",
+  "case": "night-tiger-poster",
+  "changes": [
+    "Shared Rust orientation for source, binary mask and complete pre-clipped decoder output; exact canonical inverse and forward replay.",
+    "EXIF tag verified against the actual shared RAW decoder and bound original digest before final model inference.",
+    "Fixed generic Paint prompt adds an actual non-person object caller; earlier fixed people prompt behavior is unchanged."
+  ],
+  "photographic_verdict": "Failed object removal: face-like detail remains in the selected poster; not admitted for Paint quality.",
+  "inspection": {
+    "source_preview": "/tmp/maple-removal-klein-tiger-poster-bake-20261003/upright-auto-source.png",
+    "removal_preview": "/tmp/maple-removal-klein-tiger-poster-bake-20261003/upright-auto-removal.png",
+    "method": "Visual negative-case triage only, no hidden-content truth or perceptual acceptance budget."
+  },
+  "model_metrics": {
+    "inference_ms": 9956.484582973644,
+    "model_open_ms": 1610.4239169508219,
+    "mlx_peak_allocated_bytes": 9974666660,
+    "process_peak_resident_bytes": 9056894976,
+    "actual_steps": 4,
+    "prompt": "Remove the object inside the selected region. Reconstruct the existing background naturally, preserving the scene's perspective, lighting, materials and photographic detail."
+  },
+  "records": {
+    "preparation": {
+      "path": "/tmp/maple-removal-klein-tiger-poster-verified-context-20261003/preparation.json",
+      "sha256": "b3bd649eaf47b68f91aad3fbc6ef8eea9556753deffdf19f8606a3febe0550d2",
+      "content": {
+        "case": {
+          "id": "night-tiger-poster",
+          "raw": "night-tiger",
+          "orientation": 8,
+          "window_xywh": [
+            2800,
+            1650,
+            1024,
+            1024
+          ],
+          "intent_rects_xywh": [
+            [
+              261,
+              267,
+              267,
+              143
+            ]
+          ],
+          "protected_rects_xywh": [
+            [
+              0,
+              435,
+              1024,
+              589
+            ],
+            [
+              610,
+              0,
+              414,
+              435
+            ]
+          ],
+          "hole_radius": 8,
+          "fringe_radius": 4,
+          "expected_scene_blake3": "blake3:a3b247c266eb5106c64096c99f9f2b6026bced854d95f0477b9fe5e072d33781",
+          "expected_model_input_blake3": "blake3:79cd4e40b752cc92958c3eedd5b0fa7d444053c7fc58fedf98e8fed0907b7798",
+          "annotation": "Complete left wall portrait poster. Canonical rectangle is the exact EXIF8 inverse of upright pixel-edge rectangle [267,496,143,267]. Adjacent posters and upper scene protected.",
+          "annotation_scope": "Manual research Paint rectangle; no automatic silhouette, semantic role, text reconstruction, person model release, hidden-content ground truth or shipping mask policy claim."
+        },
+        "manifest_sha256": "24fccd6026c82a29745c9c29f11d52ab3c384ee730566e2df9f333626e4457dd",
+        "RAW_sha256": "8cc49f506d3ebde3f3c87862e23497c639c806a54765bf8cb8a7fcaf664e10e5",
+        "scene_probe_sha256": "5982953c2ff10a1b578822269c7e3dc367e418fd65c4898f9bb8c1b51868fb73",
+        "context": {
+          "plate": "LinearCalibrationV1",
+          "original": "blake3:45f83349f8f98d19c2e60955201c2e8cd9bc08e435fec22079d8218395c02fa2",
+          "source_anchor": {
+            "original": "blake3:45f83349f8f98d19c2e60955201c2e8cd9bc08e435fec22079d8218395c02fa2",
+            "decode": "blake3:f021d621d9593e428bc59f5d0861b719c7458d05c95a08c02ed85e8b3a24da2d",
+            "width": 4288,
+            "height": 2848
+          },
+          "window": {
+            "x": 2800,
+            "y": 1650,
+            "width": 1024,
+            "height": 1024
+          },
+          "source_width": 4288,
+          "source_height": 2848,
+          "scene": "blake3:a3b247c266eb5106c64096c99f9f2b6026bced854d95f0477b9fe5e072d33781",
+          "model_input": "blake3:79cd4e40b752cc92958c3eedd5b0fa7d444053c7fc58fedf98e8fed0907b7798",
+          "encoding": {
+            "version": 1,
+            "low": -0.11305714598082935,
+            "span": 2.5290060742942893
+          },
+          "release_qualified": false
+        },
+        "hole_pixels": 44905,
+        "coverage_pixels": 40673,
+        "protected_pixels": 783226,
+        "orientation": {
+          "height": 1024,
+          "input_blake3": "926368fb71b9b7a648123cd2d72a7b518a8ed51afa621803952ff9aa00500ce6",
+          "inverse": false,
+          "orientation": 8,
+          "output_blake3": "997be2fa80193190156c06bd2599b131657504cb9e1a017bb6b8c8e47a427199",
+          "raw_identity": {
+            "decoded_orientation": "Rotate270",
+            "decoder_verified": true,
+            "original_blake3": "45f83349f8f98d19c2e60955201c2e8cd9bc08e435fec22079d8218395c02fa2"
+          },
+          "releaseQualified": false,
+          "sample_math": "shared-core exact pixel permutation; no color math or resizing",
+          "width": 1024
+        },
+        "releaseQualified": false
+      }
+    },
+    "oriented_native": {
+      "path": "/tmp/maple-removal-klein-tiger-poster-verified-native-20261003/report.json",
+      "sha256": "08be899fb999a6003c15af63d732c4821e307914fe62576bc5686a66f80b3bab",
+      "content": {
+        "orientation": 8,
+        "orientation_metadata": {
+          "height": 1024,
+          "input_blake3": "926368fb71b9b7a648123cd2d72a7b518a8ed51afa621803952ff9aa00500ce6",
+          "inverse": false,
+          "orientation": 8,
+          "output_blake3": "997be2fa80193190156c06bd2599b131657504cb9e1a017bb6b8c8e47a427199",
+          "raw_identity": {
+            "decoded_orientation": "Rotate270",
+            "decoder_verified": true,
+            "original_blake3": "45f83349f8f98d19c2e60955201c2e8cd9bc08e435fec22079d8218395c02fa2"
+          },
+          "releaseQualified": false,
+          "sample_math": "shared-core exact pixel permutation; no color math or resizing",
+          "width": 1024
+        },
+        "preparation_sha256": "b3bd649eaf47b68f91aad3fbc6ef8eea9556753deffdf19f8606a3febe0550d2",
+        "context": {
+          "plate": "LinearCalibrationV1",
+          "original": "blake3:45f83349f8f98d19c2e60955201c2e8cd9bc08e435fec22079d8218395c02fa2",
+          "source_anchor": {
+            "original": "blake3:45f83349f8f98d19c2e60955201c2e8cd9bc08e435fec22079d8218395c02fa2",
+            "decode": "blake3:f021d621d9593e428bc59f5d0861b719c7458d05c95a08c02ed85e8b3a24da2d",
+            "width": 4288,
+            "height": 2848
+          },
+          "window": {
+            "x": 2800,
+            "y": 1650,
+            "width": 1024,
+            "height": 1024
+          },
+          "source_width": 4288,
+          "source_height": 2848,
+          "scene": "blake3:a3b247c266eb5106c64096c99f9f2b6026bced854d95f0477b9fe5e072d33781",
+          "model_input": "blake3:79cd4e40b752cc92958c3eedd5b0fa7d444053c7fc58fedf98e8fed0907b7798",
+          "encoding": {
+            "version": 1,
+            "low": -0.11305714598082935,
+            "span": 2.5290060742942893
+          },
+          "release_qualified": false
+        },
+        "context_sha256": "bf684af13baa5d6ce9ac906f0313d45f795e2659860f11ffd959ed0a094d253e",
+        "canonical_input_sha256": "3361357b6dc89f50372c137de92e5e4d1674a4b8d7686948c38ccf0d3711b232",
+        "canonical_mask_sha256": "569ce6c87230ca274f65a8ffcd3280f18ce7df6e5369abb4955b95712ea53ca5",
+        "shared_orientation_probe_sha256": "161a53633e0960c8253d24700634a7e4f26a7d8b4f0b412fa4f14409e837e950",
+        "canonical_extent_hw": [
+          1024,
+          1024
+        ],
+        "upright_extent_hw": [
+          1024,
+          1024
+        ],
+        "source": {
+          "forward": {
+            "height": 1024,
+            "input_blake3": "926368fb71b9b7a648123cd2d72a7b518a8ed51afa621803952ff9aa00500ce6",
+            "inverse": false,
+            "orientation": 8,
+            "output_blake3": "997be2fa80193190156c06bd2599b131657504cb9e1a017bb6b8c8e47a427199",
+            "raw_identity": null,
+            "releaseQualified": false,
+            "sample_math": "shared-core exact pixel permutation; no color math or resizing",
+            "width": 1024
+          },
+          "inverse": {
+            "height": 1024,
+            "input_blake3": "997be2fa80193190156c06bd2599b131657504cb9e1a017bb6b8c8e47a427199",
+            "inverse": true,
+            "orientation": 8,
+            "output_blake3": "926368fb71b9b7a648123cd2d72a7b518a8ed51afa621803952ff9aa00500ce6",
+            "raw_identity": null,
+            "releaseQualified": false,
+            "sample_math": "shared-core exact pixel permutation; no color math or resizing",
+            "width": 1024
+          },
+          "roundtrip_bits_exact": true
+        },
+        "mask": {
+          "forward": {
+            "height": 1024,
+            "input_blake3": "6b30c3241dee45aff3a5e11c531629a401653300f905b055b9be7f5f59047d03",
+            "inverse": false,
+            "orientation": 8,
+            "output_blake3": "955ba12a5d93bb9bc05bf415fb92715d325efc2ec6ff53e25fc4ccaeca88e173",
+            "raw_identity": null,
+            "releaseQualified": false,
+            "sample_math": "shared-core exact pixel permutation; no color math or resizing",
+            "width": 1024
+          },
+          "inverse": {
+            "height": 1024,
+            "input_blake3": "955ba12a5d93bb9bc05bf415fb92715d325efc2ec6ff53e25fc4ccaeca88e173",
+            "inverse": true,
+            "orientation": 8,
+            "output_blake3": "6b30c3241dee45aff3a5e11c531629a401653300f905b055b9be7f5f59047d03",
+            "raw_identity": null,
+            "releaseQualified": false,
+            "sample_math": "shared-core exact pixel permutation; no color math or resizing",
+            "width": 1024
+          },
+          "roundtrip_bits_exact": true
+        },
+        "outputs": {
+          "prediction": {
+            "inverse": {
+              "height": 1024,
+              "input_blake3": "9ca7883b4b37396d677a97834ff536f04e5aa290783a876574963588132a13cd",
+              "inverse": true,
+              "orientation": 8,
+              "output_blake3": "7214883f59ad0046585da6c40de2d4cb65e28306856ff42bc141c366748af662",
+              "raw_identity": null,
+              "releaseQualified": false,
+              "sample_math": "shared-core exact pixel permutation; no color math or resizing",
+              "width": 1024
+            },
+            "replay_bits_exact": true
+          },
+          "decoder-unclipped": {
+            "inverse": {
+              "height": 1024,
+              "input_blake3": "c11fc43af6dc06b4b8851d54a6a1842dd9504a6c9c5bd084e62a99ea8402b0f0",
+              "inverse": true,
+              "orientation": 8,
+              "output_blake3": "1664e9b413055837d87ed05aedb962da54519a5000533d3047cd696c73a69f06",
+              "raw_identity": null,
+              "releaseQualified": false,
+              "sample_math": "shared-core exact pixel permutation; no color math or resizing",
+              "width": 1024
+            },
+            "replay_bits_exact": true
+          }
+        },
+        "model_report_sha256": "e1999d41d79b690ae3e2f6335383cf2ecb9fea9ec1f34264e892f2344246e7a6",
+        "result": {
+          "sha256": "6626fd1139a5be510ac3e8efc45b01b70940b0df8cc388ce6c04360374aece9d",
+          "outside_float_bits_changed": 0,
+          "outside_u8_samples_changed": 0
+        },
+        "prediction_sha256": "559427d7c64a88e0f56346bb2519ede1bd464bbbf61ce6e0a7b161aca1af45ab",
+        "decoder_unclipped_sha256": "013c961ed1c3bb25f5d86e0f81b3c2e044a52895752dfb49e45697f9f9a9ce97",
+        "source_resampled": false,
+        "model_input_quantized_to_u8": false,
+        "releaseQualified": false,
+        "scope": "Native Paint research; selection/EXIF provenance, RAW inverse, grades, subject protection and photographic acceptance require separate evidence."
+      }
+    },
+    "model": {
+      "path": "/tmp/maple-removal-klein-tiger-poster-verified-native-20261003/generated/report.json",
+      "sha256": "e1999d41d79b690ae3e2f6335383cf2ecb9fea9ec1f34264e892f2344246e7a6",
+      "content": {
+        "repo": "AbstractFramework/flux.2-klein-4b-8bit",
+        "revision": "21764997c7d92ab919d4a51a3ac7f8fb0f36c4a6",
+        "model_manifest_sha256": "692b837c6c70b9db3808ae9502a2fdf6c5e9cea6dd7baf612e2045ce6814523b",
+        "runtime_source_revision": "99fb94dd3eaa9dd1931cd3cd8eae1ae3e20f2ef3",
+        "strict_loaded_tensors": [
+          {
+            "component": "vae",
+            "tensors": 266
+          },
+          {
+            "component": "transformer",
+            "tensors": 387
+          },
+          {
+            "component": "text_encoder",
+            "tensors": 905
+          }
+        ],
+        "quantization": 8,
+        "source_sha256": "a3218675a58615b52477a8c49f4013b0cf01a3084c00ceae6c32c27766d5f815",
+        "float_input_sha256": "479ddb64c4591af7d885dc4648508d77edd628199efa3592b0e6d170695e168b",
+        "model_input_quantized_to_u8": false,
+        "model_input_tensor_samples_exact": true,
+        "mask_sha256": "aa3238ada8a476de6269ec1b57485418c0c935bb1c7601ff94125d0507f651d5",
+        "crop_xywh": [
+          0,
+          0,
+          1024,
+          1024
+        ],
+        "native_extent_hw": [
+          1024,
+          1024
+        ],
+        "source_preprocessor_samples_exact": true,
+        "pixel_mask_preprocessor_exact": true,
+        "source_resampled": false,
+        "selected_pixels": 44905,
+        "prompt": "Remove the object inside the selected region. Reconstruct the existing background naturally, preserving the scene's perspective, lighting, materials and photographic detail.",
+        "negative_prompt": "",
+        "seed": 3941,
+        "requested_steps": 4,
+        "actual_steps": 4,
+        "guidance": 1.0,
+        "verification_ms": 2877.0165420137346,
+        "model_open_ms": 1610.4239169508219,
+        "inference_ms": 9956.484582973644,
+        "steps": [
+          {
+            "step": 1,
+            "scheduler_index": 0,
+            "latent_shape": [
+              1,
+              4096,
+              128
+            ],
+            "elapsed_ms": 2582.0179579313844,
+            "mlx_allocated_bytes": 4299794712,
+            "mlx_cache_bytes": 875930634
+          },
+          {
+            "step": 2,
+            "scheduler_index": 1,
+            "latent_shape": [
+              1,
+              4096,
+              128
+            ],
+            "elapsed_ms": 4399.745458038524,
+            "mlx_allocated_bytes": 4299794714,
+            "mlx_cache_bytes": 981793798
+          },
+          {
+            "step": 3,
+            "scheduler_index": 2,
+            "latent_shape": [
+              1,
+              4096,
+              128
+            ],
+            "elapsed_ms": 6371.0563748609275,
+            "mlx_allocated_bytes": 4299794714,
+            "mlx_cache_bytes": 595862532
+          },
+          {
+            "step": 4,
+            "scheduler_index": 3,
+            "latent_shape": [
+              1,
+              4096,
+              128
+            ],
+            "elapsed_ms": 8496.74762506038,
+            "mlx_allocated_bytes": 4298746138,
+            "mlx_cache_bytes": 593765380
+          }
+        ],
+        "decoder_unclipped_range": [
+          -1.1015625,
+          -0.048095703125
+        ],
+        "decoder_unclipped_sha256": "1e2d829df143172a2c2750088bc9c9af3250ab5415e25979c4d5f4c054575aeb",
+        "prediction_sha256": "456c90a510f7244bf9cad1329609167ce876316f7c3c4dbb9028f31a3fced745",
+        "result": {
+          "sha256": "f7c44ee99f50ae71983a0ce5022f97e76281c1518d1d29b575af02a65046c760",
+          "outside_float_bits_changed": 0,
+          "outside_u8_samples_changed": 0
+        },
+        "mlx_peak_allocated_bytes": 9974666660,
+        "process_peak_resident_bytes": 9056894976,
+        "memory_scope": "MLX allocations/cache and process RSS are distinct. Do not sum or claim a total device peak.",
+        "toolchain": {
+          "mlx": "0.32.3",
+          "mlx-gen": "0.38.0",
+          "numpy": "2.4.6",
+          "pillow": "12.3.0",
+          "transformers": "5.18.0"
+        },
+        "releaseQualified": false,
+        "input_scope": "Supplied Rust encoded f32 context; native samples reach VAE normalization without a PNG round trip. Context provenance and inverse require separate verification.",
+        "qualification": "Research model inference only. No accepted RAW edit, broad HDR/corpus, supported Mac tier or production distribution qualification.",
+        "memory_experiment": {
+          "mode": "release-blocks-small-cache",
+          "rows": [
+            {
+              "phase": "loaded",
+              "elapsed_ms": 4543.905250029638,
+              "mlx_active_bytes": 8559746382,
+              "mlx_cache_bytes": 8616,
+              "mlx_peak_active_bytes": 8559746382,
+              "runtime_memory": {
+                "phase": "loaded",
+                "timestamp": 1791025875.212578,
+                "pid": 60822,
+                "platform": "macOS-27.0-arm64-arm-64bit",
+                "synchronized": false,
+                "mlx_active_memory_bytes": 8559746382,
+                "mlx_peak_memory_bytes": 8559746382,
+                "mlx_cache_memory_bytes": 8616,
+                "process_rss_bytes": 9044099072,
+                "process_peak_rss_bytes": 9044754432,
+                "darwin_physical_footprint_bytes": 9020349400,
+                "errors": {},
+                "darwin_peak_physical_footprint_bytes": 9020349400
+              }
+            },
+            {
+              "phase": "prompt_encoded",
+              "elapsed_ms": 4758.41704197228,
+              "mlx_active_bytes": 8567620942,
+              "mlx_cache_bytes": 960846776,
+              "mlx_peak_active_bytes": 9501214298,
+              "runtime_memory": {
+                "phase": "prompt_encoded",
+                "timestamp": 1791025875.427056,
+                "pid": 60822,
+                "platform": "macOS-27.0-arm64-arm-64bit",
+                "synchronized": false,
+                "mlx_active_memory_bytes": 8567620942,
+                "mlx_peak_memory_bytes": 9501214298,
+                "mlx_cache_memory_bytes": 960846776,
+                "process_rss_bytes": 9056894976,
+                "process_peak_rss_bytes": 9056894976,
+                "darwin_physical_footprint_bytes": 10154057288,
+                "errors": {},
+                "darwin_peak_physical_footprint_bytes": 10154057288
+              }
+            },
+            {
+              "phase": "text_encoder_released",
+              "elapsed_ms": 4812.454167054966,
+              "mlx_active_bytes": 4291790926,
+              "mlx_cache_bytes": 0,
+              "mlx_peak_active_bytes": 9501214298,
+              "runtime_memory": {
+                "phase": "text_encoder_released",
+                "timestamp": 1791025875.481535,
+                "pid": 60822,
+                "platform": "macOS-27.0-arm64-arm-64bit",
+                "synchronized": false,
+                "mlx_active_memory_bytes": 4291790926,
+                "mlx_peak_memory_bytes": 9501214298,
+                "mlx_cache_memory_bytes": 0,
+                "process_rss_bytes": 5170184192,
+                "process_peak_rss_bytes": 9056894976,
+                "darwin_physical_footprint_bytes": 5466280928,
+                "errors": {},
+                "darwin_peak_physical_footprint_bytes": 10154057288
+              }
+            },
+            {
+              "phase": "denoised",
+              "elapsed_ms": 13144.271417055279,
+              "mlx_active_bytes": 4297173138,
+              "mlx_cache_bytes": 595338380,
+              "mlx_peak_active_bytes": 9974666660,
+              "runtime_memory": {
+                "phase": "denoised",
+                "timestamp": 1791025883.814555,
+                "pid": 60822,
+                "platform": "macOS-27.0-arm64-arm-64bit",
+                "synchronized": false,
+                "mlx_active_memory_bytes": 4297173138,
+                "mlx_peak_memory_bytes": 9974666660,
+                "mlx_cache_memory_bytes": 595338380,
+                "process_rss_bytes": 4794105856,
+                "process_peak_rss_bytes": 9056894976,
+                "darwin_physical_footprint_bytes": 5525230320,
+                "errors": {},
+                "darwin_peak_physical_footprint_bytes": 10154057288
+              }
+            },
+            {
+              "phase": "transformer_released",
+              "elapsed_ms": 13204.764874884859,
+              "mlx_active_bytes": 179383410,
+              "mlx_cache_bytes": 0,
+              "mlx_peak_active_bytes": 9974666660,
+              "runtime_memory": {
+                "phase": "transformer_released",
+                "timestamp": 1791025883.874093,
+                "pid": 60822,
+                "platform": "macOS-27.0-arm64-arm-64bit",
+                "synchronized": false,
+                "mlx_active_memory_bytes": 179383410,
+                "mlx_peak_memory_bytes": 9974666660,
+                "mlx_cache_memory_bytes": 0,
+                "process_rss_bytes": 676249600,
+                "process_peak_rss_bytes": 9056894976,
+                "darwin_physical_footprint_bytes": 1405405104,
+                "errors": {},
+                "darwin_peak_physical_footprint_bytes": 10154057288
+              }
+            },
+            {
+              "phase": "before_decode",
+              "elapsed_ms": 13231.119291856885,
+              "mlx_active_bytes": 179383410,
+              "mlx_cache_bytes": 0,
+              "mlx_peak_active_bytes": 9974666660,
+              "runtime_memory": {
+                "phase": "before_decode",
+                "timestamp": 1791025883.899174,
+                "pid": 60822,
+                "platform": "macOS-27.0-arm64-arm-64bit",
+                "synchronized": false,
+                "mlx_active_memory_bytes": 179383410,
+                "mlx_peak_memory_bytes": 9974666660,
+                "mlx_cache_memory_bytes": 0,
+                "process_rss_bytes": 676249600,
+                "process_peak_rss_bytes": 9056894976,
+                "darwin_physical_footprint_bytes": 1405405104,
+                "errors": {},
+                "darwin_peak_physical_footprint_bytes": 10154057288
+              }
+            },
+            {
+              "phase": "after_decode",
+              "elapsed_ms": 14566.7071249336,
+              "mlx_active_bytes": 185674866,
+              "mlx_cache_bytes": 819990920,
+              "mlx_peak_active_bytes": 9974666660,
+              "runtime_memory": {
+                "phase": "after_decode",
+                "timestamp": 1791025885.236038,
+                "pid": 60822,
+                "platform": "macOS-27.0-arm64-arm-64bit",
+                "synchronized": false,
+                "mlx_active_memory_bytes": 185674866,
+                "mlx_peak_memory_bytes": 9974666660,
+                "mlx_cache_memory_bytes": 819990920,
+                "process_rss_bytes": 676380672,
+                "process_peak_rss_bytes": 9056894976,
+                "darwin_physical_footprint_bytes": 1636190128,
+                "errors": {},
+                "darwin_peak_physical_footprint_bytes": 10154057288
+              }
+            }
+          ],
+          "cache_limit_changed": true,
+          "explicit_cache_limit_bytes": 1000000000,
+          "peak_reset_during_inference": false,
+          "native_math_changed": false,
+          "instance_consumed": true,
+          "decoder_barriers": {
+            "rows": [
+              {
+                "block": "conv_in",
+                "output_nchw": [
+                  1,
+                  512,
+                  128,
+                  128
+                ],
+                "output_dtype": "mlx.core.bfloat16",
+                "materialization_ms": 4.422708181664348,
+                "mlx_active_bytes": 198258034,
+                "mlx_cache_bytes": 73662606,
+                "mlx_peak_active_bytes": 9974666660
+              },
+              {
+                "block": "mid.resnet0",
+                "output_nchw": [
+                  1,
+                  512,
+                  128,
+                  128
+                ],
+                "output_dtype": "mlx.core.bfloat16",
+                "materialization_ms": 10.867875069379807,
+                "mlx_active_bytes": 248589814,
+                "mlx_cache_bytes": 490840086,
+                "mlx_peak_active_bytes": 9974666660
+              },
+              {
+                "block": "mid.attention",
+                "output_nchw": [
+                  1,
+                  512,
+                  128,
+                  128
+                ],
+                "output_dtype": "mlx.core.bfloat16",
+                "materialization_ms": 24.118582950904965,
+                "mlx_active_bytes": 231812466,
+                "mlx_cache_bytes": 987816094,
+                "mlx_peak_active_bytes": 9974666660
+              },
+              {
+                "block": "mid.resnet1",
+                "output_nchw": [
+                  1,
+                  512,
+                  128,
+                  128
+                ],
+                "output_dtype": "mlx.core.bfloat16",
+                "materialization_ms": 5.686915945261717,
+                "mlx_active_bytes": 265367034,
+                "mlx_cache_bytes": 448897046,
+                "mlx_peak_active_bytes": 9974666660
+              },
+              {
+                "block": "up0.resnet0",
+                "output_nchw": [
+                  1,
+                  512,
+                  128,
+                  128
+                ],
+                "output_dtype": "mlx.core.bfloat16",
+                "materialization_ms": 5.716582993045449,
+                "mlx_active_bytes": 215035250,
+                "mlx_cache_bytes": 532783262,
+                "mlx_peak_active_bytes": 9974666660
+              },
+              {
+                "block": "up0.resnet1",
+                "output_nchw": [
+                  1,
+                  512,
+                  128,
+                  128
+                ],
+                "output_dtype": "mlx.core.bfloat16",
+                "materialization_ms": 4.719666903838515,
+                "mlx_active_bytes": 265367034,
+                "mlx_cache_bytes": 482451478,
+                "mlx_peak_active_bytes": 9974666660
+              },
+              {
+                "block": "up0.resnet2",
+                "output_nchw": [
+                  1,
+                  512,
+                  128,
+                  128
+                ],
+                "output_dtype": "mlx.core.bfloat16",
+                "materialization_ms": 4.645292181521654,
+                "mlx_active_bytes": 231812466,
+                "mlx_cache_bytes": 516006046,
+                "mlx_peak_active_bytes": 9974666660
+              },
+              {
+                "block": "up0.sample0",
+                "output_nchw": [
+                  1,
+                  512,
+                  256,
+                  256
+                ],
+                "output_dtype": "mlx.core.bfloat16",
+                "materialization_ms": 14.174374984577298,
+                "mlx_active_bytes": 282144114,
+                "mlx_cache_bytes": 978575518,
+                "mlx_peak_active_bytes": 9974666660
+              },
+              {
+                "block": "up1.resnet0",
+                "output_nchw": [
+                  1,
+                  512,
+                  256,
+                  256
+                ],
+                "output_dtype": "mlx.core.bfloat16",
+                "materialization_ms": 36.78175015375018,
+                "mlx_active_bytes": 315698546,
+                "mlx_cache_bytes": 993661076,
+                "mlx_peak_active_bytes": 9974666660
+              },
+              {
+                "block": "up1.resnet1",
+                "output_nchw": [
+                  1,
+                  512,
+                  256,
+                  256
+                ],
+                "output_dtype": "mlx.core.bfloat16",
+                "materialization_ms": 32.4995000846684,
+                "mlx_active_bytes": 382807538,
+                "mlx_cache_bytes": 980832270,
+                "mlx_peak_active_bytes": 9974666660
+              },
+              {
+                "block": "up1.resnet2",
+                "output_nchw": [
+                  1,
+                  512,
+                  256,
+                  256
+                ],
+                "output_dtype": "mlx.core.bfloat16",
+                "materialization_ms": 32.85529091954231,
+                "mlx_active_bytes": 382807538,
+                "mlx_cache_bytes": 1032998920,
+                "mlx_peak_active_bytes": 9974666660
+              },
+              {
+                "block": "up1.sample0",
+                "output_nchw": [
+                  1,
+                  512,
+                  512,
+                  512
+                ],
+                "output_dtype": "mlx.core.bfloat16",
+                "materialization_ms": 69.72183310426772,
+                "mlx_active_bytes": 584134006,
+                "mlx_cache_bytes": 1089667076,
+                "mlx_peak_active_bytes": 9974666660
+              },
+              {
+                "block": "up2.resnet0",
+                "output_nchw": [
+                  1,
+                  256,
+                  512,
+                  512
+                ],
+                "output_dtype": "mlx.core.bfloat16",
+                "materialization_ms": 119.6421249769628,
+                "mlx_active_bytes": 651242998,
+                "mlx_cache_bytes": 1006635016,
+                "mlx_peak_active_bytes": 9974666660
+              },
+              {
+                "block": "up2.resnet1",
+                "output_nchw": [
+                  1,
+                  256,
+                  512,
+                  512
+                ],
+                "output_dtype": "mlx.core.bfloat16",
+                "materialization_ms": 74.3348749820143,
+                "mlx_active_bytes": 785460726,
+                "mlx_cache_bytes": 1024755716,
+                "mlx_peak_active_bytes": 9974666660
+              },
+              {
+                "block": "up2.resnet2",
+                "output_nchw": [
+                  1,
+                  256,
+                  512,
+                  512
+                ],
+                "output_dtype": "mlx.core.bfloat16",
+                "materialization_ms": 73.71637504547834,
+                "mlx_active_bytes": 718351730,
+                "mlx_cache_bytes": 1050839048,
+                "mlx_peak_active_bytes": 9974666660
+              },
+              {
+                "block": "up2.sample0",
+                "output_nchw": [
+                  1,
+                  256,
+                  1024,
+                  1024
+                ],
+                "output_dtype": "mlx.core.bfloat16",
+                "materialization_ms": 127.74362484924495,
+                "mlx_active_bytes": 1121004918,
+                "mlx_cache_bytes": 1050836996,
+                "mlx_peak_active_bytes": 9974666660
+              },
+              {
+                "block": "up3.resnet0",
+                "output_nchw": [
+                  1,
+                  128,
+                  1024,
+                  1024
+                ],
+                "output_dtype": "mlx.core.bfloat16",
+                "materialization_ms": 241.37158296070993,
+                "mlx_active_bytes": 986787186,
+                "mlx_cache_bytes": 1073745928,
+                "mlx_peak_active_bytes": 9974666660
+              },
+              {
+                "block": "up3.resnet1",
+                "output_nchw": [
+                  1,
+                  128,
+                  1024,
+                  1024
+                ],
+                "output_dtype": "mlx.core.bfloat16",
+                "materialization_ms": 182.44762509129941,
+                "mlx_active_bytes": 1389440374,
+                "mlx_cache_bytes": 1018068996,
+                "mlx_peak_active_bytes": 9974666660
+              },
+              {
+                "block": "up3.resnet2",
+                "output_nchw": [
+                  1,
+                  128,
+                  1024,
+                  1024
+                ],
+                "output_dtype": "mlx.core.bfloat16",
+                "materialization_ms": 170.32279097475111,
+                "mlx_active_bytes": 1255222642,
+                "mlx_cache_bytes": 1018068996,
+                "mlx_peak_active_bytes": 9974666660
+              },
+              {
+                "block": "conv_norm_out",
+                "output_nchw": [
+                  1,
+                  128,
+                  1024,
+                  1024
+                ],
+                "output_dtype": "mlx.core.bfloat16",
+                "materialization_ms": 67.27487500756979,
+                "mlx_active_bytes": 718351730,
+                "mlx_cache_bytes": 1073745924,
+                "mlx_peak_active_bytes": 9974666660
+              },
+              {
+                "block": "conv_out",
+                "output_nchw": [
+                  1,
+                  3,
+                  1024,
+                  1024
+                ],
+                "output_dtype": "mlx.core.bfloat16",
+                "materialization_ms": 5.019207950681448,
+                "mlx_active_bytes": 456207730,
+                "mlx_cache_bytes": 549458056,
+                "mlx_peak_active_bytes": 9974666660
+              }
+            ],
+            "class_methods_restored": true,
+            "resized": false,
+            "tiled": false,
+            "precision_changed": false,
+            "equality_scope": "Graph materialization control only; compare actual pre-clipped native output bytes before claiming pixel equality."
+          },
+          "scope": "Synchronized phase snapshots, not a total system/device peak or supported lower-memory Mac qualification."
+        }
+      }
+    },
+    "seam": {
+      "path": "/tmp/maple-removal-klein-tiger-poster-seam-20261003/report.json",
+      "sha256": "e57d96786ffb50cc787b000bfde1fb6858fb8ae4de755566a1a3673441c026c8",
+      "content": {
+        "unknown_pixels": 40673,
+        "boundary_edges": 844,
+        "matrix_nonzeros": 202521,
+        "solver": "PyAMG classical Ruge-Stuben preconditioned conjugate gradients",
+        "channels": [
+          {
+            "relative_residual": 4.992575944980835e-10,
+            "iterations": 6
+          },
+          {
+            "relative_residual": 4.564649464843289e-10,
+            "iterations": 6
+          },
+          {
+            "relative_residual": 4.709372445409806e-10,
+            "iterations": 6
+          }
+        ],
+        "max_absolute_correction": 0.027205088925204908,
+        "range": [
+          0.009112137369811535,
+          0.46382543444633484
+        ],
+        "outside_float_bits_changed": 0,
+        "source_inside_domain_used_for_rhs": false,
+        "clipped": false,
+        "source_sha256": "ec1e51ecab42bebf435d3224bc9ce69f09c94aa44b360e493729aaa244256eff",
+        "prediction_sha256": "559427d7c64a88e0f56346bb2519ede1bd464bbbf61ce6e0a7b161aca1af45ab",
+        "domain_sha256": "7c7211ed9e83ce097e49da0d1972b2b85172c2ae9e5df64c4e7e9822bf531fa6",
+        "native_extent_hw": [
+          1024,
+          1024
+        ],
+        "source_resampled": false,
+        "correction_ms": 126.39387487433851,
+        "model_domain_valid": true,
+        "display_preview_scope": "Display-only clipped u8 visualization. Persisted f32 correction is unmodified, never clipped.",
+        "correction_sha256": "e5e17146f0accc0c1655bb091cd4143de5387934341a9953b8bf6ebcf0de6bff",
+        "process_peak_resident_bytes": 231063552,
+        "toolchain": {
+          "pyamg": "5.3.0",
+          "scipy": "1.17.1",
+          "numpy": "2.4.6"
+        },
+        "releaseQualified": false,
+        "scope": "Native boundary correction research only; no RAW inverse, accepted record, editor/runtime, photographic corpus or hardware qualification is implied."
+      }
+    },
+    "bake": {
+      "path": "/tmp/maple-removal-klein-tiger-poster-bake-20261003/report.json",
+      "sha256": "eadd874a6218d254e44eb2857aed205982ccf3adacb9fa737ed6ecef323b2fc8",
+      "content": {
+        "as_shot_temperature": 5980.7216796875,
+        "as_shot_tint": -8.010068893432617,
+        "auto_profile_engaged": true,
+        "encoding": {
+          "low": -0.11305714598082936,
+          "span": 2.5290060742942893,
+          "version": 1
+        },
+        "generation_masks": "blake3:dca7e3834b38cc3204bc518354efac24b17454aaaaf77aef0d1fe54409494b07",
+        "grades": [
+          {
+            "case": "neutral_ev-3_wb-1000",
+            "max_scene_float_error_identity": 8.692382834851742e-06,
+            "outside_mask_max_error": 0,
+            "three_native_develops_ms": 731.156583
+          },
+          {
+            "case": "auto_ev-3_wb-1000",
+            "max_scene_float_error_identity": 8.692382834851742e-06,
+            "outside_mask_max_error": 0,
+            "three_native_develops_ms": 731.156583
+          },
+          {
+            "case": "neutral_ev-3_wb+0",
+            "max_scene_float_error_identity": 7.556052878499031e-06,
+            "outside_mask_max_error": 0,
+            "three_native_develops_ms": 703.738625
+          },
+          {
+            "case": "auto_ev-3_wb+0",
+            "max_scene_float_error_identity": 7.556052878499031e-06,
+            "outside_mask_max_error": 0,
+            "three_native_develops_ms": 703.738625
+          },
+          {
+            "case": "neutral_ev-3_wb+1000",
+            "max_scene_float_error_identity": 6.779941031709313e-06,
+            "outside_mask_max_error": 0,
+            "three_native_develops_ms": 703.8725420000001
+          },
+          {
+            "case": "auto_ev-3_wb+1000",
+            "max_scene_float_error_identity": 6.779941031709313e-06,
+            "outside_mask_max_error": 0,
+            "three_native_develops_ms": 703.8725420000001
+          },
+          {
+            "case": "neutral_ev+0_wb-1000",
+            "max_scene_float_error_identity": 6.953906267881393e-05,
+            "outside_mask_max_error": 0,
+            "three_native_develops_ms": 706.8496250000001
+          },
+          {
+            "case": "auto_ev+0_wb-1000",
+            "max_scene_float_error_identity": 6.953906267881393e-05,
+            "outside_mask_max_error": 0,
+            "three_native_develops_ms": 706.8496250000001
+          },
+          {
+            "case": "neutral_ev+0_wb+0",
+            "max_scene_float_error_identity": 6.044842302799225e-05,
+            "outside_mask_max_error": 0,
+            "three_native_develops_ms": 703.198375
+          },
+          {
+            "case": "auto_ev+0_wb+0",
+            "max_scene_float_error_identity": 6.044842302799225e-05,
+            "outside_mask_max_error": 0,
+            "three_native_develops_ms": 703.198375
+          },
+          {
+            "case": "neutral_ev+0_wb+1000",
+            "max_scene_float_error_identity": 5.423952825367451e-05,
+            "outside_mask_max_error": 0,
+            "three_native_develops_ms": 713.663
+          },
+          {
+            "case": "auto_ev+0_wb+1000",
+            "max_scene_float_error_identity": 5.423952825367451e-05,
+            "outside_mask_max_error": 0,
+            "three_native_develops_ms": 713.663
+          },
+          {
+            "case": "neutral_ev+3_wb-1000",
+            "max_scene_float_error_identity": 0.0005563125014305115,
+            "outside_mask_max_error": 0,
+            "three_native_develops_ms": 721.24775
+          },
+          {
+            "case": "auto_ev+3_wb-1000",
+            "max_scene_float_error_identity": 0.0005563125014305115,
+            "outside_mask_max_error": 0,
+            "three_native_develops_ms": 721.24775
+          },
+          {
+            "case": "neutral_ev+3_wb+0",
+            "max_scene_float_error_identity": 0.000483587384223938,
+            "outside_mask_max_error": 0,
+            "three_native_develops_ms": 715.563666
+          },
+          {
+            "case": "auto_ev+3_wb+0",
+            "max_scene_float_error_identity": 0.000483587384223938,
+            "outside_mask_max_error": 0,
+            "three_native_develops_ms": 715.563666
+          },
+          {
+            "case": "neutral_ev+3_wb+1000",
+            "max_scene_float_error_identity": 0.00043391622602939606,
+            "outside_mask_max_error": 0,
+            "three_native_develops_ms": 738.2276250000001
+          },
+          {
+            "case": "auto_ev+3_wb+1000",
+            "max_scene_float_error_identity": 0.00043391622602939606,
+            "outside_mask_max_error": 0,
+            "three_native_develops_ms": 738.2276250000001
+          }
+        ],
+        "max_scene_float_error_identity": 0.0005563125014305115,
+        "model_result": "blake3:f79dfb65106aeac2f0025035f1ae24935e9beb3bfbd0dbcabbb968f5f8bfa698",
+        "native_context": {
+          "height": 1024,
+          "width": 1024,
+          "x": 2800,
+          "y": 1650
+        },
+        "original": "blake3:45f83349f8f98d19c2e60955201c2e8cd9bc08e435fec22079d8218395c02fa2",
+        "outside_mask_max_error": 0,
+        "plate": "LinearCalibrationV1",
+        "profile_tier": "BundleConfident",
+        "qualification": "Full native camera-WB/DCP experiment. Bounded authoring, recipe quality, clone/heal, GPU/live/tile/export integration and supported-device gates remain.",
+        "release_qualified": false
+      }
+    }
+  },
+  "independent_grade_checks": {
+    "grades": [
+      {
+        "file": "auto_ev+0_wb+0-removal.png",
+        "outside_coverage_changed": 0,
+        "protected_changed": 0,
+        "sha256": "2c17598f9ee89f282c3fe48135c53e2dbc21bba91a8651730b4b04eca0666535"
+      },
+      {
+        "file": "auto_ev+0_wb+1000-removal.png",
+        "outside_coverage_changed": 0,
+        "protected_changed": 0,
+        "sha256": "2687db6540a5236e3947af1b9027510eedf0b8aa7030ff71110d308298cd2201"
+      },
+      {
+        "file": "auto_ev+0_wb-1000-removal.png",
+        "outside_coverage_changed": 0,
+        "protected_changed": 0,
+        "sha256": "3ea70f3f5a3147afb21eba63c01b37f534e173ded951a041f08f4287d2ea7d70"
+      },
+      {
+        "file": "auto_ev+3_wb+0-removal.png",
+        "outside_coverage_changed": 0,
+        "protected_changed": 0,
+        "sha256": "b9f9553cd2bfbbed951b99488297e902828ebb3331573b10e0883519501aa608"
+      },
+      {
+        "file": "auto_ev+3_wb+1000-removal.png",
+        "outside_coverage_changed": 0,
+        "protected_changed": 0,
+        "sha256": "6c895972bc04cf2b8fb19b4fa6603a82e2a5db525731f0a60b2857380988f1a5"
+      },
+      {
+        "file": "auto_ev+3_wb-1000-removal.png",
+        "outside_coverage_changed": 0,
+        "protected_changed": 0,
+        "sha256": "21da12fcb7d57014c3a281d4a47893f04d91f054854ce55d2727255a10daa502"
+      },
+      {
+        "file": "auto_ev-3_wb+0-removal.png",
+        "outside_coverage_changed": 0,
+        "protected_changed": 0,
+        "sha256": "e4a429b746f0875c0df67ab0d4f50c8224d0ffa6a8361a5cd1b4b8faad2181ec"
+      },
+      {
+        "file": "auto_ev-3_wb+1000-removal.png",
+        "outside_coverage_changed": 0,
+        "protected_changed": 0,
+        "sha256": "66b6a857aca5e94b967907af04aa2edbad1714e41d4316aeae726c10498c8d9a"
+      },
+      {
+        "file": "auto_ev-3_wb-1000-removal.png",
+        "outside_coverage_changed": 0,
+        "protected_changed": 0,
+        "sha256": "a4cf63c6f8ab82ae1751430b3a05ff17db1974521314e54482a09b4c85e58c24"
+      },
+      {
+        "file": "neutral_ev+0_wb+0-removal.png",
+        "outside_coverage_changed": 0,
+        "protected_changed": 0,
+        "sha256": "89eea823a6436f2bbf6117413c7151f03d0ea0b7d2f2ad5365c17765ab0d0924"
+      },
+      {
+        "file": "neutral_ev+0_wb+1000-removal.png",
+        "outside_coverage_changed": 0,
+        "protected_changed": 0,
+        "sha256": "de0d9500d76f7b90e34b8d887da4e5a4b929f1b9857c2ff0496cbdf3932127cf"
+      },
+      {
+        "file": "neutral_ev+0_wb-1000-removal.png",
+        "outside_coverage_changed": 0,
+        "protected_changed": 0,
+        "sha256": "ed5110ed8bd3a519d637287386e83dcab8d5ccc5f13e6bf27fa4d4a1d761ed76"
+      },
+      {
+        "file": "neutral_ev+3_wb+0-removal.png",
+        "outside_coverage_changed": 0,
+        "protected_changed": 0,
+        "sha256": "2200e3a573e6e95db4c8d9c98147a6c993ff8c8a893d204f7799509fec3d68b5"
+      },
+      {
+        "file": "neutral_ev+3_wb+1000-removal.png",
+        "outside_coverage_changed": 0,
+        "protected_changed": 0,
+        "sha256": "dc72f07f8a732f546e685d3a4d59584d618c138e39c5892a6c136aa24ffaf667"
+      },
+      {
+        "file": "neutral_ev+3_wb-1000-removal.png",
+        "outside_coverage_changed": 0,
+        "protected_changed": 0,
+        "sha256": "1ad7c2d315f2ce011d90437913a8201505ea8d70ea8a00035965ff7af8edce1f"
+      },
+      {
+        "file": "neutral_ev-3_wb+0-removal.png",
+        "outside_coverage_changed": 0,
+        "protected_changed": 0,
+        "sha256": "e063d0c8600d40de09c5ebafaac407f97db5816f6aa56002dc209c515c0ed6b2"
+      },
+      {
+        "file": "neutral_ev-3_wb+1000-removal.png",
+        "outside_coverage_changed": 0,
+        "protected_changed": 0,
+        "sha256": "e518adfb1e7c206b415907d7db3740d9b234be0c747481f69c71d23b8f35f5c9"
+      },
+      {
+        "file": "neutral_ev-3_wb-1000-removal.png",
+        "outside_coverage_changed": 0,
+        "protected_changed": 0,
+        "sha256": "bb7b50a93fd6eb8cc4277736903c1738c6245a2ea498e8154cec1860dd5f948f"
+      }
+    ],
+    "scene_range": [
+      -0.007470330223441124,
+      0.1791735589504242
+    ],
+    "scene_negative_samples": 165615,
+    "scene_above_one_samples": 0,
+    "negative_inside_coverage": 559,
+    "above_one_inside_coverage": 0,
+    "coverage_pixels": 40673,
+    "protected_pixels": 783226
+  },
+  "replay": {
+    "first_native": "/tmp/maple-removal-klein-tiger-poster-oriented-20261003",
+    "final_native": "/tmp/maple-removal-klein-tiger-poster-verified-native-20261003",
+    "exact_files": [
+      "decoder-unclipped.f32",
+      "prediction.f32",
+      "result.f32",
+      "generated/decoder-unclipped.f32",
+      "generated/prediction.f32",
+      "generated/result.f32"
+    ],
+    "scope": "Byte-identical final canonical artifacts reused the already completed boundary correction and 18-grade bake; no redundant bake was run."
+  },
+  "checks": {
+    "unit_tests": {
+      "command": "/tmp/maple-removal-mlx-gen-env/bin/python -m unittest discover -s tools/removal -p 'klein*test.py'",
+      "log": "/tmp/maple-removal-klein-orientation-final-tests-20261003.log",
+      "passed": 13,
+      "failed": 0,
+      "skipped": 0,
+      "sha256": "05278e3161e9ae9d3ff5aae14d43286ca0d599590db26a555d9dbc004bda384d"
+    },
+    "rust_build": {
+      "log": "/tmp/maple-removal-orientation-build-final-20261003.log",
+      "success": true,
+      "sha256": "0bf4abda88d07cb5c98a9b808c6d2258debcdd98be28caad7e26957cf489bcf5"
+    },
+    "original_RAW_sha256_after": "8cc49f506d3ebde3f3c87862e23497c639c806a54765bf8cb8a7fcaf664e10e5",
+    "outside_coverage_grade_changes": 0,
+    "protected_grade_changes": 0
+  },
+  "executed_sources": [
+    {
+      "path": "tools/removal/native_orientation.py",
+      "captured_copy": "/tmp/maple-removal-orientation-executed-final-20261003/tools/removal/native_orientation.py",
+      "sha256": "fd0d7d039b8b91ac9cd64b04093878d94d51843549f63f494bf92cb7ee8471c6"
+    },
+    {
+      "path": "tools/removal/probe_klein_oriented.py",
+      "captured_copy": "/tmp/maple-removal-orientation-executed-final-20261003/tools/removal/probe_klein_oriented.py",
+      "sha256": "076eb162cabf9dfb0bd0acc9cc876c848345e491a1ec0acb2292f4a4cf280257"
+    },
+    {
+      "path": "tools/removal/probe_klein_native.py",
+      "captured_copy": "/tmp/maple-removal-orientation-executed-final-20261003/tools/removal/probe_klein_native.py",
+      "sha256": "1838ea05e6a6d0015ea576d565b170a2ebe227332d15a4f4750e4c9e3eec378e"
+    },
+    {
+      "path": "tools/removal/probe_klein_memory.py",
+      "captured_copy": "/tmp/maple-removal-orientation-executed-final-20261003/tools/removal/probe_klein_memory.py",
+      "sha256": "e8ced891fa2dcd290074cab5e76fe5c877a6869070ad14044f05b53a98212fa5"
+    },
+    {
+      "path": "tools/removal/klein_decoder_barriers.py",
+      "captured_copy": "/tmp/maple-removal-orientation-executed-final-20261003/tools/removal/klein_decoder_barriers.py",
+      "sha256": "5b07073913a8c4319309b623084e82ebccd912c50db28a0c7052998724a16436"
+    },
+    {
+      "path": "tools/removal/native_probe_pixels.py",
+      "captured_copy": "/tmp/maple-removal-orientation-executed-final-20261003/tools/removal/native_probe_pixels.py",
+      "sha256": "b7327a50ed73250d859b9ded4dc808427b112768ea9643f52620ff81a1071ebc"
+    },
+    {
+      "path": "tools/removal/prepare_photo_case.py",
+      "captured_copy": "/tmp/maple-removal-orientation-executed-final-20261003/tools/removal/prepare_photo_case.py",
+      "sha256": "0abf8bf026c59c1f616a1f6df8674c92b6e6c275ed48d425066dd42ba873f6c4"
+    },
+    {
+      "path": "tools/removal/photo-research-cases.json",
+      "captured_copy": "/tmp/maple-removal-orientation-executed-final-20261003/tools/removal/photo-research-cases.json",
+      "sha256": "24fccd6026c82a29745c9c29f11d52ab3c384ee730566e2df9f333626e4457dd"
+    },
+    {
+      "path": "tools/removal/klein-research-models.json",
+      "captured_copy": "/tmp/maple-removal-orientation-executed-final-20261003/tools/removal/klein-research-models.json",
+      "sha256": "692b837c6c70b9db3808ae9502a2fdf6c5e9cea6dd7baf612e2045ce6814523b"
+    },
+    {
+      "path": "src/raw-pipeline/raw-core/examples/removal-orientation-probe.rs",
+      "captured_copy": "/tmp/maple-removal-orientation-executed-final-20261003/src/raw-pipeline/raw-core/examples/removal-orientation-probe.rs",
+      "sha256": "71420862defe178d69dbfa2b7866973155c45cf073dd80cd63e1d380edce9918"
+    },
+    {
+      "path": "src/raw-pipeline/raw-core/src/image.rs",
+      "captured_copy": "/tmp/maple-removal-orientation-executed-final-20261003/src/raw-pipeline/raw-core/src/image.rs",
+      "sha256": "1f314000b3e49be18af74ff685cacd9f6c9ce310036d368126f544fbced6b45f"
+    },
+    {
+      "path": "src/raw-pipeline/target/release/examples/removal-orientation-probe",
+      "captured_copy": "/tmp/maple-removal-orientation-executed-final-20261003/src/raw-pipeline/target/release/examples/removal-orientation-probe",
+      "sha256": "161a53633e0960c8253d24700634a7e4f26a7d8b4f0b412fa4f14409e837e950"
+    },
+    {
+      "path": "src/raw-pipeline/target/release/examples/removal-scene-probe",
+      "captured_copy": "/tmp/maple-removal-orientation-executed-final-20261003/src/raw-pipeline/target/release/examples/removal-scene-probe",
+      "sha256": "5982953c2ff10a1b578822269c7e3dc367e418fd65c4898f9bb8c1b51868fb73"
+    }
+  ],
+  "limitations": [
+    "Public publisher CC0 statement is pinned, but no person model release or release corpus consent is established.",
+    "First exploratory run preceded strict RAW orientation metadata validation; final validated replay is byte-identical.",
+    "First exploratory orientation executable was overwritten before archiving; its captured report hash is retained, while final executed source and binary copies are preserved.",
+    "Geometry and known-source invariants passing do not establish object removal, photographic detail, main-subject inference or model admission.",
+    "Native RAW-camera float encoding differs from the photographic color domain the model was trained for; the dark poster result exposes a conditioning-quality failure.",
+    "One square native1024 context. Non-square/all-eight-tag correctness is established on synthetic exact pixel/mask fixtures, not learned-weight photo cases.",
+    "Shared M5 Max 128 GiB host, uncontrolled timing; no lower-memory Mac/device-tier or p50/p95 qualification.",
+    "No app catalog/cap, accepted XMP, editor live path, export, broad ACR, portable sync, or shipping behavior was changed.",
+    "An initial independent PNG glob included the display-only upright preview; restricting it to the 18 native auto/neutral grades passed."
+  ],
+  "next_work": "Qualify removal conditioning that does not reconstruct the selected source object; preserve the verified canonical RAW inverse and protected pixels. Larger native context and complete platform/release gates remain."
+}

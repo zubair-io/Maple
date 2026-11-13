@@ -30,6 +30,15 @@ extension XMPParser {
       return XMPDuplicateAttributes.removingRepeats(in: xml).map(parsePassthrough) ?? .empty
     }
 
+    // Only namespace-owned primary records are modeled. Foreign attributes
+    // and locally rebound child bytes must remain opaque (#3955).
+    let removal =
+      RemovalXMPRecords.mayCarryRecords(xml) ? try? RemovalXMPRecords.field(Data(xml.utf8)) : nil
+    let modeledRemoval = removal?.primary == true ? removal : nil
+    let attributes = delegate.unknownAttributes.filter {
+      modeledRemoval?.propertyNamespaces != nil || $0.name != modeledRemoval?.name
+    }
+
     let groups = XMPMaskGroupSources.collect(xml)
     let isPassthroughChild: (XMPChildElementScanner.Child) -> Bool = {
       if LocalAdjustmentXMP.isLocalName($0.qName, "MaskGroupBasedCorrections") {
@@ -45,11 +54,16 @@ extension XMPParser {
     }
     let nodes = XMPChildElementScanner.firstDescriptionChildren(in: xml)
       .filter(isPassthroughChild)
+      .filter { child in
+        guard let namespaces = modeledRemoval?.propertyNamespaces else { return true }
+        return (try? RemovalXMPRecords.isOwnedProperty(child.source, namespaces: namespaces))
+          != true
+      }
       .map { groups.unownedGroupSources[$0.source] ?? $0.source }
     let preserved = XMPChildElementScanner.preservedDocumentNodes(
       in: xml, groups: groups, isPassthroughChild: isPassthroughChild)
     return XMPPassthrough(
-      unknownAttributes: delegate.unknownAttributes, unknownNodes: nodes,
+      unknownAttributes: attributes, unknownNodes: nodes,
       maskGroups: groups.templates,
       unknownRdfNodes: preserved.rdfNodes,
       unknownXmpmetaNodes: preserved.xmpmetaNodes,
@@ -251,7 +265,11 @@ final class _XMPPassthroughDelegate: NSObject, XMLParserDelegate {
     // deterministic run to run, which keeps tests and diffs stable.
     unknownAttributes =
       ancestorDeclarations.merging(attributeDict) { _, own in own }
-      .filter { !XMPKnownFields.isKnownAttribute($0.key) }
+      .filter {
+        // Ownership is resolved separately at document scope. A
+        // foreign papp binding must not disappear from this bucket.
+        $0.key.hasSuffix(":InpaintRemovals") || !XMPKnownFields.isKnownAttribute($0.key)
+      }
       .map { XMPPassthrough.Attribute(name: $0.key, value: $0.value) }
       .sorted { $0.name < $1.name }
   }

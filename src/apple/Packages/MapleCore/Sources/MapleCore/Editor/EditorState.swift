@@ -85,6 +85,7 @@ public final class EditorState {
   /// The Oklab secondary color curve panel mode + stage-input eyedropper (#5077).
   public let colorCurvePicker: ColorCurvePicker
   public let retouch: RetouchSession
+  public let removal: RemovalSession
 
   /// `subParamMemory` defaults to the app-session `.shared` store;
   /// tests inject fresh instances for isolation. (`nil` sentinel
@@ -107,6 +108,7 @@ public final class EditorState {
     self.maskRangePicker = MaskRangePicker(session: session)
     self.colorCurvePicker = ColorCurvePicker(session: session)
     self.retouch = RetouchSession(session: session)
+    self.removal = RemovalSession(session: session)
     self.armedSubParamId = Self.resolveSubParamId(
       for: armedTool, memory: memory
     )
@@ -124,6 +126,16 @@ public final class EditorState {
   /// EditSession today; compare against the snapshot at open).
   public var isDirty: Bool {
     session.model != session.originalModel
+  }
+
+  /// Restore the canvas and the armed Remove session after companion recovery.
+  /// Retrying never changes the accepted sidecar or re-runs inference.
+  public func retryRendering() async {
+    await session.renderFull()
+    // The render scheduler can supersede this pass before its final publish.
+    // The armed tool independently validates the restored companions.
+    guard armedTool == .remove else { return }
+    await removal.open()
   }
 
   // MARK: Crop session (#638)
@@ -156,6 +168,8 @@ public final class EditorState {
   /// painted image only at fit). Arming any other tool clears crop-editing mode, so
   /// the next render publishes the cropped+straightened result.
   public func arm(tool: Tool) {
+    guard !session.isSavingRemoval else { return }
+    if tool != .remove { removal.close() }
     whiteBalancePicker.cancel()
     maskRangePicker.cancel()
     colorCurvePicker.cancel()

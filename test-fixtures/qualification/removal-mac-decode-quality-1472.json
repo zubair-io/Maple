@@ -1,0 +1,79 @@
+{
+  "issue": 1472,
+  "platform": "macOS",
+  "date": "2026-10-02",
+  "baseCommit": "8eb170c482220ed489a4ac1a611d25ea9e0ebb4e",
+  "scope": "Carry completed RAW demosaic quality through cached pixels and Auto fits; publish a complete single-flight result before joined requests return.",
+  "pipelineOutputVersion": 6,
+  "implementation": [
+    "Retain actual demosaic quality alongside the cached image and export it in DecodedSnapshot.",
+    "Metal and CPU fallback Auto fitting use the retained quality, including cached higher-quality refinement.",
+    "Full/AMaZE replaces an equal-resolution Preview; a covering higher-quality decode may be retained for Preview and returns its matching image.",
+    "Joined requests await normalization and cache publication; obsolete publication cannot replace newer requests.",
+    "Full-resolution legacy decode records the selected Full/AMaZE preference rather than its requested Preview default.",
+    "Invalidation, preview seeds and cancellation release/reset the appropriate metadata and in-flight publication."
+  ],
+  "qualification": {
+    "testsExecuted": 53,
+    "failed": 0,
+    "skipped": 0,
+    "newRegressionMethods": 4,
+    "replacementSuiteMethods": 6,
+    "correctedDurationSeconds": 5.61,
+    "oldBehaviorFailedMethods": 3,
+    "oldBehaviorAssertionFailures": 9,
+    "macBuild": "succeeded",
+    "nativeArchiveFreshness": "0bb9e684802cf258af53a9c1577ce4ea9e4efab0",
+    "coverage": {
+      "classes": 446,
+      "run": 247,
+      "excluded": 199,
+      "untriaged": 0
+    },
+    "ciChange": "DecodedCacheReplacementTests moved to the executable regression list; all six tests use the committed synthetic RAW and require no Metal device."
+  },
+  "fixture": {
+    "path": "src/apple/MapleUITests/Fixtures/synthetic/grey-l018-rggb.dng",
+    "sha256": "c5b7b3324e55d5dd84693ed9384a6c9b464794afbdf969e5eb8cc64452f35276"
+  },
+  "logs": {
+    "corrected": {
+      "path": "/tmp/maple-removal-mac-decode-quality-restored-20261002.log",
+      "sha256": "2b31e84faf5be248901c9431c9e08600ce536a278b68f8080ce9fcbd4d188512"
+    },
+    "oldBehaviorRegression": {
+      "path": "/tmp/maple-removal-mac-decode-quality-before-20261002.log",
+      "sha256": "d31db8adf814fef7471d22ace198d926bd1a5a9ccc3c90ea2b9c75990111c4f6"
+    },
+    "macBuild": {
+      "path": "/tmp/maple-removal-mac-decode-quality-build-20261002.log",
+      "sha256": "d39a1cb091502f0a376cba560afbfad771a004239281e79a5779267c6b858bef"
+    },
+    "nativeFreshness": {
+      "path": "/tmp/maple-removal-mac-decode-quality-freshness-final-20261002.log",
+      "sha256": "742f90d903e95e60ed48f9b01d64f11b8da17146f30df2b21687fc306ada5612"
+    },
+    "rejectedProxyBaseline": {
+      "path": "/tmp/maple-removal-canonical-auto-baseline-20261002.log",
+      "sha256": "1345d5731d58af111b6c19d57173c4b30759694d6a555c84d14c1deb6d6641ae"
+    }
+  },
+  "rejectedExperiment": {
+    "policy": "Make full/sized/detail CPU renders reuse the fixed 1536px standalone Auto fit.",
+    "decision": "Removed after introducing Auto ACR budget breaches; budgets unchanged.",
+    "autoCompared": 20,
+    "autoBreaches": ["test_0000 mean and p95", "test_0007 mean and p95"],
+    "neutralCompared": 20,
+    "neutralBreaches": "Existing test_0011 bias breach retained.",
+    "archive": "/tmp/maple-removal-rejected-canonical-auto-20261002",
+    "candidatePatchSha256": "07683c5b4f1d50393d8619b739457c9b22f4eb091f3d4d3bb9c2dcd8bcb341a0",
+    "rustAndGeneratedChangesRetained": false
+  },
+  "limits": [
+    "Normal live GPU/export fit-size policy still differs; photographic matched-native Metal evidence is a control, not a fix for production fit policy.",
+    "The cache tests do not qualify Auto photo quality, live canvas/export parity, inference quality, native-detail consistency, scanout or a 16ms physical-gesture budget.",
+    "Observed cached render timing is descriptive and is not the native GPU performance gate.",
+    "Native full-resolution 100MP float export memory, crowd selection/removal quality, companion portability/recovery and signed distribution remain open.",
+    "No model rollout, release, PR push/merge, or Web/mobile/Windows qualification is claimed; Mac first, ports deferred."
+  ]
+}

@@ -48,13 +48,16 @@ public struct RelocatePlan: Sendable, Equatable {
   /// same-stem photo still uses it, or it maps onto itself (an
   /// extension-only rename) — #4707.
   public let retainsSourceSidecar: Bool
+  /// Local snapshot and replacement backups, retained until finalize/revert (#3944).
+  public let localSnapshot: LocalRelocationSnapshot?
 
   public init(
     mode: RelocateMode, sourcePrimaryPath: String, sourceSidecarPath: String?,
     finalPrimaryPath: String, finalSidecarPath: String?,
     renamedDueToCollision: Bool, createdPaths: [String],
     sourceAlreadyRelocated: Bool = false, retainsSourceSidecar: Bool = false,
-    sourceVariantPaths: [String] = [], finalVariantPaths: [String] = []
+    sourceVariantPaths: [String] = [], finalVariantPaths: [String] = [],
+    localSnapshot: LocalRelocationSnapshot? = nil
   ) {
     self.mode = mode
     self.sourcePrimaryPath = sourcePrimaryPath
@@ -67,6 +70,7 @@ public struct RelocatePlan: Sendable, Equatable {
     self.createdPaths = createdPaths
     self.sourceAlreadyRelocated = sourceAlreadyRelocated
     self.retainsSourceSidecar = retainsSourceSidecar
+    self.localSnapshot = localSnapshot
   }
 
   /// True when `finalize` has nothing left to do — either a case-only

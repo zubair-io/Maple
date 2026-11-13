@@ -24,6 +24,7 @@ import { ImageCanvasService } from './image-canvas.service';
 import { LibraryStateService } from '../../state/library-state.service';
 import { RawPipelineService } from '../../raw-pipeline/raw-pipeline.service';
 import { XmpSerializerService } from '../../xmp/xmp-serializer.service';
+import { XmpStoreService } from '../../xmp/xmp-store.service';
 import { defaultAdjustmentModel, type AdjustmentModel } from '../../models/adjustment-model';
 import type { Asset, AssetId } from '../../models/asset';
 import type { DecodedImage } from '../../raw-pipeline/raw-pipeline.types';
@@ -201,6 +202,20 @@ describe('ImageCanvasComponent — two-phase live re-render (#846/#1101)', () =>
     expect(preview).toBe(true);
     // Asset dims are the NATIVE dims from the sized reply, not the buffer's.
     expect(updateDimsSpy).toHaveBeenCalledWith('a', NATIVE_W, NATIVE_H);
+  });
+
+  it('renders an ordinary photo with passthrough content once, and a save does not re-render it', async () => {
+    const sidecars = TestBed.inject(XmpStoreService);
+    const passthrough = { unknownAttributes: [{ name: 'foo:Kept', value: '1' }], unknownNodes: [] };
+    sidecars.rememberPassthrough('a', passthrough);
+    setModel('a', { exposure: 1 });
+    focused.set(fakeAsset('a'));
+    await settle(REFINE_MS + 50);
+    expect(decodeSpy).toHaveBeenCalledTimes(1);
+    expect(decodeSpy.mock.calls[0][2]).not.toContain('foo:Kept');
+    sidecars.rememberPassthrough('a', { ...passthrough });
+    await settle(REFINE_MS + 50);
+    expect(decodeSpy).toHaveBeenCalledTimes(1);
   });
 
   it('releases a queued profile edit without a white-balance update (#4101)', async () => {

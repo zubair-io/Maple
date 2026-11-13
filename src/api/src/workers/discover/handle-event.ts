@@ -43,6 +43,7 @@ import { buildFileinfoEntry } from './types.ts';
 import { refusesReservedTreeEvent } from './reserved-trees.ts';
 import { refusesIgnoredTreeEvent } from './folder-ignore.ts';
 import { classifyMediaType } from '../../indexer/media-types.ts';
+import { recoverRemovalForDiscover } from './removal-recovery.ts';
 
 const log = child('discover');
 
@@ -63,6 +64,8 @@ export async function handleEvent(
   // indexed, whatever the producer — see `reserved-trees.ts` for why.
   if (refusesReservedTreeEvent(event, libraryRoot)) return;
   if (await refusesIgnoredTreeEvent(event, libraryRoot)) return;
+  if (!(await recoverRemovalForDiscover(absPath, libraryRoot))) return;
+  if (fromPath && !(await recoverRemovalForDiscover(fromPath, libraryRoot))) return;
 
   if (kind === 'removed') return handleRemoved(absPath, folderId, libraryRoot);
   if (kind === 'renamed' && fromPath)

@@ -61,7 +61,7 @@ public final class EditorWorkflowState {
   }
 
   public func reload(session: EditSession) async {
-    guard !isBusy, !session.sidecarWritesDisabled else { return }
+    guard !isBusy, !session.sidecarWritesDisabled, !session.isSavingRemoval else { return }
     session.endEdit()
     isBusy = true
     generation &+= 1
@@ -95,7 +95,7 @@ public final class EditorWorkflowState {
   }
 
   public func saveSnapshot(name: String, session: EditSession) async {
-    guard !isBusy, !session.sidecarWritesDisabled else { return }
+    guard !isBusy, !session.sidecarWritesDisabled, !session.isSavingRemoval else { return }
     let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !trimmed.isEmpty else {
       errorText = "Enter a snapshot name."
@@ -180,7 +180,7 @@ public final class EditorWorkflowState {
   }
 
   public func confirmRestore(session: EditSession) async {
-    guard !isBusy, !session.sidecarWritesDisabled, case .restore(_, let entry) = pending,
+    guard !isBusy, !session.sidecarWritesDisabled, !session.isSavingRemoval, case .restore(_, let entry) = pending,
       let command = pending, let before = beforeCheckpoint
     else { return }
     session.endEdit()
@@ -239,7 +239,7 @@ public final class EditorWorkflowState {
   }
 
   func beginReplay(session: EditSession, transaction: EditTransaction, undo: Bool) {
-    guard !isBusy, !session.sidecarWritesDisabled else { return }
+    guard !isBusy, !session.sidecarWritesDisabled, !session.isSavingRemoval else { return }
     isBusy = true
     let current = generation
     let opID = UUID()

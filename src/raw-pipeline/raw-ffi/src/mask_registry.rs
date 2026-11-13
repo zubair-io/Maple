@@ -62,7 +62,8 @@ fn lookup_digest(digest: &str) -> Option<Arc<MaskRaster>> {
 /// # Safety
 /// `digest_ptr` may be null (yields -1); if non-null, it must be valid for
 /// 16 `u8` reads. `data_ptr` must be valid for `data_len` `u8` reads, or null
-/// when `data_len == 0`.
+/// when `data_len == 0`. A non-null pointer's allocation must remain live and
+/// immutable for the duration of this call (#3970).
 ///
 /// Returns:
 ///    id  success (>= 1)

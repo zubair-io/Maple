@@ -1,0 +1,352 @@
+{
+  "issue": 3941,
+  "epic": 1472,
+  "recorded_at": "2026-10-03T06:30:46.174707+00:00",
+  "parent_commit": "84e041739910873cd5576343b2db983da55b96d5",
+  "releaseQualified": false,
+  "app_limit_changed": false,
+  "purpose": "Evaluate published LaMa latent-feature refinement at native greater-than-1024 extent, following the failed RGB-guide/source-vote diagnostic.",
+  "implementation": {
+    "upstream_source_revision": "786f5936b27fb3dacd2b1ad799e4de968ea697e7",
+    "upstream_refinement_sha256": "f0ba8121690c3d664fdf8478c3867a304bb1f0e2581e268fcd2cc3b1216f6baa",
+    "upstream_defaults_sha256": "e7733ceadd0be2210008f97b786772d10e866a6b5f7cd272d3ec5a2160e01e2c",
+    "method": "Six unchanged SHA256-verified AST function definitions loaded with actual torch/kornia/cv2 globals; unused evaluator imports are omitted. CPU controller uses the original front/rear split, pyramid and _infer optimization. No copied or substituted loss/pyramid/network implementation.",
+    "controller_differences": [
+      "One CPU replaces the CUDA device dispatcher.",
+      "Learned weights require_grad=False to omit unused parameter gradients. Latent feature tensors remain differentiable; trained state digest before/after matches.",
+      "The native crop is explicitly admitted against the original 1.8MP budget, dimensions divisible by eight; native tensors equal the supplied source crop. No upscaled coarse output is accepted.",
+      "Callback records actual consistency loss and initial native prediction before the first Adam update; recorded optimization_steps are 15 loss evaluations and 14 latent optimizer updates.",
+      "Saved diagnostic composites copy original samples outside exact selection."
+    ],
+    "iterations": 15,
+    "latent_adam_updates": 14,
+    "learning_rate": 0.002,
+    "min_side": 512,
+    "max_scales": 3,
+    "pixel_budget": 1800000,
+    "executed_tool_snapshot": {
+      "path": "/tmp/maple-removal-feature-refinement-executed-probe-20261003.py",
+      "sha256": "a1ad787a12d45dd3f847ff1e618cecd2ff672cf8336871e3cee50e014f01a9d2"
+    },
+    "post_run_change": "Only admission minimum tightened from 512 to 1024 pixels on both axes so single-scale contexts refuse before inference. The actual 1024x1536 case is admitted identically; final five tests cover the revised guard. Model/pyramid/loss/optimization/output code unchanged."
+  },
+  "input": {
+    "source": {
+      "path": "/tmp/maple-removal-lama-native2048-input-20261003/market-native-2048.png",
+      "sha256": "d1298bd00fef7093a896d1657b6f88aa4c7181084b68add1d837d8ffedbd027b"
+    },
+    "mask": {
+      "path": "/tmp/maple-removal-guided-native-person-mask-20261003/person-hole.png",
+      "sha256": "923f14de4500e1053f16d6d48fa93e9ccc5d28dbcfc93d3c00828063c68e9666"
+    },
+    "crop_xywh": [
+      384,
+      384,
+      1024,
+      1536
+    ],
+    "native_extent_hw": [
+      1536,
+      1024
+    ],
+    "source_resampled": false,
+    "selected_pixels": 345996,
+    "selection_bounds_xywh_in_2048_source": [
+      678,
+      584,
+      452,
+      1206
+    ],
+    "license_manifest": {
+      "path": "/tmp/maple-removal-corpus/public-raws/sources.json",
+      "sha256": "0aa7d215b3e3e89fe342bd492440bf9332588116ce8c0155b4a5c973fc15d8bc"
+    },
+    "original_raw_verification": [
+      {
+        "file": "P1010153.RW2",
+        "sha256": "874b652b9d2605030aac18eab4a687903083ac4b8a73029a35f46c36b1f7ba82",
+        "unchanged": true
+      },
+      {
+        "file": "DSC06078.ARW",
+        "sha256": "ec04e3ac69d54e7300ba0ff582d10ade0fc3ad28f48507b4c35cacc115e4ee86",
+        "unchanged": true
+      }
+    ],
+    "domain": "Public CC0 RAW-developed Auto SDR PNG diagnostic, not canonical scene-linear RAW inference plate"
+  },
+  "actual_run": {
+    "source_revision": "786f5936b27fb3dacd2b1ad799e4de968ea697e7",
+    "checkpoint_sha256": "fccb7adffd53ec0974ee5503c3731c2c2f1e7e07856fd9228cdcc0b46fd5d423",
+    "refinement_source_sha256": "f0ba8121690c3d664fdf8478c3867a304bb1f0e2581e268fcd2cc3b1216f6baa",
+    "defaults_sha256": "e7733ceadd0be2210008f97b786772d10e866a6b5f7cd272d3ec5a2160e01e2c",
+    "learned_state_sha256_before_and_after": "4f7ad955c82b1e1253fec6cff4ad0e7c07355977e42919b786eb53ca069e5996",
+    "weights_changed": false,
+    "image_sha256": "d1298bd00fef7093a896d1657b6f88aa4c7181084b68add1d837d8ffedbd027b",
+    "mask_sha256": "923f14de4500e1053f16d6d48fa93e9ccc5d28dbcfc93d3c00828063c68e9666",
+    "crop_xywh": [
+      384,
+      384,
+      1024,
+      1536
+    ],
+    "native_extent_hw": [
+      1536,
+      1024
+    ],
+    "source_resampled": false,
+    "selected_pixels": 345996,
+    "iterations": 15,
+    "learning_rate": 0.002,
+    "scales": [
+      {
+        "extent_hw": [
+          768,
+          512
+        ],
+        "elapsed_ms": 1671.890834113583
+      },
+      {
+        "extent_hw": [
+          1536,
+          1024
+        ],
+        "elapsed_ms": 192255.23958308622
+      }
+    ],
+    "optimization_steps": [
+      {
+        "scale": 1,
+        "iteration": 1,
+        "loss": 0.05767851322889328,
+        "elapsed_ms": 13219.708291813731
+      },
+      {
+        "scale": 1,
+        "iteration": 2,
+        "loss": 0.04175320267677307,
+        "elapsed_ms": 28890.124916797504
+      },
+      {
+        "scale": 1,
+        "iteration": 3,
+        "loss": 0.039863813668489456,
+        "elapsed_ms": 42086.421499960124
+      },
+      {
+        "scale": 1,
+        "iteration": 4,
+        "loss": 0.03472790867090225,
+        "elapsed_ms": 54890.14912489802
+      },
+      {
+        "scale": 1,
+        "iteration": 5,
+        "loss": 0.03332143276929855,
+        "elapsed_ms": 67714.7690418642
+      },
+      {
+        "scale": 1,
+        "iteration": 6,
+        "loss": 0.03217816725373268,
+        "elapsed_ms": 80737.45304183103
+      },
+      {
+        "scale": 1,
+        "iteration": 7,
+        "loss": 0.03076571598649025,
+        "elapsed_ms": 93745.82687485963
+      },
+      {
+        "scale": 1,
+        "iteration": 8,
+        "loss": 0.029832955449819565,
+        "elapsed_ms": 106137.10566679947
+      },
+      {
+        "scale": 1,
+        "iteration": 9,
+        "loss": 0.02889143116772175,
+        "elapsed_ms": 118793.69008401409
+      },
+      {
+        "scale": 1,
+        "iteration": 10,
+        "loss": 0.02799343690276146,
+        "elapsed_ms": 131265.7597498037
+      },
+      {
+        "scale": 1,
+        "iteration": 11,
+        "loss": 0.027262145653367043,
+        "elapsed_ms": 143702.51454180107
+      },
+      {
+        "scale": 1,
+        "iteration": 12,
+        "loss": 0.026553649455308914,
+        "elapsed_ms": 156086.75133390352
+      },
+      {
+        "scale": 1,
+        "iteration": 13,
+        "loss": 0.025885380804538727,
+        "elapsed_ms": 168678.2149998471
+      },
+      {
+        "scale": 1,
+        "iteration": 14,
+        "loss": 0.025321170687675476,
+        "elapsed_ms": 181519.08104191534
+      },
+      {
+        "scale": 1,
+        "iteration": 15,
+        "loss": 0.024760298430919647,
+        "elapsed_ms": 194306.73429183662
+      }
+    ],
+    "generation_ms": 194527.80174999498,
+    "process_peak_resident_bytes": 37323194368,
+    "torch": "2.14.1",
+    "device": "cpu",
+    "outputs": {
+      "baseline": {
+        "sha256": "1b57d3393b02b4c0520b00aa05477116537b49fca582e2cf60d33963f12ef7f9",
+        "outside_float_bits_changed": 0,
+        "outside_u8_samples_changed": 0
+      },
+      "refined": {
+        "sha256": "f2978043f7913eb2355c13fae28348cfe85944fec9d756fd0255efeb5600eb7d",
+        "outside_float_bits_changed": 0,
+        "outside_u8_samples_changed": 0
+      }
+    },
+    "releaseQualified": false,
+    "qualification": "Upstream optimization diagnostic on SDR native crop. No canonical RAW/HDR, exact app/browser runtime, device budget or photographic quality qualification."
+  },
+  "persisted_output_rechecks": {
+    "baseline": {
+      "finite": true,
+      "outside_float_bits_changed": 0,
+      "outside_u8_samples_changed": 0,
+      "scope": "Independent saved f32/PNG reload against native source crop, not photographic ground truth"
+    },
+    "refined": {
+      "finite": true,
+      "outside_float_bits_changed": 0,
+      "outside_u8_samples_changed": 0,
+      "scope": "Independent saved f32/PNG reload against native source crop, not photographic ground truth"
+    }
+  },
+  "artifacts": {
+    "report.json": {
+      "path": "/tmp/maple-removal-feature-refinement-person-20261003/report.json",
+      "sha256": "60793893164dcc863a9c2b23097a466b2ab9f8e4ca6e9a500179f7995e33e695"
+    },
+    "source.png": {
+      "path": "/tmp/maple-removal-feature-refinement-person-20261003/source.png",
+      "sha256": "2c2ba6964bb016c9c393cc970453c75fc6be0e1549369a7c2011f011e1e3f290"
+    },
+    "hole.png": {
+      "path": "/tmp/maple-removal-feature-refinement-person-20261003/hole.png",
+      "sha256": "69ba21109f380aee62af9ab4e11246d4f66b27325fefe4714c352a6fbb4ff93d"
+    },
+    "coarse.png": {
+      "path": "/tmp/maple-removal-feature-refinement-person-20261003/coarse.png",
+      "sha256": "7d60afdf3979641f09edf6c9e259d1f0c57a680e122b13a77866eaee7ec696ec"
+    },
+    "baseline.png": {
+      "path": "/tmp/maple-removal-feature-refinement-person-20261003/baseline.png",
+      "sha256": "91353fa7642ae2cca1ec41937b36dc4f7da018c9b3c17cada6f3a1e6492f4511"
+    },
+    "refined.png": {
+      "path": "/tmp/maple-removal-feature-refinement-person-20261003/refined.png",
+      "sha256": "0d6d59171926acf7b9cf43926ff96876e589fb5a95d7d6332f8f354371bf7b70"
+    }
+  },
+  "visual_assessment": {
+    "passed": false,
+    "scope": "Native 1024x1536 initial/refined PNGs inspected at original size, plus 512x768 coarse output; qualitative challenge rejection, no release quality score.",
+    "observations": [
+      "The native baseline has a broad smooth silhouette-shaped fill and loses produce/display structure.",
+      "Refinement makes the selected area less smooth and adds some texture but does not produce a plausible shelf/produce layout; a conspicuous distorted silhouette persists.",
+      "Arms, other people, bags and structures outside the binary mask remain; this is exact selection preservation and should not be confused with a whole-scene cleanup.",
+      "Loss decreases from 0.0576785 to 0.0247603, but consistency with a poor coarse fill does not prove semantic or photographic correctness."
+    ]
+  },
+  "performance": {
+    "generation_ms": 194527.80174999498,
+    "process_peak_resident_bytes": 37323194368,
+    "scope": "Model load and two-scale CPU PyTorch optimization on shared M5 Max/128GB. Diagnostic only; no controlled p50/p95, exact deployed ORT/runtime, GPU or lower-memory physical device budget.",
+    "comparison_limit": "The earlier guide/vote case uses a different 2048-square context and runtime. These are separate points, not a valid algorithm/device performance ratio."
+  },
+  "decision": "Reject this case for a Mac large-selection implementation. Quality still fails; about195s and37.3GB peak RSS are also unsuitable as qualification for the current deployed path. No native admission, model pin, C ABI, UI, XMP schema or accepted edit changes.",
+  "checks": {
+    "tests": 5,
+    "failed": 0,
+    "skipped": 0,
+    "scope": "Actual PNG crop/mask admission, source sample identity, rejection of partial/resized/single-scale/nonbinary masks, saved f32/PNG known-pixel exactness, non-finite output and unpinned helper refusal before execution.",
+    "ruff_format": "passed",
+    "ruff_check": "passed",
+    "source_file_budget": "passed",
+    "incremental_headroom": {
+      "result": "passed",
+      "base": "84e041739910873cd5576343b2db983da55b96d5",
+      "scope": "New diagnostic source changes against parent HEAD; previous full branch headroom qualification retained."
+    }
+  },
+  "logs": {
+    "runtime": {
+      "path": "/tmp/maple-removal-feature-refinement-person-20261003.log",
+      "sha256": "35ce6314f85d53baf770017b88b53f7d64969987b73adad18814ca45c124ef76"
+    },
+    "tests": {
+      "path": "/tmp/maple-removal-feature-refinement-tests-final-20261003.log",
+      "sha256": "3a2c5117629c01942b3a9784c4eb897def09cc37f0496bfe284f26f253cb856e"
+    },
+    "format": {
+      "path": "/tmp/maple-removal-feature-refinement-format-20261003.log",
+      "sha256": "3bc53bf3e981a98a34a852e175bf9b77af841edea74fca595d9aedcbaf9a4938"
+    },
+    "lint": {
+      "path": "/tmp/maple-removal-feature-refinement-lint-20261003.log",
+      "sha256": "82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18"
+    },
+    "file_budget": {
+      "path": "/tmp/maple-removal-feature-refinement-budget-20261003.log",
+      "sha256": "90b0b928cdd3fad543c7281614414e5a789d3bdbddcb9c5ec4011485ccf00f1c"
+    },
+    "dependencies": {
+      "path": "/tmp/maple-removal-refinement-dependencies-20261003.log",
+      "sha256": "4ae9d646a86965182187c3ec5b5d17173f9637f02b0454fe3b5871813fcbe739"
+    },
+    "incremental_headroom": {
+      "path": "/tmp/maple-removal-feature-refinement-headroom-20261003.log",
+      "sha256": "e5ab2a25f8061db32ffdb922fed42f0e27b479832ba0cc573d056ef342acf495"
+    }
+  },
+  "toolchain": {
+    "opencv": "5.0.0",
+    "numpy": "2.5.3",
+    "kornia": "0.8.3",
+    "torch": "2.14.1"
+  },
+  "source_sha256": {
+    "tools/removal/probe_lama_refinement.py": "186c25ded8d3b55e501466eac122cfbe360e427a829a4f08af0e536a4e018925",
+    "tools/removal/lama_refinement_probe_test.py": "7f2263347f7301e0dde50cb0f1b3b419b78ef0385d27a063d7f94f6139d2efdf"
+  },
+  "references": [
+    "https://arxiv.org/abs/2206.13644",
+    "https://github.com/advimman/lama/blob/786f5936b27fb3dacd2b1ad799e4de968ea697e7/saicinpainting/evaluation/refinement.py"
+  ],
+  "replay_command": "python tools/removal/probe_lama_refinement.py --source <pinned-lama-source> --checkpoint <big-lama/models/best.ckpt> --config <big-lama/config.yaml> --image <market-native-2048.png> --mask <person-hole.png> --crop 384 384 1024 1536 --output <fresh-output>",
+  "remaining": [
+    "Evaluate stronger structure generation with a different inpainting model; additional texture/refinement around an implausible coarse guide is insufficient.",
+    "Require commercial distribution/license/provenance review before shipping another checkpoint or runtime.",
+    "Run canonical RAW/HDR seam/noise, saved patch/export, labeled crowd/subject protection and physical-device/live performance qualification on the chosen approach.",
+    "Complete remaining portable consumers and Apple/Web scope after Mac priority."
+  ],
+  "full_goal_status": "ACTIVE; this records a finished diagnostic, not a qualified feature or completed epic.",
+  "no_push_pr_merge": true
+}

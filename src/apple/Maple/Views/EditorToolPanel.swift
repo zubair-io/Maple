@@ -15,7 +15,7 @@ struct EditorToolPanel: View {
 
   private enum PanelKind {
     case crop, hsl, colorGrade, toneCurve, filmLook, geometry, lensCorrections, defringe, mask,
-      heal
+      heal, remove
 
     init?(_ tool: Tool) {
       switch tool {
@@ -29,6 +29,7 @@ struct EditorToolPanel: View {
       case .defringe: self = .defringe
       case .mask: self = .mask
       case .heal: self = .heal
+      case .remove: self = .remove
       default: return nil
       }
     }
@@ -57,6 +58,8 @@ struct EditorToolPanel: View {
         MaskPanel(state: state).editorContextInsets()
       case .heal:
         RetouchPanel(state: state).editorContextInsets()
+      case .remove:
+        RemovalPanel(state: state).editorContextInsets()
       }
     }
   }

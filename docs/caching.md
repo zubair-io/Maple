@@ -1,6 +1,6 @@
 # Caching
 
-Maple caches four kinds of thing: **thumbnails** (small grid images), **previews** (a 1280-px developed still), **decoded/intermediate pixel state** (in memory, per session), and **API responses** (folder listings, counts, geocodes). The first two are written into a `.maple/` folder that sits next to the photos, so they travel with the library and are shared by the Mac app, the Windows app, the web client, and the Self-Hosted server. Everything in a cache is derived and disposable — an original file is never a cache entry, and losing the whole cache costs time, never data.
+Maple caches four kinds of thing: **thumbnails** (small grid images), **previews** (a 1280-px developed still), **decoded/intermediate pixel state** (in memory, per session), and **API responses** (folder listings, counts, geocodes). The first two are written into a `.maple/` folder that sits next to the photos, so they travel with the library and are shared by the Mac app, the Windows app, the web client, and the Self-Hosted server. Everything in a cache is derived and disposable. The `.maple/` directory also contains the durable `.maple/inpaint/` companion namespace referenced by accepted removal records; those masks and baked patches are edit assets, not cache entries. Cache cleanup must target the cache subdirectories and preserve sidecar-referenced companions. Local relocation journals, replacement backups and retained incoming recovery copies are also durable recovery state (#3944); they are not cache entries. Persistent XMP/relocation lock files must not be unlinked while another process may hold their inode. Removing an accepted asset makes the edit incomplete and cannot be repaired by silently rerunning a model (shared contract #3936; editor integration #1472).
 
 Two rules explain most of the design. First, **thumb and preview cache filenames are derived from the photo's own filename**, not its content or its database id — so the cache resolves with no database lookup and survives being copied to another machine, but nothing survives a rename or a move (the fix is to regenerate at the new path, never to relocate cache files). Second, **shared thumbnails and previews are never versioned**: their names, HTTP identities and server stages carry no pipeline version, so a pipeline change never regenerates, re-syncs or rejects one. They are refreshed only when the original or its sidecar changes (see [No pipeline version](#no-pipeline-version)).
 
@@ -10,13 +10,14 @@ The one cache that tracks a photo's _edits_ is Apple's rendered-preview cache, a
 
 Every layer agrees on this layout, sitting inside the folder that holds the photos:
 
-| Path                                  | Contents                                                                       | Written by                                               |
-| ------------------------------------- | ------------------------------------------------------------------------------ | -------------------------------------------------------- |
-| `.maple/thumbs/<filename.ext>.avif`   | 512-px AVIF grid thumbnail                                                     | Apple, Android, Windows, Web, API indexer, pano stitcher |
-| `.maple/previews/<filename.ext>.avif` | 1280-px AVIF display preview                                                   | Apple, Android, Web, API indexer, pano stitcher          |
-| `.maple/index.json`                   | Per-folder file list + culling state (Apple cold-open)                         | Apple only                                               |
-| `.maple/id-cache-<writer>.json`       | `path → maple_id` rows with size/mtime + derivation-version validation (#5106) | Apple (`-apple`), Web (`-web`)                           |
-| `.maple/trash/…`                      | Trashed items plus `<basename>.trashed-YYYY-MM-DD` marker dirs                 | Apple (local + SMB)                                      |
+| Path                                            | Contents                                                                       | Written by                                                   |
+| ----------------------------------------------- | ------------------------------------------------------------------------------ | ------------------------------------------------------------ |
+| `.maple/thumbs/<filename.ext>.avif`             | 512-px AVIF grid thumbnail                                                     | Apple, Android, Windows, Web, API indexer, pano stitcher     |
+| `.maple/previews/<filename.ext>.avif`           | 1280-px AVIF display preview                                                   | Apple, Android, Web, API indexer, pano stitcher              |
+| `.maple/index.json`                             | Per-folder file list + culling state (Apple cold-open)                         | Apple only                                                   |
+| `.maple/id-cache-<writer>.json`                 | `path → maple_id` rows with size/mtime + derivation-version validation (#5106) | Apple (`-apple`), Web (`-web`)                               |
+| `.maple/trash/…`                                | Trashed items plus `<basename>.trashed-YYYY-MM-DD` marker dirs                 | Apple (local + SMB)                                          |
+| `.maple/inpaint/<content-digest>.mimf` / `.f16` | Durable accepted removal masks and baked patches; never cache-purged           | Local Apple and browser removal asset stores (#3940 / #1472) |
 
 Both tiers keep the original filename, including its extension, and append `.avif`: `IMG_1234.CR2` has the thumbnail `.maple/thumbs/IMG_1234.CR2.avif` and the preview `.maple/previews/IMG_1234.CR2.avif`. Neither carries a hash or a pipeline version (#4793). Assets with no source filename (Apple's sourceless, opaque-id keys) use `<key>.avif`. Path composition lives in `src/apple/Packages/MapleCore/Sources/MapleCore/FileProvider/MapleSidecarPaths.swift` and `src/api/src/fs/xmp.ts` (`resolveThumbPath` / `cachePathFor` / `cachePathForAsset`).
 
@@ -65,7 +66,13 @@ recognizing an accepted UUID does not implicitly adopt another client's newer
 model. Ordinary saves retry their identical full document. Named variants bind a
 writer to one immutable variant UUID and a session-owned confirmed XMP file for
 render/export. This temporary render file is refreshed only after confirmed
-publication or reads and is removed with its owner (#4065).
+publication or reads and is removed with its owner (#4065). Adjustment
+publications retain the adopted document's validated removal records; explicit
+workflow restores publish the complete selected snapshot (#3984).
+
+The Apple `RemovalSession` retains the actual detector/SAM source masks for all detected people during one open authoring context. The key is that immutable photo/model context plus the stable detector IDs; source/model reopening, new detection, mode change, or closing the tool drops the masks. Checkbox edits keep these raw masks and project the current selection/protection into the overlay on the editor actor; Remove or Refine then applies those choices to the authoring selection. This is one transient detection set (at most the shared detector proposal limit), not a disk cache or slider-loop allocation; accepted companion assets remain separate.
+
+A RAW handle opened with saved-removal parameters also owns the complete verified calibration stack. File opens read companions beside the original; direct byte opens read beside the supplied XMP file. Native-detail f32 and legacy fp16 tile calls reuse those immutable assets without sidecar or companion I/O. The existing `NativeDetailRenderer` handle key includes accepted records through its baked model, so a stack change replaces the owner while live scalar changes and pans retain it. Saved tile scratch remains bounded to 8 Mi pixels including overlap; unsupported optical geometry or upstream recipes refuse the tile and retain the verified whole-image fallback (#3955). Remote byte-backed temporary companion transport remains open.
 
 | Cache                                     | Stores                                                                                                                                                                                                                                            | Where                                                                                                                                                                                                       | Key                                                                                                                                                                                                                   | Invalidated by                                                                                                                                            | Bound                                                                                       |
 | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
@@ -105,7 +112,7 @@ GPU-live sessions populate `RenderedPreviewCache` from the existing awaited edit
 
 The shared Rust GPU `FramePool` (`src/raw-pipeline/raw-gpu/src/frame_pool.rs`) retains the **four most recently used chain signatures** per GPU context. A signature includes live-session identity, dimensions, active stages and dispatch-shape inputs; each bucket owns its scratch buffers and ordered uniform/bind-group entries. Four buckets keep fast/refined slider zero-threshold transitions warm while bounding accumulated scratch images when many different controls are enabled. Opening a fifth shape evicts the oldest bucket. New sessions retain the bounded LRU; their unique signature salt keeps image bindings isolated while fast and refined views reuse their own warm resources. Buckets hold a weak session-lifetime token; the next live frame or session open reclaims retired sources without flushing other live views. An evicted shape rebuilds its own resources, never another session's bindings.
 
-Each pooled uniform and read-only data buffer also retains its last uploaded byte content. Equal bytes skip `queue.write_buffer`, which otherwise creates backend staging storage even when the destination buffer is pooled. Changed bytes upload before dispatch and update the retained snapshot in place; snapshot allocation occurs on a cache miss. Data buffer size or lease-kind changes miss, and handing a data buffer out as writable scratch invalidates its snapshot. This preserves changed tone curves and LUTs without using host pointer identity as content identity. These snapshots share the four-bucket lifetime; they add no disk cache. Present-pass bind groups are separately bounded to four dispatches covering both final ping-pong directions of fast and refined sessions. Entries are keyed by the existing monotonic live-session identity, final ping-pong direction and source/destination dimensions. Each surface retains its bind-group layout for the cache lifetime; replacing that layout invalidates the cache. Retired wgpu wrapper addresses are not resource identities (#4355). Apple retains its existing eager invalidation on a session switch, releasing the previous session’s dispatch bindings; its fast/refined switches are not promised to retain four warm dispatches. Geometry values update the retained uniform without replacing its bindings. Closing a Windows GPU session clears these dispatch bindings so they cannot retain retired image buffers; the swapchain itself remains configured.
+Each pooled uniform and read-only data buffer also retains its last uploaded byte content. Equal bytes skip `queue.write_buffer`, which otherwise creates backend staging storage even when the destination buffer is pooled. Changed bytes upload before dispatch and update the retained snapshot in place; snapshot allocation occurs on a cache miss. Data buffer size or lease-kind changes miss, and handing a data buffer out as writable scratch invalidates its snapshot. This preserves changed tone curves and LUTs without using host pointer identity as content identity. These snapshots share the two-bucket lifetime; they add no disk cache. Apple's present-pass bind groups are separately bounded to the two final ping-pong directions and invalidated when the surface geometry/layout or uploaded session changes.
 
 The session decoded-image cache (`RenderActor.swift`, `RenderActor+DecodedCache.swift`) is the one place where sidecar mtime is deliberately **not** the freshness key. The decoded scene-linear buffer is a pure function of the RAW bytes plus the _stripped_ model — the Apple-GPU stages (exposure, noise-reduction colour, sharpen amount, and so on) are removed before decode and re-applied live per tick, so editing one of them cannot change the decode. Keying on mtime forced a full re-decode (measured at ~15 s on a large RAW) on the first edit after every drag pause, because the 750 ms-debounced sidecar autosave had moved the mtime. The cache now stores and value-compares the stripped model itself, with the sidecar mtime kept only as a fast-path gate: an unchanged mtime proves the file is byte-identical, so the per-tick hot path skips the XMP parse entirely and only falls through to parse-and-compare when a save actually landed. Mtime can therefore make the actor do more work, never serve a stale buffer.
 
@@ -113,9 +120,7 @@ The stripped model deliberately KEEPS every decode-product field, because those 
 
 White-balance names and provenance are excluded from the decoded-model key alongside the live temperature/tint pair. Apple normalizes the live WB scale and metadata in `stripAppleGPUStages`; Web normalizes source, sample point and algorithm version in its stripped GPU prefix. Selecting a named preset, applying AUTO, or switching to a manual adjustment must not cause a new decode solely because its provenance changed. The full live model and saved sidecar retain that provenance.
 
-After a changed timestamp validates the same baked model, the cache accepts the timestamp captured before parsing. Subsequent ticks return to the stat-only fast path; a later write still changes that timestamp and triggers validation. Pending decode ownership is checked after native completion and after normalization, so a late result cannot clear or replace a newer profile/quality request for the same asset.
-
-An absent sidecar uses a precomputed stripped default model in this cache (#4266), matching the native decode prefix. Creating the first sidecar with only GPU-live edits therefore retains the same buffer and generation. A first nondefault baked edit or removal of a nondefault baked sidecar still invalidates by semantic model value; sidecar existence remains relevant to disk derivatives and persistence, rather than this decoded-prefix identity.
+After a changed timestamp validates the same baked model, the cache accepts the timestamp captured before parsing. Subsequent ticks return to the stat-only fast path; a later write still changes that timestamp and triggers validation. Pending decode ownership is checked after native completion and after normalization, so a late result cannot clear or replace a newer profile/quality request for the same asset. Single-flight joins await normalization and cache publication before returning. The snapshot retains the actual demosaic quality with the pixels, and provisional Auto fitting uses that quality. The settled Mac tail uses full-export quality, as described under Mac native Auto preparation below. An equal-size Full/AMaZE decode replaces Preview; a later Preview may retain an already covering higher-quality buffer and returns that retained image with its metadata. Preview seeds and invalidation clear the quality.
 
 Named variant switching (#4063) also compares the selected sidecar path before accepting the decoded-cache timestamp fast path. Equal timestamps on two siblings do not establish equal baked models. Switching to an equal stripped model shares the existing decoded pixels; a different stripped model invalidates them. In-flight decodes are bound to their selected sidecar path. `RenderedPreviewCache` includes a named sibling's path and modification time, while preserving existing primary keys. Queued preview writes retain that selected path and revision; invalidating the RAW clears all its branch previews.
 
@@ -156,7 +161,7 @@ On a cold Files-backed RAW, Browse and Preview first display an embedded camera 
 
 Caches under `src/web/projects/maple-common/src/lib/` unless noted.
 
-Twelve IndexedDB databases go through one hand-rolled helper (`util/idb.ts`) that opens, transacts, and closes per operation — no long-lived connection. **None of the twelve has a byte cap, count cap, LRU, or TTL.** Several records carry a `storedAt` timestamp, but no read path ever compares it against a threshold; the only bounding force is the browser's own quota eviction, and where invalidation exists it is content-validity based.
+Eleven IndexedDB databases go through one hand-rolled helper (`util/idb.ts`) that opens, transacts, and closes per operation — no long-lived connection. **None of the eleven has a byte cap, count cap, LRU, or TTL.** Several records carry a `storedAt` timestamp, but no read path ever compares it against a threshold; the only bounding force is the browser's own quota eviction, and where invalidation exists it is content-validity based.
 
 | Database                                   | Store                 | Key                             | Value                                       | Invalidated by                                                                |
 | ------------------------------------------ | --------------------- | ------------------------------- | ------------------------------------------- | ----------------------------------------------------------------------------- |
@@ -239,7 +244,32 @@ Thumbnail loading is additionally gated at **4 concurrent loads** (`state/librar
 
 Apart from the retained CPU editor source described above, the render worker (`raw-pipeline/raw-pipeline.worker.ts`) holds **no decode cache** — every other request is one-shot decode-post-free. It also retains a single live GPU session (`raw-pipeline/raw-pipeline.session-handler.ts`): one image open at a time, opening a new one replaces the resident session, and operations are serialized through a chain because the wasm-bindgen `&mut self` borrow spans a whole render promise.
 
-The tile path's per-render overlap pad and its frame window (`raw-core/src/pipeline/tile/overlap.rs`, `region::TileWindow`, #1157) are computed from the model and the rect on every call and hold no state: they add no cache, and they do not change what the `NativeDetailRenderer` handle keys on — a patch for the same `(asset, source mtime, stripped baked model)` still renders from the same inputs, just with a pad sized to the model's engaged stages.
+Hosted cold and idle developed-preview writes load the exact sidecar-referenced removal companions from the photo's containing directory, including disabled operations. Their queued, temporary CPU RAW render verifies the original and every asset without replacing the live canvas or an unsaved removal review. Missing or corrupt companions fail rather than retrying with unedited pixels. A normal GPU prefix change transfers its verified accepted stack with the render request; the worker restores that stack after temporary authoring preparation. Unchanged scalar ticks perform no additional companion I/O, parsing or WASM call. These derived cache writes preserve `.maple/inpaint/` assets and the original (#3984).
+
+| Retained Web state                      | Key                                                            | Invalidation                                                                                                                                                                         | Bound                      |
+| --------------------------------------- | -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------- |
+| CPU native-detail RAW owner             | Source id; original bytes/digest retained and verified by Rust | Source switch, explicit close, export, worker failure/teardown                                                                                                                       | One source                 |
+| Verified native-detail companion bundle | Source id + exact ordered removal records                      | Changed records/source, explicit clear, owner close or worker failure                                                                                                                | One complete stack         |
+| Native-detail base anchors              | Full XMP + base cap/quality + film bytes                       | Changed base recipe; any saved-stack preparation clears Rust anchors. Authoring borrows invalidate the worker's preparation key, so the next tile reinstalls retained verified bytes | One AE/Whites/Auto context |
+
+Companions cross the worker boundary once per source/record change. Pan requests perform no companion file read or transfer. They reuse full-frame anchors rather than measuring a viewport histogram. Missing or invalid companions never become a partial tile; unsupported format, crop, optics, stage or padded allocation keeps the verified sized preview. WebGPU and normal Apple editor native-detail removal consumers remain under #3955.
+
+Self Hosted Web authoring and cold saved-preview/export preparation read verified
+companions over authenticated `/api/removal/companion` requests. The same retained
+worker owners reuse them after preparation; scalar ticks add no companion HTTP
+request. Keep and removal history settle pending ordinary sidecar writes, commit
+against the complete server XMP revision, and verify the returned document and
+SHA-256 before adopting the model or moving history. Confirmation refreshes the
+sidecar memory/IndexedDB cache, the restore service's read-before-write base, and
+the library's accumulated develop patch. Subsequent full-document metadata saves
+preserve the confirmed stack and use its known revision; a changed server
+document fails rather than silently restoring old accepted pixels. Ordinary
+cache writes keep their existing optimistic rollback behavior. The authoritative
+mask/patch bytes stay in the server's durable `.maple/inpaint/` directory.
+
+`NativeSavedRemovalSession.detail` provides the Apple cold inspection boundary on a retained, verified RAW owner. Its C owner retains at most one full-frame AE/Whites/Auto context and decoded film LUT, keyed by exact XMP, bounded base long edge/quality and film bytes. Pans reuse that context; a recipe change drops it before attempting preparation. Reset, failed companion preparation and owner destruction release it with the accepted stack. A poisoned owner fails closed. Native tile scratch is bounded to at most 8 Mi pixels including filter overlap; a caller may request a smaller limit. This bridge does not yet replace the normal Apple `NativeDetailRenderer` or qualify device memory/performance (#3955 / #3984).
+
+The tile path's per-render overlap pad and its frame window (`raw-core/src/pipeline/tile/overlap.rs`, `region::TileWindow`, #1157) are computed from the model and the rect on every call and hold no state: they add no cache, and they do not change what `TileKey` or the `NativeDetailRenderer` handle key on — a tile for the same `(asset, sidecar mtime, zoom bucket, tile)` still renders from the same inputs, just with a pad sized to the model's engaged stages.
 
 There is **no deep-zoom tile cache on web**. The editor renders a full-frame canvas via the GPU live session or a 2D decode fallback; the only tiles in the codebase are MapLibre basemap tiles, cached by MapLibre and the HTTP layer.
 
@@ -276,16 +306,18 @@ The search child (#4463) keeps a Tantivy keyword index at `<database dir>/.maple
 
 ### HTTP caching
 
-| Route                                         | ETag                                     | `Cache-Control`                                                                            |
-| --------------------------------------------- | ---------------------------------------- | ------------------------------------------------------------------------------------------ |
-| `GET /api/thumb/:slug/*` (indexed)            | SHA-1 of the cached response bytes       | `private, max-age=0, must-revalidate`                                                      |
-| `GET /api/thumb/:slug/*` (pre-index fallback) | SHA-1 of the cached response bytes       | `private, max-age=0, must-revalidate`                                                      |
-| `GET /api/preview/:slug/*`                    | `"<mtimeMs>-<size>"` of the preview file | `private, max-age=0, must-revalidate`                                                      |
-| `GET /api/fs/raw` (originals)                 | `"<mtimeMs>-<size>"`                     | `private, max-age=86400`                                                                   |
-| `GET /api/assets/:id/histogram`               | `"<rawMtimeMs>-<xmpMtimeMs \| none>"`    | `private, max-age=300`                                                                     |
-| Original streaming (`/api/image/*`)           | `"<mtimeMs>-<size>"`                     | `private, max-age=0, must-revalidate`                                                      |
-| Video streaming (`/api/video/*`)              | none                                     | `private, max-age=0, must-revalidate`                                                      |
-| Static Angular bundle                         | none                                     | HTML `no-cache`; content-hashed `.js`/`.css`/`.wasm` `public, max-age=31536000, immutable` |
+| Route                                         | ETag                                               | `Cache-Control`                                                                            |
+| --------------------------------------------- | -------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| `GET /api/thumb/:slug/*` (indexed)            | SHA-1 of the cached response bytes                 | `private, max-age=0, must-revalidate`                                                      |
+| `GET /api/thumb/:slug/*` (pre-index fallback) | SHA-1 of the cached response bytes                 | `private, max-age=0, must-revalidate`                                                      |
+| `GET /api/preview/:slug/*`                    | `"<mtimeMs>-<size>"` of the preview file           | `private, max-age=0, must-revalidate`                                                      |
+| `GET /api/fs/raw` (originals)                 | `"<mtimeMs>-<size>"`                               | `private, max-age=86400`                                                                   |
+| `GET /api/assets/:id/histogram`               | `"<rawMtimeMs>-<xmpMtimeMs \| none>"`              | `private, max-age=300`                                                                     |
+| Original streaming (`/api/image/*`)           | `"<mtimeMs>-<size>"`                               | `private, max-age=0, must-revalidate`                                                      |
+| Video streaming (`/api/video/*`)              | none                                               | `private, max-age=0, must-revalidate`                                                      |
+| Static Angular bundle                         | none                                               | HTML `no-cache`; content-hashed `.js`/`.css`/`.wasm` `public, max-age=31536000, immutable` |
+| `GET /api/removal/xmp`                        | none; exact revision is in the response body       | `private, no-store`                                                                        |
+| `GET /api/removal/companion`                  | none; Rust verifies the content-addressed filename | `private, no-store`                                                                        |
 
 Folder and legacy directory listings (`/api/folders`, `/api/fs`) set no `Cache-Control` but do emit a body-hash ETag with a 304 short-circuit. Unified `/api/folder/:slug[/...]` listings likewise emit a body-hash ETag, with `private, max-age=0, must-revalidate`. The hash covers the returned page, including original size/mtime, indexed EXIF/identity, and paired sidecar size/mtime; a matching `If-None-Match` returns 304. Clients cache each page by its complete URL (including cursor/limit). The body is deterministically ordered before hashing, so filesystem enumeration order does not cause needless refreshes.
 
@@ -325,6 +357,8 @@ There is **no in-memory LRU of decoded images or FFI handles in the API**. `src/
 Each pipeline stage (see [indexer and enrichment](indexer-enrichment.md)) carries a `targetVersion` (`src/api/src/workers/stage-config.ts`). There is no boolean "done" marker — the marker _is_ the integer `stages.<name>.version`, and the claim query is a `<` comparison against `targetVersion`, so raising the constant makes every previously-complete asset eligible again without deleting anything from the database. A bump on deploy also triggers a dead-row reset at boot.
 
 `thumb` and `preview` are frozen at 29 (`derivative-versions.ts`), sharing those constants with the audit and edge dependency, and must never be bumped for a naming or pipeline change. Their historical bump lineages are recorded in each stage file: thumb v2 baked orientation into the embedded preview, v3 moved JPEG → AVIF, v4 moved the cache key from `maple_id` back to the path-keyed `sha256_prefix16(filename)`; preview v3 was the path-keyed AVIF migration and v4 collapsed `<filename>.1280.avif` to `<filename>.avif`. Files from those schemes orphan out through `cache-gc`. The later move to unhashed, unversioned `<filename.ext>.avif` names (#4793) is different: those files are renamed into place by readers on a miss, never regenerated, and `cache-gc` leaves them alone.
+
+`thumb` and `preview` use `4 + PIPELINE_OUTPUT_VERSION` (currently 10), sharing those constants with the audit and edge dependency. Their historical bump lineages are recorded in each stage file: thumb v2 baked orientation into the embedded preview, v3 moved JPEG → AVIF, v4 moved the cache key from `maple_id` back to the path-keyed `sha256_prefix16(filename)` every reader actually computes; preview v3 was the path-keyed AVIF migration and v4 collapsed `<filename>.1280.avif` to `<filename>.avif`. Old-scheme files are never renamed — they orphan out through `cache-gc`.
 
 The `thumb` stage also cascades: every successful write resets `cf-thumb-sync` to version 0 (clearing attempts, last error, processed-at, and the dead flag) so a re-rendered thumbnail re-uploads instead of leaving a stale edge copy. That reset is atomic with marking the thumb stage complete.
 
@@ -366,6 +400,45 @@ A tile without a retained context (`render_scene_linear_tile_*` with dehaze enga
 **Cache files are never physically relocated.** Both sides delete the old entry and let regeneration happen at the new path, because the key is path-derived and the new path simply has no entry yet.
 
 On the server, `src/api/src/library/relocate-asset.ts` resets `stages.thumb` and `stages.preview` to version 0 (clearing attempts, last error, and the dead flag) inside the same atomic update that repoints the `fileinfo` document, so the workers regenerate at the new location. `src/api/src/workers/discover/rename-reconcile.ts` does the same when the discovery sweep matches a vanished file to a new one by fingerprint — file size plus EXIF `DateTimeOriginal` plus camera serial, with a structural guard that yields a pairing only when both fingerprint buckets hold exactly one member. `src/api/src/fs/relocate.ts` itself never touches cache files at all — that is the caller's job inside its `onVerified` hook.
+
+Accepted removal assets are durable content, so the API's relocation path copies
+the sidecar-referenced `.maple/inpaint/` masks and patches into the destination
+folder before repointing or deleting the source (#1472). The actual native child
+validates record schemas, original digests and asset codecs/checksums; XMP bytes
+are copied unchanged, including paired conflict sidecars. Files and destination
+directory entries are synced before source deletion. Immutable assets publish
+create-only, existing corrupt assets fail, and source-folder assets remain because
+other photos can share their digests. Failed identity repoints restore replacement
+RAW/XMP occupants. Sidecar changes detected after a successful repoint retain both
+complete copies; an unreadable source sidecar stops before publishing the RAW.
+Trash and restore use this same path. These file-operation reads do not run during
+rendering or slider ticks, and do not create a new cache.
+
+Before replacement publication, the API syncs a confined
+`.<RAW filename>.removal-relocation.json` journal containing SHA-256 states and
+verified rollback copies for the RAW, paired XMP and extra companions. POSIX
+relocation and canonical XMP locks match Apple's persistent lock names; their
+descriptors release on process termination, and lock files are never unlinked.
+The source's existing read-only descriptor is also leased, allowing copies from
+read-only source folders without creating coordination files there. A move whose
+source cannot be deleted retains its original and XMP beside the verified copy.
+Ordinary relocations also hold the lease, including before a removal journal is
+created, so an unedited incoming file cannot overwrite an active removal move.
+Cosmetic empty-folder cleanup retains directories containing these lock inodes,
+as it already does for surviving `.maple/` cache content.
+Canonical/precondition/conflict saves and deletes hold the same lease across the
+whole mutation. A retry recovers the destination before collision resolution; a
+save also recovers before applying new metadata. An abandoned complete destination
+must pass original/companion verification before cleanup. Partial replacements
+restore only recorded bytes, with the incoming original and sidecars still intact
+at a distinct source. Recovery never deletes that source. Unknown later files,
+missing assets or damaged backups retain the journal and recovery evidence and
+fail closed. Cleanup is restartable. Local macOS SIGKILL and actual native-render
+qualification is recorded in
+`test-fixtures/qualification/removal-api-relocation-recovery-1472.json`; network
+filesystems, Linux/Windows recovery, machine power loss and background startup
+reconciliation remain unqualified. These are durable operation records, not cache
+entries or inference models.
 
 Only those two cheap raster stages reset. `describe`, `geocode`, `face-detect`, and `face-embed` keep their versions and timestamps, and `src/api/src/library/cache-invalidation-on-move.test.ts` asserts that explicitly: a move doesn't change pixels, so a caption, a reverse-geocode, or a face embedding computed before it is still valid, and re-running them would turn an O(1) filesystem operation into an O(inference) one. The same test also pins that re-running the thumb stage handler for that single asset — never a folder-wide rescan — is enough to produce a correct thumbnail at the new path, and that the old thumb is never served for it, because the two are different filesystem paths by construction rather than one cache slot being repointed.
 
@@ -470,7 +543,7 @@ The **2560-px full-screen JPEG preview tier** has no cross-app contract, so it s
 
 ## The adjustment-version proxy
 
-**Sidecar mtime is the adjustment-version proxy, and Apple's rendered-preview cache and Windows' local derivative cache key on it.** Verified in code:
+**Sidecar mtime is the adjustment-version proxy, and Apple's rendered-preview and tile caches and Windows' local derivative cache key on it.** Verified in code:
 
 - `RenderedPreviewCache.cacheKey` hashes `"<primaryMtime>_<sidecarMtime>_<screenWidth>"`, with no version component (#4793). Because every sidecar write bumps the file's mtime, any slider change changes the key. `primaryMtime` is in there too, so a change to the RAW's own bytes that leaves the sidecar untouched — a re-import, an external sync tool, a filesystem restore — also misses, rather than serving a preview developed from the old bytes under an identical key.
 - (The retired `TileManager`'s `TileKey` also carried `sidecarMtime` directly as a field — #3288.)
@@ -514,6 +587,25 @@ fresh for six hours. Refresh publishes only covers downloaded successfully and
 removes images no longer referenced. The extension requires a paired server with
 Keychain credentials before reading a cache, so unpairing hides the shelf.
 Selecting another server or library uses a separate cache directory.
+
+### Mac native Auto preparation (#1472)
+
+The settled Mac canvas, CPU fallback and 1:1 detail use the full-export Auto
+curve/residual pair. Its pinned default-model develop ignores edits and accepted
+removal patches. The native fit uses the existing Rust `Render(None)` origin and
+Full/AMaZE quality key; the standalone 1536-pixel proxy cache remains separate.
+Until preparation completes, the existing proxy frame remains provisional and
+is not persisted as a completed preview. The GPU path finishes its provisional
+fit before requesting a cold native preparation, then rechecks render generation
+and cancellation so an older fit completion cannot rewind a newer request.
+Only a cold or replacement provisional fit resolves the RAW URL through the
+source actor. A completed GPU fit with a current pending native request, or
+ready native artifacts, reuses its owned state on slider ticks. Decode and
+native-quality changes still replace the request; a superseded source await
+cannot start fitting work.
+Editor exit joins preparation and ensures the resulting frame actually owns the
+ready tail before persisting; failed preparation retains the provisional frame
+and does not write it as settled.
 
 ## Linux native-detail session (#4317)
 

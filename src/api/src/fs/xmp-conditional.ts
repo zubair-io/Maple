@@ -18,6 +18,7 @@ import {
 export type ConditionalXmpResult =
   | { kind: 'ok'; data: string }
   | { kind: 'conflict' }
+  | { kind: 'removal-conflict' }
   | { kind: 'error'; error: string };
 
 export async function writeXmpIfUnchanged(
@@ -43,6 +44,7 @@ export async function writeXmpIfUnchanged(
           const actualEtag = current === null ? null : computeBodyETag(current);
           if (actualEtag !== expectedEtag) return { kind: 'conflict' };
           const prepared = await preparePrimarySidecarWrite(destination, xml, signal);
+          if (!prepared.ok && prepared.removalConflict) return { kind: 'removal-conflict' };
           if (!prepared.ok) return { kind: 'error', error: prepared.error };
           signal?.throwIfAborted();
           if (expectedEtag === null) {

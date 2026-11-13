@@ -25,6 +25,10 @@ use crate::{
 use image::codecs::{jpeg::JpegEncoder, png::PngEncoder, tiff::TiffEncoder};
 use image::{ExtendedColorType, ImageEncoder};
 
+#[path = "removal_export_options.rs"]
+mod removal_options;
+pub use removal_options::parse_removal_export_options;
+
 /// Container the export is encoded into.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum ExportFormat {
@@ -86,7 +90,7 @@ impl ExportFormat {
     }
 
     /// The channel depth this container is written at.
-    fn depth(self) -> ExportDepth {
+    pub(crate) fn depth(self) -> ExportDepth {
         match self {
             Self::Tiff16 => ExportDepth::Sixteen,
             Self::Jpeg | Self::Png | Self::Avif | Self::Webp => ExportDepth::Eight,

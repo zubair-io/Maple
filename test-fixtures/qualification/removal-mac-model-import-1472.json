@@ -1,0 +1,177 @@
+{
+  "issue": 1472,
+  "focus": "Mac first; ports deferred",
+  "baseRevision": "2ba9b474c985f1f6d5de0497abd425dc4a86ed6b",
+  "change": "Persistent offline import of the four experimental model pins and architecture-specific ORT into app-owned versioned Application Support; no public downloads or qualification flag changes.",
+  "contract": [
+    "Stage and verify all incoming files before publishing any file",
+    "SHA256 plus model size; exact pinned runtime SHA256",
+    "Regular owned copies dereference external symlinks; at most one MiB copy buffer",
+    "Individual atomic replacements of the same immutable pins preserve valid installs and existing mapped owners",
+    "Interrupted new install cannot report ready until the complete set verifies; explicit reimport repairs it",
+    "Restore verifies the complete owned set; native loaders also validate bytes",
+    "Import and restoration run off main; current revision/cancellation guards prevent stale UI adoption",
+    "Same-directory activation preserves loaded model owners; source-context IDs still govern tensor and embedding freshness",
+    "Inactive import is refused; successful or rejected import preserves the prior photo phase rather than reporting a failed/closed RAW as ready"
+  ],
+  "sourceSha256": {
+    ".github/swift-regressions/run.txt": "ead170e97a511a4becb9bf853ad7a18d5f58e2978259ee21c46c2b72892d44cd",
+    "docs/design/maple-ui/components/removal-panel.md": "956f0d775372b5427e7697eb6bb0354392b7963bdcefbc6c14f24494c16c1d8e",
+    "docs/features.md": "f8572033bb7b2b1486b1c95901ffa919ce416da82aaae6addb59f5474a577964",
+    "src/apple/Maple/Views/Removal/RemovalPanel.swift": "20aa759cb6854fea35dabdf7ec65585fe1fac25b695b04f052345191d4bae200",
+    "src/apple/Packages/MapleCore/Sources/MapleCore/Removal/NativeRemovalEditorEngine.swift": "82b6978cf28b38e2ab67076c1d022ed8932715b0d26ff8344ea8058dfe6271e1",
+    "src/apple/Packages/MapleCore/Sources/MapleCore/Removal/RemovalSession.swift": "bc90383d3d089cc032053b8073f0e857afe945a3298cbb65c2ff52663ad7dfb5",
+    "src/apple/Packages/MapleCore/Tests/MapleCoreTests/NativeRemovalAuthoringJobTests.swift": "8f6f7f1322e8c5293b4c3078ee54d1532122e7e725827b993974f34e33ea7264",
+    "src/apple/Packages/MapleCore/Tests/MapleCoreTests/NativeRemovalSelectorTests.swift": "5a3fc3cebc6042a3e99448227a4dd8d51838f20645719e67636a19353b7aac1e",
+    "src/apple/Packages/MapleCore/Tests/MapleCoreTests/RemovalSessionTests.swift": "3b3efe2de68641be2fd658e27e4302b80541bdf6c918cb2f8aae6d9784e86c19",
+    "src/apple/Packages/MapleCore/Sources/MapleCore/Removal/MacRemovalModelStore.swift": "fdcdf3c500cbcfd6d5cd3f9088eae2484d3992849668d03be9ba7ffb1d347f4b",
+    "src/apple/Packages/MapleCore/Tests/MapleCoreTests/MacRemovalModelStoreTests.swift": "7cbe82995e2c87981655e2eae9c033751105287d24d7923cc71d51856862cbdc"
+  },
+  "logs": {
+    "selected": {
+      "path": "/tmp/maple-mac-model-import-state-tests-20261002.log",
+      "sha256": "a9b55f4899020fd2cb8467b9819c658568740306bf07d3544c903a0b7d301275"
+    },
+    "fullAllowlist": {
+      "path": "/tmp/maple-mac-model-import-state-swift-ci-20261002.log",
+      "sha256": "7fdec4f36ffec063404bf2cae71981bfc11edd0eff0ed436558dd1642fbe9aa1"
+    },
+    "macBuild": {
+      "path": "/tmp/maple-mac-model-import-state-app-20261002.log",
+      "sha256": "7c9112c059a22a2bd4eb9a4e238a85b1e367511ff9114cb0cdb145a5528fa9c9"
+    },
+    "iosCompileRegressionOnly": {
+      "path": "/tmp/maple-mac-model-import-state-ios-20261002.log",
+      "sha256": "a127e157a222e50e476c9e174a7e8e336f11108029f5915e483816791c18e292"
+    }
+  },
+  "tests": {
+    "selected": {
+      "passed": 23,
+      "failed": 0,
+      "skipped": 0,
+      "seconds": 70.567
+    },
+    "fullAllowlist": {
+      "classes": 249,
+      "passed": 2044,
+      "failed": 0,
+      "skipped": 0,
+      "seconds": 33.426
+    },
+    "coverage": {
+      "totalClasses": 449,
+      "excluded": 200,
+      "untriaged": 0
+    },
+    "macBuild": "passed",
+    "iosCompileRegressionOnly": "passed",
+    "uiContracts": 29
+  },
+  "liveMacUI": {
+    "fixture": "committed synthetic 16x8 source.dng; not photographic quality evidence",
+    "actions": [
+      "System picker grant to a disposable RAW folder",
+      "Import model folder via native picker using owned regular copies of all four real models plus official pinned runtime",
+      "Status shows Local models verified and Installed local models",
+      "Paint -> Remove -> Review -> Compare -> Cancel using actual LaMa inference",
+      "Reopen Remove without importing again",
+      "Delete only owned imported model source; reopen restores Installed local models"
+    ],
+    "rawUnchanged": true,
+    "xmpCreated": false,
+    "inpaintDraftsCreated": false,
+    "screenshots": "Before/after snapshots emitted by cua_repl in this thread",
+    "firstLaunchNote": "Direct fixture bootstrap lacked the system picker scope; initial preview failed. Normal folder picker grant restored the real GPU canvas. No UI inference qualification is claimed before that grant.",
+    "ownedDevelopmentAppStopped": true,
+    "installedUserAppLeftRunning": true,
+    "sourceSha256": {
+      ".github/swift-regressions/run.txt": "ead170e97a511a4becb9bf853ad7a18d5f58e2978259ee21c46c2b72892d44cd",
+      "docs/design/maple-ui/components/removal-panel.md": "956f0d775372b5427e7697eb6bb0354392b7963bdcefbc6c14f24494c16c1d8e",
+      "docs/features.md": "f8572033bb7b2b1486b1c95901ffa919ce416da82aaae6addb59f5474a577964",
+      "src/apple/Maple/Views/Removal/RemovalPanel.swift": "20aa759cb6854fea35dabdf7ec65585fe1fac25b695b04f052345191d4bae200",
+      "src/apple/Packages/MapleCore/Sources/MapleCore/Removal/NativeRemovalEditorEngine.swift": "82b6978cf28b38e2ab67076c1d022ed8932715b0d26ff8344ea8058dfe6271e1",
+      "src/apple/Packages/MapleCore/Sources/MapleCore/Removal/RemovalSession.swift": "40ac328e14387d116c40d117b7a8534e2bcd8eb0b302ead39d3be58ff92acc63",
+      "src/apple/Packages/MapleCore/Tests/MapleCoreTests/NativeRemovalAuthoringJobTests.swift": "8f6f7f1322e8c5293b4c3078ee54d1532122e7e725827b993974f34e33ea7264",
+      "src/apple/Packages/MapleCore/Tests/MapleCoreTests/NativeRemovalSelectorTests.swift": "5a3fc3cebc6042a3e99448227a4dd8d51838f20645719e67636a19353b7aac1e",
+      "src/apple/Packages/MapleCore/Tests/MapleCoreTests/RemovalSessionTests.swift": "f242af3e113e8f9e519a19c5b1b214256f80fc3429fc758d32ee227b1df46d10",
+      "src/apple/Packages/MapleCore/Sources/MapleCore/Removal/MacRemovalModelStore.swift": "fdcdf3c500cbcfd6d5cd3f9088eae2484d3992849668d03be9ba7ffb1d347f4b",
+      "src/apple/Packages/MapleCore/Tests/MapleCoreTests/MacRemovalModelStoreTests.swift": "7cbe82995e2c87981655e2eae9c033751105287d24d7923cc71d51856862cbdc"
+    },
+    "finalSourceDelta": "The subsequent final caller-state guard preserves failed/closed photo state and rejects inactive imports. Normal ready import/reopen/inference was UI-checked before that guard; the final guard is covered by the final 23-test run and both app builds."
+  },
+  "originalRawSha256": {
+    "test-fixtures/raws/removal-photographic/portrait.dng": "4a4154b2595dc76a7d5e10cdcb65a386319e31647a585c23e262fe62b969c0fe",
+    "test-fixtures/raws/dji-mavic3pro-100mp.dng": "f4b60b3672bdf7ff7f4376fba9da1b1d22c925ebc3e16baa5fd4a64fa1045aa5"
+  },
+  "releaseQualified": false,
+  "remaining": [
+    "Photographic reconstruction and labeled background-person quality",
+    "16ms target and stable 50ms hard limit under concurrent preparation",
+    "Lower-memory physical Macs",
+    "Weight provenance, licenses, public artifact distribution and signing/notarization",
+    "Other source/transport qualification and recovery UX",
+    "Existing color gate Neutral #3633",
+    "Remaining ports after Mac priority"
+  ],
+  "preliminaryValidation": {
+    "sourceSha256": {
+      ".github/swift-regressions/run.txt": "ead170e97a511a4becb9bf853ad7a18d5f58e2978259ee21c46c2b72892d44cd",
+      "docs/design/maple-ui/components/removal-panel.md": "956f0d775372b5427e7697eb6bb0354392b7963bdcefbc6c14f24494c16c1d8e",
+      "docs/features.md": "f8572033bb7b2b1486b1c95901ffa919ce416da82aaae6addb59f5474a577964",
+      "src/apple/Maple/Views/Removal/RemovalPanel.swift": "20aa759cb6854fea35dabdf7ec65585fe1fac25b695b04f052345191d4bae200",
+      "src/apple/Packages/MapleCore/Sources/MapleCore/Removal/NativeRemovalEditorEngine.swift": "82b6978cf28b38e2ab67076c1d022ed8932715b0d26ff8344ea8058dfe6271e1",
+      "src/apple/Packages/MapleCore/Sources/MapleCore/Removal/RemovalSession.swift": "40ac328e14387d116c40d117b7a8534e2bcd8eb0b302ead39d3be58ff92acc63",
+      "src/apple/Packages/MapleCore/Tests/MapleCoreTests/NativeRemovalAuthoringJobTests.swift": "8f6f7f1322e8c5293b4c3078ee54d1532122e7e725827b993974f34e33ea7264",
+      "src/apple/Packages/MapleCore/Tests/MapleCoreTests/NativeRemovalSelectorTests.swift": "5a3fc3cebc6042a3e99448227a4dd8d51838f20645719e67636a19353b7aac1e",
+      "src/apple/Packages/MapleCore/Tests/MapleCoreTests/RemovalSessionTests.swift": "f242af3e113e8f9e519a19c5b1b214256f80fc3429fc758d32ee227b1df46d10",
+      "src/apple/Packages/MapleCore/Sources/MapleCore/Removal/MacRemovalModelStore.swift": "fdcdf3c500cbcfd6d5cd3f9088eae2484d3992849668d03be9ba7ffb1d347f4b",
+      "src/apple/Packages/MapleCore/Tests/MapleCoreTests/MacRemovalModelStoreTests.swift": "7cbe82995e2c87981655e2eae9c033751105287d24d7923cc71d51856862cbdc"
+    },
+    "logs": {
+      "selected": {
+        "path": "/tmp/maple-mac-model-import-final-tests-20261002.log",
+        "sha256": "a7f94e26bfb9bf7a1e5ffa96a90621335041c0c23e0ed91222f0a51c40849b8e"
+      },
+      "fullAllowlist": {
+        "path": "/tmp/maple-mac-model-import-swift-ci-20261002.log",
+        "sha256": "132ad91e63bf9303f63b8155152978e223dc8d97674588c03f5bf44cd86eda7a"
+      },
+      "macBuild": {
+        "path": "/tmp/maple-mac-model-import-final-app-20261002.log",
+        "sha256": "b097a1a5a4a1aa484e9e187974e7bd14b854a3bfb95e8c75e200d9823fa6d98e"
+      },
+      "iosCompileRegressionOnly": {
+        "path": "/tmp/maple-mac-model-import-ios-20261002.log",
+        "sha256": "3885e24a8f98b5c1bed157ec879de05f647bd44edca13baae698b4d6ff92d087"
+      },
+      "ui": {
+        "path": "/tmp/maple-mac-model-import-ui-20261002.log",
+        "sha256": "e497d4931e93dd61b49accdf12b596bccb8ac76e4e2b8d33cb7be539736d9eb7"
+      }
+    },
+    "tests": {
+      "selected": {
+        "passed": 23,
+        "failed": 0,
+        "skipped": 0,
+        "seconds": 70.567
+      },
+      "fullAllowlist": {
+        "classes": 249,
+        "passed": 2044,
+        "failed": 0,
+        "skipped": 0,
+        "seconds": 33.426
+      },
+      "coverage": {
+        "totalClasses": 449,
+        "excluded": 200,
+        "untriaged": 0
+      },
+      "macBuild": "passed",
+      "iosCompileRegressionOnly": "passed",
+      "uiContracts": 29
+    }
+  }
+}

@@ -12,8 +12,12 @@
 //! Usage:
 //!   nlm_bench bench               # timing table (median ms)
 //!   nlm_bench dump <path-prefix>  # write reference planes to <prefix>_<case>.f32
+//!   nlm_bench hash100mp classic|camera6|camera8|fallback # fresh-process digest/RSS control
 
-use raw_core::stages::nlm::{denoise_plane, NlmParams};
+use raw_core::{
+    cancel::CancelToken,
+    stages::nlm::{denoise_plane, denoise_plane_cancellable, NlmParams},
+};
 use std::time::Instant;
 
 const LUMA: NlmParams = NlmParams {
@@ -173,6 +177,44 @@ fn main() {
     let refine = (11600usize, 8700usize); // 100.9 MP
 
     match mode {
+        "hash100mp" => {
+            // #1472: independent, fresh-process full-plane controls for bounded
+            // workspace changes. Hash without another image-sized byte copy.
+            assert!(
+                cfg!(target_endian = "little"),
+                "f32-LE digest requires little endian"
+            );
+            let case = args
+                .get(2)
+                .expect("hash100mp classic|camera6|camera8|fallback");
+            let profile: Option<&[f32]> = match case.as_str() {
+                "classic" => None,
+                "camera6" => Some(&[0.00002, 0.000002, 0.00003, 0.000003, 0.00004, 0.000004]),
+                "camera8" => Some(&[
+                    0.00002, 0.000002, 0.00003, 0.000003, 0.00005, 0.000005, 0.00004, 0.000004,
+                ]),
+                "fallback" => Some(&[]),
+                _ => panic!("Unknown profile"),
+            };
+            let plane = make_plane(refine.0, refine.1, 0xABCD_1234);
+            let start = Instant::now();
+            let out = denoise_plane_cancellable(
+                &plane,
+                refine.0,
+                refine.1,
+                CHROMA,
+                CancelToken::never(),
+                &plane,
+                profile,
+                800,
+                true,
+            );
+            let ms = start.elapsed().as_secs_f64() * 1000.0;
+            println!(
+                "NLM_HASH {}",
+                serde_json::json!({"case":case,"components":out.len(),"milliseconds":ms,"threads":rayon::current_num_threads(),"blake3F32LE":blake3::hash(bytemuck::cast_slice(&out)).to_hex().to_string()})
+            );
+        }
         "bench" => {
             let runs = args
                 .get(2)
@@ -226,7 +268,7 @@ fn main() {
             truth_case(prefix, "chroma_4000x3000", 4000, 3000, CHROMA);
         }
         other => {
-            eprintln!("unknown mode {other:?}; use `bench` or `dump`");
+            eprintln!("unknown mode {other:?}; use `bench`, `dump`, `truth` or `hash100mp`");
             std::process::exit(2);
         }
     }

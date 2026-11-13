@@ -28,11 +28,14 @@ describe('coerceFfiRequest', () => {
         'exportRecipe',
         'histogram',
         'registerLensProfile',
+        'removalAssets',
+        'removalSource',
         'renderBitmap',
         'renderDevelop',
         'renderThumb',
         'sidecarAdjustments',
         'validateAvif',
+        'validateRemovalAsset',
       ].sort(),
     );
   });

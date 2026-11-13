@@ -36,6 +36,7 @@ pub struct MapleRender {
     camera_support: Option<raw_core::support_tiers::RenderSupport>,
     lens_profile_json: Option<String>,
     auto_fit: Option<raw_core::view::auto_profile::AutoFitOutcome>,
+    crop_input_size: Option<[u32; 2]>,
 }
 
 impl MapleRender {
@@ -78,7 +79,13 @@ impl MapleRender {
             camera_support,
             lens_profile_json,
             auto_fit,
+            crop_input_size: None,
         }
+    }
+
+    pub(crate) fn with_crop_input(mut self, crop_input_size: [u32; 2]) -> Self {
+        self.crop_input_size = Some(crop_input_size);
+        self
     }
 }
 
@@ -149,6 +156,16 @@ impl MapleRender {
     #[wasm_bindgen(getter)]
     pub fn auto_fit(&self) -> Option<String> {
         self.auto_fit.map(|outcome| outcome.as_str().to_owned())
+    }
+
+    #[wasm_bindgen(getter)]
+    pub fn crop_input_width(&self) -> Option<u32> {
+        self.crop_input_size.map(|size| size[0])
+    }
+
+    #[wasm_bindgen(getter)]
+    pub fn crop_input_height(&self) -> Option<u32> {
+        self.crop_input_size.map(|size| size[1])
     }
 
     /// Resolver facts for the imported LCP profile the model named, as JSON
@@ -245,6 +262,7 @@ pub fn render_bytes(raw: &[u8], ext: &str, xmp: Option<String>) -> Result<MapleR
 
     let model = crate::mask_registry::parse_model(xmp.as_deref())
         .map_err(|e| JsError::new(&e.to_string()))?;
+    crate::removal_saved::require_no_unresolved_removals(&model).map_err(|e| JsError::new(&e))?;
 
     // Export/display path: AMaZE by default (#940) — cost-equivalent to
     // bilinear since the tiled kernel (#1887) and matches the Apple
@@ -270,6 +288,7 @@ pub fn render_bytes(raw: &[u8], ext: &str, xmp: Option<String>) -> Result<MapleR
                 camera_support,
                 lens_profile_json: crate::lens_profile::metadata(&raw_img, &model),
                 auto_fit,
+                crop_input_size: None,
             })
         }
         Some(cap) => {
@@ -296,6 +315,7 @@ pub fn render_bytes(raw: &[u8], ext: &str, xmp: Option<String>) -> Result<MapleR
                 camera_support,
                 lens_profile_json: crate::lens_profile::metadata(&raw_img, &model),
                 auto_fit,
+                crop_input_size: None,
             })
         }
     }
@@ -344,6 +364,7 @@ pub fn render_bytes_sized(
 
     let model = crate::mask_registry::parse_model(xmp.as_deref())
         .map_err(|e| JsError::new(&e.to_string()))?;
+    crate::removal_saved::require_no_unresolved_removals(&model).map_err(|e| JsError::new(&e))?;
 
     let quality = if quality_preview {
         raw_core::pipeline::RenderQuality::Preview
@@ -384,6 +405,7 @@ pub fn render_bytes_sized(
         camera_support,
         lens_profile_json: crate::lens_profile::metadata(&raw_img, &model),
         auto_fit,
+        crop_input_size: None,
     })
 }
 
@@ -436,6 +458,7 @@ pub fn develop_non_raw(
 ) -> Result<MapleRender, JsError> {
     let model = crate::mask_registry::parse_model(xmp.as_deref())
         .map_err(|e| JsError::new(&e.to_string()))?;
+    crate::removal_saved::require_no_unresolved_removals(&model).map_err(|e| JsError::new(&e))?;
     let opts = raw_core::pipeline::ChainOptions::uncalibrated_raster();
     let chained =
         raw_core::pipeline::apply_scene_linear_chain_f32(in_f32_rgba, width, height, &model, &opts)
@@ -468,6 +491,7 @@ pub fn develop_non_raw(
         lens_profile_json: None,
         auto_fit: (model.profile == raw_core::xmp::Profile::Auto)
             .then_some(raw_core::view::auto_profile::AutoFitOutcome::Unfitted),
+        crop_input_size: None,
     })
 }
 

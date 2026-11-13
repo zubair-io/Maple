@@ -288,7 +288,7 @@ fn sample_windowed_ch(src: &[[f32; 3]], b: &WindowBounds, x: f64, y: f64, c: usi
     top + (bot - top) * fy
 }
 
-fn source(
+pub(crate) fn source(
     calibration: &Calibration,
     scales: LensCorrectionScales,
     width: f64,

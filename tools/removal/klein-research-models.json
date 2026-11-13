@@ -1,0 +1,180 @@
+{
+  "releaseQualified": false,
+  "repo": "AbstractFramework/flux.2-klein-4b-8bit",
+  "revision": "21764997c7d92ab919d4a51a3ac7f8fb0f36c4a6",
+  "files": [
+    {
+      "path": "LICENSE.md",
+      "bytes": 11358,
+      "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+      "hubBlobId": "d645695673349e3947e8e5ae42332d0ac3164cd7"
+    },
+    {
+      "path": "README.md",
+      "bytes": 1719,
+      "sha256": "bb6f2a20bfbe84308a27e2d295c98b699d3aafb7085e16d0b229f14b38127e65",
+      "hubBlobId": "15e59bc4920992b2f1867e0b89f2987d4fd29567"
+    },
+    {
+      "path": "text_encoder/0.safetensors",
+      "bytes": 2145931311,
+      "sha256": "f6809bd90892b0a2857847f789d294a76f4494a76e65ddbd224da69e70018edc",
+      "hubBlobId": "55b4ffaf734524c21b29fb65f90cdf4a51ebe262"
+    },
+    {
+      "path": "text_encoder/1.safetensors",
+      "bytes": 2128222146,
+      "sha256": "54ec81423abf46be7400817e05113024070197bc4e3f9c56e438ed6b5e3b3705",
+      "hubBlobId": "2489fac4ad8cc621d55bf82b86d82a5cb4ddd36a"
+    },
+    {
+      "path": "text_encoder/model.safetensors.index.json",
+      "bytes": 51332,
+      "sha256": "76bbca3cb3fed818cd052e1c30e32524b65fa982680b5f32fbbdae709930a058",
+      "hubBlobId": "54871c97b63bd327ce434d7d8d5495d1fcbca31f"
+    },
+    {
+      "path": "tokenizer/chat_template.jinja",
+      "bytes": 4168,
+      "sha256": "a55ee1b1660128b7098723e0abcd92caa0788061051c62d51cbe87d9cf1974d8",
+      "hubBlobId": "01be9b307daa2d425f7c168c9fb145a286e0afb4"
+    },
+    {
+      "path": "tokenizer/tokenizer.json",
+      "bytes": 11422650,
+      "sha256": "be75606093db2094d7cd20f3c2f385c212750648bd6ea4fb2bf507a6a4c55506",
+      "hubBlobId": "c7afbed2efcdf019f88ab0572ec29d3bf595dfe2"
+    },
+    {
+      "path": "tokenizer/tokenizer_config.json",
+      "bytes": 703,
+      "sha256": "12d954e6dd43cefa344345292406442871ea7f3237065d2f068f6a0402f92bf6",
+      "hubBlobId": "3ee05b3fdc8db76babb37dbc3730682c4b080b87"
+    },
+    {
+      "path": "transformer/0.safetensors",
+      "bytes": 2142058104,
+      "sha256": "4e892cbe30fa619a146485403c2ba7bec660d50d5123699f790e20800e4015f2",
+      "hubBlobId": "502d84a3410ccbd0016c71f48558f2c1854c6000"
+    },
+    {
+      "path": "transformer/1.safetensors",
+      "bytes": 1975761704,
+      "sha256": "9c43f5b84ac65180c0e996397ccd47b8291e9fd8c1649e7b6661dc48c19accf2",
+      "hubBlobId": "24fd57572fe4e75608a7aacb118b4af84b81d463"
+    },
+    {
+      "path": "transformer/model.safetensors.index.json",
+      "bytes": 26908,
+      "sha256": "eb8263215b0870003797683b85e758f8562e0db0c2578d516d0a462e9e0dafc3",
+      "hubBlobId": "ef433dc3832302e3dfac45631cbcbb53908a6c81"
+    },
+    {
+      "path": "vae/0.safetensors",
+      "bytes": 166156496,
+      "sha256": "01723641b0fe437a08b2b9a1980149ea5d962d904db3cc6cec70508074387278",
+      "hubBlobId": "17bf078b4b143e0fea8b04603fe768a02347a7a5"
+    },
+    {
+      "path": "vae/model.safetensors.index.json",
+      "bytes": 17547,
+      "sha256": "5d6f9a7e3740906edb82a517a27f7d8046757ec3ac1acd704cb514325643266e",
+      "hubBlobId": "a7673a901c32e3bac21b45f1ab81b205f8be5e1f"
+    }
+  ],
+  "baseModel": {
+    "repo": "black-forest-labs/FLUX.2-klein-4B",
+    "revision": "e7b7dc27f91deacad38e78976d1f2b499d76a294",
+    "records": [
+      {
+        "path": "MODEL-CARD-KLEIN-OFFICIAL.md",
+        "upstreamPath": "README.md",
+        "bytes": 9991,
+        "sha256": "bd447051cf2db4bf67b992e563d89c35ebf1123f009c063361a222ab14e1c4f7"
+      },
+      {
+        "path": "LICENSE-KLEIN-OFFICIAL.md",
+        "upstreamPath": "LICENSE.md",
+        "bytes": 9584,
+        "sha256": "ca02bc51900ab07789d1b70283329e7137f5af98f5161c23a1c81fc38a4af1fe"
+      },
+      {
+        "path": "TEXT-ENCODER-OFFICIAL.json",
+        "upstreamPath": "text_encoder/config.json",
+        "bytes": 1536,
+        "sha256": "214b4c29a0d975e9fddf9994a5673f22cb2c4c5750352f9227c2c3251ebeab40"
+      }
+    ],
+    "declaredLicense": "Apache-2.0"
+  },
+  "scope": "Converted local research checkpoint; production conversion/transitive/distribution review incomplete.",
+  "runtimeSource": {
+    "repo": "https://github.com/lpalbou/mlx-gen",
+    "revision": "99fb94dd3eaa9dd1931cd3cd8eae1ae3e20f2ef3",
+    "version": "0.38.0",
+    "declaredLicense": "MIT",
+    "python_tree_sha256": "a976f1281842e8fc4e4427b1808c849874c8f33447734cd173347f66701d5a15",
+    "records": [
+      {
+        "path": "LICENSE",
+        "bytes": 1068,
+        "sha256": "4a232d09478519580a5c00d6eb9aa402ba4f672ac15fb80edd459ba863769064"
+      },
+      {
+        "path": "pyproject.toml",
+        "bytes": 7073,
+        "sha256": "17bb277145623beebe41fda1c625b29728e844c0e1390e789fb1ca13d06968af"
+      },
+      {
+        "path": "docs/masked-editing.md",
+        "bytes": 10606,
+        "sha256": "344614aba8e59e7e260f3e9792147895fcb6d0da1bd760e692b3e492bf4617e9"
+      },
+      {
+        "path": "src/mflux/models/flux2/variants/edit/flux2_klein_inpaint.py",
+        "bytes": 10006,
+        "sha256": "81f340fc799339ef7933cac24cca65fe0fa3d3f411016c61c7265e433c6e3769"
+      },
+      {
+        "path": "src/mflux/models/flux2/variants/edit/flux2_klein_edit_helpers.py",
+        "bytes": 19381,
+        "sha256": "76ea7455dc03b9561f034b462169fb87a02bf53eeb82ebdb07a796404108bbde"
+      },
+      {
+        "path": "src/mflux/models/flux2/flux2_initializer.py",
+        "bytes": 3932,
+        "sha256": "78fa2d3fe12d963e16c3ca6ddfd3e9fdb0839f93fc703f3f2a535cab887b9980"
+      },
+      {
+        "path": "src/mflux/models/common/weights/loading/weight_applier.py",
+        "bytes": 5457,
+        "sha256": "0b63a589c0c2cf473695f4e31ca65c8bdf68a9971acdd38a8b3a8b0e0693529a"
+      },
+      {
+        "path": "src/mflux/models/common/weights/loading/weight_loader.py",
+        "bytes": 22081,
+        "sha256": "255186d56aa16435eebd4f0b6122b233cde48127e795d41e0a914407b40f02e9"
+      },
+      {
+        "path": "src/mflux/utils/image_util.py",
+        "bytes": 16968,
+        "sha256": "cbaad89993d768dd9bfcbf8d5ddd508fc3e98e5f08e9d6c015bb6deb1cea143b"
+      },
+      {
+        "path": "src/mflux/utils/mask_util.py",
+        "bytes": 4536,
+        "sha256": "a12604f6b2fc9097d3086929a4db518257470a396a4ec3050acafd6295ecc18c"
+      },
+      {
+        "path": "src/mflux/models/common/latent_creator/latent_creator.py",
+        "bytes": 4184,
+        "sha256": "bf40f1b749480133db691f6da3ace30f3cb8b879ee25d689190727dd571575cc"
+      },
+      {
+        "path": "src/mflux/models/flux2/model/flux2_vae/vae.py",
+        "bytes": 3084,
+        "sha256": "58685fa0018b7c24fcf88d4ce2d1d3c61cb403ccb6315991ac4c98ec0fded4e3"
+      }
+    ]
+  }
+}

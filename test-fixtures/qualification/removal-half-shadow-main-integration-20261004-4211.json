@@ -1,0 +1,183 @@
+{
+  "schema": 1,
+  "issues": [
+    1472,
+    4211,
+    4217
+  ],
+  "recordedAt": "2026-10-04T17:45:09.314977+00:00",
+  "testedParentHead": "ac0e2e73be2875931548545ca06de44543dbf3c2",
+  "mainBase": "9900df9b8a0fcd3a8ac758ac32fc1fe28108c0be",
+  "releaseQualified": false,
+  "rebase": {
+    "featureCommitsBefore": 156,
+    "featureCommitsRetained": 156,
+    "orderedSubjectsIdentical": true,
+    "stablePatchesIdentical": 150,
+    "changedStablePatches": [
+      "fix(web): load verified saved removals in normal RAW previews",
+      "feat(apple): retain accepted removals in edit snapshots",
+      "feat(raw): retain saved removals in native tile handles",
+      "feat(apple): confirm removal saves before changing history",
+      "fix(apple): fit Auto with published RAW decode quality",
+      "feat(apple): share native Auto artifacts across Mac renders"
+    ],
+    "conflictResolution": "Retain saved-removal first-frame companions and main cold-open captured intent; retain cancellation/drain plus confirmed removal model; retain prepared native Auto/quality in main canonical CPU capture. CI-only follow-up retains all156 stable patches exactly. No feature commits dropped, push, merge or other-worktree edit.",
+    "evidence": [
+      {
+        "path": "/Users/riabuz/.cache/maple-removal-research/fp16-fixed-rebase-before-20261004.json",
+        "sha256": "4467fd05d4cf5c7236d7d75e5c14030763d214c31172162666117607030b3812"
+      },
+      {
+        "path": "/Users/riabuz/.cache/maple-removal-research/fp16-fixed-rebase-after-20261004.json",
+        "sha256": "8abd8cb0728e9d52c7d79f4f5d671108ab93e79ef101f6b8ac5b0f3a47cb52f3"
+      },
+      {
+        "path": "/Users/riabuz/.cache/maple-removal-research/fp16-fixed-rebase-current-20261004.json",
+        "sha256": "872cc567bd0690e05f21abe0c32787b11fcd41759871435ac6cb158fb3a8cc7b"
+      },
+      {
+        "path": "/Users/riabuz/.cache/maple-removal-research/fp16-fixed-rebase-range-diff-20261004.txt",
+        "sha256": "6dfa1a1a42d652ddec39836ff470bda17c0ffe2f18f3f3961ade595d3ae59cc0"
+      }
+    ]
+  },
+  "buildRepair": {
+    "issue": 4217,
+    "commit": "ac0e2e73be2875931548545ca06de44543dbf3c2",
+    "source": {
+      "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/src/apple/Maple/Views/AppShell+AgentBridge.swift",
+      "sha256": "30638ffbada512402a2ccaa89190ff40d045809603f94dfbcda0386b32044f81"
+    },
+    "failureLog": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/fp16-fixed-rebased-mac-build-20261004.log",
+      "sha256": "92ce58f3b59a9df6ceb88336bd24d1fc8d0fbc991a7eb42170698c0061e40106"
+    },
+    "change": "Import the defining MapleAgentWire module so the landed shell Browse bridge can resolve AgentError. Actual macOS and arm64 iOS simulator builds pass afterward."
+  },
+  "sourceFiles": [
+    {
+      "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/src/apple/Packages/MapleCore/Sources/MapleCore/AgentBridge/EditSession+AgentCPUFrame.swift",
+      "sha256": "fdc0add6fbba26177a25968debe5df3ff4ed706dbbe66605e994e955c147beef"
+    },
+    {
+      "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/src/apple/Packages/MapleCore/Sources/MapleCore/XMPSidecarStore.swift",
+      "sha256": "814850ca38c7886b2631ca718f63fc67d930891a9deaf5ef687dcb773f091599"
+    },
+    {
+      "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/src/web/projects/maple-common/src/lib/components/image-canvas/image-canvas.render2d.ts",
+      "sha256": "b4c08464fb97155c1a091f57902bc95607e7f22500c568f0d96de7b322356da6"
+    },
+    {
+      "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/src/web/projects/maple-common/src/lib/components/image-canvas/image-canvas.gpu-present.spec.ts",
+      "sha256": "293c076d8642fd2b095294398f2d32855d970cce0c66406d0c0944ba094de458"
+    },
+    {
+      "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/src/apple/Packages/MapleCore/Tests/MapleCoreTests/NativeAutoProfilePhotographicTests.swift",
+      "sha256": "1bdfd3bbaf36f8727945683b2e1e1d37ee980c9629664d860e2f7ac74161dc6b"
+    }
+  ],
+  "nativeInputHash": "5e6ca68da60bd7dd8b59351d9997a4b1fdf482c3",
+  "validation": {
+    "nativeFocused": "103 actual XCTest cases pass, no failures/skips; rebase integration includes authoring/refinement/history/saved scenes/sidecars, native Auto preparation, decoded-cache quality, new main Browse/mask/scope/revision controls and actual signed-shadow/Metal regressions.",
+    "canonicalRaw": "One existing actual RAW Auto/film/crop capture test passes without skips on the read-only primary-worktree DNG; source SHA unchanged.",
+    "settledSavedRemovalCapture": "New actual 39MP photographic test passes without skips: real durable accepted stack copied to owned directory, CPU fallback, explicitly present native artifacts and settled frame identity, actual selected skin weights plus film/crop. Canonical capture matches canvas exactly: max0/255 over197376 RGBA lanes. Originals and fixture XMP unchanged; not complete-object/generation/device/performance proof.",
+    "web": "44 focused preview tests pass; no newly executed physical browser flow or current-WASM pixel qualification.",
+    "mainCore": "4 actual resize-envelope tests and2 scope-FFI tests pass, no skips.",
+    "mainCI": "5 installer regression tests pass. Linux pinned1.18.34 executable/effective-config qualification not claimed on macOS; global host CLI1.18.31 was not used as that pin.",
+    "apple": "All4 release architectures, 191-symbol guard and freshness pass; Mac and specific arm64 iOS simulator builds/signatures pass. No iOS runtime claim.",
+    "coverage": "507 classes accounted for,318 run/189 intentionally excluded."
+  },
+  "logs": [
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/fp16-fixed-rebased-native-tests-20261004.log",
+      "sha256": "e242fa96a171d5e7f444bb38970962e352e604be3687c9918317983df9d0c7e5"
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/fp16-fixed-main-canonical-raw-capture-tests-20261004.log",
+      "sha256": "5dc4ca26462160d792bd88c5ab371fc5f5ff6efb1aa52f8ee4262524b7062927"
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/fp16-fixed-main-settled-removal-capture-tests-20261004.log",
+      "sha256": "215c64f15a5324e5f86c1fea5081b69fd2d0f0585c1942118ae41687250a0329"
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/fp16-fixed-rebased-web-preview-tests-qualified-20261004.log",
+      "sha256": "e50b8f763b896e0595fdb1488e9f9d55af6dce8780698ce24b1bd6d457e84dbb"
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/fp16-fixed-main-resize-tests-qualified-20261004.log",
+      "sha256": "ad1fb881d5784c11b0461f6a2816955fcf2d1ba5c621526f763ce7705953f613"
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/fp16-fixed-main-scope-ffi-tests-20261004.log",
+      "sha256": "4f22c82eeeceafe584d0391081f868c9132cd1a19def9dd0aa084bbbc0906b3c"
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/fp16-fixed-main-ci-installer-tests-20261004.log",
+      "sha256": "8483ab683c2ed54ad351cc59dcf288adc9e44d27f2f2a71847165538a7a7cbf2"
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/fp16-fixed-rebased-xcframework-20261004.log",
+      "sha256": "883591c9da1627851faf78b88e08627f5ba53019e5a7f3fb32a8ec9993ba3b3a"
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/fp16-fixed-rebased-native-freshness-20261004.log",
+      "sha256": "1d4e583dcb1be5357b4fd66959b325ca26549286dd00aafe5264b9f173db6537"
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/fp16-fixed-rebased-mac-build-import-fixed-20261004.log",
+      "sha256": "1b01a2238521a864f8fac87c0aa4b95ec11ad0afd7357d8ef4f041ca12580a03"
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/fp16-fixed-rebased-ios-build-import-fixed-20261004.log",
+      "sha256": "efc01749853be85af3d575ef3f0b0f226300a4147a16ed4fd312a1ac49100224"
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/fp16-fixed-rebased-mac-codesign-20261004.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/fp16-fixed-rebased-ios-codesign-20261004.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/fp16-fixed-rebased-swift-coverage-20261004.log",
+      "sha256": "fc226aad9d85b2edbd87c7edeb8ecb5296efb0e442deefdf54e4344a90c88a4d"
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/fp16-fixed-rebased-headroom-20261004.log",
+      "sha256": "e5ab2a25f8061db32ffdb922fed42f0e27b479832ba0cc573d056ef342acf495"
+    }
+  ],
+  "captureFixture": {
+    "path": "/Users/riabuz/.cache/maple-removal-research/fp16-fixed-main-agent-fixture-20261004.json",
+    "sha256": "a360b6bd6769499e144a851d02ff19062d7ebb174dc7e573b8af9412e96847c2"
+  },
+  "disqualifiedAttempts": [
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/fp16-fixed-rebased-web-preview-tests-20261004.log",
+      "reason": "bun missing from PATH; no tests ran."
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/fp16-fixed-rebased-web-preview-tests-final-20261004.log",
+      "reason": "Wrong project name casing; CLI refused flags before tests."
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/fp16-fixed-main-resize-tests-20261004.log",
+      "reason": "Wrong module filter ran0 tests; corrected fully qualified envelope filter runs4."
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/fp16-fixed-main-ci-review-agent-tests-20261004.log",
+      "reason": "Missing required actual CLI-probe arguments; not a validation result."
+    }
+  ],
+  "colorGate": {
+    "status": "Still running; not passed",
+    "sessionId": 39403,
+    "processPid": 78479,
+    "sourceEpoch": "77d1c71c9 plus the tested #4211 codec edit, before main rebase. New scope/agent/CI main changes are outside that already-running executable. No current-base full perceptual pass claimed.",
+    "logPath": "/Users/riabuz/.cache/maple-removal-research/fp16-fixed-color-harness-primary-corpus-20261004.log"
+  },
+  "remaining": "Same complete epic objective: full perceptual gate terminal result/current-base qualification, useful photographic fill and model/runtime display parity, complete silhouettes/ownership, supported-device memory/latency, 100MP frame budgets, recovery/portable consumers and Web parity. No external blocker or shipping admission."
+}

@@ -55,6 +55,11 @@ pub fn render_detail_base_cancellable(
     options: DetailRenderOptions<'_>,
     cancel: crate::CancelToken<'_>,
 ) -> Result<(u32, u32, Vec<u8>, DetailContext)> {
+    if !model.inpaint_removals.is_empty() {
+        return Err(Error::Pipeline(
+            "native detail requires verified removal companions".into(),
+        ));
+    }
     render_base_with_haze(raw, model, source, options, None, cancel)
 }
 
@@ -76,6 +81,7 @@ fn render_base_with_haze(
         options.film_lut,
         cancel,
         false,
+        None,
     )?;
     if cancel.is_cancelled() {
         return Err(Error::Cancelled);
@@ -99,6 +105,76 @@ fn render_base_with_haze(
         return Err(Error::Cancelled);
     }
     Ok((w, h, rgb, context))
+}
+
+impl crate::pipeline::ResolvedCalibrationRemovals {
+    /// Render a bounded native-detail base with the verified accepted stack.
+    pub fn render_detail_base(
+        &self,
+        raw: &RawImage,
+        original: &crate::types::accepted_removal::ContentDigest,
+        model: &AdjustmentModel,
+        source: RawInput<'_>,
+        options: DetailRenderOptions<'_>,
+    ) -> Result<(u32, u32, Vec<u8>, DetailContext)> {
+        let cancel = crate::CancelToken::never();
+        let (mut scene, context, _) = render_display_scene_with_context_cancellable(
+            raw,
+            model,
+            options.quality,
+            Some(source),
+            Some(options.max_long_edge),
+            options.target,
+            options.film_lut,
+            cancel,
+            false,
+            Some((self, original)),
+        )?;
+        let rgb = encode::dither_and_quantize(&mut scene);
+        let (scene_w, scene_h) = (scene.width, scene.height);
+        drop(scene);
+        let context = DetailContext {
+            haze: measure_haze(raw, &context.active_model, None, cancel)?,
+            ..context
+        };
+        let (w, h, rgb) = finish::apply_geometry(
+            rgb,
+            scene_w,
+            scene_h,
+            raw.orientation,
+            &crate::stages::perspective::Perspective::from_model(model),
+            &model.crop,
+        );
+        Ok((w, h, rgb, context))
+    }
+
+    /// Render one verified-removal tile with the base's native-detail anchors.
+    pub fn render_detail_tile(
+        &self,
+        raw: &RawImage,
+        original: &crate::types::accepted_removal::ContentDigest,
+        context: &DetailContext,
+        rect: TileRect,
+        film_lut: Option<&FilmLut>,
+        max_working_pixels: u64,
+    ) -> Result<(u32, u32, Vec<u8>)> {
+        let patches = self.detail_patches(raw, original, &context.active_model)?;
+        if raw.opcode_list3.is_none() && crate::lens_profile::applies(raw, &context.active_model) {
+            return Err(Error::Pipeline(
+                "saved native detail requires the full-image render when a lens profile is active"
+                    .into(),
+            ));
+        }
+        render_detail_tile_with_patches(
+            raw,
+            context,
+            rect,
+            film_lut,
+            max_working_pixels,
+            crate::CancelToken::never(),
+            Some(patches),
+        )
+    }
 }
 
 /// The maps native tiles of this edit recover with: measured by the same
@@ -229,8 +305,33 @@ pub fn render_detail_tile_cancellable(
     max_working_pixels: u64,
     cancel: crate::CancelToken<'_>,
 ) -> Result<(u32, u32, Vec<u8>)> {
+    render_detail_tile_with_patches(
+        raw,
+        context,
+        rect,
+        film_lut,
+        max_working_pixels,
+        cancel,
+        None,
+    )
+}
+
+fn render_detail_tile_with_patches(
+    raw: &RawImage,
+    context: &DetailContext,
+    rect: TileRect,
+    film_lut: Option<&FilmLut>,
+    max_working_pixels: u64,
+    cancel: crate::CancelToken<'_>,
+    patches: Option<&[crate::types::InpaintPatch]>,
+) -> Result<(u32, u32, Vec<u8>)> {
     if cancel.is_cancelled() {
         return Err(Error::Cancelled);
+    }
+    if patches.is_none() && !context.model.inpaint_removals.is_empty() {
+        return Err(Error::Pipeline(
+            "saved native detail requires verified removal companions".into(),
+        ));
     }
     if !crate::stages::perspective::Perspective::from_model(&context.model).is_identity() {
         return Err(Error::Pipeline(
@@ -298,8 +399,18 @@ pub fn render_detail_tile_cancellable(
             "native-detail patch exceeds the memory budget".into(),
         ));
     }
-    let (w, h, rgba) = match context.native_highlight.as_ref() {
-        Some(frame) => {
+    let (w, h, rgba) = match (patches, context.native_highlight.as_ref()) {
+        (Some(patches), _) => super::super::tile::render_saved_tile(
+            raw,
+            &context.active_model,
+            absolute,
+            quality,
+            context.ae_gain,
+            context.haze.as_deref(),
+            patches,
+            cancel,
+        )?,
+        (None, Some(frame)) => {
             if !std::ptr::eq(raw, frame.raw()) {
                 return Err(Error::Pipeline(
                     "native-detail source was replaced; prepare a new context".into(),
@@ -315,7 +426,7 @@ pub fn render_detail_tile_cancellable(
                 cancel,
             )?
         }
-        None => super::super::tile::render_scene_linear_tile_with_haze_cancellable_f32(
+        (None, None) => super::super::tile::render_scene_linear_tile_with_haze_cancellable_f32(
             raw,
             &context.active_model,
             absolute,

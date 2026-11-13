@@ -1,0 +1,4119 @@
+{
+  "issue": 3941,
+  "epic": 1472,
+  "recorded_at": "2026-10-03T14:20:10.943609+00:00",
+  "parent_commit": "abf922db4e6fea31f0eee22577a4b84f4948cca5",
+  "releaseQualified": false,
+  "goal_status": "active; incomplete",
+  "experiment": "Reversible black-anchored photographic-contrast encoding of the same source-bound native RAW plate, with controlled Klein and LaMa native reconstruction comparisons.",
+  "encoding": {
+    "method": "signed-log-photographic-contrast-v1",
+    "implementation": "Private Rust qualification example, not a shipping recipe or renderer stage. Shared primaries matrices, signed asinh scale0.18, independent negative/positive range with negative reserve, black0.03, margins0.015, positive gamma2.2. Range+gamma composed in f64, a single f32 output cast. The inverse retains measured negative/HDR information, with no gamut compression or clipping.",
+    "identity_bound": "Synthetic f32 identity:3e-6 times max(1,max(abs(RGB))); including65000 scene units, negative channels, black and small shadow signals. Shared durable fp16 codec/graded identity error is separately measured in every RAW bake.",
+    "scope": "This changes the combined model-domain contrast/range/gamma protocol. It does not isolate a causal effect of only black level."
+  },
+  "initial_test_failure": {
+    "directory": "/tmp/maple-removal-photographic-encoding-first-tests-20261003",
+    "artifacts": [
+      {
+        "path": "/tmp/maple-removal-photographic-encoding-first-tests-20261003/photographic_encoding.rs",
+        "sha256": "e31bcb382e8608a9ac38a1d8b5033720ae137f09a11423b2b8a796c8ca27d7ae"
+      },
+      {
+        "path": "/tmp/maple-removal-photographic-encoding-first-tests-20261003/photographic_encoding_tests.rs",
+        "sha256": "6f861b335f9385e583be8ccb55af1e9cf1c8c5d6dd089b2c78aba83b21154d7a"
+      },
+      {
+        "path": "/tmp/maple-removal-photographic-encoding-first-tests-20261003/tests.log",
+        "sha256": "c35bbe497e29e4c0d64c59a2d47201d6eccca92cd064fbbd3ee6e12dd0254fdc"
+      }
+    ],
+    "findings": "Composing a float32 signed-log output with another float32 OETF exceeded the HDR identity bound. Replaced with a direct f64 composed curve; the bound stayed3e-6. The neutral-ramp test was corrected to construct linear-sRGB neutrals through the shared inverse primaries matrix: existing four-decimal forward matrix row sums are not exact1. No production matrix changed."
+  },
+  "bootstrap_checks": {
+    "path": "/tmp/maple-removal-photographic-bootstrap-checks-20261003.json",
+    "sha256": "7eb2e75911c52dd81ad9fc6ab04e4f493757f0d177f9853e1b8ec67d31f7598c",
+    "report": {
+      "default_outputs_byte_identical": [
+        "scene.f32",
+        "input.f32",
+        "input.png",
+        "context.json"
+      ],
+      "original_default_context": "/tmp/maple-removal-bologna-person-hole-192-context-20261003",
+      "default_replay_context": "/tmp/maple-removal-bologna-default-replay-20261003",
+      "contrast_bootstrap_context": {
+        "plate": "LinearCalibrationV1",
+        "original": "blake3:2019a5cbd7bcdcf8405528789cde7c05ed4bee8d31c533df786be64f42c97718",
+        "source_anchor": {
+          "original": "blake3:2019a5cbd7bcdcf8405528789cde7c05ed4bee8d31c533df786be64f42c97718",
+          "decode": "blake3:add2c2b7017c74c40e3b2229acc1804ab1ca5be9700e99f448093dd044bf87c9",
+          "width": 6000,
+          "height": 4000
+        },
+        "window": {
+          "x": 2850,
+          "y": 1300,
+          "width": 1024,
+          "height": 1024
+        },
+        "source_width": 6000,
+        "source_height": 4000,
+        "scene": "blake3:f920aac4690f61e12ac296d120ee1895e3023816e2d9393d20ebb4e7fff80ccb",
+        "model_input": "blake3:9bd6ca0d3cf29a6b5a2bb9834e03e320b25b3a4f895edc21183cb7b8f19f4864",
+        "encoding": {
+          "method": "signed-log-photographic-contrast-v1",
+          "low": -1.6838237074610694,
+          "high": 3.577129211400544
+        },
+        "release_qualified": false
+      },
+      "contrast_scene_byte_identical": true,
+      "contrast_changes_model_encoding_only": true
+    }
+  },
+  "mask_checks": {
+    "path": "/tmp/maple-removal-photographic-mask-checks-20261003.json",
+    "sha256": "b452bd523f3aac4625663db8c20ea91bd5e2fee5299edb25b322f51dbe045905",
+    "report": [
+      {
+        "hole_radius": 8,
+        "source_scene_and_selection_files_byte_identical": true,
+        "coverage_pixels": 95337,
+        "protected_pixels": 302076,
+        "hole_pixels": 101062
+      },
+      {
+        "hole_radius": 192,
+        "source_scene_and_selection_files_byte_identical": true,
+        "coverage_pixels": 95337,
+        "protected_pixels": 302076,
+        "hole_pixels": 385362
+      }
+    ]
+  },
+  "rejection_checks": {
+    "path": "/tmp/maple-removal-photographic-rejection-20261003/report.json",
+    "sha256": "1cbe4d7410d2bd5e8dcbbae537d386b9163ad0291cafef07cd5abedf8b60e5e3",
+    "report": {
+      "unsupported_encoding_rejected_before_output": true,
+      "conflicting_flags_rejected_before_output": true,
+      "logs": [
+        "/tmp/maple-removal-photographic-rejection-20261003/unsupported-encoding.log",
+        "/tmp/maple-removal-photographic-rejection-20261003/conflicting-flags.log"
+      ]
+    }
+  },
+  "protocol": {
+    "original": "Pinned public Bologna NEF, canonical window2850/1300/1024/1024, orientation1, pre-WB linear calibration plate. Exact original scene/source-anchor bytes and original preserved.",
+    "selection": "Same refined intent90546 pixels, accepted coverage95337 and protected302076 for both hole radii8/192. Exact intent/protection/native mask planes match the signed-log controls.",
+    "klein": "Same pinned Klein4B8bit learned tensors/runtime, seed3941, four steps, guidance1, background-only instruction, harmonic selected-source erasure, decoder barriers and exact native VAE float inputs.",
+    "lama": "Same pinned989 learned tensors and native1024 portable ONNX artifact, direct zero-masked RGB plus mask channel. Eager Torch reference and ONNX CPU runs receive the exact same f32 tensor. No source resize/u8 input quantization. Both encodings/radii are run; no Poisson correction in these LaMa comparisons.",
+    "comparison_scope": "Compare each model within its own protocol; different model conditioning and boundary correction mean this is not an isolated causal comparison between model architectures."
+  },
+  "klein_records": {
+    "8": {
+      "native": {
+        "path": "/tmp/maple-removal-bologna-person-contrast-hole-8-native-20261003/report.json",
+        "sha256": "d9ebb64dfd51ba6894e5e8fe02fd708dc9fff31ee009077966dfe01bdac350ee",
+        "report": {
+          "orientation": 1,
+          "instruction": "background-only",
+          "prompt": "Remove the selected person and their carried objects completely. Fill the selected region with a continuous extension of the visible background. The replacement contains only background surfaces, with no new people, faces, bodies, clothing or bags. Preserve scene perspective, lighting, materials and photographic detail.",
+          "conditioning": {
+            "method": "native-harmonic-known-boundary-v1",
+            "selected_source_samples_used": false,
+            "selected_pixels": 101062,
+            "changed_selected_samples": 303186,
+            "known_source_bits_changed": 0,
+            "resampled": false,
+            "clipped": false,
+            "range": [
+              0.014999999664723873,
+              0.9850000143051147
+            ],
+            "solver": {
+              "unknown_pixels": 101062,
+              "boundary_edges": 1776,
+              "matrix_nonzeros": 503534,
+              "solver": "PyAMG classical Ruge-Stuben preconditioned conjugate gradients",
+              "channels": [
+                {
+                  "relative_residual": 1.778490872298988e-09,
+                  "iterations": 6
+                },
+                {
+                  "relative_residual": 1.8474852756093388e-09,
+                  "iterations": 6
+                },
+                {
+                  "relative_residual": 1.7998963843550124e-09,
+                  "iterations": 6
+                }
+              ],
+              "max_absolute_correction": 0.7686658592662762,
+              "range": [
+                0.014999999664723873,
+                0.9850000143051147
+              ],
+              "outside_float_bits_changed": 0,
+              "source_inside_domain_used_for_rhs": false,
+              "clipped": false
+            },
+            "scope": "Inference conditioning only. No original, canonical anchor, coverage, protection or accepted output is changed."
+          },
+          "conditioned_input_sha256": "d908d4ff7cee5299e39e04cec20b6375c5841bcfc1ba137769823333f26d6e08",
+          "orientation_metadata": {
+            "height": 1024,
+            "input_blake3": "8444dd97c84684bc3194de047bf0331652f7c87ea58e0e0aed54c7aa75f8259f",
+            "inverse": false,
+            "orientation": 1,
+            "output_blake3": "8444dd97c84684bc3194de047bf0331652f7c87ea58e0e0aed54c7aa75f8259f",
+            "raw_identity": {
+              "decoded_orientation": "Normal",
+              "decoder_verified": true,
+              "original_blake3": "2019a5cbd7bcdcf8405528789cde7c05ed4bee8d31c533df786be64f42c97718"
+            },
+            "releaseQualified": false,
+            "sample_math": "shared-core exact pixel permutation; no color math or resizing",
+            "width": 1024
+          },
+          "preparation_sha256": "52a3c8c9e62a5d452b7f3eae3266417fe4ea2a419cc719a594bc2a2a1fbcc98c",
+          "context": {
+            "plate": "LinearCalibrationV1",
+            "original": "blake3:2019a5cbd7bcdcf8405528789cde7c05ed4bee8d31c533df786be64f42c97718",
+            "source_anchor": {
+              "original": "blake3:2019a5cbd7bcdcf8405528789cde7c05ed4bee8d31c533df786be64f42c97718",
+              "decode": "blake3:add2c2b7017c74c40e3b2229acc1804ab1ca5be9700e99f448093dd044bf87c9",
+              "width": 6000,
+              "height": 4000
+            },
+            "window": {
+              "x": 2850,
+              "y": 1300,
+              "width": 1024,
+              "height": 1024
+            },
+            "source_width": 6000,
+            "source_height": 4000,
+            "scene": "blake3:f920aac4690f61e12ac296d120ee1895e3023816e2d9393d20ebb4e7fff80ccb",
+            "model_input": "blake3:9bd6ca0d3cf29a6b5a2bb9834e03e320b25b3a4f895edc21183cb7b8f19f4864",
+            "encoding": {
+              "method": "signed-log-photographic-contrast-v1",
+              "low": -1.6838237074610694,
+              "high": 3.577129211400544
+            },
+            "release_qualified": false
+          },
+          "context_sha256": "ff1a313bc44bd90f4290cea3011e44f07848e652cdb5037e4d899d7b4b856b05",
+          "canonical_input_sha256": "3377775e02ae1f64efaf0bcb416534c822dee94e5aed9f17b0c0961fbef5c5dd",
+          "canonical_mask_sha256": "f6850ea583f85acbfd73759ab15df1a4ea692b90fbcf01f7434689a401c5d31d",
+          "shared_orientation_probe_sha256": "161a53633e0960c8253d24700634a7e4f26a7d8b4f0b412fa4f14409e837e950",
+          "canonical_extent_hw": [
+            1024,
+            1024
+          ],
+          "upright_extent_hw": [
+            1024,
+            1024
+          ],
+          "source": {
+            "forward": {
+              "height": 1024,
+              "input_blake3": "8444dd97c84684bc3194de047bf0331652f7c87ea58e0e0aed54c7aa75f8259f",
+              "inverse": false,
+              "orientation": 1,
+              "output_blake3": "8444dd97c84684bc3194de047bf0331652f7c87ea58e0e0aed54c7aa75f8259f",
+              "raw_identity": null,
+              "releaseQualified": false,
+              "sample_math": "shared-core exact pixel permutation; no color math or resizing",
+              "width": 1024
+            },
+            "inverse": {
+              "height": 1024,
+              "input_blake3": "8444dd97c84684bc3194de047bf0331652f7c87ea58e0e0aed54c7aa75f8259f",
+              "inverse": true,
+              "orientation": 1,
+              "output_blake3": "8444dd97c84684bc3194de047bf0331652f7c87ea58e0e0aed54c7aa75f8259f",
+              "raw_identity": null,
+              "releaseQualified": false,
+              "sample_math": "shared-core exact pixel permutation; no color math or resizing",
+              "width": 1024
+            },
+            "roundtrip_bits_exact": true
+          },
+          "mask": {
+            "forward": {
+              "height": 1024,
+              "input_blake3": "0c1bf7d17bc8b301da4cf559ac2d90b53281d0b62088960f42b4428823cd0edd",
+              "inverse": false,
+              "orientation": 1,
+              "output_blake3": "0c1bf7d17bc8b301da4cf559ac2d90b53281d0b62088960f42b4428823cd0edd",
+              "raw_identity": null,
+              "releaseQualified": false,
+              "sample_math": "shared-core exact pixel permutation; no color math or resizing",
+              "width": 1024
+            },
+            "inverse": {
+              "height": 1024,
+              "input_blake3": "0c1bf7d17bc8b301da4cf559ac2d90b53281d0b62088960f42b4428823cd0edd",
+              "inverse": true,
+              "orientation": 1,
+              "output_blake3": "0c1bf7d17bc8b301da4cf559ac2d90b53281d0b62088960f42b4428823cd0edd",
+              "raw_identity": null,
+              "releaseQualified": false,
+              "sample_math": "shared-core exact pixel permutation; no color math or resizing",
+              "width": 1024
+            },
+            "roundtrip_bits_exact": true
+          },
+          "outputs": {
+            "prediction": {
+              "inverse": {
+                "height": 1024,
+                "input_blake3": "12e9220f18906017629f6a7f0ce4588d3a1d22fbc0141768556c01d0c1263972",
+                "inverse": true,
+                "orientation": 1,
+                "output_blake3": "12e9220f18906017629f6a7f0ce4588d3a1d22fbc0141768556c01d0c1263972",
+                "raw_identity": null,
+                "releaseQualified": false,
+                "sample_math": "shared-core exact pixel permutation; no color math or resizing",
+                "width": 1024
+              },
+              "replay_bits_exact": true
+            },
+            "decoder-unclipped": {
+              "inverse": {
+                "height": 1024,
+                "input_blake3": "00cd8c781fa96bf372391ede3a60c5efc614ee8b62e1e2425807fd82e0a77aa1",
+                "inverse": true,
+                "orientation": 1,
+                "output_blake3": "00cd8c781fa96bf372391ede3a60c5efc614ee8b62e1e2425807fd82e0a77aa1",
+                "raw_identity": null,
+                "releaseQualified": false,
+                "sample_math": "shared-core exact pixel permutation; no color math or resizing",
+                "width": 1024
+              },
+              "replay_bits_exact": true
+            }
+          },
+          "model_report_sha256": "39f676d0aff7efcce15a724780617d5cfa0413d1f2e78ff5ad72a030c28bc784",
+          "result": {
+            "sha256": "17f22182c7d8b093b5d498bd7609a9368448c47b9de3d9b088b4e4819f1ad03b",
+            "outside_float_bits_changed": 0,
+            "outside_u8_samples_changed": 0
+          },
+          "prediction_sha256": "af85e5c2e7f0350524580ecafb190f7ffbbab1683f2c0a76354bb3695ab1d0de",
+          "decoder_unclipped_sha256": "2d6ba8b28e038651d21f04233bbb5188d39fee94f12719f633ba1aa365a148cb",
+          "source_resampled": false,
+          "model_input_quantized_to_u8": false,
+          "releaseQualified": false,
+          "scope": "Native Paint research; selection/EXIF provenance, RAW inverse, grades, subject protection and photographic acceptance require separate evidence."
+        }
+      },
+      "model": {
+        "path": "/tmp/maple-removal-bologna-person-contrast-hole-8-native-20261003/generated/report.json",
+        "sha256": "39f676d0aff7efcce15a724780617d5cfa0413d1f2e78ff5ad72a030c28bc784",
+        "report": {
+          "repo": "AbstractFramework/flux.2-klein-4b-8bit",
+          "revision": "21764997c7d92ab919d4a51a3ac7f8fb0f36c4a6",
+          "model_manifest_sha256": "692b837c6c70b9db3808ae9502a2fdf6c5e9cea6dd7baf612e2045ce6814523b",
+          "runtime_source_revision": "99fb94dd3eaa9dd1931cd3cd8eae1ae3e20f2ef3",
+          "strict_loaded_tensors": [
+            {
+              "component": "vae",
+              "tensors": 266
+            },
+            {
+              "component": "transformer",
+              "tensors": 387
+            },
+            {
+              "component": "text_encoder",
+              "tensors": 905
+            }
+          ],
+          "quantization": 8,
+          "source_sha256": "c15dab7e537129f186634fefa5db7b4913f7244adf1c40ed1cde3fa92ad01e02",
+          "float_input_sha256": "d908d4ff7cee5299e39e04cec20b6375c5841bcfc1ba137769823333f26d6e08",
+          "model_input_quantized_to_u8": false,
+          "model_input_tensor_samples_exact": true,
+          "mask_sha256": "f6850ea583f85acbfd73759ab15df1a4ea692b90fbcf01f7434689a401c5d31d",
+          "crop_xywh": [
+            0,
+            0,
+            1024,
+            1024
+          ],
+          "native_extent_hw": [
+            1024,
+            1024
+          ],
+          "source_preprocessor_samples_exact": true,
+          "pixel_mask_preprocessor_exact": true,
+          "visual_mask_reference": false,
+          "visual_mask_reference_vae_verified": false,
+          "visual_mask_reference_sha256": null,
+          "source_resampled": false,
+          "selected_pixels": 101062,
+          "prompt": "Remove the selected person and their carried objects completely. Fill the selected region with a continuous extension of the visible background. The replacement contains only background surfaces, with no new people, faces, bodies, clothing or bags. Preserve scene perspective, lighting, materials and photographic detail.",
+          "negative_prompt": "",
+          "seed": 3941,
+          "requested_steps": 4,
+          "actual_steps": 4,
+          "guidance": 1.0,
+          "verification_ms": 3493.399041937664,
+          "model_open_ms": 1975.1020830590278,
+          "inference_ms": 15842.74679212831,
+          "steps": [
+            {
+              "step": 1,
+              "scheduler_index": 0,
+              "latent_shape": [
+                1,
+                4096,
+                128
+              ],
+              "elapsed_ms": 4517.569750081748,
+              "mlx_allocated_bytes": 4299794714,
+              "mlx_cache_bytes": 592708608
+            },
+            {
+              "step": 2,
+              "scheduler_index": 1,
+              "latent_shape": [
+                1,
+                4096,
+                128
+              ],
+              "elapsed_ms": 7901.691917097196,
+              "mlx_allocated_bytes": 4299794714,
+              "mlx_cache_bytes": 597959698
+            },
+            {
+              "step": 3,
+              "scheduler_index": 2,
+              "latent_shape": [
+                1,
+                4096,
+                128
+              ],
+              "elapsed_ms": 10865.335582988337,
+              "mlx_allocated_bytes": 4299794714,
+              "mlx_cache_bytes": 597959702
+            },
+            {
+              "step": 4,
+              "scheduler_index": 3,
+              "latent_shape": [
+                1,
+                4096,
+                128
+              ],
+              "elapsed_ms": 13744.163749972358,
+              "mlx_allocated_bytes": 4298746138,
+              "mlx_cache_bytes": 593765388
+            }
+          ],
+          "decoder_unclipped_range": [
+            -1.1640625,
+            0.9453125
+          ],
+          "decoder_unclipped_sha256": "2d6ba8b28e038651d21f04233bbb5188d39fee94f12719f633ba1aa365a148cb",
+          "prediction_sha256": "af85e5c2e7f0350524580ecafb190f7ffbbab1683f2c0a76354bb3695ab1d0de",
+          "result": {
+            "sha256": "17f22182c7d8b093b5d498bd7609a9368448c47b9de3d9b088b4e4819f1ad03b",
+            "outside_float_bits_changed": 0,
+            "outside_u8_samples_changed": 0
+          },
+          "mlx_peak_allocated_bytes": 9974666660,
+          "process_peak_resident_bytes": 9170944000,
+          "memory_scope": "MLX allocations/cache and process RSS are distinct. Do not sum or claim a total device peak.",
+          "toolchain": {
+            "mlx": "0.32.3",
+            "mlx-gen": "0.38.0",
+            "numpy": "2.4.6",
+            "pillow": "12.3.0",
+            "transformers": "5.18.0"
+          },
+          "releaseQualified": false,
+          "input_scope": "Supplied Rust encoded f32 context; native samples reach VAE normalization without a PNG round trip. Context provenance and inverse require separate verification.",
+          "qualification": "Research model inference only. No accepted RAW edit, broad HDR/corpus, supported Mac tier or production distribution qualification.",
+          "memory_experiment": {
+            "mode": "release-blocks-small-cache",
+            "rows": [
+              {
+                "phase": "loaded",
+                "elapsed_ms": 5600.708083016798,
+                "mlx_active_bytes": 8559746382,
+                "mlx_cache_bytes": 8616,
+                "mlx_peak_active_bytes": 8559746382,
+                "runtime_memory": {
+                  "phase": "loaded",
+                  "timestamp": 1791034284.018104,
+                  "pid": 70291,
+                  "platform": "macOS-27.0-arm64-arm-64bit",
+                  "synchronized": false,
+                  "mlx_active_memory_bytes": 8559746382,
+                  "mlx_peak_memory_bytes": 8559746382,
+                  "mlx_cache_memory_bytes": 8616,
+                  "process_rss_bytes": 9162539008,
+                  "process_peak_rss_bytes": 9163784192,
+                  "darwin_physical_footprint_bytes": 9132137552,
+                  "errors": {},
+                  "darwin_peak_physical_footprint_bytes": 9132137552
+                }
+              },
+              {
+                "phase": "prompt_encoded",
+                "elapsed_ms": 5836.579082999378,
+                "mlx_active_bytes": 8567620942,
+                "mlx_cache_bytes": 960846776,
+                "mlx_peak_active_bytes": 9501214298,
+                "runtime_memory": {
+                  "phase": "prompt_encoded",
+                  "timestamp": 1791034284.251819,
+                  "pid": 70291,
+                  "platform": "macOS-27.0-arm64-arm-64bit",
+                  "synchronized": false,
+                  "mlx_active_memory_bytes": 8567620942,
+                  "mlx_peak_memory_bytes": 9501214298,
+                  "mlx_cache_memory_bytes": 960846776,
+                  "process_rss_bytes": 9170944000,
+                  "process_peak_rss_bytes": 9170944000,
+                  "darwin_physical_footprint_bytes": 10261470936,
+                  "errors": {},
+                  "darwin_peak_physical_footprint_bytes": 10261470936
+                }
+              },
+              {
+                "phase": "text_encoder_released",
+                "elapsed_ms": 5908.782874932513,
+                "mlx_active_bytes": 4291790926,
+                "mlx_cache_bytes": 0,
+                "mlx_peak_active_bytes": 9501214298,
+                "runtime_memory": {
+                  "phase": "text_encoder_released",
+                  "timestamp": 1791034284.325279,
+                  "pid": 70291,
+                  "platform": "macOS-27.0-arm64-arm-64bit",
+                  "synchronized": false,
+                  "mlx_active_memory_bytes": 4291790926,
+                  "mlx_peak_memory_bytes": 9501214298,
+                  "mlx_cache_memory_bytes": 0,
+                  "process_rss_bytes": 5284200448,
+                  "process_peak_rss_bytes": 9170944000,
+                  "darwin_physical_footprint_bytes": 5531735128,
+                  "errors": {},
+                  "darwin_peak_physical_footprint_bytes": 10261470936
+                }
+              },
+              {
+                "phase": "denoised",
+                "elapsed_ms": 19462.166915880516,
+                "mlx_active_bytes": 4297173138,
+                "mlx_cache_bytes": 595338388,
+                "mlx_peak_active_bytes": 9974666660,
+                "runtime_memory": {
+                  "phase": "denoised",
+                  "timestamp": 1791034297.881288,
+                  "pid": 70291,
+                  "platform": "macOS-27.0-arm64-arm-64bit",
+                  "synchronized": false,
+                  "mlx_active_memory_bytes": 4297173138,
+                  "mlx_peak_memory_bytes": 9974666660,
+                  "mlx_cache_memory_bytes": 595338388,
+                  "process_rss_bytes": 4908367872,
+                  "process_peak_rss_bytes": 9170944000,
+                  "darwin_physical_footprint_bytes": 5632856960,
+                  "errors": {},
+                  "darwin_peak_physical_footprint_bytes": 10261470936
+                }
+              },
+              {
+                "phase": "transformer_released",
+                "elapsed_ms": 19553.559249965474,
+                "mlx_active_bytes": 179383410,
+                "mlx_cache_bytes": 0,
+                "mlx_peak_active_bytes": 9974666660,
+                "runtime_memory": {
+                  "phase": "transformer_released",
+                  "timestamp": 1791034297.974846,
+                  "pid": 70291,
+                  "platform": "macOS-27.0-arm64-arm-64bit",
+                  "synchronized": false,
+                  "mlx_active_memory_bytes": 179383410,
+                  "mlx_peak_memory_bytes": 9974666660,
+                  "mlx_cache_memory_bytes": 0,
+                  "process_rss_bytes": 790511616,
+                  "process_peak_rss_bytes": 9170944000,
+                  "darwin_physical_footprint_bytes": 1477396568,
+                  "errors": {},
+                  "darwin_peak_physical_footprint_bytes": 10261470936
+                }
+              },
+              {
+                "phase": "before_decode",
+                "elapsed_ms": 19593.947750050575,
+                "mlx_active_bytes": 179383410,
+                "mlx_cache_bytes": 0,
+                "mlx_peak_active_bytes": 9974666660,
+                "runtime_memory": {
+                  "phase": "before_decode",
+                  "timestamp": 1791034298.012686,
+                  "pid": 70291,
+                  "platform": "macOS-27.0-arm64-arm-64bit",
+                  "synchronized": false,
+                  "mlx_active_memory_bytes": 179383410,
+                  "mlx_peak_memory_bytes": 9974666660,
+                  "mlx_cache_memory_bytes": 0,
+                  "process_rss_bytes": 790511616,
+                  "process_peak_rss_bytes": 9170944000,
+                  "darwin_physical_footprint_bytes": 917702720,
+                  "errors": {},
+                  "darwin_peak_physical_footprint_bytes": 10261470936
+                }
+              },
+              {
+                "phase": "after_decode",
+                "elapsed_ms": 21489.94766594842,
+                "mlx_active_bytes": 185674866,
+                "mlx_cache_bytes": 819990920,
+                "mlx_peak_active_bytes": 9974666660,
+                "runtime_memory": {
+                  "phase": "after_decode",
+                  "timestamp": 1791034299.9172962,
+                  "pid": 70291,
+                  "platform": "macOS-27.0-arm64-arm-64bit",
+                  "synchronized": false,
+                  "mlx_active_memory_bytes": 185674866,
+                  "mlx_peak_memory_bytes": 9974666660,
+                  "mlx_cache_memory_bytes": 819990920,
+                  "process_rss_bytes": 790659072,
+                  "process_peak_rss_bytes": 9170944000,
+                  "darwin_physical_footprint_bytes": 1743882304,
+                  "errors": {},
+                  "darwin_peak_physical_footprint_bytes": 10261470936
+                }
+              }
+            ],
+            "cache_limit_changed": true,
+            "explicit_cache_limit_bytes": 1000000000,
+            "peak_reset_during_inference": false,
+            "native_math_changed": false,
+            "instance_consumed": true,
+            "decoder_barriers": {
+              "rows": [
+                {
+                  "block": "conv_in",
+                  "output_nchw": [
+                    1,
+                    512,
+                    128,
+                    128
+                  ],
+                  "output_dtype": "mlx.core.bfloat16",
+                  "materialization_ms": 7.118332898244262,
+                  "mlx_active_bytes": 198258162,
+                  "mlx_cache_bytes": 73662606,
+                  "mlx_peak_active_bytes": 9974666660
+                },
+                {
+                  "block": "mid.resnet0",
+                  "output_nchw": [
+                    1,
+                    512,
+                    128,
+                    128
+                  ],
+                  "output_dtype": "mlx.core.bfloat16",
+                  "materialization_ms": 14.72016703337431,
+                  "mlx_active_bytes": 248589818,
+                  "mlx_cache_bytes": 490840082,
+                  "mlx_peak_active_bytes": 9974666660
+                },
+                {
+                  "block": "mid.attention",
+                  "output_nchw": [
+                    1,
+                    512,
+                    128,
+                    128
+                  ],
+                  "output_dtype": "mlx.core.bfloat16",
+                  "materialization_ms": 31.059250002726912,
+                  "mlx_active_bytes": 231812466,
+                  "mlx_cache_bytes": 987816094,
+                  "mlx_peak_active_bytes": 9974666660
+                },
+                {
+                  "block": "mid.resnet1",
+                  "output_nchw": [
+                    1,
+                    512,
+                    128,
+                    128
+                  ],
+                  "output_dtype": "mlx.core.bfloat16",
+                  "materialization_ms": 7.352499989792705,
+                  "mlx_active_bytes": 231812466,
+                  "mlx_cache_bytes": 482451614,
+                  "mlx_peak_active_bytes": 9974666660
+                },
+                {
+                  "block": "up0.resnet0",
+                  "output_nchw": [
+                    1,
+                    512,
+                    128,
+                    128
+                  ],
+                  "output_dtype": "mlx.core.bfloat16",
+                  "materialization_ms": 6.8699580151587725,
+                  "mlx_active_bytes": 248589818,
+                  "mlx_cache_bytes": 499228694,
+                  "mlx_peak_active_bytes": 9974666660
+                },
+                {
+                  "block": "up0.resnet1",
+                  "output_nchw": [
+                    1,
+                    512,
+                    128,
+                    128
+                  ],
+                  "output_dtype": "mlx.core.bfloat16",
+                  "materialization_ms": 4.632249940186739,
+                  "mlx_active_bytes": 265367034,
+                  "mlx_cache_bytes": 482451478,
+                  "mlx_peak_active_bytes": 9974666660
+                },
+                {
+                  "block": "up0.resnet2",
+                  "output_nchw": [
+                    1,
+                    512,
+                    128,
+                    128
+                  ],
+                  "output_dtype": "mlx.core.bfloat16",
+                  "materialization_ms": 5.09791704826057,
+                  "mlx_active_bytes": 265367034,
+                  "mlx_cache_bytes": 482451478,
+                  "mlx_peak_active_bytes": 9974666660
+                },
+                {
+                  "block": "up0.sample0",
+                  "output_nchw": [
+                    1,
+                    512,
+                    256,
+                    256
+                  ],
+                  "output_dtype": "mlx.core.bfloat16",
+                  "materialization_ms": 19.1132090985775,
+                  "mlx_active_bytes": 282144246,
+                  "mlx_cache_bytes": 978575386,
+                  "mlx_peak_active_bytes": 9974666660
+                },
+                {
+                  "block": "up1.resnet0",
+                  "output_nchw": [
+                    1,
+                    512,
+                    256,
+                    256
+                  ],
+                  "output_dtype": "mlx.core.bfloat16",
+                  "materialization_ms": 52.28350008837879,
+                  "mlx_active_bytes": 315698674,
+                  "mlx_cache_bytes": 993660948,
+                  "mlx_peak_active_bytes": 9974666660
+                },
+                {
+                  "block": "up1.resnet1",
+                  "output_nchw": [
+                    1,
+                    512,
+                    256,
+                    256
+                  ],
+                  "output_dtype": "mlx.core.bfloat16",
+                  "materialization_ms": 44.908542186021805,
+                  "mlx_active_bytes": 382807410,
+                  "mlx_cache_bytes": 980832398,
+                  "mlx_peak_active_bytes": 9974666660
+                },
+                {
+                  "block": "up1.resnet2",
+                  "output_nchw": [
+                    1,
+                    512,
+                    256,
+                    256
+                  ],
+                  "output_dtype": "mlx.core.bfloat16",
+                  "materialization_ms": 43.55862503871322,
+                  "mlx_active_bytes": 382807538,
+                  "mlx_cache_bytes": 1032998920,
+                  "mlx_peak_active_bytes": 9974666660
+                },
+                {
+                  "block": "up1.sample0",
+                  "output_nchw": [
+                    1,
+                    512,
+                    512,
+                    512
+                  ],
+                  "output_dtype": "mlx.core.bfloat16",
+                  "materialization_ms": 90.37533309310675,
+                  "mlx_active_bytes": 718351734,
+                  "mlx_cache_bytes": 1089667076,
+                  "mlx_peak_active_bytes": 9974666660
+                },
+                {
+                  "block": "up2.resnet0",
+                  "output_nchw": [
+                    1,
+                    256,
+                    512,
+                    512
+                  ],
+                  "output_dtype": "mlx.core.bfloat16",
+                  "materialization_ms": 152.05633407458663,
+                  "mlx_active_bytes": 584134006,
+                  "mlx_cache_bytes": 1006635016,
+                  "mlx_peak_active_bytes": 9974666660
+                },
+                {
+                  "block": "up2.resnet1",
+                  "output_nchw": [
+                    1,
+                    256,
+                    512,
+                    512
+                  ],
+                  "output_dtype": "mlx.core.bfloat16",
+                  "materialization_ms": 85.21074987947941,
+                  "mlx_active_bytes": 718351730,
+                  "mlx_cache_bytes": 1024755716,
+                  "mlx_peak_active_bytes": 9974666660
+                },
+                {
+                  "block": "up2.resnet2",
+                  "output_nchw": [
+                    1,
+                    256,
+                    512,
+                    512
+                  ],
+                  "output_dtype": "mlx.core.bfloat16",
+                  "materialization_ms": 97.22658293321729,
+                  "mlx_active_bytes": 785460726,
+                  "mlx_cache_bytes": 1050839048,
+                  "mlx_peak_active_bytes": 9974666660
+                },
+                {
+                  "block": "up2.sample0",
+                  "output_nchw": [
+                    1,
+                    256,
+                    1024,
+                    1024
+                  ],
+                  "output_dtype": "mlx.core.bfloat16",
+                  "materialization_ms": 157.87558304145932,
+                  "mlx_active_bytes": 1389440374,
+                  "mlx_cache_bytes": 1050836996,
+                  "mlx_peak_active_bytes": 9974666660
+                },
+                {
+                  "block": "up3.resnet0",
+                  "output_nchw": [
+                    1,
+                    128,
+                    1024,
+                    1024
+                  ],
+                  "output_dtype": "mlx.core.bfloat16",
+                  "materialization_ms": 348.5538330860436,
+                  "mlx_active_bytes": 986787186,
+                  "mlx_cache_bytes": 1073745928,
+                  "mlx_peak_active_bytes": 9974666660
+                },
+                {
+                  "block": "up3.resnet1",
+                  "output_nchw": [
+                    1,
+                    128,
+                    1024,
+                    1024
+                  ],
+                  "output_dtype": "mlx.core.bfloat16",
+                  "materialization_ms": 272.33329112641513,
+                  "mlx_active_bytes": 1792097658,
+                  "mlx_cache_bytes": 749633536,
+                  "mlx_peak_active_bytes": 9974666660
+                },
+                {
+                  "block": "up3.resnet2",
+                  "output_nchw": [
+                    1,
+                    128,
+                    1024,
+                    1024
+                  ],
+                  "output_dtype": "mlx.core.bfloat16",
+                  "materialization_ms": 282.89662511087954,
+                  "mlx_active_bytes": 1389440374,
+                  "mlx_cache_bytes": 1018068996,
+                  "mlx_peak_active_bytes": 9974666660
+                },
+                {
+                  "block": "conv_norm_out",
+                  "output_nchw": [
+                    1,
+                    128,
+                    1024,
+                    1024
+                  ],
+                  "output_dtype": "mlx.core.bfloat16",
+                  "materialization_ms": 121.54874997213483,
+                  "mlx_active_bytes": 718351730,
+                  "mlx_cache_bytes": 1073745924,
+                  "mlx_peak_active_bytes": 9974666660
+                },
+                {
+                  "block": "conv_out",
+                  "output_nchw": [
+                    1,
+                    3,
+                    1024,
+                    1024
+                  ],
+                  "output_dtype": "mlx.core.bfloat16",
+                  "materialization_ms": 12.71312520839274,
+                  "mlx_active_bytes": 456207858,
+                  "mlx_cache_bytes": 549457928,
+                  "mlx_peak_active_bytes": 9974666660
+                }
+              ],
+              "class_methods_restored": true,
+              "resized": false,
+              "tiled": false,
+              "precision_changed": false,
+              "equality_scope": "Graph materialization control only; compare actual pre-clipped native output bytes before claiming pixel equality."
+            },
+            "scope": "Synchronized phase snapshots, not a total system/device peak or supported lower-memory Mac qualification."
+          }
+        }
+      },
+      "boundary_correction": {
+        "path": "/tmp/maple-removal-bologna-person-contrast-hole-8-seam-20261003/report.json",
+        "sha256": "65d28afa017562d5437fbc7eed97e646352126b0a11c45fde181e5a89692bb88",
+        "report": {
+          "unknown_pixels": 95337,
+          "boundary_edges": 1738,
+          "matrix_nonzeros": 474947,
+          "solver": "PyAMG classical Ruge-Stuben preconditioned conjugate gradients",
+          "channels": [
+            {
+              "relative_residual": 4.942623028620951e-09,
+              "iterations": 5
+            },
+            {
+              "relative_residual": 6.898048629038106e-09,
+              "iterations": 5
+            },
+            {
+              "relative_residual": 8.522787663218471e-09,
+              "iterations": 5
+            }
+          ],
+          "max_absolute_correction": 0.48406116142643746,
+          "range": [
+            -0.01649264432489872,
+            0.9850000143051147
+          ],
+          "outside_float_bits_changed": 0,
+          "source_inside_domain_used_for_rhs": false,
+          "clipped": false,
+          "source_sha256": "18f4e07a6e93f5625e89b53135950acbd846eb207dcc53ffe2e785de58a1c727",
+          "prediction_sha256": "af85e5c2e7f0350524580ecafb190f7ffbbab1683f2c0a76354bb3695ab1d0de",
+          "domain_sha256": "1cec81df42f31f5b9f5232e51e13c0a247f69537699dba85e1dce73ec2d53e2e",
+          "native_extent_hw": [
+            1024,
+            1024
+          ],
+          "source_resampled": false,
+          "correction_ms": 383.1712498795241,
+          "model_domain_valid": false,
+          "display_preview_scope": "Display-only clipped u8 visualization. Persisted f32 correction is unmodified, never clipped.",
+          "correction_sha256": "c3075134531b92902a5d827234f9b3d31692bf89f83a5c6b48d301f3091ee083",
+          "process_peak_resident_bytes": 275922944,
+          "toolchain": {
+            "pyamg": "5.3.0",
+            "scipy": "1.17.1",
+            "numpy": "2.4.6"
+          },
+          "releaseQualified": false,
+          "scope": "Native boundary correction research only; no RAW inverse, accepted record, editor/runtime, photographic corpus or hardware qualification is implied."
+        }
+      },
+      "preparation": {
+        "path": "/tmp/maple-removal-bologna-person-contrast-hole-8-context-20261003/preparation.json",
+        "sha256": "52a3c8c9e62a5d452b7f3eae3266417fe4ea2a419cc719a594bc2a2a1fbcc98c",
+        "report": {
+          "case": {
+            "id": "bologna-person-contrast-hole-8",
+            "raw": "bologna",
+            "window_xywh": [
+              2850,
+              1300,
+              1024,
+              1024
+            ],
+            "hole_radius": 8,
+            "fringe_radius": 4,
+            "expected_scene_blake3": "blake3:f920aac4690f61e12ac296d120ee1895e3023816e2d9393d20ebb4e7fff80ccb",
+            "expected_model_input_blake3": "blake3:9bd6ca0d3cf29a6b5a2bb9834e03e320b25b3a4f895edc21183cb7b8f19f4864",
+            "annotation": "Detector proposal refined with positive painted head/coat/bag points and negative adjacent-shopper/produce points; two other SAM instance proposals explicitly kept. One visible blue-coat target, no rectangle crossing adjacent person. Research generation hole expands 192 native pixels while accepted intent, fringe4 coverage and protected masks remain identical.",
+            "annotation_scope": "Pinned model instance proposals and manual point intent; visually reviewed silhouette, not independently labeled closure or automated role/subject truth. Occluded anatomy, ambiguous ownership at touching hands/cuffs, shadows/reflections and hidden background remain unqualified.",
+            "orientation": 1,
+            "intent_mask_sha256": "64cdb7af92e5d6c39c2d2475e6d13f84fd589bef83adeb796c25dea5b2894f46",
+            "protected_mask_sha256": "cb0fa9be05df73b74f884e6c85c2b698647961d3b5e74701033e6669bd0f3410",
+            "selection_provenance": {
+              "intent_mask": {
+                "path": "/tmp/maple-removal-bologna-person-sam-20261003/mask-1.png",
+                "sha256": "64cdb7af92e5d6c39c2d2475e6d13f84fd589bef83adeb796c25dea5b2894f46"
+              },
+              "protected_mask": {
+                "path": "/tmp/maple-removal-bologna-keep-sam-20261003/protected.png",
+                "sha256": "cb0fa9be05df73b74f884e6c85c2b698647961d3b5e74701033e6669bd0f3410"
+              },
+              "detector_report": {
+                "path": "/tmp/maple-removal-bologna-detector-20261003/report.json",
+                "sha256": "c12efc6b3e04eb163358063c756733d8eeccb9d33d942fcf8f0541a2aa6350f8"
+              },
+              "selector_report": {
+                "path": "/tmp/maple-removal-bologna-person-sam-20261003/report.json",
+                "sha256": "e06d8736c779305e12efd5cd653eee73544d12f709b70b898bf644f3d1c73403"
+              },
+              "protection_report": {
+                "path": "/tmp/maple-removal-bologna-keep-sam-20261003/report.json",
+                "sha256": "78f406b34a207535e3742527fa082136d792ff60d26414721afed093c98f7ed5"
+              },
+              "display_proxy": {
+                "path": "/tmp/maple-removal-klein-bologna-erased-paint-bake-20261003/auto_ev+0_wb+0-identity.png",
+                "sha256": "c1f069bf69c120ea560a38e068dfa5320a8180e0762db5b354e0db20e478d4ff"
+              }
+            },
+            "model_encoding": "photographic-contrast"
+          },
+          "manifest_sha256": "cb1c32c7ce32cb5ab3f9411a6df87d0fb944e9fa130029f1460d0e7cfd0f5de7",
+          "RAW_sha256": "2ed291a09d7d4f72c8588b0c12d6cc5c470ad42ab9e3aaad1f888f34526b959f",
+          "scene_probe_sha256": "1565e565f2bcdcc6eabeabd341f3899e827fd835b09c9bc27b6872f5cc3197b3",
+          "context": {
+            "plate": "LinearCalibrationV1",
+            "original": "blake3:2019a5cbd7bcdcf8405528789cde7c05ed4bee8d31c533df786be64f42c97718",
+            "source_anchor": {
+              "original": "blake3:2019a5cbd7bcdcf8405528789cde7c05ed4bee8d31c533df786be64f42c97718",
+              "decode": "blake3:add2c2b7017c74c40e3b2229acc1804ab1ca5be9700e99f448093dd044bf87c9",
+              "width": 6000,
+              "height": 4000
+            },
+            "window": {
+              "x": 2850,
+              "y": 1300,
+              "width": 1024,
+              "height": 1024
+            },
+            "source_width": 6000,
+            "source_height": 4000,
+            "scene": "blake3:f920aac4690f61e12ac296d120ee1895e3023816e2d9393d20ebb4e7fff80ccb",
+            "model_input": "blake3:9bd6ca0d3cf29a6b5a2bb9834e03e320b25b3a4f895edc21183cb7b8f19f4864",
+            "encoding": {
+              "method": "signed-log-photographic-contrast-v1",
+              "low": -1.6838237074610694,
+              "high": 3.577129211400544
+            },
+            "release_qualified": false
+          },
+          "hole_pixels": 101062,
+          "coverage_pixels": 95337,
+          "protected_pixels": 302076,
+          "orientation": {
+            "height": 1024,
+            "input_blake3": "8444dd97c84684bc3194de047bf0331652f7c87ea58e0e0aed54c7aa75f8259f",
+            "inverse": false,
+            "orientation": 1,
+            "output_blake3": "8444dd97c84684bc3194de047bf0331652f7c87ea58e0e0aed54c7aa75f8259f",
+            "raw_identity": {
+              "decoded_orientation": "Normal",
+              "decoder_verified": true,
+              "original_blake3": "2019a5cbd7bcdcf8405528789cde7c05ed4bee8d31c533df786be64f42c97718"
+            },
+            "releaseQualified": false,
+            "sample_math": "shared-core exact pixel permutation; no color math or resizing",
+            "width": 1024
+          },
+          "releaseQualified": false
+        }
+      },
+      "RAW_bake": "Rejected before bake: unmodified correction range falls below the valid model domain. Never clipped or accepted."
+    },
+    "192": {
+      "native": {
+        "path": "/tmp/maple-removal-bologna-person-contrast-hole-192-native-20261003/report.json",
+        "sha256": "bc3185771ff2a24bf26ebdf41348ce6cfd26310275dabe01f66362e5f30d0a84",
+        "report": {
+          "orientation": 1,
+          "instruction": "background-only",
+          "prompt": "Remove the selected person and their carried objects completely. Fill the selected region with a continuous extension of the visible background. The replacement contains only background surfaces, with no new people, faces, bodies, clothing or bags. Preserve scene perspective, lighting, materials and photographic detail.",
+          "conditioning": {
+            "method": "native-harmonic-known-boundary-v1",
+            "selected_source_samples_used": false,
+            "selected_pixels": 385362,
+            "changed_selected_samples": 1156086,
+            "known_source_bits_changed": 0,
+            "resampled": false,
+            "clipped": false,
+            "range": [
+              0.014999999664723873,
+              0.9850000143051147
+            ],
+            "solver": {
+              "unknown_pixels": 385362,
+              "boundary_edges": 4788,
+              "matrix_nonzeros": 1922022,
+              "solver": "PyAMG classical Ruge-Stuben preconditioned conjugate gradients",
+              "channels": [
+                {
+                  "relative_residual": 4.1303996889847125e-09,
+                  "iterations": 7
+                },
+                {
+                  "relative_residual": 4.348201955054704e-09,
+                  "iterations": 7
+                },
+                {
+                  "relative_residual": 4.213615184183481e-09,
+                  "iterations": 7
+                }
+              ],
+              "max_absolute_correction": 0.7710615704383691,
+              "range": [
+                0.014999999664723873,
+                0.9850000143051147
+              ],
+              "outside_float_bits_changed": 0,
+              "source_inside_domain_used_for_rhs": false,
+              "clipped": false
+            },
+            "scope": "Inference conditioning only. No original, canonical anchor, coverage, protection or accepted output is changed."
+          },
+          "conditioned_input_sha256": "d9b84154d9eb2c6dfb9bb69982578a1eab442d715deeb7f2c024918ef896d590",
+          "orientation_metadata": {
+            "height": 1024,
+            "input_blake3": "8444dd97c84684bc3194de047bf0331652f7c87ea58e0e0aed54c7aa75f8259f",
+            "inverse": false,
+            "orientation": 1,
+            "output_blake3": "8444dd97c84684bc3194de047bf0331652f7c87ea58e0e0aed54c7aa75f8259f",
+            "raw_identity": {
+              "decoded_orientation": "Normal",
+              "decoder_verified": true,
+              "original_blake3": "2019a5cbd7bcdcf8405528789cde7c05ed4bee8d31c533df786be64f42c97718"
+            },
+            "releaseQualified": false,
+            "sample_math": "shared-core exact pixel permutation; no color math or resizing",
+            "width": 1024
+          },
+          "preparation_sha256": "113ace821d9a38e28b30cb68bb37aee1095099cd9b2cb3a0e57b852bb2d984d9",
+          "context": {
+            "plate": "LinearCalibrationV1",
+            "original": "blake3:2019a5cbd7bcdcf8405528789cde7c05ed4bee8d31c533df786be64f42c97718",
+            "source_anchor": {
+              "original": "blake3:2019a5cbd7bcdcf8405528789cde7c05ed4bee8d31c533df786be64f42c97718",
+              "decode": "blake3:add2c2b7017c74c40e3b2229acc1804ab1ca5be9700e99f448093dd044bf87c9",
+              "width": 6000,
+              "height": 4000
+            },
+            "window": {
+              "x": 2850,
+              "y": 1300,
+              "width": 1024,
+              "height": 1024
+            },
+            "source_width": 6000,
+            "source_height": 4000,
+            "scene": "blake3:f920aac4690f61e12ac296d120ee1895e3023816e2d9393d20ebb4e7fff80ccb",
+            "model_input": "blake3:9bd6ca0d3cf29a6b5a2bb9834e03e320b25b3a4f895edc21183cb7b8f19f4864",
+            "encoding": {
+              "method": "signed-log-photographic-contrast-v1",
+              "low": -1.6838237074610694,
+              "high": 3.577129211400544
+            },
+            "release_qualified": false
+          },
+          "context_sha256": "ff1a313bc44bd90f4290cea3011e44f07848e652cdb5037e4d899d7b4b856b05",
+          "canonical_input_sha256": "3377775e02ae1f64efaf0bcb416534c822dee94e5aed9f17b0c0961fbef5c5dd",
+          "canonical_mask_sha256": "54209362c2c57cc1eb4dbe60d1b27478f14dd91d9b16012eb1b96bda17ce237c",
+          "shared_orientation_probe_sha256": "161a53633e0960c8253d24700634a7e4f26a7d8b4f0b412fa4f14409e837e950",
+          "canonical_extent_hw": [
+            1024,
+            1024
+          ],
+          "upright_extent_hw": [
+            1024,
+            1024
+          ],
+          "source": {
+            "forward": {
+              "height": 1024,
+              "input_blake3": "8444dd97c84684bc3194de047bf0331652f7c87ea58e0e0aed54c7aa75f8259f",
+              "inverse": false,
+              "orientation": 1,
+              "output_blake3": "8444dd97c84684bc3194de047bf0331652f7c87ea58e0e0aed54c7aa75f8259f",
+              "raw_identity": null,
+              "releaseQualified": false,
+              "sample_math": "shared-core exact pixel permutation; no color math or resizing",
+              "width": 1024
+            },
+            "inverse": {
+              "height": 1024,
+              "input_blake3": "8444dd97c84684bc3194de047bf0331652f7c87ea58e0e0aed54c7aa75f8259f",
+              "inverse": true,
+              "orientation": 1,
+              "output_blake3": "8444dd97c84684bc3194de047bf0331652f7c87ea58e0e0aed54c7aa75f8259f",
+              "raw_identity": null,
+              "releaseQualified": false,
+              "sample_math": "shared-core exact pixel permutation; no color math or resizing",
+              "width": 1024
+            },
+            "roundtrip_bits_exact": true
+          },
+          "mask": {
+            "forward": {
+              "height": 1024,
+              "input_blake3": "58b69311b8a7e035e9f08b4c31f947d7fccf806069d5bb991d9a33c43e2c2583",
+              "inverse": false,
+              "orientation": 1,
+              "output_blake3": "58b69311b8a7e035e9f08b4c31f947d7fccf806069d5bb991d9a33c43e2c2583",
+              "raw_identity": null,
+              "releaseQualified": false,
+              "sample_math": "shared-core exact pixel permutation; no color math or resizing",
+              "width": 1024
+            },
+            "inverse": {
+              "height": 1024,
+              "input_blake3": "58b69311b8a7e035e9f08b4c31f947d7fccf806069d5bb991d9a33c43e2c2583",
+              "inverse": true,
+              "orientation": 1,
+              "output_blake3": "58b69311b8a7e035e9f08b4c31f947d7fccf806069d5bb991d9a33c43e2c2583",
+              "raw_identity": null,
+              "releaseQualified": false,
+              "sample_math": "shared-core exact pixel permutation; no color math or resizing",
+              "width": 1024
+            },
+            "roundtrip_bits_exact": true
+          },
+          "outputs": {
+            "prediction": {
+              "inverse": {
+                "height": 1024,
+                "input_blake3": "847e293681ad73a6ea95f073b8fa0c1f1686c074035ae6a45d19937b6fe6c3fb",
+                "inverse": true,
+                "orientation": 1,
+                "output_blake3": "847e293681ad73a6ea95f073b8fa0c1f1686c074035ae6a45d19937b6fe6c3fb",
+                "raw_identity": null,
+                "releaseQualified": false,
+                "sample_math": "shared-core exact pixel permutation; no color math or resizing",
+                "width": 1024
+              },
+              "replay_bits_exact": true
+            },
+            "decoder-unclipped": {
+              "inverse": {
+                "height": 1024,
+                "input_blake3": "caecf0b0fee5c33af72f8bc57a0435f0897f133d0c450e03c1c9d1fd23f165d1",
+                "inverse": true,
+                "orientation": 1,
+                "output_blake3": "caecf0b0fee5c33af72f8bc57a0435f0897f133d0c450e03c1c9d1fd23f165d1",
+                "raw_identity": null,
+                "releaseQualified": false,
+                "sample_math": "shared-core exact pixel permutation; no color math or resizing",
+                "width": 1024
+              },
+              "replay_bits_exact": true
+            }
+          },
+          "model_report_sha256": "0f199e7c5675f0b0688298a04e78b4968b6059ab4b6180f1493cd8b70319f1fd",
+          "result": {
+            "sha256": "3c37317dca0291622601679dc88e2ceace49b74cfc9dcecbe51ab4fcebea8634",
+            "outside_float_bits_changed": 0,
+            "outside_u8_samples_changed": 0
+          },
+          "prediction_sha256": "c0333064fc4b4effcd6ea19c9ce0207407bd3d335960888a2f824ff88025df43",
+          "decoder_unclipped_sha256": "050053ed56e2136520af7afc879bbf55d1b6353437368d6414e39eb76dc033a8",
+          "source_resampled": false,
+          "model_input_quantized_to_u8": false,
+          "releaseQualified": false,
+          "scope": "Native Paint research; selection/EXIF provenance, RAW inverse, grades, subject protection and photographic acceptance require separate evidence."
+        }
+      },
+      "model": {
+        "path": "/tmp/maple-removal-bologna-person-contrast-hole-192-native-20261003/generated/report.json",
+        "sha256": "0f199e7c5675f0b0688298a04e78b4968b6059ab4b6180f1493cd8b70319f1fd",
+        "report": {
+          "repo": "AbstractFramework/flux.2-klein-4b-8bit",
+          "revision": "21764997c7d92ab919d4a51a3ac7f8fb0f36c4a6",
+          "model_manifest_sha256": "692b837c6c70b9db3808ae9502a2fdf6c5e9cea6dd7baf612e2045ce6814523b",
+          "runtime_source_revision": "99fb94dd3eaa9dd1931cd3cd8eae1ae3e20f2ef3",
+          "strict_loaded_tensors": [
+            {
+              "component": "vae",
+              "tensors": 266
+            },
+            {
+              "component": "transformer",
+              "tensors": 387
+            },
+            {
+              "component": "text_encoder",
+              "tensors": 905
+            }
+          ],
+          "quantization": 8,
+          "source_sha256": "5fe8a679a4936aa0db616f92766c2b4dedc4ef52d13bc47aa53c360e3312092f",
+          "float_input_sha256": "d9b84154d9eb2c6dfb9bb69982578a1eab442d715deeb7f2c024918ef896d590",
+          "model_input_quantized_to_u8": false,
+          "model_input_tensor_samples_exact": true,
+          "mask_sha256": "54209362c2c57cc1eb4dbe60d1b27478f14dd91d9b16012eb1b96bda17ce237c",
+          "crop_xywh": [
+            0,
+            0,
+            1024,
+            1024
+          ],
+          "native_extent_hw": [
+            1024,
+            1024
+          ],
+          "source_preprocessor_samples_exact": true,
+          "pixel_mask_preprocessor_exact": true,
+          "visual_mask_reference": false,
+          "visual_mask_reference_vae_verified": false,
+          "visual_mask_reference_sha256": null,
+          "source_resampled": false,
+          "selected_pixels": 385362,
+          "prompt": "Remove the selected person and their carried objects completely. Fill the selected region with a continuous extension of the visible background. The replacement contains only background surfaces, with no new people, faces, bodies, clothing or bags. Preserve scene perspective, lighting, materials and photographic detail.",
+          "negative_prompt": "",
+          "seed": 3941,
+          "requested_steps": 4,
+          "actual_steps": 4,
+          "guidance": 1.0,
+          "verification_ms": 3810.0841669365764,
+          "model_open_ms": 1977.9901248402894,
+          "inference_ms": 17329.738875152543,
+          "steps": [
+            {
+              "step": 1,
+              "scheduler_index": 0,
+              "latent_shape": [
+                1,
+                4096,
+                128
+              ],
+              "elapsed_ms": 3873.64958319813,
+              "mlx_allocated_bytes": 4299794714,
+              "mlx_cache_bytes": 593765376
+            },
+            {
+              "step": 2,
+              "scheduler_index": 1,
+              "latent_shape": [
+                1,
+                4096,
+                128
+              ],
+              "elapsed_ms": 7902.62100007385,
+              "mlx_allocated_bytes": 4299794714,
+              "mlx_cache_bytes": 651455510
+            },
+            {
+              "step": 3,
+              "scheduler_index": 2,
+              "latent_shape": [
+                1,
+                4096,
+                128
+              ],
+              "elapsed_ms": 11767.57516618818,
+              "mlx_allocated_bytes": 4298221714,
+              "mlx_cache_bytes": 540804232
+            },
+            {
+              "step": 4,
+              "scheduler_index": 3,
+              "latent_shape": [
+                1,
+                4096,
+                128
+              ],
+              "elapsed_ms": 15239.071791060269,
+              "mlx_allocated_bytes": 4298746138,
+              "mlx_cache_bytes": 647255054
+            }
+          ],
+          "decoder_unclipped_range": [
+            -1.09375,
+            0.9296875
+          ],
+          "decoder_unclipped_sha256": "050053ed56e2136520af7afc879bbf55d1b6353437368d6414e39eb76dc033a8",
+          "prediction_sha256": "c0333064fc4b4effcd6ea19c9ce0207407bd3d335960888a2f824ff88025df43",
+          "result": {
+            "sha256": "3c37317dca0291622601679dc88e2ceace49b74cfc9dcecbe51ab4fcebea8634",
+            "outside_float_bits_changed": 0,
+            "outside_u8_samples_changed": 0
+          },
+          "mlx_peak_allocated_bytes": 9974666660,
+          "process_peak_resident_bytes": 9281617920,
+          "memory_scope": "MLX allocations/cache and process RSS are distinct. Do not sum or claim a total device peak.",
+          "toolchain": {
+            "mlx": "0.32.3",
+            "mlx-gen": "0.38.0",
+            "numpy": "2.4.6",
+            "pillow": "12.3.0",
+            "transformers": "5.18.0"
+          },
+          "releaseQualified": false,
+          "input_scope": "Supplied Rust encoded f32 context; native samples reach VAE normalization without a PNG round trip. Context provenance and inverse require separate verification.",
+          "qualification": "Research model inference only. No accepted RAW edit, broad HDR/corpus, supported Mac tier or production distribution qualification.",
+          "memory_experiment": {
+            "mode": "release-blocks-small-cache",
+            "rows": [
+              {
+                "phase": "loaded",
+                "elapsed_ms": 5960.8023329637945,
+                "mlx_active_bytes": 8559746382,
+                "mlx_cache_bytes": 8616,
+                "mlx_peak_active_bytes": 8559746382,
+                "runtime_memory": {
+                  "phase": "loaded",
+                  "timestamp": 1791034613.256709,
+                  "pid": 80589,
+                  "platform": "macOS-27.0-arm64-arm-64bit",
+                  "synchronized": false,
+                  "mlx_active_memory_bytes": 8559746382,
+                  "mlx_peak_memory_bytes": 8559746382,
+                  "mlx_cache_memory_bytes": 8616,
+                  "process_rss_bytes": 9272836096,
+                  "process_peak_rss_bytes": 9274032128,
+                  "darwin_physical_footprint_bytes": 9242483912,
+                  "errors": {},
+                  "darwin_peak_physical_footprint_bytes": 9242483912
+                }
+              },
+              {
+                "phase": "prompt_encoded",
+                "elapsed_ms": 6202.586832921952,
+                "mlx_active_bytes": 8567620942,
+                "mlx_cache_bytes": 960848824,
+                "mlx_peak_active_bytes": 9501214298,
+                "runtime_memory": {
+                  "phase": "prompt_encoded",
+                  "timestamp": 1791034613.49799,
+                  "pid": 80589,
+                  "platform": "macOS-27.0-arm64-arm-64bit",
+                  "synchronized": false,
+                  "mlx_active_memory_bytes": 8567620942,
+                  "mlx_peak_memory_bytes": 9501214298,
+                  "mlx_cache_memory_bytes": 960848824,
+                  "process_rss_bytes": 9281617920,
+                  "process_peak_rss_bytes": 9281617920,
+                  "darwin_physical_footprint_bytes": 10372226896,
+                  "errors": {},
+                  "darwin_peak_physical_footprint_bytes": 10372226896
+                }
+              },
+              {
+                "phase": "text_encoder_released",
+                "elapsed_ms": 6276.549207977951,
+                "mlx_active_bytes": 4291790926,
+                "mlx_cache_bytes": 0,
+                "mlx_peak_active_bytes": 9501214298,
+                "runtime_memory": {
+                  "phase": "text_encoder_released",
+                  "timestamp": 1791034613.572116,
+                  "pid": 80589,
+                  "platform": "macOS-27.0-arm64-arm-64bit",
+                  "synchronized": false,
+                  "mlx_active_memory_bytes": 4291790926,
+                  "mlx_peak_memory_bytes": 9501214298,
+                  "mlx_cache_memory_bytes": 0,
+                  "process_rss_bytes": 5394874368,
+                  "process_peak_rss_bytes": 9281617920,
+                  "darwin_physical_footprint_bytes": 5642507496,
+                  "errors": {},
+                  "darwin_peak_physical_footprint_bytes": 10372226896
+                }
+              },
+              {
+                "phase": "denoised",
+                "elapsed_ms": 21323.203790932894,
+                "mlx_active_bytes": 4297173138,
+                "mlx_cache_bytes": 648828054,
+                "mlx_peak_active_bytes": 9974666660,
+                "runtime_memory": {
+                  "phase": "denoised",
+                  "timestamp": 1791034628.631176,
+                  "pid": 80589,
+                  "platform": "macOS-27.0-arm64-arm-64bit",
+                  "synchronized": false,
+                  "mlx_active_memory_bytes": 4297173138,
+                  "mlx_peak_memory_bytes": 9974666660,
+                  "mlx_cache_memory_bytes": 648828054,
+                  "process_rss_bytes": 5016109056,
+                  "process_peak_rss_bytes": 9281617920,
+                  "darwin_physical_footprint_bytes": 5793960952,
+                  "errors": {},
+                  "darwin_peak_physical_footprint_bytes": 10372226896
+                }
+              },
+              {
+                "phase": "transformer_released",
+                "elapsed_ms": 21431.65895808488,
+                "mlx_active_bytes": 179383410,
+                "mlx_cache_bytes": 0,
+                "mlx_peak_active_bytes": 9974666660,
+                "runtime_memory": {
+                  "phase": "transformer_released",
+                  "timestamp": 1791034628.7351198,
+                  "pid": 80589,
+                  "platform": "macOS-27.0-arm64-arm-64bit",
+                  "synchronized": false,
+                  "mlx_active_memory_bytes": 179383410,
+                  "mlx_peak_memory_bytes": 9974666660,
+                  "mlx_cache_memory_bytes": 0,
+                  "process_rss_bytes": 898252800,
+                  "process_peak_rss_bytes": 9281617920,
+                  "darwin_physical_footprint_bytes": 1560119504,
+                  "errors": {},
+                  "darwin_peak_physical_footprint_bytes": 10372226896
+                }
+              },
+              {
+                "phase": "before_decode",
+                "elapsed_ms": 21477.091500069946,
+                "mlx_active_bytes": 179383410,
+                "mlx_cache_bytes": 0,
+                "mlx_peak_active_bytes": 9974666660,
+                "runtime_memory": {
+                  "phase": "before_decode",
+                  "timestamp": 1791034628.779327,
+                  "pid": 80589,
+                  "platform": "macOS-27.0-arm64-arm-64bit",
+                  "synchronized": false,
+                  "mlx_active_memory_bytes": 179383410,
+                  "mlx_peak_memory_bytes": 9974666660,
+                  "mlx_cache_memory_bytes": 0,
+                  "process_rss_bytes": 898252800,
+                  "process_peak_rss_bytes": 9281617920,
+                  "darwin_physical_footprint_bytes": 1025345744,
+                  "errors": {},
+                  "darwin_peak_physical_footprint_bytes": 10372226896
+                }
+              },
+              {
+                "phase": "after_decode",
+                "elapsed_ms": 23362.172957975417,
+                "mlx_active_bytes": 185674866,
+                "mlx_cache_bytes": 819990920,
+                "mlx_peak_active_bytes": 9974666660,
+                "runtime_memory": {
+                  "phase": "after_decode",
+                  "timestamp": 1791034630.662338,
+                  "pid": 80589,
+                  "platform": "macOS-27.0-arm64-arm-64bit",
+                  "synchronized": false,
+                  "mlx_active_memory_bytes": 185674866,
+                  "mlx_peak_memory_bytes": 9974666660,
+                  "mlx_cache_memory_bytes": 819990920,
+                  "process_rss_bytes": 898367488,
+                  "process_peak_rss_bytes": 9281617920,
+                  "darwin_physical_footprint_bytes": 1851689168,
+                  "errors": {},
+                  "darwin_peak_physical_footprint_bytes": 10372226896
+                }
+              }
+            ],
+            "cache_limit_changed": true,
+            "explicit_cache_limit_bytes": 1000000000,
+            "peak_reset_during_inference": false,
+            "native_math_changed": false,
+            "instance_consumed": true,
+            "decoder_barriers": {
+              "rows": [
+                {
+                  "block": "conv_in",
+                  "output_nchw": [
+                    1,
+                    512,
+                    128,
+                    128
+                  ],
+                  "output_dtype": "mlx.core.bfloat16",
+                  "materialization_ms": 7.789707975462079,
+                  "mlx_active_bytes": 198258034,
+                  "mlx_cache_bytes": 73662608,
+                  "mlx_peak_active_bytes": 9974666660
+                },
+                {
+                  "block": "mid.resnet0",
+                  "output_nchw": [
+                    1,
+                    512,
+                    128,
+                    128
+                  ],
+                  "output_dtype": "mlx.core.bfloat16",
+                  "materialization_ms": 17.223291797563434,
+                  "mlx_active_bytes": 248589818,
+                  "mlx_cache_bytes": 490840084,
+                  "mlx_peak_active_bytes": 9974666660
+                },
+                {
+                  "block": "mid.attention",
+                  "output_nchw": [
+                    1,
+                    512,
+                    128,
+                    128
+                  ],
+                  "output_dtype": "mlx.core.bfloat16",
+                  "materialization_ms": 37.27308404631913,
+                  "mlx_active_bytes": 265367034,
+                  "mlx_cache_bytes": 954261526,
+                  "mlx_peak_active_bytes": 9974666660
+                },
+                {
+                  "block": "mid.resnet1",
+                  "output_nchw": [
+                    1,
+                    512,
+                    128,
+                    128
+                  ],
+                  "output_dtype": "mlx.core.bfloat16",
+                  "materialization_ms": 7.708291057497263,
+                  "mlx_active_bytes": 265367034,
+                  "mlx_cache_bytes": 448897042,
+                  "mlx_peak_active_bytes": 9974666660
+                },
+                {
+                  "block": "up0.resnet0",
+                  "output_nchw": [
+                    1,
+                    512,
+                    128,
+                    128
+                  ],
+                  "output_dtype": "mlx.core.bfloat16",
+                  "materialization_ms": 7.57625000551343,
+                  "mlx_active_bytes": 215035382,
+                  "mlx_cache_bytes": 532783126,
+                  "mlx_peak_active_bytes": 9974666660
+                },
+                {
+                  "block": "up0.resnet1",
+                  "output_nchw": [
+                    1,
+                    512,
+                    128,
+                    128
+                  ],
+                  "output_dtype": "mlx.core.bfloat16",
+                  "materialization_ms": 5.124334013089538,
+                  "mlx_active_bytes": 231812466,
+                  "mlx_cache_bytes": 516006042,
+                  "mlx_peak_active_bytes": 9974666660
+                },
+                {
+                  "block": "up0.resnet2",
+                  "output_nchw": [
+                    1,
+                    512,
+                    128,
+                    128
+                  ],
+                  "output_dtype": "mlx.core.bfloat16",
+                  "materialization_ms": 4.693999886512756,
+                  "mlx_active_bytes": 265367034,
+                  "mlx_cache_bytes": 482451474,
+                  "mlx_peak_active_bytes": 9974666660
+                },
+                {
+                  "block": "up0.sample0",
+                  "output_nchw": [
+                    1,
+                    512,
+                    256,
+                    256
+                  ],
+                  "output_dtype": "mlx.core.bfloat16",
+                  "materialization_ms": 24.021167075261474,
+                  "mlx_active_bytes": 315698678,
+                  "mlx_cache_bytes": 945020950,
+                  "mlx_peak_active_bytes": 9974666660
+                },
+                {
+                  "block": "up1.resnet0",
+                  "output_nchw": [
+                    1,
+                    512,
+                    256,
+                    256
+                  ],
+                  "output_dtype": "mlx.core.bfloat16",
+                  "materialization_ms": 57.50450002960861,
+                  "mlx_active_bytes": 349253110,
+                  "mlx_cache_bytes": 960106508,
+                  "mlx_peak_active_bytes": 9974666660
+                },
+                {
+                  "block": "up1.resnet1",
+                  "output_nchw": [
+                    1,
+                    512,
+                    256,
+                    256
+                  ],
+                  "output_dtype": "mlx.core.bfloat16",
+                  "materialization_ms": 51.8002500757575,
+                  "mlx_active_bytes": 382807538,
+                  "mlx_cache_bytes": 980832270,
+                  "mlx_peak_active_bytes": 9974666660
+                },
+                {
+                  "block": "up1.resnet2",
+                  "output_nchw": [
+                    1,
+                    512,
+                    256,
+                    256
+                  ],
+                  "output_dtype": "mlx.core.bfloat16",
+                  "materialization_ms": 47.01620806008577,
+                  "mlx_active_bytes": 416361974,
+                  "mlx_cache_bytes": 999444488,
+                  "mlx_peak_active_bytes": 9974666660
+                },
+                {
+                  "block": "up1.sample0",
+                  "output_nchw": [
+                    1,
+                    512,
+                    512,
+                    512
+                  ],
+                  "output_dtype": "mlx.core.bfloat16",
+                  "materialization_ms": 102.35149995423853,
+                  "mlx_active_bytes": 584134006,
+                  "mlx_cache_bytes": 1089667076,
+                  "mlx_peak_active_bytes": 9974666660
+                },
+                {
+                  "block": "up2.resnet0",
+                  "output_nchw": [
+                    1,
+                    256,
+                    512,
+                    512
+                  ],
+                  "output_dtype": "mlx.core.bfloat16",
+                  "materialization_ms": 179.90554100833833,
+                  "mlx_active_bytes": 584134006,
+                  "mlx_cache_bytes": 1006635016,
+                  "mlx_peak_active_bytes": 9974666660
+                },
+                {
+                  "block": "up2.resnet1",
+                  "output_nchw": [
+                    1,
+                    256,
+                    512,
+                    512
+                  ],
+                  "output_dtype": "mlx.core.bfloat16",
+                  "materialization_ms": 106.42874985933304,
+                  "mlx_active_bytes": 718351734,
+                  "mlx_cache_bytes": 1024755716,
+                  "mlx_peak_active_bytes": 9974666660
+                },
+                {
+                  "block": "up2.resnet2",
+                  "output_nchw": [
+                    1,
+                    256,
+                    512,
+                    512
+                  ],
+                  "output_dtype": "mlx.core.bfloat16",
+                  "materialization_ms": 112.76195803657174,
+                  "mlx_active_bytes": 718351730,
+                  "mlx_cache_bytes": 1050839048,
+                  "mlx_peak_active_bytes": 9974666660
+                },
+                {
+                  "block": "up2.sample0",
+                  "output_nchw": [
+                    1,
+                    256,
+                    1024,
+                    1024
+                  ],
+                  "output_dtype": "mlx.core.bfloat16",
+                  "materialization_ms": 174.33666693978012,
+                  "mlx_active_bytes": 1389440374,
+                  "mlx_cache_bytes": 1050836996,
+                  "mlx_peak_active_bytes": 9974666660
+                },
+                {
+                  "block": "up3.resnet0",
+                  "output_nchw": [
+                    1,
+                    128,
+                    1024,
+                    1024
+                  ],
+                  "output_dtype": "mlx.core.bfloat16",
+                  "materialization_ms": 320.6401669885963,
+                  "mlx_active_bytes": 986787186,
+                  "mlx_cache_bytes": 1073745928,
+                  "mlx_peak_active_bytes": 9974666660
+                },
+                {
+                  "block": "up3.resnet1",
+                  "output_nchw": [
+                    1,
+                    128,
+                    1024,
+                    1024
+                  ],
+                  "output_dtype": "mlx.core.bfloat16",
+                  "materialization_ms": 241.60283408127725,
+                  "mlx_active_bytes": 1389440374,
+                  "mlx_cache_bytes": 1018068996,
+                  "mlx_peak_active_bytes": 9974666660
+                },
+                {
+                  "block": "up3.resnet2",
+                  "output_nchw": [
+                    1,
+                    128,
+                    1024,
+                    1024
+                  ],
+                  "output_dtype": "mlx.core.bfloat16",
+                  "materialization_ms": 233.76195901073515,
+                  "mlx_active_bytes": 1255222642,
+                  "mlx_cache_bytes": 1018068996,
+                  "mlx_peak_active_bytes": 9974666660
+                },
+                {
+                  "block": "conv_norm_out",
+                  "output_nchw": [
+                    1,
+                    128,
+                    1024,
+                    1024
+                  ],
+                  "output_dtype": "mlx.core.bfloat16",
+                  "materialization_ms": 91.23650006949902,
+                  "mlx_active_bytes": 718351734,
+                  "mlx_cache_bytes": 1073745924,
+                  "mlx_peak_active_bytes": 9974666660
+                },
+                {
+                  "block": "conv_out",
+                  "output_nchw": [
+                    1,
+                    3,
+                    1024,
+                    1024
+                  ],
+                  "output_dtype": "mlx.core.bfloat16",
+                  "materialization_ms": 7.862708996981382,
+                  "mlx_active_bytes": 456207730,
+                  "mlx_cache_bytes": 549458056,
+                  "mlx_peak_active_bytes": 9974666660
+                }
+              ],
+              "class_methods_restored": true,
+              "resized": false,
+              "tiled": false,
+              "precision_changed": false,
+              "equality_scope": "Graph materialization control only; compare actual pre-clipped native output bytes before claiming pixel equality."
+            },
+            "scope": "Synchronized phase snapshots, not a total system/device peak or supported lower-memory Mac qualification."
+          }
+        }
+      },
+      "boundary_correction": {
+        "path": "/tmp/maple-removal-bologna-person-contrast-hole-192-seam-20261003/report.json",
+        "sha256": "d93e7b492ad2c9673aa086dc5d6d78f773ad776197ee4ab4ec31da2ef8af44b9",
+        "report": {
+          "unknown_pixels": 95337,
+          "boundary_edges": 1738,
+          "matrix_nonzeros": 474947,
+          "solver": "PyAMG classical Ruge-Stuben preconditioned conjugate gradients",
+          "channels": [
+            {
+              "relative_residual": 7.047281804122282e-09,
+              "iterations": 5
+            },
+            {
+              "relative_residual": 8.060405566045049e-09,
+              "iterations": 5
+            },
+            {
+              "relative_residual": 8.17338684370256e-09,
+              "iterations": 5
+            }
+          ],
+          "max_absolute_correction": 0.34004696650826466,
+          "range": [
+            0.014999999664723873,
+            0.9850000143051147
+          ],
+          "outside_float_bits_changed": 0,
+          "source_inside_domain_used_for_rhs": false,
+          "clipped": false,
+          "source_sha256": "18f4e07a6e93f5625e89b53135950acbd846eb207dcc53ffe2e785de58a1c727",
+          "prediction_sha256": "c0333064fc4b4effcd6ea19c9ce0207407bd3d335960888a2f824ff88025df43",
+          "domain_sha256": "1cec81df42f31f5b9f5232e51e13c0a247f69537699dba85e1dce73ec2d53e2e",
+          "native_extent_hw": [
+            1024,
+            1024
+          ],
+          "source_resampled": false,
+          "correction_ms": 257.15120881795883,
+          "model_domain_valid": true,
+          "display_preview_scope": "Display-only clipped u8 visualization. Persisted f32 correction is unmodified, never clipped.",
+          "correction_sha256": "626cb6c3a389ce1f296404638acf7b55beb732123ebc3ac37def7e04becc46ad",
+          "process_peak_resident_bytes": 273399808,
+          "toolchain": {
+            "pyamg": "5.3.0",
+            "scipy": "1.17.1",
+            "numpy": "2.4.6"
+          },
+          "releaseQualified": false,
+          "scope": "Native boundary correction research only; no RAW inverse, accepted record, editor/runtime, photographic corpus or hardware qualification is implied."
+        }
+      },
+      "preparation": {
+        "path": "/tmp/maple-removal-bologna-person-contrast-hole-192-context-20261003/preparation.json",
+        "sha256": "113ace821d9a38e28b30cb68bb37aee1095099cd9b2cb3a0e57b852bb2d984d9",
+        "report": {
+          "case": {
+            "id": "bologna-person-contrast-hole-192",
+            "raw": "bologna",
+            "window_xywh": [
+              2850,
+              1300,
+              1024,
+              1024
+            ],
+            "hole_radius": 192,
+            "fringe_radius": 4,
+            "expected_scene_blake3": "blake3:f920aac4690f61e12ac296d120ee1895e3023816e2d9393d20ebb4e7fff80ccb",
+            "expected_model_input_blake3": "blake3:9bd6ca0d3cf29a6b5a2bb9834e03e320b25b3a4f895edc21183cb7b8f19f4864",
+            "annotation": "Detector proposal refined with positive painted head/coat/bag points and negative adjacent-shopper/produce points; two other SAM instance proposals explicitly kept. One visible blue-coat target, no rectangle crossing adjacent person. Research generation hole expands 192 native pixels while accepted intent, fringe4 coverage and protected masks remain identical.",
+            "annotation_scope": "Pinned model instance proposals and manual point intent; visually reviewed silhouette, not independently labeled closure or automated role/subject truth. Occluded anatomy, ambiguous ownership at touching hands/cuffs, shadows/reflections and hidden background remain unqualified.",
+            "orientation": 1,
+            "intent_mask_sha256": "64cdb7af92e5d6c39c2d2475e6d13f84fd589bef83adeb796c25dea5b2894f46",
+            "protected_mask_sha256": "cb0fa9be05df73b74f884e6c85c2b698647961d3b5e74701033e6669bd0f3410",
+            "selection_provenance": {
+              "intent_mask": {
+                "path": "/tmp/maple-removal-bologna-person-sam-20261003/mask-1.png",
+                "sha256": "64cdb7af92e5d6c39c2d2475e6d13f84fd589bef83adeb796c25dea5b2894f46"
+              },
+              "protected_mask": {
+                "path": "/tmp/maple-removal-bologna-keep-sam-20261003/protected.png",
+                "sha256": "cb0fa9be05df73b74f884e6c85c2b698647961d3b5e74701033e6669bd0f3410"
+              },
+              "detector_report": {
+                "path": "/tmp/maple-removal-bologna-detector-20261003/report.json",
+                "sha256": "c12efc6b3e04eb163358063c756733d8eeccb9d33d942fcf8f0541a2aa6350f8"
+              },
+              "selector_report": {
+                "path": "/tmp/maple-removal-bologna-person-sam-20261003/report.json",
+                "sha256": "e06d8736c779305e12efd5cd653eee73544d12f709b70b898bf644f3d1c73403"
+              },
+              "protection_report": {
+                "path": "/tmp/maple-removal-bologna-keep-sam-20261003/report.json",
+                "sha256": "78f406b34a207535e3742527fa082136d792ff60d26414721afed093c98f7ed5"
+              },
+              "display_proxy": {
+                "path": "/tmp/maple-removal-klein-bologna-erased-paint-bake-20261003/auto_ev+0_wb+0-identity.png",
+                "sha256": "c1f069bf69c120ea560a38e068dfa5320a8180e0762db5b354e0db20e478d4ff"
+              }
+            },
+            "model_encoding": "photographic-contrast"
+          },
+          "manifest_sha256": "cb1c32c7ce32cb5ab3f9411a6df87d0fb944e9fa130029f1460d0e7cfd0f5de7",
+          "RAW_sha256": "2ed291a09d7d4f72c8588b0c12d6cc5c470ad42ab9e3aaad1f888f34526b959f",
+          "scene_probe_sha256": "1565e565f2bcdcc6eabeabd341f3899e827fd835b09c9bc27b6872f5cc3197b3",
+          "context": {
+            "plate": "LinearCalibrationV1",
+            "original": "blake3:2019a5cbd7bcdcf8405528789cde7c05ed4bee8d31c533df786be64f42c97718",
+            "source_anchor": {
+              "original": "blake3:2019a5cbd7bcdcf8405528789cde7c05ed4bee8d31c533df786be64f42c97718",
+              "decode": "blake3:add2c2b7017c74c40e3b2229acc1804ab1ca5be9700e99f448093dd044bf87c9",
+              "width": 6000,
+              "height": 4000
+            },
+            "window": {
+              "x": 2850,
+              "y": 1300,
+              "width": 1024,
+              "height": 1024
+            },
+            "source_width": 6000,
+            "source_height": 4000,
+            "scene": "blake3:f920aac4690f61e12ac296d120ee1895e3023816e2d9393d20ebb4e7fff80ccb",
+            "model_input": "blake3:9bd6ca0d3cf29a6b5a2bb9834e03e320b25b3a4f895edc21183cb7b8f19f4864",
+            "encoding": {
+              "method": "signed-log-photographic-contrast-v1",
+              "low": -1.6838237074610694,
+              "high": 3.577129211400544
+            },
+            "release_qualified": false
+          },
+          "hole_pixels": 385362,
+          "coverage_pixels": 95337,
+          "protected_pixels": 302076,
+          "orientation": {
+            "height": 1024,
+            "input_blake3": "8444dd97c84684bc3194de047bf0331652f7c87ea58e0e0aed54c7aa75f8259f",
+            "inverse": false,
+            "orientation": 1,
+            "output_blake3": "8444dd97c84684bc3194de047bf0331652f7c87ea58e0e0aed54c7aa75f8259f",
+            "raw_identity": {
+              "decoded_orientation": "Normal",
+              "decoder_verified": true,
+              "original_blake3": "2019a5cbd7bcdcf8405528789cde7c05ed4bee8d31c533df786be64f42c97718"
+            },
+            "releaseQualified": false,
+            "sample_math": "shared-core exact pixel permutation; no color math or resizing",
+            "width": 1024
+          },
+          "releaseQualified": false
+        }
+      },
+      "RAW_bake": {
+        "path": "/tmp/maple-removal-bologna-person-contrast-hole-192-bake-20261003/report.json",
+        "sha256": "6b57afbcb50b7fcaefed47c324b4cf439d4372662a3b7fc17cc89540ea4bfe3b",
+        "report": {
+          "as_shot_temperature": 4084.04931640625,
+          "as_shot_tint": 42.26961898803711,
+          "auto_profile_engaged": true,
+          "encoding": {
+            "high": 3.577129211400544,
+            "low": -1.6838237074610694,
+            "method": "signed-log-photographic-contrast-v1"
+          },
+          "generation_masks": "blake3:1f7d5dba36e57a0c7b444066263e72a13186518f1b8a06a3307b60bfcff3eecb",
+          "grades": [
+            {
+              "case": "neutral_ev-3_wb-1000",
+              "max_scene_float_error_identity": 2.734363079071045e-05,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 2061.265125
+            },
+            {
+              "case": "auto_ev-3_wb-1000",
+              "max_scene_float_error_identity": 2.734363079071045e-05,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 2061.265125
+            },
+            {
+              "case": "neutral_ev-3_wb+0",
+              "max_scene_float_error_identity": 1.52587890625e-05,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 2421.845875
+            },
+            {
+              "case": "auto_ev-3_wb+0",
+              "max_scene_float_error_identity": 1.52587890625e-05,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 2421.845875
+            },
+            {
+              "case": "neutral_ev-3_wb+1000",
+              "max_scene_float_error_identity": 1.1788681149482727e-05,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 2443.1216249999998
+            },
+            {
+              "case": "auto_ev-3_wb+1000",
+              "max_scene_float_error_identity": 1.1788681149482727e-05,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 2443.1216249999998
+            },
+            {
+              "case": "neutral_ev+0_wb-1000",
+              "max_scene_float_error_identity": 0.0002187490463256836,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 2289.587542
+            },
+            {
+              "case": "auto_ev+0_wb-1000",
+              "max_scene_float_error_identity": 0.0002187490463256836,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 2289.587542
+            },
+            {
+              "case": "neutral_ev+0_wb+0",
+              "max_scene_float_error_identity": 0.0001220703125,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 2691.341459
+            },
+            {
+              "case": "auto_ev+0_wb+0",
+              "max_scene_float_error_identity": 0.0001220703125,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 2691.341459
+            },
+            {
+              "case": "neutral_ev+0_wb+1000",
+              "max_scene_float_error_identity": 9.430944919586182e-05,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 2590.265167
+            },
+            {
+              "case": "auto_ev+0_wb+1000",
+              "max_scene_float_error_identity": 9.430944919586182e-05,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 2590.265167
+            },
+            {
+              "case": "neutral_ev+3_wb-1000",
+              "max_scene_float_error_identity": 0.0017499923706054688,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1940.1039170000001
+            },
+            {
+              "case": "auto_ev+3_wb-1000",
+              "max_scene_float_error_identity": 0.0017499923706054688,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1940.1039170000001
+            },
+            {
+              "case": "neutral_ev+3_wb+0",
+              "max_scene_float_error_identity": 0.0009765625,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1793.21175
+            },
+            {
+              "case": "auto_ev+3_wb+0",
+              "max_scene_float_error_identity": 0.0009765625,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1793.21175
+            },
+            {
+              "case": "neutral_ev+3_wb+1000",
+              "max_scene_float_error_identity": 0.0007544755935668945,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1811.249625
+            },
+            {
+              "case": "auto_ev+3_wb+1000",
+              "max_scene_float_error_identity": 0.0007544755935668945,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1811.249625
+            }
+          ],
+          "max_scene_float_error_identity": 0.0017499923706054688,
+          "model_result": "blake3:1e6a6a83a0aeab1586240c8abe52ed06474d5f89c9ab4df51c9be38f235c0a8e",
+          "native_context": {
+            "height": 1024,
+            "width": 1024,
+            "x": 2850,
+            "y": 1300
+          },
+          "original": "blake3:2019a5cbd7bcdcf8405528789cde7c05ed4bee8d31c533df786be64f42c97718",
+          "outside_mask_max_error": 0,
+          "plate": "LinearCalibrationV1",
+          "profile_tier": "BundleConfident",
+          "qualification": "Full native camera-WB/DCP experiment. Bounded authoring, recipe quality, clone/heal, GPU/live/tile/export integration and supported-device gates remain.",
+          "release_qualified": false
+        }
+      }
+    }
+  },
+  "lama_records": {
+    "signed-log-8": {
+      "native": {
+        "path": "/tmp/maple-removal-lama-person-signed-log-hole-8-native-20261003/report.json",
+        "sha256": "b6554916ed3b22e152151a9d64fe309fb4ddb4542db176000a1b6b6d1e2a7baa",
+        "report": {
+          "artifact_sha256": "339d078d9d1376d76a49efd4fa42f328c3f276af775505ae8b57c84db187c4f6",
+          "input_sha256": "76aa4174dc67d7175f933b73ea8966fc76640a9ff1c8192725b52e17e8eecf4c",
+          "result_sha256": "f800e7c4b91676a92c563cd0b320c7031db76515b5e64fce09cd15fec6ee160e",
+          "generation_masks_sha256": "1f5ecb23d56cdb43c25f397e141b31dd392e12638d8cc4e7e9a84e1bf3cd1a82",
+          "reconstructed_pixels": 101062,
+          "onnxruntime": "1.30.0",
+          "elapsed_ms": 6426.733416970819,
+          "input_min": 0.014999999664723873,
+          "input_max": 0.9850000143051147,
+          "max_float_error_vs_torch": 5.4836273193359375e-05,
+          "mean_float_error_vs_torch": 1.1552301515393992e-07,
+          "release_qualified": false,
+          "qualification": "Float model execution diagnostic; use Rust scene bake and photographic/device gates"
+        }
+      },
+      "RAW_bake": {
+        "path": "/tmp/maple-removal-lama-person-signed-log-hole-8-bake-20261003/report.json",
+        "sha256": "5999344997bd19b65723a6d1f0fbe7156cfb6e22873422df2a298c3cba355ef5",
+        "report": {
+          "as_shot_temperature": 4084.04931640625,
+          "as_shot_tint": 42.26961898803711,
+          "auto_profile_engaged": true,
+          "encoding": {
+            "low": -1.6838237074610694,
+            "span": 5.260952918861613,
+            "version": 1
+          },
+          "generation_masks": "blake3:ee2d3376f3dfef7b2463c56e3a9ff2994dd9a17c5d755997ef3b68ebd4aa63a2",
+          "grades": [
+            {
+              "case": "neutral_ev-3_wb-1000",
+              "max_scene_float_error_identity": 2.734363079071045e-05,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1092.565958
+            },
+            {
+              "case": "auto_ev-3_wb-1000",
+              "max_scene_float_error_identity": 2.734363079071045e-05,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1092.565958
+            },
+            {
+              "case": "neutral_ev-3_wb+0",
+              "max_scene_float_error_identity": 1.5262514352798462e-05,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1372.105375
+            },
+            {
+              "case": "auto_ev-3_wb+0",
+              "max_scene_float_error_identity": 1.5262514352798462e-05,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1372.105375
+            },
+            {
+              "case": "neutral_ev-3_wb+1000",
+              "max_scene_float_error_identity": 1.1788681149482727e-05,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1201.886416
+            },
+            {
+              "case": "auto_ev-3_wb+1000",
+              "max_scene_float_error_identity": 1.1788681149482727e-05,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1201.886416
+            },
+            {
+              "case": "neutral_ev+0_wb-1000",
+              "max_scene_float_error_identity": 0.0002187490463256836,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1627.543416
+            },
+            {
+              "case": "auto_ev+0_wb-1000",
+              "max_scene_float_error_identity": 0.0002187490463256836,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1627.543416
+            },
+            {
+              "case": "neutral_ev+0_wb+0",
+              "max_scene_float_error_identity": 0.0001221001148223877,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1243.08675
+            },
+            {
+              "case": "auto_ev+0_wb+0",
+              "max_scene_float_error_identity": 0.0001221001148223877,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1243.08675
+            },
+            {
+              "case": "neutral_ev+0_wb+1000",
+              "max_scene_float_error_identity": 9.430944919586182e-05,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 2082.355375
+            },
+            {
+              "case": "auto_ev+0_wb+1000",
+              "max_scene_float_error_identity": 9.430944919586182e-05,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 2082.355375
+            },
+            {
+              "case": "neutral_ev+3_wb-1000",
+              "max_scene_float_error_identity": 0.0017499923706054688,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1834.369042
+            },
+            {
+              "case": "auto_ev+3_wb-1000",
+              "max_scene_float_error_identity": 0.0017499923706054688,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1834.369042
+            },
+            {
+              "case": "neutral_ev+3_wb+0",
+              "max_scene_float_error_identity": 0.0009768009185791016,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1398.3140409999999
+            },
+            {
+              "case": "auto_ev+3_wb+0",
+              "max_scene_float_error_identity": 0.0009768009185791016,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1398.3140409999999
+            },
+            {
+              "case": "neutral_ev+3_wb+1000",
+              "max_scene_float_error_identity": 0.0007544755935668945,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1298.788542
+            },
+            {
+              "case": "auto_ev+3_wb+1000",
+              "max_scene_float_error_identity": 0.0007544755935668945,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1298.788542
+            }
+          ],
+          "max_scene_float_error_identity": 0.0017499923706054688,
+          "model_result": "blake3:97e8ec178bb23520ce31aa71bf308aa0c60569966d8f7211de0a7fbb975b8409",
+          "native_context": {
+            "height": 1024,
+            "width": 1024,
+            "x": 2850,
+            "y": 1300
+          },
+          "original": "blake3:2019a5cbd7bcdcf8405528789cde7c05ed4bee8d31c533df786be64f42c97718",
+          "outside_mask_max_error": 0,
+          "plate": "LinearCalibrationV1",
+          "profile_tier": "BundleConfident",
+          "qualification": "Full native camera-WB/DCP experiment. Bounded authoring, recipe quality, clone/heal, GPU/live/tile/export integration and supported-device gates remain.",
+          "release_qualified": false
+        }
+      }
+    },
+    "signed-log-192": {
+      "native": {
+        "path": "/tmp/maple-removal-lama-person-signed-log-hole-192-native-20261003/report.json",
+        "sha256": "d39eb7fe56c5d45e5a4dfe7d5726f89a8905ea66051ed3d0f884ce7633299604",
+        "report": {
+          "artifact_sha256": "339d078d9d1376d76a49efd4fa42f328c3f276af775505ae8b57c84db187c4f6",
+          "input_sha256": "76aa4174dc67d7175f933b73ea8966fc76640a9ff1c8192725b52e17e8eecf4c",
+          "result_sha256": "f9975a4c6b22a18aa30fdf454cdeaf055279df796b9044a1fa1a8b7bd3bda1bb",
+          "generation_masks_sha256": "ad16035afcb3472fba373bfbcb0bad41414157ee2aa0b8c69fc17f5214cd68f6",
+          "reconstructed_pixels": 385362,
+          "onnxruntime": "1.30.0",
+          "elapsed_ms": 6310.549042187631,
+          "input_min": 0.014999999664723873,
+          "input_max": 0.9850000143051147,
+          "max_float_error_vs_torch": 1.919269561767578e-05,
+          "mean_float_error_vs_torch": 2.8999639312132786e-07,
+          "release_qualified": false,
+          "qualification": "Float model execution diagnostic; use Rust scene bake and photographic/device gates"
+        }
+      },
+      "RAW_bake": {
+        "path": "/tmp/maple-removal-lama-person-signed-log-hole-192-bake-20261003/report.json",
+        "sha256": "277cadb531fbfd44a68f88a1b7aa3ec453dffa2cb6f68f7f4392310defb5b763",
+        "report": {
+          "as_shot_temperature": 4084.04931640625,
+          "as_shot_tint": 42.26961898803711,
+          "auto_profile_engaged": true,
+          "encoding": {
+            "low": -1.6838237074610694,
+            "span": 5.260952918861613,
+            "version": 1
+          },
+          "generation_masks": "blake3:1f7d5dba36e57a0c7b444066263e72a13186518f1b8a06a3307b60bfcff3eecb",
+          "grades": [
+            {
+              "case": "neutral_ev-3_wb-1000",
+              "max_scene_float_error_identity": 2.734363079071045e-05,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1905.8242079999998
+            },
+            {
+              "case": "auto_ev-3_wb-1000",
+              "max_scene_float_error_identity": 2.734363079071045e-05,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1905.8242079999998
+            },
+            {
+              "case": "neutral_ev-3_wb+0",
+              "max_scene_float_error_identity": 1.5262514352798462e-05,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1340.751208
+            },
+            {
+              "case": "auto_ev-3_wb+0",
+              "max_scene_float_error_identity": 1.5262514352798462e-05,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1340.751208
+            },
+            {
+              "case": "neutral_ev-3_wb+1000",
+              "max_scene_float_error_identity": 1.1788681149482727e-05,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1464.2022080000002
+            },
+            {
+              "case": "auto_ev-3_wb+1000",
+              "max_scene_float_error_identity": 1.1788681149482727e-05,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1464.2022080000002
+            },
+            {
+              "case": "neutral_ev+0_wb-1000",
+              "max_scene_float_error_identity": 0.0002187490463256836,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1556.270708
+            },
+            {
+              "case": "auto_ev+0_wb-1000",
+              "max_scene_float_error_identity": 0.0002187490463256836,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1556.270708
+            },
+            {
+              "case": "neutral_ev+0_wb+0",
+              "max_scene_float_error_identity": 0.0001221001148223877,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1382.1184170000001
+            },
+            {
+              "case": "auto_ev+0_wb+0",
+              "max_scene_float_error_identity": 0.0001221001148223877,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1382.1184170000001
+            },
+            {
+              "case": "neutral_ev+0_wb+1000",
+              "max_scene_float_error_identity": 9.430944919586182e-05,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1781.4765000000002
+            },
+            {
+              "case": "auto_ev+0_wb+1000",
+              "max_scene_float_error_identity": 9.430944919586182e-05,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1781.4765000000002
+            },
+            {
+              "case": "neutral_ev+3_wb-1000",
+              "max_scene_float_error_identity": 0.0017499923706054688,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1465.1162499999998
+            },
+            {
+              "case": "auto_ev+3_wb-1000",
+              "max_scene_float_error_identity": 0.0017499923706054688,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1465.1162499999998
+            },
+            {
+              "case": "neutral_ev+3_wb+0",
+              "max_scene_float_error_identity": 0.0009768009185791016,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1578.4145409999999
+            },
+            {
+              "case": "auto_ev+3_wb+0",
+              "max_scene_float_error_identity": 0.0009768009185791016,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1578.4145409999999
+            },
+            {
+              "case": "neutral_ev+3_wb+1000",
+              "max_scene_float_error_identity": 0.0007544755935668945,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1459.6930000000002
+            },
+            {
+              "case": "auto_ev+3_wb+1000",
+              "max_scene_float_error_identity": 0.0007544755935668945,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1459.6930000000002
+            }
+          ],
+          "max_scene_float_error_identity": 0.0017499923706054688,
+          "model_result": "blake3:0d1a0a649918da25aa26e6f929af6006132c4282091fa601f0436d969700a5f1",
+          "native_context": {
+            "height": 1024,
+            "width": 1024,
+            "x": 2850,
+            "y": 1300
+          },
+          "original": "blake3:2019a5cbd7bcdcf8405528789cde7c05ed4bee8d31c533df786be64f42c97718",
+          "outside_mask_max_error": 0,
+          "plate": "LinearCalibrationV1",
+          "profile_tier": "BundleConfident",
+          "qualification": "Full native camera-WB/DCP experiment. Bounded authoring, recipe quality, clone/heal, GPU/live/tile/export integration and supported-device gates remain.",
+          "release_qualified": false
+        }
+      }
+    },
+    "contrast-8": {
+      "native": {
+        "path": "/tmp/maple-removal-lama-person-contrast-hole-8-native-20261003/report.json",
+        "sha256": "18ec7b100533856cbf20c74519f081b6c7b52a59690caf5d5e8a4dba486d09d4",
+        "report": {
+          "artifact_sha256": "339d078d9d1376d76a49efd4fa42f328c3f276af775505ae8b57c84db187c4f6",
+          "input_sha256": "3377775e02ae1f64efaf0bcb416534c822dee94e5aed9f17b0c0961fbef5c5dd",
+          "result_sha256": "b89e3d49a45cb1a47ea5d229957d62d2f098ed7dcedc0ce3b64fb980bf718918",
+          "generation_masks_sha256": "1f5ecb23d56cdb43c25f397e141b31dd392e12638d8cc4e7e9a84e1bf3cd1a82",
+          "reconstructed_pixels": 101062,
+          "onnxruntime": "1.30.0",
+          "elapsed_ms": 7254.686333006248,
+          "input_min": 0.014999999664723873,
+          "input_max": 0.9850000143051147,
+          "max_float_error_vs_torch": 1.4424324035644531e-05,
+          "mean_float_error_vs_torch": 1.4460098896051932e-07,
+          "release_qualified": false,
+          "qualification": "Float model execution diagnostic; use Rust scene bake and photographic/device gates"
+        }
+      },
+      "RAW_bake": {
+        "path": "/tmp/maple-removal-lama-person-contrast-hole-8-bake-20261003/report.json",
+        "sha256": "e825e78b8ae133c5ddf87c6824f77014969ef1b3e212d6a095c5b5ac7d4cf82c",
+        "report": {
+          "as_shot_temperature": 4084.04931640625,
+          "as_shot_tint": 42.26961898803711,
+          "auto_profile_engaged": true,
+          "encoding": {
+            "high": 3.577129211400544,
+            "low": -1.6838237074610694,
+            "method": "signed-log-photographic-contrast-v1"
+          },
+          "generation_masks": "blake3:ee2d3376f3dfef7b2463c56e3a9ff2994dd9a17c5d755997ef3b68ebd4aa63a2",
+          "grades": [
+            {
+              "case": "neutral_ev-3_wb-1000",
+              "max_scene_float_error_identity": 2.734363079071045e-05,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1551.573208
+            },
+            {
+              "case": "auto_ev-3_wb-1000",
+              "max_scene_float_error_identity": 2.734363079071045e-05,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1551.573208
+            },
+            {
+              "case": "neutral_ev-3_wb+0",
+              "max_scene_float_error_identity": 1.52587890625e-05,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1291.31825
+            },
+            {
+              "case": "auto_ev-3_wb+0",
+              "max_scene_float_error_identity": 1.52587890625e-05,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1291.31825
+            },
+            {
+              "case": "neutral_ev-3_wb+1000",
+              "max_scene_float_error_identity": 1.1788681149482727e-05,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1312.3267919999998
+            },
+            {
+              "case": "auto_ev-3_wb+1000",
+              "max_scene_float_error_identity": 1.1788681149482727e-05,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1312.3267919999998
+            },
+            {
+              "case": "neutral_ev+0_wb-1000",
+              "max_scene_float_error_identity": 0.0002187490463256836,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1226.335667
+            },
+            {
+              "case": "auto_ev+0_wb-1000",
+              "max_scene_float_error_identity": 0.0002187490463256836,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1226.335667
+            },
+            {
+              "case": "neutral_ev+0_wb+0",
+              "max_scene_float_error_identity": 0.0001220703125,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1174.9682500000001
+            },
+            {
+              "case": "auto_ev+0_wb+0",
+              "max_scene_float_error_identity": 0.0001220703125,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1174.9682500000001
+            },
+            {
+              "case": "neutral_ev+0_wb+1000",
+              "max_scene_float_error_identity": 9.430944919586182e-05,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1733.9959999999999
+            },
+            {
+              "case": "auto_ev+0_wb+1000",
+              "max_scene_float_error_identity": 9.430944919586182e-05,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1733.9959999999999
+            },
+            {
+              "case": "neutral_ev+3_wb-1000",
+              "max_scene_float_error_identity": 0.0017499923706054688,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1931.4484169999998
+            },
+            {
+              "case": "auto_ev+3_wb-1000",
+              "max_scene_float_error_identity": 0.0017499923706054688,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1931.4484169999998
+            },
+            {
+              "case": "neutral_ev+3_wb+0",
+              "max_scene_float_error_identity": 0.0009765625,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 2067.673042
+            },
+            {
+              "case": "auto_ev+3_wb+0",
+              "max_scene_float_error_identity": 0.0009765625,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 2067.673042
+            },
+            {
+              "case": "neutral_ev+3_wb+1000",
+              "max_scene_float_error_identity": 0.0007544755935668945,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1368.525292
+            },
+            {
+              "case": "auto_ev+3_wb+1000",
+              "max_scene_float_error_identity": 0.0007544755935668945,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1368.525292
+            }
+          ],
+          "max_scene_float_error_identity": 0.0017499923706054688,
+          "model_result": "blake3:3d1e6e67c2a52ff147954c6c8778fe018ca19f69dc778ff8a4bfb0cf18a92e51",
+          "native_context": {
+            "height": 1024,
+            "width": 1024,
+            "x": 2850,
+            "y": 1300
+          },
+          "original": "blake3:2019a5cbd7bcdcf8405528789cde7c05ed4bee8d31c533df786be64f42c97718",
+          "outside_mask_max_error": 0,
+          "plate": "LinearCalibrationV1",
+          "profile_tier": "BundleConfident",
+          "qualification": "Full native camera-WB/DCP experiment. Bounded authoring, recipe quality, clone/heal, GPU/live/tile/export integration and supported-device gates remain.",
+          "release_qualified": false
+        }
+      }
+    },
+    "contrast-192": {
+      "native": {
+        "path": "/tmp/maple-removal-lama-person-contrast-hole-192-native-20261003/report.json",
+        "sha256": "4d4fe903f362463a0b8709fdbb6b04f6ddcc8becb86fd6ad40b4f5530ba6fdba",
+        "report": {
+          "artifact_sha256": "339d078d9d1376d76a49efd4fa42f328c3f276af775505ae8b57c84db187c4f6",
+          "input_sha256": "3377775e02ae1f64efaf0bcb416534c822dee94e5aed9f17b0c0961fbef5c5dd",
+          "result_sha256": "8fcc36fec824a1907758f721fa2467a64c43fcf0779ff3adf51d9c41b3df7a73",
+          "generation_masks_sha256": "ad16035afcb3472fba373bfbcb0bad41414157ee2aa0b8c69fc17f5214cd68f6",
+          "reconstructed_pixels": 385362,
+          "onnxruntime": "1.30.0",
+          "elapsed_ms": 6478.666624985635,
+          "input_min": 0.014999999664723873,
+          "input_max": 0.9850000143051147,
+          "max_float_error_vs_torch": 1.609325408935547e-05,
+          "mean_float_error_vs_torch": 3.7680879927393107e-07,
+          "release_qualified": false,
+          "qualification": "Float model execution diagnostic; use Rust scene bake and photographic/device gates"
+        }
+      },
+      "RAW_bake": {
+        "path": "/tmp/maple-removal-lama-person-contrast-hole-192-bake-20261003/report.json",
+        "sha256": "dd0e4aad2f73b7be6d63c3939846de5b866d56ed68360f9b2bb2eb51e1d74b0f",
+        "report": {
+          "as_shot_temperature": 4084.04931640625,
+          "as_shot_tint": 42.26961898803711,
+          "auto_profile_engaged": true,
+          "encoding": {
+            "high": 3.577129211400544,
+            "low": -1.6838237074610694,
+            "method": "signed-log-photographic-contrast-v1"
+          },
+          "generation_masks": "blake3:1f7d5dba36e57a0c7b444066263e72a13186518f1b8a06a3307b60bfcff3eecb",
+          "grades": [
+            {
+              "case": "neutral_ev-3_wb-1000",
+              "max_scene_float_error_identity": 2.734363079071045e-05,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1195.5106660000001
+            },
+            {
+              "case": "auto_ev-3_wb-1000",
+              "max_scene_float_error_identity": 2.734363079071045e-05,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1195.5106660000001
+            },
+            {
+              "case": "neutral_ev-3_wb+0",
+              "max_scene_float_error_identity": 1.52587890625e-05,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1160.896833
+            },
+            {
+              "case": "auto_ev-3_wb+0",
+              "max_scene_float_error_identity": 1.52587890625e-05,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1160.896833
+            },
+            {
+              "case": "neutral_ev-3_wb+1000",
+              "max_scene_float_error_identity": 1.1788681149482727e-05,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1147.514709
+            },
+            {
+              "case": "auto_ev-3_wb+1000",
+              "max_scene_float_error_identity": 1.1788681149482727e-05,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1147.514709
+            },
+            {
+              "case": "neutral_ev+0_wb-1000",
+              "max_scene_float_error_identity": 0.0002187490463256836,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1852.946667
+            },
+            {
+              "case": "auto_ev+0_wb-1000",
+              "max_scene_float_error_identity": 0.0002187490463256836,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1852.946667
+            },
+            {
+              "case": "neutral_ev+0_wb+0",
+              "max_scene_float_error_identity": 0.0001220703125,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 2381.571
+            },
+            {
+              "case": "auto_ev+0_wb+0",
+              "max_scene_float_error_identity": 0.0001220703125,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 2381.571
+            },
+            {
+              "case": "neutral_ev+0_wb+1000",
+              "max_scene_float_error_identity": 9.430944919586182e-05,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1422.550459
+            },
+            {
+              "case": "auto_ev+0_wb+1000",
+              "max_scene_float_error_identity": 9.430944919586182e-05,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1422.550459
+            },
+            {
+              "case": "neutral_ev+3_wb-1000",
+              "max_scene_float_error_identity": 0.0017499923706054688,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 2110.201209
+            },
+            {
+              "case": "auto_ev+3_wb-1000",
+              "max_scene_float_error_identity": 0.0017499923706054688,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 2110.201209
+            },
+            {
+              "case": "neutral_ev+3_wb+0",
+              "max_scene_float_error_identity": 0.0009765625,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1315.8487910000001
+            },
+            {
+              "case": "auto_ev+3_wb+0",
+              "max_scene_float_error_identity": 0.0009765625,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1315.8487910000001
+            },
+            {
+              "case": "neutral_ev+3_wb+1000",
+              "max_scene_float_error_identity": 0.0007544755935668945,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1404.4127500000002
+            },
+            {
+              "case": "auto_ev+3_wb+1000",
+              "max_scene_float_error_identity": 0.0007544755935668945,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1404.4127500000002
+            }
+          ],
+          "max_scene_float_error_identity": 0.0017499923706054688,
+          "model_result": "blake3:e39449da6f6afab144a8eb241f09240fc17f043da9f379e189a284d3ea778150",
+          "native_context": {
+            "height": 1024,
+            "width": 1024,
+            "x": 2850,
+            "y": 1300
+          },
+          "original": "blake3:2019a5cbd7bcdcf8405528789cde7c05ed4bee8d31c533df786be64f42c97718",
+          "outside_mask_max_error": 0,
+          "plate": "LinearCalibrationV1",
+          "profile_tier": "BundleConfident",
+          "qualification": "Full native camera-WB/DCP experiment. Bounded authoring, recipe quality, clone/heal, GPU/live/tile/export integration and supported-device gates remain.",
+          "release_qualified": false
+        }
+      }
+    }
+  },
+  "independent_RAW_grade_checks": {
+    "path": "/tmp/maple-removal-photographic-grade-checks-20261003.json",
+    "sha256": "b3a4fb766ba6962ec95d7295a17169eccfc52651da3028060cd2045355bd0787",
+    "report": [
+      {
+        "run": "klein-contrast-192",
+        "case": "auto_ev+0_wb+0",
+        "outside_coverage_samples_changed": 0,
+        "protected_samples_changed": 0,
+        "image_sha256": "970939c8b6b8c2f55d1fa8164c7bc543c0e097ec9f2e693a018a831a49d69a9c",
+        "source_image_sha256": "565b2c343804e120671faa7a52f2dcae63e85f13fa28d014a0247bd032d0bc43"
+      },
+      {
+        "run": "klein-contrast-192",
+        "case": "auto_ev+0_wb+1000",
+        "outside_coverage_samples_changed": 0,
+        "protected_samples_changed": 0,
+        "image_sha256": "8be1cbf88ca395e550ff6102d17f9f46e91499ddf69ecb06f2f7a077c6a9d341",
+        "source_image_sha256": "e99d063a679559b6e1648d394f499a3c7a87eea3f220586b672e1b92d5d2e77a"
+      },
+      {
+        "run": "klein-contrast-192",
+        "case": "auto_ev+0_wb-1000",
+        "outside_coverage_samples_changed": 0,
+        "protected_samples_changed": 0,
+        "image_sha256": "f13611d0609353c66aef6e03a1ae97fda712ddbb9b3b0975f3dc78a0d206705d",
+        "source_image_sha256": "032e9ea15cbd9cbea2c51d86d5763ded2114e538449352523539faa7ad4b8d72"
+      },
+      {
+        "run": "klein-contrast-192",
+        "case": "auto_ev+3_wb+0",
+        "outside_coverage_samples_changed": 0,
+        "protected_samples_changed": 0,
+        "image_sha256": "f2c72d711ec0966378f39a4d2bdc7217d8309006a4b9959883faef07975b7b7c",
+        "source_image_sha256": "804b2ea8ffdfa4af646c29b1536668ed08ba36b55870782b4524d433e24e13b0"
+      },
+      {
+        "run": "klein-contrast-192",
+        "case": "auto_ev+3_wb+1000",
+        "outside_coverage_samples_changed": 0,
+        "protected_samples_changed": 0,
+        "image_sha256": "ff58effb14d30fb702521dc97c38fa385e24418d28e294d50236a7d58052c821",
+        "source_image_sha256": "30a8609358f0b9f6fc635da4720f031c56a1329ec8cad63957261dfa08703989"
+      },
+      {
+        "run": "klein-contrast-192",
+        "case": "auto_ev+3_wb-1000",
+        "outside_coverage_samples_changed": 0,
+        "protected_samples_changed": 0,
+        "image_sha256": "6c7609b7230727a7947e7a9d62c07f4b53fb33285dc68a8f8f5d9108ec06f90f",
+        "source_image_sha256": "e2d32e87f7688622030cf65a3e2cb6b9755be055634dbcb5328b03f1f8e1bd0a"
+      },
+      {
+        "run": "klein-contrast-192",
+        "case": "auto_ev-3_wb+0",
+        "outside_coverage_samples_changed": 0,
+        "protected_samples_changed": 0,
+        "image_sha256": "c28f64e795d32977b8ab3e3e97a6b0007ea4f1a3db0c49d3ba58ce682d8c3927",
+        "source_image_sha256": "5bba64a64704f4c334d386f311184e94791ab7b52c75515b899414291bda13bc"
+      },
+      {
+        "run": "klein-contrast-192",
+        "case": "auto_ev-3_wb+1000",
+        "outside_coverage_samples_changed": 0,
+        "protected_samples_changed": 0,
+        "image_sha256": "83878a69437184be97f84ef60e3a457dfab4e1ec33d125aceea0fb754cabfad9",
+        "source_image_sha256": "648723566b980672eeb503c636ebe63e9450cc395a1249d6d1d705f2cca5ab8e"
+      },
+      {
+        "run": "klein-contrast-192",
+        "case": "auto_ev-3_wb-1000",
+        "outside_coverage_samples_changed": 0,
+        "protected_samples_changed": 0,
+        "image_sha256": "1249d0bee808d8619ce7ddf9860bb8be84fdca952c214a7b694986389710ea52",
+        "source_image_sha256": "02fb83aee56776f375cd2f6fbced29222e7c77e2a263ab12ad168341a836f3e1"
+      },
+      {
+        "run": "klein-contrast-192",
+        "case": "neutral_ev+0_wb+0",
+        "outside_coverage_samples_changed": 0,
+        "protected_samples_changed": 0,
+        "image_sha256": "7f0476cb5dd99bd7c001e84795a1d3557c1c6a98ad8b685ddb16ff53d5e20997",
+        "source_image_sha256": "fb8567a7ee45a3c054bfa4d55b387ab6ad7a0a8bf3b2c06d991c01ba9622a3a1"
+      },
+      {
+        "run": "klein-contrast-192",
+        "case": "neutral_ev+0_wb+1000",
+        "outside_coverage_samples_changed": 0,
+        "protected_samples_changed": 0,
+        "image_sha256": "e77e3b0cf8df0b68cf50bffd1ab147163db0788262e2459a86f3049385826c70",
+        "source_image_sha256": "c17c2c90ef1dc42591857431864eed76a97a0cc6ad775a9850a999d34c75e59e"
+      },
+      {
+        "run": "klein-contrast-192",
+        "case": "neutral_ev+0_wb-1000",
+        "outside_coverage_samples_changed": 0,
+        "protected_samples_changed": 0,
+        "image_sha256": "ed58d2d30495458195c4d59a7f0debd02641431342995a2b5e999f207d6d5418",
+        "source_image_sha256": "226c8d2a657d49664defd1ae3d9dc3c4c307ab89ec12319b6b611e337dcdf05d"
+      },
+      {
+        "run": "klein-contrast-192",
+        "case": "neutral_ev+3_wb+0",
+        "outside_coverage_samples_changed": 0,
+        "protected_samples_changed": 0,
+        "image_sha256": "5270f24f5aea2e88aaacd77d49c7cc863e37ecea69e9c8330108f003337d6e9c",
+        "source_image_sha256": "8ac1a2b15f9369b02f4381996f7241c85899ca479d6f6341aad356c737cf0e17"
+      },
+      {
+        "run": "klein-contrast-192",
+        "case": "neutral_ev+3_wb+1000",
+        "outside_coverage_samples_changed": 0,
+        "protected_samples_changed": 0,
+        "image_sha256": "0ea378a200567f611335ced86450041b0d6e1dcab651d15a39ccf082e82034eb",
+        "source_image_sha256": "da3021a7f02f3406fd429bb65d224f9212bc984cc33350ef4fc05a7ff78b43a3"
+      },
+      {
+        "run": "klein-contrast-192",
+        "case": "neutral_ev+3_wb-1000",
+        "outside_coverage_samples_changed": 0,
+        "protected_samples_changed": 0,
+        "image_sha256": "7b65252536857cc60f1c1b3a65dc15a485e7235b6aad5f2fded84f81be77528f",
+        "source_image_sha256": "f27cf2f825690382ed917b8fe8b994d507187c4101f4cdbf34cea4cd429d02c8"
+      },
+      {
+        "run": "klein-contrast-192",
+        "case": "neutral_ev-3_wb+0",
+        "outside_coverage_samples_changed": 0,
+        "protected_samples_changed": 0,
+        "image_sha256": "94bb58d957ebedf23faa14145c7081386eaabde5a2ccc341edcf72041fdc375f",
+        "source_image_sha256": "0861e005a819775ce7b7690a1c37caefd058c82987fdc82e23330d115a9d2bdd"
+      },
+      {
+        "run": "klein-contrast-192",
+        "case": "neutral_ev-3_wb+1000",
+        "outside_coverage_samples_changed": 0,
+        "protected_samples_changed": 0,
+        "image_sha256": "aefb93c7b0be8d45c69d79ff311d196bb3cf1f6c31bc90455a07b31303cb6ec2",
+        "source_image_sha256": "5f95e95ed1f5b1e2fa5160443cd0619576271b21d3ee2caed5d565591aeaf617"
+      },
+      {
+        "run": "klein-contrast-192",
+        "case": "neutral_ev-3_wb-1000",
+        "outside_coverage_samples_changed": 0,
+        "protected_samples_changed": 0,
+        "image_sha256": "809ce46c4bdd5a22f1cb75cc78d65ab48de900167d477bce77b5e4619abbcafd",
+        "source_image_sha256": "43b0762d4d3414f85199dc5df2ae447b032b3da1f168c41c31fbc0933b6db6b3"
+      },
+      {
+        "run": "lama-signed-log-8",
+        "case": "auto_ev+0_wb+0",
+        "outside_coverage_samples_changed": 0,
+        "protected_samples_changed": 0,
+        "image_sha256": "335d96c63f4c71c74da4432f819f627c3397b15ffc7d57078d23b4d6eb2ef0b8",
+        "source_image_sha256": "565b2c343804e120671faa7a52f2dcae63e85f13fa28d014a0247bd032d0bc43"
+      },
+      {
+        "run": "lama-signed-log-8",
+        "case": "auto_ev+0_wb+1000",
+        "outside_coverage_samples_changed": 0,
+        "protected_samples_changed": 0,
+        "image_sha256": "c248f82a24fceaadbbbbfdc2b5d6e2e5bc5631d01a7c72e509271649f946e74c",
+        "source_image_sha256": "e99d063a679559b6e1648d394f499a3c7a87eea3f220586b672e1b92d5d2e77a"
+      },
+      {
+        "run": "lama-signed-log-8",
+        "case": "auto_ev+0_wb-1000",
+        "outside_coverage_samples_changed": 0,
+        "protected_samples_changed": 0,
+        "image_sha256": "e0e65e0d74b17057ca8fb823cd48e0ed8c7363d72a42cbc9f273a817e9f3ac92",
+        "source_image_sha256": "032e9ea15cbd9cbea2c51d86d5763ded2114e538449352523539faa7ad4b8d72"
+      },
+      {
+        "run": "lama-signed-log-8",
+        "case": "auto_ev+3_wb+0",
+        "outside_coverage_samples_changed": 0,
+        "protected_samples_changed": 0,
+        "image_sha256": "5cd0d83c011671410365e23c012fc43b33ea5f06d99aa4a79ebc3c22401024db",
+        "source_image_sha256": "804b2ea8ffdfa4af646c29b1536668ed08ba36b55870782b4524d433e24e13b0"
+      },
+      {
+        "run": "lama-signed-log-8",
+        "case": "auto_ev+3_wb+1000",
+        "outside_coverage_samples_changed": 0,
+        "protected_samples_changed": 0,
+        "image_sha256": "cb0b5b56d72dddd3e657383d74f1de8db1f63981bbcb0b2cb8a8c3f3af7e5a7f",
+        "source_image_sha256": "30a8609358f0b9f6fc635da4720f031c56a1329ec8cad63957261dfa08703989"
+      },
+      {
+        "run": "lama-signed-log-8",
+        "case": "auto_ev+3_wb-1000",
+        "outside_coverage_samples_changed": 0,
+        "protected_samples_changed": 0,
+        "image_sha256": "85c48d7884cbcf383dd446a902f9fe40c990caf92366ac176435d754f7377e74",
+        "source_image_sha256": "e2d32e87f7688622030cf65a3e2cb6b9755be055634dbcb5328b03f1f8e1bd0a"
+      },
+      {
+        "run": "lama-signed-log-8",
+        "case": "auto_ev-3_wb+0",
+        "outside_coverage_samples_changed": 0,
+        "protected_samples_changed": 0,
+        "image_sha256": "772e6a6e79500f08e63fe33be394ea3677a5f936f70b33c60eaa77154263d57b",
+        "source_image_sha256": "5bba64a64704f4c334d386f311184e94791ab7b52c75515b899414291bda13bc"
+      },
+      {
+        "run": "lama-signed-log-8",
+        "case": "auto_ev-3_wb+1000",
+        "outside_coverage_samples_changed": 0,
+        "protected_samples_changed": 0,
+        "image_sha256": "66b458cf9995a030a273588ee56e14bcc3c9ecadf44b915ef12069b1e17a9399",
+        "source_image_sha256": "648723566b980672eeb503c636ebe63e9450cc395a1249d6d1d705f2cca5ab8e"
+      },
+      {
+        "run": "lama-signed-log-8",
+        "case": "auto_ev-3_wb-1000",
+        "outside_coverage_samples_changed": 0,
+        "protected_samples_changed": 0,
+        "image_sha256": "efcbc1f5bd51f1502422196b1d30eaccf410c21e88ba4505e7653cc005495598",
+        "source_image_sha256": "02fb83aee56776f375cd2f6fbced29222e7c77e2a263ab12ad168341a836f3e1"
+      },
+      {
+        "run": "lama-signed-log-8",
+        "case": "neutral_ev+0_wb+0",
+        "outside_coverage_samples_changed": 0,
+        "protected_samples_changed": 0,
+        "image_sha256": "8cf548bf90ea1cffa99da6f7a9b445e5453b71882a434d235626502c3bed98bb",
+        "source_image_sha256": "fb8567a7ee45a3c054bfa4d55b387ab6ad7a0a8bf3b2c06d991c01ba9622a3a1"
+      },
+      {
+        "run": "lama-signed-log-8",
+        "case": "neutral_ev+0_wb+1000",
+        "outside_coverage_samples_changed": 0,
+        "protected_samples_changed": 0,
+        "image_sha256": "44c0e612f0e8b72bafa8b2adb23bba08e0354f2ed33a8ecbaf533ccdf6b33a74",
+        "source_image_sha256": "c17c2c90ef1dc42591857431864eed76a97a0cc6ad775a9850a999d34c75e59e"
+      },
+      {
+        "run": "lama-signed-log-8",
+        "case": "neutral_ev+0_wb-1000",
+        "outside_coverage_samples_changed": 0,
+        "protected_samples_changed": 0,
+        "image_sha256": "267069d32c0f2036495db7408d0759a288c4c4d011766921d621b1cf123b0fac",
+        "source_image_sha256": "226c8d2a657d49664defd1ae3d9dc3c4c307ab89ec12319b6b611e337dcdf05d"
+      },
+      {
+        "run": "lama-signed-log-8",
+        "case": "neutral_ev+3_wb+0",
+        "outside_coverage_samples_changed": 0,
+        "protected_samples_changed": 0,
+        "image_sha256": "8d793da55123e00215097764fb90cf145a676fd288af58b1fe4aa971816e3ac2",
+        "source_image_sha256": "8ac1a2b15f9369b02f4381996f7241c85899ca479d6f6341aad356c737cf0e17"
+      },
+      {
+        "run": "lama-signed-log-8",
+        "case": "neutral_ev+3_wb+1000",
+        "outside_coverage_samples_changed": 0,
+        "protected_samples_changed": 0,
+        "image_sha256": "029592d34efa1817cf6d9568450137a882f4b650dd494d4d4f66fc8cc2361cdc",
+        "source_image_sha256": "da3021a7f02f3406fd429bb65d224f9212bc984cc33350ef4fc05a7ff78b43a3"
+      },
+      {
+        "run": "lama-signed-log-8",
+        "case": "neutral_ev+3_wb-1000",
+        "outside_coverage_samples_changed": 0,
+        "protected_samples_changed": 0,
+        "image_sha256": "2c925ee2ba899a0fa142e5b476e7d2764ccfc7004e6b68e8354efd73c76faecf",
+        "source_image_sha256": "f27cf2f825690382ed917b8fe8b994d507187c4101f4cdbf34cea4cd429d02c8"
+      },
+      {
+        "run": "lama-signed-log-8",
+        "case": "neutral_ev-3_wb+0",
+        "outside_coverage_samples_changed": 0,
+        "protected_samples_changed": 0,
+        "image_sha256": "a2768e2e22196a7f8592628063a0c279577529abdd58ccace5715010d31ee648",
+        "source_image_sha256": "0861e005a819775ce7b7690a1c37caefd058c82987fdc82e23330d115a9d2bdd"
+      },
+      {
+        "run": "lama-signed-log-8",
+        "case": "neutral_ev-3_wb+1000",
+        "outside_coverage_samples_changed": 0,
+        "protected_samples_changed": 0,
+        "image_sha256": "24044e76634120163a04fdb3f8f576a4165fffd6890a2b3f6ae78f89dce6b111",
+        "source_image_sha256": "5f95e95ed1f5b1e2fa5160443cd0619576271b21d3ee2caed5d565591aeaf617"
+      },
+      {
+        "run": "lama-signed-log-8",
+        "case": "neutral_ev-3_wb-1000",
+        "outside_coverage_samples_changed": 0,
+        "protected_samples_changed": 0,
+        "image_sha256": "dadff2e80f3803c202f9c050ded96bcd13723c5128aa26b176a5100bb7933c34",
+        "source_image_sha256": "43b0762d4d3414f85199dc5df2ae447b032b3da1f168c41c31fbc0933b6db6b3"
+      },
+      {
+        "run": "lama-signed-log-192",
+        "case": "auto_ev+0_wb+0",
+        "outside_coverage_samples_changed": 0,
+        "protected_samples_changed": 0,
+        "image_sha256": "82948b86b0d21f410bfc39ea9dcf9e947520cc3a9af48800754edc6db0911941",
+        "source_image_sha256": "565b2c343804e120671faa7a52f2dcae63e85f13fa28d014a0247bd032d0bc43"
+      },
+      {
+        "run": "lama-signed-log-192",
+        "case": "auto_ev+0_wb+1000",
+        "outside_coverage_samples_changed": 0,
+        "protected_samples_changed": 0,
+        "image_sha256": "cdf5efa293dfd6c6c3157fc83c0f98cd23ab834af5e85014ecac0b59b12945b4",
+        "source_image_sha256": "e99d063a679559b6e1648d394f499a3c7a87eea3f220586b672e1b92d5d2e77a"
+      },
+      {
+        "run": "lama-signed-log-192",
+        "case": "auto_ev+0_wb-1000",
+        "outside_coverage_samples_changed": 0,
+        "protected_samples_changed": 0,
+        "image_sha256": "9fa751b4a20f8b0d6cba47a4cd93fac3c053c89dfa1b440341a2cd807d902068",
+        "source_image_sha256": "032e9ea15cbd9cbea2c51d86d5763ded2114e538449352523539faa7ad4b8d72"
+      },
+      {
+        "run": "lama-signed-log-192",
+        "case": "auto_ev+3_wb+0",
+        "outside_coverage_samples_changed": 0,
+        "protected_samples_changed": 0,
+        "image_sha256": "1a65133e8ac9520a5da9fe02a698fb28a5816a4d74786ef72d7e599219913954",
+        "source_image_sha256": "804b2ea8ffdfa4af646c29b1536668ed08ba36b55870782b4524d433e24e13b0"
+      },
+      {
+        "run": "lama-signed-log-192",
+        "case": "auto_ev+3_wb+1000",
+        "outside_coverage_samples_changed": 0,
+        "protected_samples_changed": 0,
+        "image_sha256": "ee9b2e19ce7a1d807b9197bee540d45097d15bf6da85ae58c739a9842759a0d8",
+        "source_image_sha256": "30a8609358f0b9f6fc635da4720f031c56a1329ec8cad63957261dfa08703989"
+      },
+      {
+        "run": "lama-signed-log-192",
+        "case": "auto_ev+3_wb-1000",
+        "outside_coverage_samples_changed": 0,
+        "protected_samples_changed": 0,
+        "image_sha256": "4e440717f0586146a9e223ca6567f1a533e4c452da4657473845010078d086f2",
+        "source_image_sha256": "e2d32e87f7688622030cf65a3e2cb6b9755be055634dbcb5328b03f1f8e1bd0a"
+      },
+      {
+        "run": "lama-signed-log-192",
+        "case": "auto_ev-3_wb+0",
+        "outside_coverage_samples_changed": 0,
+        "protected_samples_changed": 0,
+        "image_sha256": "92cfc6b70f010a55714f6fe0299e8829a8731ce24d1ea08ce59a7b38c27a9a12",
+        "source_image_sha256": "5bba64a64704f4c334d386f311184e94791ab7b52c75515b899414291bda13bc"
+      },
+      {
+        "run": "lama-signed-log-192",
+        "case": "auto_ev-3_wb+1000",
+        "outside_coverage_samples_changed": 0,
+        "protected_samples_changed": 0,
+        "image_sha256": "76b771cb05836f43c90de48ba5bb40cbda32efdda099eefaf9dde7fd05a7ac0b",
+        "source_image_sha256": "648723566b980672eeb503c636ebe63e9450cc395a1249d6d1d705f2cca5ab8e"
+      },
+      {
+        "run": "lama-signed-log-192",
+        "case": "auto_ev-3_wb-1000",
+        "outside_coverage_samples_changed": 0,
+        "protected_samples_changed": 0,
+        "image_sha256": "f17ba679c6fecb1b3a577845551cc9db3a7807a28fc10bd4c120e08b7a9cf5ae",
+        "source_image_sha256": "02fb83aee56776f375cd2f6fbced29222e7c77e2a263ab12ad168341a836f3e1"
+      },
+      {
+        "run": "lama-signed-log-192",
+        "case": "neutral_ev+0_wb+0",
+        "outside_coverage_samples_changed": 0,
+        "protected_samples_changed": 0,
+        "image_sha256": "f6a9c1ca3cd96f6b435ca1aba43c54d90c6f36bc8a43d27e3f3fefc6e2e39f96",
+        "source_image_sha256": "fb8567a7ee45a3c054bfa4d55b387ab6ad7a0a8bf3b2c06d991c01ba9622a3a1"
+      },
+      {
+        "run": "lama-signed-log-192",
+        "case": "neutral_ev+0_wb+1000",
+        "outside_coverage_samples_changed": 0,
+        "protected_samples_changed": 0,
+        "image_sha256": "16905244422b925c8e3a30c655911e1659cbfcb159ddefd32b124f44a999c308",
+        "source_image_sha256": "c17c2c90ef1dc42591857431864eed76a97a0cc6ad775a9850a999d34c75e59e"
+      },
+      {
+        "run": "lama-signed-log-192",
+        "case": "neutral_ev+0_wb-1000",
+        "outside_coverage_samples_changed": 0,
+        "protected_samples_changed": 0,
+        "image_sha256": "55be3120a9f45421ae6a654a265acb61088b7f87d6aef153b630cc3e0a27ed94",
+        "source_image_sha256": "226c8d2a657d49664defd1ae3d9dc3c4c307ab89ec12319b6b611e337dcdf05d"
+      },
+      {
+        "run": "lama-signed-log-192",
+        "case": "neutral_ev+3_wb+0",
+        "outside_coverage_samples_changed": 0,
+        "protected_samples_changed": 0,
+        "image_sha256": "347807e66ed41c8c0f5303c61caac0ccd7578f5ab844bfae5b61d2b5fefe7879",
+        "source_image_sha256": "8ac1a2b15f9369b02f4381996f7241c85899ca479d6f6341aad356c737cf0e17"
+      },
+      {
+        "run": "lama-signed-log-192",
+        "case": "neutral_ev+3_wb+1000",
+        "outside_coverage_samples_changed": 0,
+        "protected_samples_changed": 0,
+        "image_sha256": "37c4581401f23ec7425c76be02f7d8507aba3e27a2b5d647a715a585c689981a",
+        "source_image_sha256": "da3021a7f02f3406fd429bb65d224f9212bc984cc33350ef4fc05a7ff78b43a3"
+      },
+      {
+        "run": "lama-signed-log-192",
+        "case": "neutral_ev+3_wb-1000",
+        "outside_coverage_samples_changed": 0,
+        "protected_samples_changed": 0,
+        "image_sha256": "ef6555c6706c13a1acbb7bab599532a5e06d285028c1ae1c71eb34bb8941d6ea",
+        "source_image_sha256": "f27cf2f825690382ed917b8fe8b994d507187c4101f4cdbf34cea4cd429d02c8"
+      },
+      {
+        "run": "lama-signed-log-192",
+        "case": "neutral_ev-3_wb+0",
+        "outside_coverage_samples_changed": 0,
+        "protected_samples_changed": 0,
+        "image_sha256": "53f590e06a7e30f9fb70a0c33640e8d153e19572b8fca04598617fef121560d1",
+        "source_image_sha256": "0861e005a819775ce7b7690a1c37caefd058c82987fdc82e23330d115a9d2bdd"
+      },
+      {
+        "run": "lama-signed-log-192",
+        "case": "neutral_ev-3_wb+1000",
+        "outside_coverage_samples_changed": 0,
+        "protected_samples_changed": 0,
+        "image_sha256": "df4f088cbb2a9e4636719c76d4530c377ac544aeb30bd22d86898b75cf06b467",
+        "source_image_sha256": "5f95e95ed1f5b1e2fa5160443cd0619576271b21d3ee2caed5d565591aeaf617"
+      },
+      {
+        "run": "lama-signed-log-192",
+        "case": "neutral_ev-3_wb-1000",
+        "outside_coverage_samples_changed": 0,
+        "protected_samples_changed": 0,
+        "image_sha256": "fa929651676f63a3bbe194861ca017cc322699a4c9d3884e5830d186507eb8ef",
+        "source_image_sha256": "43b0762d4d3414f85199dc5df2ae447b032b3da1f168c41c31fbc0933b6db6b3"
+      },
+      {
+        "run": "lama-contrast-8",
+        "case": "auto_ev+0_wb+0",
+        "outside_coverage_samples_changed": 0,
+        "protected_samples_changed": 0,
+        "image_sha256": "dd9efdc62b5000a6c1525e27552a07205e54157444d28d72699018d86d7a192c",
+        "source_image_sha256": "565b2c343804e120671faa7a52f2dcae63e85f13fa28d014a0247bd032d0bc43"
+      },
+      {
+        "run": "lama-contrast-8",
+        "case": "auto_ev+0_wb+1000",
+        "outside_coverage_samples_changed": 0,
+        "protected_samples_changed": 0,
+        "image_sha256": "1caf5d999212991f6c3eafd7977d12a395029d35cef037df143566614bd81a71",
+        "source_image_sha256": "e99d063a679559b6e1648d394f499a3c7a87eea3f220586b672e1b92d5d2e77a"
+      },
+      {
+        "run": "lama-contrast-8",
+        "case": "auto_ev+0_wb-1000",
+        "outside_coverage_samples_changed": 0,
+        "protected_samples_changed": 0,
+        "image_sha256": "d1483d02ca56d9bd1a4c968417c6383e9c4983173695ae9922b941cf6ab2c80c",
+        "source_image_sha256": "032e9ea15cbd9cbea2c51d86d5763ded2114e538449352523539faa7ad4b8d72"
+      },
+      {
+        "run": "lama-contrast-8",
+        "case": "auto_ev+3_wb+0",
+        "outside_coverage_samples_changed": 0,
+        "protected_samples_changed": 0,
+        "image_sha256": "1fc25e9e11c8217360301744dcbc84f64fa6bce422a3ccdf6965c671191356fc",
+        "source_image_sha256": "804b2ea8ffdfa4af646c29b1536668ed08ba36b55870782b4524d433e24e13b0"
+      },
+      {
+        "run": "lama-contrast-8",
+        "case": "auto_ev+3_wb+1000",
+        "outside_coverage_samples_changed": 0,
+        "protected_samples_changed": 0,
+        "image_sha256": "ad2c3d182d99af0ca2ed0869d2c4946cf1b4a446148a84cf6ba316696cb32377",
+        "source_image_sha256": "30a8609358f0b9f6fc635da4720f031c56a1329ec8cad63957261dfa08703989"
+      },
+      {
+        "run": "lama-contrast-8",
+        "case": "auto_ev+3_wb-1000",
+        "outside_coverage_samples_changed": 0,
+        "protected_samples_changed": 0,
+        "image_sha256": "c2c037056966f01a650ef0b852419d08305241c198e4f863696eff88249983a2",
+        "source_image_sha256": "e2d32e87f7688622030cf65a3e2cb6b9755be055634dbcb5328b03f1f8e1bd0a"
+      },
+      {
+        "run": "lama-contrast-8",
+        "case": "auto_ev-3_wb+0",
+        "outside_coverage_samples_changed": 0,
+        "protected_samples_changed": 0,
+        "image_sha256": "16e92c36cab12be60c194176961aeaceafd0a8a1de9271cb0cac70a99aea2ef4",
+        "source_image_sha256": "5bba64a64704f4c334d386f311184e94791ab7b52c75515b899414291bda13bc"
+      },
+      {
+        "run": "lama-contrast-8",
+        "case": "auto_ev-3_wb+1000",
+        "outside_coverage_samples_changed": 0,
+        "protected_samples_changed": 0,
+        "image_sha256": "d6c8c7c4d59a7d36a2a200d317bf30218fda2e6e785efeb7c95b73a4843c0c53",
+        "source_image_sha256": "648723566b980672eeb503c636ebe63e9450cc395a1249d6d1d705f2cca5ab8e"
+      },
+      {
+        "run": "lama-contrast-8",
+        "case": "auto_ev-3_wb-1000",
+        "outside_coverage_samples_changed": 0,
+        "protected_samples_changed": 0,
+        "image_sha256": "cea33f97cf5943c46f432296753a7dbaf3882522a6fc7d954ce90036be7e3784",
+        "source_image_sha256": "02fb83aee56776f375cd2f6fbced29222e7c77e2a263ab12ad168341a836f3e1"
+      },
+      {
+        "run": "lama-contrast-8",
+        "case": "neutral_ev+0_wb+0",
+        "outside_coverage_samples_changed": 0,
+        "protected_samples_changed": 0,
+        "image_sha256": "cda7a014c681816bcc603e967bf28888cce24219ec72c007345885556274eb0d",
+        "source_image_sha256": "fb8567a7ee45a3c054bfa4d55b387ab6ad7a0a8bf3b2c06d991c01ba9622a3a1"
+      },
+      {
+        "run": "lama-contrast-8",
+        "case": "neutral_ev+0_wb+1000",
+        "outside_coverage_samples_changed": 0,
+        "protected_samples_changed": 0,
+        "image_sha256": "e1ffe654723cf11d9e328c11442644a88bb00bd481a3ef677a53cf01435bbe41",
+        "source_image_sha256": "c17c2c90ef1dc42591857431864eed76a97a0cc6ad775a9850a999d34c75e59e"
+      },
+      {
+        "run": "lama-contrast-8",
+        "case": "neutral_ev+0_wb-1000",
+        "outside_coverage_samples_changed": 0,
+        "protected_samples_changed": 0,
+        "image_sha256": "57cff5d3e3947c8a3f8231d69ed65116a90ad6453fe2e097dfc588af3417e100",
+        "source_image_sha256": "226c8d2a657d49664defd1ae3d9dc3c4c307ab89ec12319b6b611e337dcdf05d"
+      },
+      {
+        "run": "lama-contrast-8",
+        "case": "neutral_ev+3_wb+0",
+        "outside_coverage_samples_changed": 0,
+        "protected_samples_changed": 0,
+        "image_sha256": "4ffd9698a5f1c83b73b7a77ef24f3588428731f1ffb49af94709d1d0f7a24192",
+        "source_image_sha256": "8ac1a2b15f9369b02f4381996f7241c85899ca479d6f6341aad356c737cf0e17"
+      },
+      {
+        "run": "lama-contrast-8",
+        "case": "neutral_ev+3_wb+1000",
+        "outside_coverage_samples_changed": 0,
+        "protected_samples_changed": 0,
+        "image_sha256": "d5db9460bfddf2e09c44da92de017500bf3883cf376cc43764dac3fc991ccfcb",
+        "source_image_sha256": "da3021a7f02f3406fd429bb65d224f9212bc984cc33350ef4fc05a7ff78b43a3"
+      },
+      {
+        "run": "lama-contrast-8",
+        "case": "neutral_ev+3_wb-1000",
+        "outside_coverage_samples_changed": 0,
+        "protected_samples_changed": 0,
+        "image_sha256": "abd1eb4f98912ab0a8a2ae30ef763070f0fa4b3088166b0c24b3ea012323bb2c",
+        "source_image_sha256": "f27cf2f825690382ed917b8fe8b994d507187c4101f4cdbf34cea4cd429d02c8"
+      },
+      {
+        "run": "lama-contrast-8",
+        "case": "neutral_ev-3_wb+0",
+        "outside_coverage_samples_changed": 0,
+        "protected_samples_changed": 0,
+        "image_sha256": "87d5c3ce5b082ece46720f7f292868dac400a27ebba91d1587ac14e0e0453663",
+        "source_image_sha256": "0861e005a819775ce7b7690a1c37caefd058c82987fdc82e23330d115a9d2bdd"
+      },
+      {
+        "run": "lama-contrast-8",
+        "case": "neutral_ev-3_wb+1000",
+        "outside_coverage_samples_changed": 0,
+        "protected_samples_changed": 0,
+        "image_sha256": "3328787107a2d635ae50f938b9279d7018e09ff520b012335f85d3c9113ca23c",
+        "source_image_sha256": "5f95e95ed1f5b1e2fa5160443cd0619576271b21d3ee2caed5d565591aeaf617"
+      },
+      {
+        "run": "lama-contrast-8",
+        "case": "neutral_ev-3_wb-1000",
+        "outside_coverage_samples_changed": 0,
+        "protected_samples_changed": 0,
+        "image_sha256": "c15b23b9991c65c8b1e10b4d803823f627e7f976a4e7c021e341f41694893c79",
+        "source_image_sha256": "43b0762d4d3414f85199dc5df2ae447b032b3da1f168c41c31fbc0933b6db6b3"
+      },
+      {
+        "run": "lama-contrast-192",
+        "case": "auto_ev+0_wb+0",
+        "outside_coverage_samples_changed": 0,
+        "protected_samples_changed": 0,
+        "image_sha256": "eba7c8e305f940476c2e0246110d3db6966af2f9515ef6356946b9e76f65b451",
+        "source_image_sha256": "565b2c343804e120671faa7a52f2dcae63e85f13fa28d014a0247bd032d0bc43"
+      },
+      {
+        "run": "lama-contrast-192",
+        "case": "auto_ev+0_wb+1000",
+        "outside_coverage_samples_changed": 0,
+        "protected_samples_changed": 0,
+        "image_sha256": "336e8366a0040c3437756cb1ccf3908f58148a24e85b174f530308d7653e3c77",
+        "source_image_sha256": "e99d063a679559b6e1648d394f499a3c7a87eea3f220586b672e1b92d5d2e77a"
+      },
+      {
+        "run": "lama-contrast-192",
+        "case": "auto_ev+0_wb-1000",
+        "outside_coverage_samples_changed": 0,
+        "protected_samples_changed": 0,
+        "image_sha256": "f987684b393da4604e4e9af75eed68de6aa25132a1475c2fd80ffc78e08a6949",
+        "source_image_sha256": "032e9ea15cbd9cbea2c51d86d5763ded2114e538449352523539faa7ad4b8d72"
+      },
+      {
+        "run": "lama-contrast-192",
+        "case": "auto_ev+3_wb+0",
+        "outside_coverage_samples_changed": 0,
+        "protected_samples_changed": 0,
+        "image_sha256": "90c45d2040b5e2d259cdf3f6060402d85f6079c9fab093069364d287c96dd6d2",
+        "source_image_sha256": "804b2ea8ffdfa4af646c29b1536668ed08ba36b55870782b4524d433e24e13b0"
+      },
+      {
+        "run": "lama-contrast-192",
+        "case": "auto_ev+3_wb+1000",
+        "outside_coverage_samples_changed": 0,
+        "protected_samples_changed": 0,
+        "image_sha256": "fe6ba4d548b6e2e79c8989cc19d0e29f901ea0d23ca051b14dd3cb4807c3996a",
+        "source_image_sha256": "30a8609358f0b9f6fc635da4720f031c56a1329ec8cad63957261dfa08703989"
+      },
+      {
+        "run": "lama-contrast-192",
+        "case": "auto_ev+3_wb-1000",
+        "outside_coverage_samples_changed": 0,
+        "protected_samples_changed": 0,
+        "image_sha256": "4b06b19545cb2adf556403d1df64b038026f7ef3cfb323e4dde187a2e04b0903",
+        "source_image_sha256": "e2d32e87f7688622030cf65a3e2cb6b9755be055634dbcb5328b03f1f8e1bd0a"
+      },
+      {
+        "run": "lama-contrast-192",
+        "case": "auto_ev-3_wb+0",
+        "outside_coverage_samples_changed": 0,
+        "protected_samples_changed": 0,
+        "image_sha256": "9f6e609659bdb7c8e859a34c58c907feae09dbd1101a442bd2139955700ad020",
+        "source_image_sha256": "5bba64a64704f4c334d386f311184e94791ab7b52c75515b899414291bda13bc"
+      },
+      {
+        "run": "lama-contrast-192",
+        "case": "auto_ev-3_wb+1000",
+        "outside_coverage_samples_changed": 0,
+        "protected_samples_changed": 0,
+        "image_sha256": "7bf818d67cfac458468bb971b7bd9441e1557137d647f00f282741bb5537dccc",
+        "source_image_sha256": "648723566b980672eeb503c636ebe63e9450cc395a1249d6d1d705f2cca5ab8e"
+      },
+      {
+        "run": "lama-contrast-192",
+        "case": "auto_ev-3_wb-1000",
+        "outside_coverage_samples_changed": 0,
+        "protected_samples_changed": 0,
+        "image_sha256": "1255ecd171f15b2b6392366b78b492b085b86e69ec01aade4952f39d39e6c1e7",
+        "source_image_sha256": "02fb83aee56776f375cd2f6fbced29222e7c77e2a263ab12ad168341a836f3e1"
+      },
+      {
+        "run": "lama-contrast-192",
+        "case": "neutral_ev+0_wb+0",
+        "outside_coverage_samples_changed": 0,
+        "protected_samples_changed": 0,
+        "image_sha256": "bf069d726ec350adc5ad818bb038c18c3eaa8456224dbddc5df86cad29c620d0",
+        "source_image_sha256": "fb8567a7ee45a3c054bfa4d55b387ab6ad7a0a8bf3b2c06d991c01ba9622a3a1"
+      },
+      {
+        "run": "lama-contrast-192",
+        "case": "neutral_ev+0_wb+1000",
+        "outside_coverage_samples_changed": 0,
+        "protected_samples_changed": 0,
+        "image_sha256": "28191c5272a024114d7bcb2cd594f7c4f1e2570bc6e393668943008602f17157",
+        "source_image_sha256": "c17c2c90ef1dc42591857431864eed76a97a0cc6ad775a9850a999d34c75e59e"
+      },
+      {
+        "run": "lama-contrast-192",
+        "case": "neutral_ev+0_wb-1000",
+        "outside_coverage_samples_changed": 0,
+        "protected_samples_changed": 0,
+        "image_sha256": "a404ace2247954f9e864b02e13aca4c931c7eee2d3a214f65161c5feddf3361e",
+        "source_image_sha256": "226c8d2a657d49664defd1ae3d9dc3c4c307ab89ec12319b6b611e337dcdf05d"
+      },
+      {
+        "run": "lama-contrast-192",
+        "case": "neutral_ev+3_wb+0",
+        "outside_coverage_samples_changed": 0,
+        "protected_samples_changed": 0,
+        "image_sha256": "507856e3c506dca3bd5386364440946c9b9374d9764bc2afb4295396626cdd62",
+        "source_image_sha256": "8ac1a2b15f9369b02f4381996f7241c85899ca479d6f6341aad356c737cf0e17"
+      },
+      {
+        "run": "lama-contrast-192",
+        "case": "neutral_ev+3_wb+1000",
+        "outside_coverage_samples_changed": 0,
+        "protected_samples_changed": 0,
+        "image_sha256": "4fb298739171e4fe8b83275ffc9e3f7d7fbf777cfd1b490819293851e1230a1b",
+        "source_image_sha256": "da3021a7f02f3406fd429bb65d224f9212bc984cc33350ef4fc05a7ff78b43a3"
+      },
+      {
+        "run": "lama-contrast-192",
+        "case": "neutral_ev+3_wb-1000",
+        "outside_coverage_samples_changed": 0,
+        "protected_samples_changed": 0,
+        "image_sha256": "e1d9d26a84ae1e1a6be13e19b6cbdc870f983ff956ef7c7173451a2c5c09a6c6",
+        "source_image_sha256": "f27cf2f825690382ed917b8fe8b994d507187c4101f4cdbf34cea4cd429d02c8"
+      },
+      {
+        "run": "lama-contrast-192",
+        "case": "neutral_ev-3_wb+0",
+        "outside_coverage_samples_changed": 0,
+        "protected_samples_changed": 0,
+        "image_sha256": "3c13f2a1188932a174427435dd8d54907f40f0935d857def76b5050841f5fcc1",
+        "source_image_sha256": "0861e005a819775ce7b7690a1c37caefd058c82987fdc82e23330d115a9d2bdd"
+      },
+      {
+        "run": "lama-contrast-192",
+        "case": "neutral_ev-3_wb+1000",
+        "outside_coverage_samples_changed": 0,
+        "protected_samples_changed": 0,
+        "image_sha256": "5a2299f2eddcaf40b11ebd0984098db4b111c57e59886c8897da6cad31df0677",
+        "source_image_sha256": "5f95e95ed1f5b1e2fa5160443cd0619576271b21d3ee2caed5d565591aeaf617"
+      },
+      {
+        "run": "lama-contrast-192",
+        "case": "neutral_ev-3_wb-1000",
+        "outside_coverage_samples_changed": 0,
+        "protected_samples_changed": 0,
+        "image_sha256": "6e75985a248aa239de2d292d1e3258ca3e1bc7f4f485414deb5f4523df57fc59",
+        "source_image_sha256": "43b0762d4d3414f85199dc5df2ae447b032b3da1f168c41c31fbc0933b6db6b3"
+      }
+    ]
+  },
+  "tests": [
+    {
+      "path": "/tmp/maple-removal-photographic-encoding-tests-20261003.log",
+      "sha256": "84eefd296e5d7e084f7b5d03f5a2c553fd6980418269dbcb083c607c58660314",
+      "tests_passed": 5
+    },
+    {
+      "path": "/tmp/maple-removal-photographic-base-tests-20261003.log",
+      "sha256": "03067fa1c43dccec090a6e393793df697bc391ff2dc98b7d0c4d24cead7fe0ad",
+      "tests_passed": 4
+    },
+    {
+      "path": "/tmp/maple-removal-photographic-klein-tests-20261003.log",
+      "sha256": "2af24869c173dc26841e3d48b0fa8fbaff170a3eed0dc07c2c85bbe16a926a5c",
+      "tests_passed": 16
+    }
+  ],
+  "lama_provenance": {
+    "manifest": {
+      "path": "/tmp/maple-removal-models/lama/native-build/lama-native-1024.json",
+      "sha256": "e298383a5b2fe2331fa502fe5300e8ca0b1555124123051724b17d87cb5236d5",
+      "report": {
+        "build_recipe": "maple-lama-standard-dft-v1",
+        "source_revision": "786f5936b27fb3dacd2b1ad799e4de968ea697e7",
+        "checkpoint_sha256": "fccb7adffd53ec0974ee5503c3731c2c2f1e7e07856fd9228cdcc0b46fd5d423",
+        "weights_archive_url": "https://huggingface.co/smartywu/big-lama/resolve/05cb2be7f8dbe6ca7c6e78f4fc827a4b2baaa4a9/big-lama.zip",
+        "weights_archive_sha256": "f1b358ca24093b93a106183b98a3dea6e8ed09f3b43ea7251eb2c81e7b4575f6",
+        "license_sha256": "4ceeeac5a802e86c413c22b16cce8e9a22027b0250c97e6f8ac97c14cf0542c0",
+        "config_sha256": "4fdeed49926e13b101c4dd9e193acec9e58677dfdb4ba49dd6a3a8927964e2a7",
+        "artifact": "lama-native-1024.onnx",
+        "artifact_sha256": "339d078d9d1376d76a49efd4fa42f328c3f276af775505ae8b57c84db187c4f6",
+        "native_size": 1024,
+        "fourier_units": 36,
+        "generator_tensors": 989,
+        "opset": 17,
+        "input": "float32 NCHW: masked RGB [0,1] then mask 1=remove, 0=known",
+        "output": "float32 NCHW RGB [0,1], known pixels copied by the shared plate compositor",
+        "release_qualified": false,
+        "toolchain": {
+          "torch": "2.14.1",
+          "onnx": "1.23.1"
+        }
+      }
+    },
+    "source_revision": "786f5936b27fb3dacd2b1ad799e4de968ea697e7",
+    "clean_source_checkout": true,
+    "python_sources": [
+      {
+        "path": "bin/analyze_errors.py",
+        "sha256": "9019332b8309090906f49ac63fe6a6e5f1a5a03e2eedf3e56c8be6cfd6fb2dcc"
+      },
+      {
+        "path": "bin/blur_predicts.py",
+        "sha256": "ed0863c166ba510175e89a373f7b950550e8008ed4b328e6b7d2c53e7237889a"
+      },
+      {
+        "path": "bin/calc_dataset_stats.py",
+        "sha256": "53e279cba5626e01ffaa7984b775603f64cdf149a72fa16a0f58000a3bcbc4ec"
+      },
+      {
+        "path": "bin/evaluate_predicts.py",
+        "sha256": "67458a187713e1455dd1ff013bd678d608979ae49f637a22f24ee92d40de0e8b"
+      },
+      {
+        "path": "bin/evaluator_example.py",
+        "sha256": "3c88b5a0d15bfa6e81b60c963aa8f32ff752b853ae3cf38966d24cccdfc8b931"
+      },
+      {
+        "path": "bin/extract_masks.py",
+        "sha256": "2e90a3197316ee22fd33b01ce1df8b8e21be39288e1669ec1c9f4d7e6e0fcd19"
+      },
+      {
+        "path": "bin/filter_sharded_dataset.py",
+        "sha256": "48c820e8ec725ffbc1b625d6924dab43c5134f955e0a32bc3ee756f437e6c2f1"
+      },
+      {
+        "path": "bin/gen_debug_mask_dataset.py",
+        "sha256": "ea1b7f9144b3716ebe676bb89efd9ae052e4831670ba65c3b1f05ef770da5e76"
+      },
+      {
+        "path": "bin/gen_mask_dataset.py",
+        "sha256": "3f0ab3421b1b5f69b00e2e8faec6ac6ef7f980dc8ce8aed340bd99e3e5bd5a1b"
+      },
+      {
+        "path": "bin/gen_mask_dataset_hydra.py",
+        "sha256": "d732574c27a74fa64c66a1afea6497e4fd87103d7da3d58e3dc83f7bb59ad46e"
+      },
+      {
+        "path": "bin/gen_outpainting_dataset.py",
+        "sha256": "7457d08e1f495c3bee3de2413fdb735f252d3fe342b5e54e5372af73b1598211"
+      },
+      {
+        "path": "bin/make_checkpoint.py",
+        "sha256": "d86903c380809c4c266a0ea39cae4d2fb4aa4fcae9ca51491053ac28a72c2edf"
+      },
+      {
+        "path": "bin/mask_example.py",
+        "sha256": "a3d14ee869193ebb1b5ac68ea92c9506e7f9bba280ca9c4581fb170cd6ccd789"
+      },
+      {
+        "path": "bin/paper_runfiles/find_best_checkpoint.py",
+        "sha256": "42d198b58e58ec822e1aac66d66251b87c519f8b9ec178a1c0f810f0891841ae"
+      },
+      {
+        "path": "bin/predict.py",
+        "sha256": "4e40c5eece914d30ea16c3aafc0699f46e07c924c98f3aeecc6dcb8642b53cf8"
+      },
+      {
+        "path": "bin/predict_inner_features.py",
+        "sha256": "b3d1afea9bedf99ded3e09a96431be0cc0075708dc4b1aaa91ed19cd98cbadb8"
+      },
+      {
+        "path": "bin/report_from_tb.py",
+        "sha256": "c110718a1f0c37ed143eeac317a4bd3522350060e178ea655fd5d0bd32804dfc"
+      },
+      {
+        "path": "bin/sample_from_dataset.py",
+        "sha256": "eb5507435eb50c10e50f96707e77f5109b8c8f73f14c520a24b321b24b6fc642"
+      },
+      {
+        "path": "bin/side_by_side.py",
+        "sha256": "9eaec563dbc98868725083fd560f729e3e50dc263b71a6ff1bbfd9f627df0b5d"
+      },
+      {
+        "path": "bin/split_tar.py",
+        "sha256": "4703b7bc32216cbf08b423db5f79b92f44ecbaa73a91ebc8523302ae33064291"
+      },
+      {
+        "path": "bin/to_jit.py",
+        "sha256": "c395039828fd10d9ed5778379cf7dfebe71ff7ac1d98266efe2cc4e686a5c2d6"
+      },
+      {
+        "path": "bin/train.py",
+        "sha256": "279ba1977401a7d204c445c735b787ed018f8b95e8e291aa2728c5abac894344"
+      },
+      {
+        "path": "fetch_data/eval_sampler.py",
+        "sha256": "3d2ed7a8ff4abc29df29eae606b2fb7e79c68daebb4bb9734a7024aa0a528545"
+      },
+      {
+        "path": "fetch_data/sampler.py",
+        "sha256": "32f4ad753464d8eeb72cca1e6f033bf92570814743f457989ab372d854b6d294"
+      },
+      {
+        "path": "models/ade20k/__init__.py",
+        "sha256": "18b74c1ac9b9fc29c04f2875f40b76d0799bd4cb1766f3f136f83bd1b1d80a19"
+      },
+      {
+        "path": "models/ade20k/base.py",
+        "sha256": "63243e82571e7aaf0cd2a37f3b9635266c5f4ae2d0ba53e5738f6ce533c43db6"
+      },
+      {
+        "path": "models/ade20k/mobilenet.py",
+        "sha256": "c630ff713805a70514028bc8084e77d457704928e9e02704d241994ef2737b30"
+      },
+      {
+        "path": "models/ade20k/resnet.py",
+        "sha256": "89605ad5e9a543bbebc71920bdb7a3d0f2d5bff6896a1ebf4f06f10fae969d30"
+      },
+      {
+        "path": "models/ade20k/segm_lib/nn/__init__.py",
+        "sha256": "2600acab3ede0102ff0bd8e8f8d62b21e4fff97f99a95996aa14679b6ec30d01"
+      },
+      {
+        "path": "models/ade20k/segm_lib/nn/modules/__init__.py",
+        "sha256": "0701e2062245ab6c90b3df6934a21be5c942b44b13c2ebb70695433599af7a15"
+      },
+      {
+        "path": "models/ade20k/segm_lib/nn/modules/batchnorm.py",
+        "sha256": "42258e18cef5fb033e63f6e1a06c2897432c095a7177606ac6bb1119f5f2c856"
+      },
+      {
+        "path": "models/ade20k/segm_lib/nn/modules/comm.py",
+        "sha256": "a480d504d651eef51b8419254f00d97d5f0b2d9a4af590713605c0148725b234"
+      },
+      {
+        "path": "models/ade20k/segm_lib/nn/modules/replicate.py",
+        "sha256": "4498b873404fce05202d4f891262e249a95733816d3877e3aee3d2401138a6af"
+      },
+      {
+        "path": "models/ade20k/segm_lib/nn/modules/tests/test_numeric_batchnorm.py",
+        "sha256": "b413dacac05b51017379df1cd27c8553beef1d90605c09c45a126169f545c991"
+      },
+      {
+        "path": "models/ade20k/segm_lib/nn/modules/tests/test_sync_batchnorm.py",
+        "sha256": "4ecfda2a32b39c5f89f66c5d021deaa950d9e05631f418a0688b7ce431567daa"
+      },
+      {
+        "path": "models/ade20k/segm_lib/nn/modules/unittest.py",
+        "sha256": "748f5219d45b2326829ffbc8bfd655450316fd40755ab29595114fa272ef98d2"
+      },
+      {
+        "path": "models/ade20k/segm_lib/nn/parallel/__init__.py",
+        "sha256": "fa04ce76f0e4d7a130a7cefca60690b53238010bb11d65b1c305221c36d1aaa1"
+      },
+      {
+        "path": "models/ade20k/segm_lib/nn/parallel/data_parallel.py",
+        "sha256": "3e4075dc485b063be061c308d88134a644d0b3bc1507f42f40abd3fc69977ee4"
+      },
+      {
+        "path": "models/ade20k/segm_lib/utils/__init__.py",
+        "sha256": "20df0c8d7926d2f1572ace008b001ac06e61708215b2867d02130a3cf921418e"
+      },
+      {
+        "path": "models/ade20k/segm_lib/utils/data/__init__.py",
+        "sha256": "29e0ab4efda5e6df1c707506b08563efb41945843f714e44a0b7e590548fa26a"
+      },
+      {
+        "path": "models/ade20k/segm_lib/utils/data/dataloader.py",
+        "sha256": "4761f69cf8d6e2b6dbb85d0902fcd3cff9a7c247c8d450203c820ea4268b0a0d"
+      },
+      {
+        "path": "models/ade20k/segm_lib/utils/data/dataset.py",
+        "sha256": "8e6f940d20b64d98b39e853bd55a4727e1e99244da8e187916bc46e42825a2cd"
+      },
+      {
+        "path": "models/ade20k/segm_lib/utils/data/distributed.py",
+        "sha256": "6cd8939af8db7b434d403576f5ee5da9ab6658ca2ffbb14a75ca5297e373ca22"
+      },
+      {
+        "path": "models/ade20k/segm_lib/utils/data/sampler.py",
+        "sha256": "3219623a637ff2db6b79da289674e0e511a582b77d2035cbc393e38efef6c74a"
+      },
+      {
+        "path": "models/ade20k/segm_lib/utils/th.py",
+        "sha256": "69d1bc0b5bb0d34bc98457bc170f8541270304f13ba25c5984243a831bd27b33"
+      },
+      {
+        "path": "models/ade20k/utils.py",
+        "sha256": "740329112a2ec27db3db528d8204d576118243a6909b7585631f81c6a99d6fdc"
+      },
+      {
+        "path": "saicinpainting/__init__.py",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "path": "saicinpainting/evaluation/__init__.py",
+        "sha256": "a42518ee4a67bb4323318d3c75dcdfa1c423211d76dad31d93f8d882e1750557"
+      },
+      {
+        "path": "saicinpainting/evaluation/data.py",
+        "sha256": "ae2d1959b40eeb494bead932a891c6aba718297738bd01664e556611b9ac636a"
+      },
+      {
+        "path": "saicinpainting/evaluation/evaluator.py",
+        "sha256": "bfd053c5e93710a8da341672471faa80e7a9e2d60ee6e11b359e293ac868b0d5"
+      },
+      {
+        "path": "saicinpainting/evaluation/losses/__init__.py",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "path": "saicinpainting/evaluation/losses/base_loss.py",
+        "sha256": "44ef63201d35b4e0c44b05f755e18c37e5e07f85e8279a5b9f5c293cd759cf0e"
+      },
+      {
+        "path": "saicinpainting/evaluation/losses/fid/__init__.py",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "path": "saicinpainting/evaluation/losses/fid/fid_score.py",
+        "sha256": "c31f9a196ef97b8876e9d657ed1066fd21c583c2c98c476da4f769a84f6fc117"
+      },
+      {
+        "path": "saicinpainting/evaluation/losses/fid/inception.py",
+        "sha256": "c4db3a6261243675ee6f34d8fc11c5c0aefb4681371f4e519bbf522de261a3a2"
+      },
+      {
+        "path": "saicinpainting/evaluation/losses/lpips.py",
+        "sha256": "0e08f6585328813ea74479af136f2d93e3c1ee41cac94571345f858410b302de"
+      },
+      {
+        "path": "saicinpainting/evaluation/losses/ssim.py",
+        "sha256": "5dac724a5393cd97b52e720a91b177c8e2a1fda488ea9f6658b8e6a65d6043c6"
+      },
+      {
+        "path": "saicinpainting/evaluation/masks/__init__.py",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "path": "saicinpainting/evaluation/masks/countless/__init__.py",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "path": "saicinpainting/evaluation/masks/countless/countless2d.py",
+        "sha256": "890020e5fba1e9fe15d4c41bfe421831abd0ac8674d1c10f2b70fae5ec5ae819"
+      },
+      {
+        "path": "saicinpainting/evaluation/masks/countless/countless3d.py",
+        "sha256": "8c5ab5f80153921aacb9830efee3d6bbe11731f1da280e860a5a8f6808218873"
+      },
+      {
+        "path": "saicinpainting/evaluation/masks/countless/test.py",
+        "sha256": "660e1a8aad4c3cce9bc1d593e360c63e4c94399e4527b89a60c2779934ac3584"
+      },
+      {
+        "path": "saicinpainting/evaluation/masks/mask.py",
+        "sha256": "144fe0e1d9cbe9bdde1bb5c01587e2f0191382ea8f9d4e8e0ff3fa186eb9df17"
+      },
+      {
+        "path": "saicinpainting/evaluation/refinement.py",
+        "sha256": "f0ba8121690c3d664fdf8478c3867a304bb1f0e2581e268fcd2cc3b1216f6baa"
+      },
+      {
+        "path": "saicinpainting/evaluation/utils.py",
+        "sha256": "00b89724b509fdfa1337b8dca0edc6369f0d0eb32bddbdb1687a94cde1866eac"
+      },
+      {
+        "path": "saicinpainting/evaluation/vis.py",
+        "sha256": "9aa1ca7d7d4bf418fa9981702b3e0b68c56c82d5f6e45b6736173f77539d2b4f"
+      },
+      {
+        "path": "saicinpainting/training/__init__.py",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "path": "saicinpainting/training/data/__init__.py",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "path": "saicinpainting/training/data/aug.py",
+        "sha256": "cc2592c7fb2b7278dee5cd36398e8e29117e6a88aacb9d58e7782711287610f5"
+      },
+      {
+        "path": "saicinpainting/training/data/datasets.py",
+        "sha256": "f8108ed9007ca5721b91f342f725aac22b0a21d2aada3667bc2dd3bdfa19ced8"
+      },
+      {
+        "path": "saicinpainting/training/data/masks.py",
+        "sha256": "2ad13ca38747515f2854715b0730e540458b661f1434d848d336d769f1bbb9df"
+      },
+      {
+        "path": "saicinpainting/training/losses/__init__.py",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "path": "saicinpainting/training/losses/adversarial.py",
+        "sha256": "813364230c4a91af29a4cc866f57b75a10da5240bfadfa49ade2bbecb77178ca"
+      },
+      {
+        "path": "saicinpainting/training/losses/constants.py",
+        "sha256": "94407ac47ebcd188f6ce7ba7e3c07fe53c1f7581023cc291accfe3f2da675175"
+      },
+      {
+        "path": "saicinpainting/training/losses/distance_weighting.py",
+        "sha256": "921dd71b5c1e01987be2f39d5ca4e6e2af7fd0e81f9a405631ea52ae2f970514"
+      },
+      {
+        "path": "saicinpainting/training/losses/feature_matching.py",
+        "sha256": "e6a684971d889e41d5b3b9b5c2ded64d2aebe4b69334a2a477aca36882938915"
+      },
+      {
+        "path": "saicinpainting/training/losses/perceptual.py",
+        "sha256": "7362e7a451a2b5d40317fceab0fce4a44e72c88b291d6be3f3718992b95450dd"
+      },
+      {
+        "path": "saicinpainting/training/losses/segmentation.py",
+        "sha256": "48098106afd8336e1be2d449218f82b902c40735c478ee5afe44a8ac965d1366"
+      },
+      {
+        "path": "saicinpainting/training/losses/style_loss.py",
+        "sha256": "f0d1b6eb07832ac9807ec507fad3ac4f3b4d38236da30b7b87f185fe1a7223b9"
+      },
+      {
+        "path": "saicinpainting/training/modules/__init__.py",
+        "sha256": "d2027f8bfe20cdc44477dd7d99434b82e82829b6c9794288329cba5c1e445912"
+      },
+      {
+        "path": "saicinpainting/training/modules/base.py",
+        "sha256": "526016ea45cd40b17b1bfa812c3be1ae227b735de684cd77382a5788eb5ac4aa"
+      },
+      {
+        "path": "saicinpainting/training/modules/depthwise_sep_conv.py",
+        "sha256": "9aa49550f3d34f1682cabbcc92f89d5f131ff0e89ebeefbfde396a85153c5b22"
+      },
+      {
+        "path": "saicinpainting/training/modules/fake_fakes.py",
+        "sha256": "4dcfc15adf39e411b571daf994945051e79ad612dd6c3025f1c06328cbc880d6"
+      },
+      {
+        "path": "saicinpainting/training/modules/ffc.py",
+        "sha256": "1647ce037032e533c777fd1d486c61d3ecc0eee7603b8cb96b23d0deffcaf308"
+      },
+      {
+        "path": "saicinpainting/training/modules/multidilated_conv.py",
+        "sha256": "26929410919ebe0e024bd65d318978d14bdefcfeef94d079ae9c4d20189f2780"
+      },
+      {
+        "path": "saicinpainting/training/modules/multiscale.py",
+        "sha256": "d5b37be6ca20715ccbfb44e9603eb71a99a46072a240e4ea7581f05874cbf2e9"
+      },
+      {
+        "path": "saicinpainting/training/modules/pix2pixhd.py",
+        "sha256": "c064a8c257a3674786b6e99e202b9cfc68033c840300a7c082502e3d599d8111"
+      },
+      {
+        "path": "saicinpainting/training/modules/spatial_transform.py",
+        "sha256": "4f479a0c9ba94bd46b197507e8e8cdcc570e84ec29f5a577ade63e542adb43b5"
+      },
+      {
+        "path": "saicinpainting/training/modules/squeeze_excitation.py",
+        "sha256": "933c53adb2477b99c58ab325b26b124507a06b8c097ed2dd213c28f5841839fe"
+      },
+      {
+        "path": "saicinpainting/training/trainers/__init__.py",
+        "sha256": "15924fed2f31eab72bea2eb1000553615d8b827a010e44a85b4beb6cf7531f8c"
+      },
+      {
+        "path": "saicinpainting/training/trainers/base.py",
+        "sha256": "3d0a3a8eccd57d1048233a9ec83d561c575617d3ad20ed6bdcf6976cfdd6c912"
+      },
+      {
+        "path": "saicinpainting/training/trainers/default.py",
+        "sha256": "85e4a9ffaf21d725a48cf6dc066de3224c2168cea51c19696197e2a2f33f24ef"
+      },
+      {
+        "path": "saicinpainting/training/visualizers/__init__.py",
+        "sha256": "1ed33de582e26e641aef0e0b53af24091e089bb09d62937a1fba99b4ede2dc93"
+      },
+      {
+        "path": "saicinpainting/training/visualizers/base.py",
+        "sha256": "8aac20ed2f58ebff9aa0c600f4e59ac83aa535803eccfa713558d1f560e4d96a"
+      },
+      {
+        "path": "saicinpainting/training/visualizers/colors.py",
+        "sha256": "2a414a47ea870489aa5ac566c0219f4504a937b173f709e5062d39670d0ceaa2"
+      },
+      {
+        "path": "saicinpainting/training/visualizers/directory.py",
+        "sha256": "5b7e853724f3611540d0091d2153c51d32ed185fd0c6d9a5a6af22a2886ae146"
+      },
+      {
+        "path": "saicinpainting/training/visualizers/noop.py",
+        "sha256": "90330e764784e1f20d603c0e2aee6ade4db26d506e1d1129571fc38a8ac24a75"
+      },
+      {
+        "path": "saicinpainting/utils.py",
+        "sha256": "0a399137ac692a8c0eac6b8f1befacdd9d8f3443397d8a0b000845010c2b0cfc"
+      }
+    ],
+    "licensing_scope": "Pinned source/checkpoint/config/artifact and notice identity are provenance only. Release distribution, conversion/transitive terms, full photographic corpus and runtime/device admission remain unresolved."
+  },
+  "findings": {
+    "klein_radius8": "Regenerates a clear replacement person. Boundary correction produced minimum-0.0164926443 and failed the model-domain gate. No clipping, RAW bake or accepted edit.",
+    "klein_radius192": "Original target no longer visible, but native RAW render retains an obvious target-shaped hazy fill. Fails photographic reconstruction.",
+    "lama_signed_log": "Both radii leave strong dark/colored artifacts and object-shaped texture mismatches. Fails photographic reconstruction.",
+    "lama_contrast": "Strong dark color artifacts diminish, but conspicuous object-shaped texture/background mismatch remains at both radii. Visual color improvement only; no photographic or semantic-closure pass.",
+    "decision": "Improved source contrast does not resolve the reconstruction problem. No encoding, model, mask defaults, accepted asset/XMP or application runtime admitted."
+  },
+  "original_RAW_sha256_after": "2ed291a09d7d4f72c8588b0c12d6cc5c470ad42ab9e3aaad1f888f34526b959f",
+  "executed_sources": [
+    {
+      "path": "src/raw-pipeline/raw-core/examples/removal-scene-probe.rs",
+      "captured_copy": "/tmp/maple-removal-photographic-executed-20261003/src/raw-pipeline/raw-core/examples/removal-scene-probe.rs",
+      "sha256": "7964e4e021b9a4a49319ce2f814f50eaa94d42c8c24ed77b7f218266a031185b"
+    },
+    {
+      "path": "src/raw-pipeline/raw-core/examples/removal_scene/encoding.rs",
+      "captured_copy": "/tmp/maple-removal-photographic-executed-20261003/src/raw-pipeline/raw-core/examples/removal_scene/encoding.rs",
+      "sha256": "91768973860ed2ad7bf0e6060fbbdae7cbd3ad676594d09576eb96e160cbcd63"
+    },
+    {
+      "path": "src/raw-pipeline/raw-core/examples/removal_scene/calibration.rs",
+      "captured_copy": "/tmp/maple-removal-photographic-executed-20261003/src/raw-pipeline/raw-core/examples/removal_scene/calibration.rs",
+      "sha256": "3f1143219d526d235c0f802495d36d88f1688e9028e055d13f76f7206bb95817"
+    },
+    {
+      "path": "src/raw-pipeline/raw-core/examples/removal_scene/photographic_encoding.rs",
+      "captured_copy": "/tmp/maple-removal-photographic-executed-20261003/src/raw-pipeline/raw-core/examples/removal_scene/photographic_encoding.rs",
+      "sha256": "627cd84368f99e8202cb1d0a378a7248883da3fe525c298e4caba8dc2b3c6f36"
+    },
+    {
+      "path": "src/raw-pipeline/raw-core/examples/removal_scene/photographic_encoding_tests.rs",
+      "captured_copy": "/tmp/maple-removal-photographic-executed-20261003/src/raw-pipeline/raw-core/examples/removal_scene/photographic_encoding_tests.rs",
+      "sha256": "0f5c2f35ba8c4b6df38de25c8c873f2c276ba10b60c52bf6a63da10d8b4864ef"
+    },
+    {
+      "path": "src/raw-pipeline/raw-core/src/pipeline/removal_encoding.rs",
+      "captured_copy": "/tmp/maple-removal-photographic-executed-20261003/src/raw-pipeline/raw-core/src/pipeline/removal_encoding.rs",
+      "sha256": "c7d5b82dc7ae8bf3698b1d977299cd58090bf0216340a6ab35bf1e761e77f16b"
+    },
+    {
+      "path": "src/raw-pipeline/target/release/examples/removal-scene-probe",
+      "captured_copy": "/tmp/maple-removal-photographic-executed-20261003/src/raw-pipeline/target/release/examples/removal-scene-probe",
+      "sha256": "1565e565f2bcdcc6eabeabd341f3899e827fd835b09c9bc27b6872f5cc3197b3"
+    },
+    {
+      "path": "src/raw-pipeline/target/release/examples/removal-orientation-probe",
+      "captured_copy": "/tmp/maple-removal-photographic-executed-20261003/src/raw-pipeline/target/release/examples/removal-orientation-probe",
+      "sha256": "161a53633e0960c8253d24700634a7e4f26a7d8b4f0b412fa4f14409e837e950"
+    },
+    {
+      "path": "tools/removal/photo-research-cases.json",
+      "captured_copy": "/tmp/maple-removal-photographic-executed-20261003/tools/removal/photo-research-cases.json",
+      "sha256": "cb1c32c7ce32cb5ab3f9411a6df87d0fb944e9fa130029f1460d0e7cfd0f5de7"
+    },
+    {
+      "path": "tools/removal/prepare_photo_case.py",
+      "captured_copy": "/tmp/maple-removal-photographic-executed-20261003/tools/removal/prepare_photo_case.py",
+      "sha256": "851dc4d3647e998730989b519f238a8b090b57c9472ec2b41f953bd9dc91dd8b"
+    },
+    {
+      "path": "tools/removal/probe_klein_oriented.py",
+      "captured_copy": "/tmp/maple-removal-photographic-executed-20261003/tools/removal/probe_klein_oriented.py",
+      "sha256": "9a7c2eb7cab3d69bdf17deb753e728a0e8d8843a94cc6c7c763f091aa4daff54"
+    },
+    {
+      "path": "tools/removal/probe_klein_native.py",
+      "captured_copy": "/tmp/maple-removal-photographic-executed-20261003/tools/removal/probe_klein_native.py",
+      "sha256": "ad4abbf91162efb71ad270d641a7b0381ec69a0cc4e88da7eaf3d11cf2825e45"
+    },
+    {
+      "path": "tools/removal/probe_klein_memory.py",
+      "captured_copy": "/tmp/maple-removal-photographic-executed-20261003/tools/removal/probe_klein_memory.py",
+      "sha256": "e8ced891fa2dcd290074cab5e76fe5c877a6869070ad14044f05b53a98212fa5"
+    },
+    {
+      "path": "tools/removal/klein_decoder_barriers.py",
+      "captured_copy": "/tmp/maple-removal-photographic-executed-20261003/tools/removal/klein_decoder_barriers.py",
+      "sha256": "5b07073913a8c4319309b623084e82ebccd912c50db28a0c7052998724a16436"
+    },
+    {
+      "path": "tools/removal/klein_erased_conditioning.py",
+      "captured_copy": "/tmp/maple-removal-photographic-executed-20261003/tools/removal/klein_erased_conditioning.py",
+      "sha256": "8d0cd5de346b786c6a1cfcfe07097d054112d0bc01cf88b6b61e993bdb1aafb9"
+    },
+    {
+      "path": "tools/removal/native_orientation.py",
+      "captured_copy": "/tmp/maple-removal-photographic-executed-20261003/tools/removal/native_orientation.py",
+      "sha256": "fd0d7d039b8b91ac9cd64b04093878d94d51843549f63f494bf92cb7ee8471c6"
+    },
+    {
+      "path": "tools/removal/native_probe_pixels.py",
+      "captured_copy": "/tmp/maple-removal-photographic-executed-20261003/tools/removal/native_probe_pixels.py",
+      "sha256": "b7327a50ed73250d859b9ded4dc808427b112768ea9643f52620ff81a1071ebc"
+    },
+    {
+      "path": "tools/removal/native_seam_correction.py",
+      "captured_copy": "/tmp/maple-removal-photographic-executed-20261003/tools/removal/native_seam_correction.py",
+      "sha256": "422ef1ddb98445fa051343daf216703fdff3a06d1a10bfa2976c639f10ebea3a"
+    },
+    {
+      "path": "tools/removal/probe_native_seams.py",
+      "captured_copy": "/tmp/maple-removal-photographic-executed-20261003/tools/removal/probe_native_seams.py",
+      "sha256": "219b9e58afa97869787ac6ad6190e6962bc2f53b180ae25c086c769c99b4aafa"
+    },
+    {
+      "path": "tools/removal/klein-research-models.json",
+      "captured_copy": "/tmp/maple-removal-photographic-executed-20261003/tools/removal/klein-research-models.json",
+      "sha256": "692b837c6c70b9db3808ae9502a2fdf6c5e9cea6dd7baf612e2045ce6814523b"
+    },
+    {
+      "path": "tools/removal/probe_lama_scene.py",
+      "captured_copy": "/tmp/maple-removal-photographic-executed-20261003/tools/removal/probe_lama_scene.py",
+      "sha256": "86a1f81ddb03b51dd372d1d9d57035e9250d72946569b0c9a34f701e30365ae6"
+    },
+    {
+      "path": "tools/removal/export_lama_native.py",
+      "captured_copy": "/tmp/maple-removal-photographic-executed-20261003/tools/removal/export_lama_native.py",
+      "sha256": "8cac2884b6809012ce258ddf7c3e16eb894ca19036162d5b9d719003ac1d0ff4"
+    },
+    {
+      "path": "/tmp/maple-removal-run-contrast-person-initial-20261003.sh",
+      "captured_copy": "/tmp/maple-removal-photographic-executed-20261003/tmp/maple-removal-run-contrast-person-initial-20261003.sh",
+      "sha256": "63242b5e2fd3e310ed76622393e4f3f2d10755b7776b5592a1d799b603da090d"
+    },
+    {
+      "path": "/tmp/maple-removal-run-contrast-person-192-20261003.sh",
+      "captured_copy": "/tmp/maple-removal-photographic-executed-20261003/tmp/maple-removal-run-contrast-person-192-20261003.sh",
+      "sha256": "dd0d74071a661bc2794fe76590868bb1294e3a803c2ea7e53f981bff3a0c046e"
+    },
+    {
+      "path": "/tmp/maple-removal-run-lama-person-encoding-20261003.sh",
+      "captured_copy": "/tmp/maple-removal-photographic-executed-20261003/tmp/maple-removal-run-lama-person-encoding-20261003.sh",
+      "sha256": "5fbf2a2d3a30d57ccdcd4e53960f4e3a5055c283af1cfcf65144ec641ec1aa0e"
+    },
+    {
+      "path": "/tmp/maple-removal-photographic-grade-checks-20261003.py",
+      "captured_copy": "/tmp/maple-removal-photographic-executed-20261003/tmp/maple-removal-photographic-grade-checks-20261003.py",
+      "sha256": "261b68206f107b67fba74ac8efbd635f07f7cf90671a710fe42b29c234003f3a"
+    }
+  ],
+  "scientific_figure": {
+    "path": "/tmp/maple-removal-photographic-raw-comparison-20261003.png",
+    "sha256": "cd4604f885dcbb90da6ddb5dcfda3119e97ae32c607e9ac6c96382b94cd78eaf",
+    "scope": "Actual native RAW crop comparison, not a perceptual color gate or hidden-background truth."
+  },
+  "limitations": [
+    "One public RAW and visually reviewed SAM masks; no independent closure/role truth or verified person-release corpus.",
+    "90 known/protected RAW grade image checks and full native float checks establish preservation for these5 valid bakes, not color parity/performance/quality for all consumers or all images.",
+    "One rejected Klein boundary correction has no RAW bake; it is not counted in the90 grade checks.",
+    "Shared M5 Max128GiB host; uncontrolled timings, no supported16/24/32GiB or p50/p95 qualification.",
+    "Current native context cap and large coherent selection strategy, licensing/distribution/runtime integration, all remaining Mac/Web/portable/recovery/performance gates remain."
+  ],
+  "next_work": "Evaluate a mask-trained object-removal route (PowerPaint) on this source-bound native RAW context, first extending its research probe to verified float VAE input rather than u8. Retain all canonical inverse, closure/protection, licensing and device gates; investigate broader coarse guidance if context remains limiting."
+}

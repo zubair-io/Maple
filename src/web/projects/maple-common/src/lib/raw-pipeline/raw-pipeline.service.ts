@@ -13,11 +13,11 @@ import type {
   DecodedImage,
   DecodeRequest,
   SetFilmLutRequest,
-  ExportedFile,
-  RawExportOptions,
   WorkerResponse,
 } from './raw-pipeline.types';
-import { dispatchExport } from './raw-pipeline.export-request';
+import { RawPipelineExportClient } from './raw-pipeline.export-client';
+import { RawPipelineSessionClients } from './raw-pipeline.session-clients';
+import type { RemovalCompanionBundle } from '../removal/removal-companion-bundle';
 import { dispatchAutoAdjust } from './raw-pipeline.auto-adjust-request';
 import {
   dispatchImportLensProfile,
@@ -62,7 +62,6 @@ export type { AutoAdjustPatch } from './raw-pipeline.types';
 import { GpuLiveRenderGate } from './gpu-live-render.gate';
 import { CanvasColorSpacePref } from './canvas-color-space.pref';
 import { isNonRawExtension } from '../state/raw-extensions';
-import { NativeDetailClient } from './raw-pipeline.native-detail';
 import type { NativeDetailArgs, NativeDetailPixels } from './raw-pipeline.native-detail.types';
 import type {
   OpenedLiveSession,
@@ -182,7 +181,7 @@ export class RawPipelineService implements OnDestroy {
     this.workerEpoch.update((epoch) => epoch + 1);
     this.cpuSource.clear();
     this.deepDenoiseProgress.set(null);
-    this.detailClient.workerFailed();
+    this.sessionClients.workerFailed();
     this.pending.forEach(({ reject }) => reject(new Error(message)));
     this.pending.clear();
     this.worker = null;
@@ -195,25 +194,40 @@ export class RawPipelineService implements OnDestroy {
     this.decodeChain = next.catch(() => this.cpuSource.clear());
     return next;
   }
-  private readonly detailClient = new NativeDetailClient(
+  /** Paint/Smart paint preparation (#3934 / #3942), never a slider operation. */
+  private readonly sessionClients = new RawPipelineSessionClients(
     () => this.ensureWorker(),
     () => this.nextId++,
     this.pending,
+    (run) => this.sampleQueue(() => run()),
   );
+  readonly removal = this.sessionClients.removal;
+  readonly savedPreview = this.sessionClients.savedPreview;
+  private readonly exportClient = new RawPipelineExportClient(
+    () => this.ensureWorker(),
+    () => this.nextId++,
+    this.pending,
+    (run) => this.enqueue(run),
+    () => {
+      this.closeNativeDetail();
+      this.cpuSource.clear();
+    },
+  );
+  readonly exportRevision = this.exportClient.revision;
 
   // Called through NativeDetailHost's Pick<RawPipelineService, ...> boundary.
   // fallow-ignore-next-line unused-class-member
   renderNativeDetail(args: NativeDetailArgs): Promise<NativeDetailPixels> {
-    const revision = this.detailClient.revision();
+    const revision = this.sessionClients.nativeDetailRevision();
     const run = () => {
       this.cpuSource.clear();
-      return this.detailClient.render(args, revision);
+      return this.sessionClients.renderNativeDetail(args, revision);
     };
     return this.enqueue(run);
   }
 
   closeNativeDetail(): void {
-    this.detailClient.close();
+    this.sessionClients.closeNativeDetail(this.worker);
   }
 
   /**
@@ -316,6 +330,7 @@ export class RawPipelineService implements OnDestroy {
     ext: string,
     xmp?: string,
     maxLongEdge?: number,
+    savedRemovals?: RemovalCompanionBundle,
   ): Promise<OpenedLiveSession> {
     let worker: Worker;
     try {
@@ -334,11 +349,16 @@ export class RawPipelineService implements OnDestroy {
       xmp,
       maxLongEdge,
       this.colorSpacePref.current(),
+      savedRemovals,
     );
   }
 
   // fallow-ignore-next-line unused-class-member
-  renderLiveSession(xmp?: string, params?: Float32Array): Promise<RenderedLiveSession> {
+  renderLiveSession(
+    xmp?: string,
+    params?: Float32Array,
+    savedRemovals?: RemovalCompanionBundle,
+  ): Promise<RenderedLiveSession> {
     let worker: Worker;
     try {
       worker = this.ensureWorker();
@@ -351,10 +371,10 @@ export class RawPipelineService implements OnDestroy {
       this.pending.set.bind(this.pending),
       xmp,
       params,
+      savedRemovals,
     );
   }
 
-  // fallow-ignore-next-line unused-class-member
   closeLiveSession(): void {
     if (!this.worker) return;
     closeLiveSessionRequest(this.worker, this.nextId++);
@@ -519,42 +539,14 @@ export class RawPipelineService implements OnDestroy {
     }
   };
 
-  /** Render a RAW at export quality and encode it to a deliverable file (#943). */
   exportImage(
-    bytes: Uint8Array,
-    ext: string,
-    options: RawExportOptions,
-    xmp?: string,
-    filmLut?: ArrayBuffer,
-  ): Promise<ExportedFile> {
-    const run = () => {
-      // Export decodes its own sensor data. Release the detail viewer's cached
-      // mosaic first so a large export does not retain two full RAW decodes.
-      this.closeNativeDetail();
-      this.cpuSource.clear();
-      return this.exportOnce(bytes, ext, options, xmp, filmLut);
-    };
-    return this.enqueue(run);
-  }
-
-  private exportOnce(
-    bytes: Uint8Array,
-    ext: string,
-    options: RawExportOptions,
-    xmp: string | undefined,
-    filmLut: ArrayBuffer | undefined,
-  ): Promise<ExportedFile> {
-    let worker: Worker;
-    try {
-      worker = this.ensureWorker();
-    } catch {
-      return Promise.reject(new Error('RawPipelineService: worker unavailable'));
-    }
-    const register = (id: number, handler: PendingHandler) => this.pending.set(id, handler);
-    return dispatchExport(worker, this.nextId++, register, bytes, ext, options, xmp, filmLut);
+    ...args: Parameters<RawPipelineExportClient['exportImage']>
+  ): ReturnType<RawPipelineExportClient['exportImage']> {
+    return this.exportClient.exportImage(...args);
   }
 
   ngOnDestroy(): void {
+    this.sessionClients.close();
     this.cpuSource.clear();
     this.worker?.terminate();
     this.worker = null;

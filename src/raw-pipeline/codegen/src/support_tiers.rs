@@ -103,7 +103,7 @@ fn ts_string(s: &str) -> String {
 /// A `key: <string>,` property at `indent` spaces, broken the way prettier
 /// breaks it: onto a continuation line, indented two further, when the
 /// one-line form would pass 100 columns.
-fn ts_string_prop(indent: usize, key: &str, value: &str) -> String {
+pub(crate) fn ts_string_prop(indent: usize, key: &str, value: &str) -> String {
     let pad = " ".repeat(indent);
     let literal = ts_string(value);
     let compact = format!("{pad}{key}: {literal},");

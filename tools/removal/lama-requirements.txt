@@ -1,0 +1,6 @@
+-r requirements.txt
+torch==2.14.1
+pytorch-lightning==2.6.6
+kornia==0.8.3
+omegaconf==2.3.0
+PyYAML==6.0.3

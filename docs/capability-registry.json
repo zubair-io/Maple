@@ -907,17 +907,17 @@
         "src/apple/Packages/MapleCore/Tests/MapleCoreTests/XMPPassthroughTests.swift",
         "src/apple/Packages/MapleCore/Sources/MapleCore/XmpMetadata+Empty.swift"
       ],
-      "corpus_hash": "blake3:439d40566ea68b5a95de7317edb2ce25252df03ebaefaf25dc767aab7cb11af0",
+      "corpus_hash": "blake3:8a69982ab6300770ad6eaa68489acecd1735b0ed6e898b0fb0698c5126fca825",
       "status": "satisfied",
       "record": {
         "backend": "xctest-macos",
-        "corpus_hash": "blake3:439d40566ea68b5a95de7317edb2ce25252df03ebaefaf25dc767aab7cb11af0",
+        "corpus_hash": "blake3:8a69982ab6300770ad6eaa68489acecd1735b0ed6e898b0fb0698c5126fca825",
         "expected_cases": 12,
         "executed_cases": 12,
         "failed_cases": 0,
         "skipped_cases": 0,
-        "git_sha": "7b9c8fac3117c8df4f5c019581f0d60be2cbdf20",
-        "recorded_at": "2026-11-12T17:48:00Z",
+        "git_sha": "9f316e395cb25d809377b26a9e6abc938656316c",
+        "recorded_at": "2026-11-13T14:34:04Z",
         "command": "swift test --package-path src/apple/Packages/MapleCore --filter SidecarTransactionContract"
       }
     },
@@ -945,17 +945,17 @@
         "src/api/src/fs/xmp.ts",
         "src/api/src/fs/xmp-sidecar-path.ts"
       ],
-      "corpus_hash": "blake3:7ac73219cde678c939e6605deb69d68485d4e9525057eaa38976a1d47fe71c92",
+      "corpus_hash": "blake3:971c69650922114138defe7c139c54d25751be7edf2552819fe8327e25ea804b",
       "status": "satisfied",
       "record": {
         "backend": "bun",
-        "corpus_hash": "blake3:7ac73219cde678c939e6605deb69d68485d4e9525057eaa38976a1d47fe71c92",
+        "corpus_hash": "blake3:971c69650922114138defe7c139c54d25751be7edf2552819fe8327e25ea804b",
         "expected_cases": 4,
         "executed_cases": 4,
         "failed_cases": 0,
         "skipped_cases": 0,
-        "git_sha": "0ea161459444b2117c80f333f1ad34e14d6ac3e0",
-        "recorded_at": "2026-11-13T10:23:30Z",
+        "git_sha": "9f316e395cb25d809377b26a9e6abc938656316c",
+        "recorded_at": "2026-11-13T14:28:01Z",
         "command": "bash -c cd\\ src/api\\ \\&\\&\\ bun\\ test\\ src/routes/xmp.sidecar-contract.test.ts\\ --timeout\\ 30000"
       }
     },
@@ -985,7 +985,7 @@
         "src/raw-pipeline/raw-wasm/src/gpu_render",
         "src/apple/MapleUITests/Fixtures/synthetic/grey-l018-rggb.dng"
       ],
-      "corpus_hash": "blake3:2433bb2f447f78937a4bce0db1b12b52c0e0d9c58ad9599874c1bab98f83d411",
+      "corpus_hash": "blake3:24f0ecd447b3674393b89afea773d2454a453f28cedf45a151f0afb8509ae3cb",
       "status": "stale_corpus",
       "record": {
         "backend": "metal",

@@ -13,6 +13,14 @@ import Foundation
 // keeps the invariant visible at the declaration (#3291 review).
 @MainActor
 extension EditSession {
+  struct ActiveBrushStroke {
+    var maskId: UUID
+    var width: Int
+    var height: Int
+    var accumulator: [Float]
+    var currentDigest: String
+  }
+
   /// Whether the mask overlay should be painted right now (#3364).
   ///
   /// The red tint answers "what is selected", which is what you want

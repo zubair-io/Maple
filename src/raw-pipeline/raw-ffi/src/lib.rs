@@ -136,6 +136,23 @@ mod raster_pipeline;
 // answering a small JSON request ("metadata", "stats", or both) about an
 // encoded image, over `raw_core::raster_analyze`.
 mod raster_analyze;
+mod removal_assets;
+mod removal_composite;
+mod removal_context;
+mod removal_file;
+#[cfg(test)]
+mod removal_file_tests;
+mod removal_generation;
+mod removal_geometry;
+#[cfg(any(feature = "removal", feature = "removal-ios"))]
+mod removal_inference;
+mod removal_people_masks;
+mod removal_prepare;
+mod removal_saved;
+mod removal_selection;
+#[cfg(any(feature = "removal", feature = "removal-ios"))]
+mod removal_selection_inference;
+mod removal_smart;
 mod render;
 mod render_develop;
 // Film-look sibling of `maple_render_file` (epic #2683, Task 8) — split out
@@ -243,6 +260,58 @@ pub use workflow::{
 // integration tests the same way `maple_last_error` is below.
 pub use brush::maple_brush_rasterize;
 pub use mask_registry::{maple_mask_raster_register, maple_mask_raster_release};
+pub use removal_assets::{
+    maple_removal_asset_names_buf, maple_removal_asset_verify, maple_removal_source_verify,
+};
+pub use removal_composite::maple_removal_composite_window_f32;
+pub use removal_context::{
+    maple_removal_calibration_context_f32, maple_removal_calibration_source_buf,
+};
+pub use removal_generation::maple_removal_generation_masks_f32;
+mod removal_edit;
+pub use removal_edit::{
+    maple_removal_saved_edit_buf, maple_removal_saved_list_buf, maple_removal_saved_prefix_buf,
+};
+mod removal_proposal;
+pub use removal_geometry::maple_removal_map_points_buf;
+#[cfg(any(feature = "removal", feature = "removal-ios"))]
+pub use removal_inference::{
+    maple_removal_inference_cancel, maple_removal_inference_free, maple_removal_inference_new,
+    maple_removal_reconstruct_f32, maple_removal_reconstructor_close,
+    maple_removal_reconstructor_digest_buf, maple_removal_reconstructor_open,
+    MapleRemovalInference, MapleRemovalReconstructor,
+};
+pub use removal_people_masks::maple_removal_people_mask_suggestions_buf;
+pub use removal_prepare::{maple_removal_content_digest, maple_removal_prepare_buf};
+pub use removal_proposal::{
+    maple_removal_generation_close, maple_removal_generation_finish_buf,
+    maple_removal_generation_inputs_f32, maple_removal_generation_open,
+    maple_removal_generation_plan_buf, maple_removal_generation_request_buf,
+    maple_removal_paint_intents_buf, MapleRemovalGeneration,
+};
+pub use removal_saved::{
+    maple_removal_saved_close, maple_removal_saved_context_f32, maple_removal_saved_detail,
+    maple_removal_saved_export, maple_removal_saved_free_buffer, maple_removal_saved_open,
+    maple_removal_saved_preview, maple_removal_saved_review_buf,
+    maple_removal_saved_selection_proxy, MapleRemovalBuffer, MapleSavedRemovals,
+};
+pub use removal_selection::{
+    maple_removal_combine_masks_buf, maple_removal_mask_decode_buf,
+    maple_removal_refine_selection_buf, maple_removal_selection_buf,
+};
+#[cfg(any(feature = "removal", feature = "removal-ios"))]
+pub use removal_selection_inference::{
+    maple_removal_detector_close, maple_removal_detector_detect,
+    maple_removal_detector_detect_oriented, maple_removal_detector_open,
+    maple_removal_detector_operation_new, maple_removal_embedding_free,
+    maple_removal_selector_close, maple_removal_selector_encode, maple_removal_selector_open,
+    maple_removal_selector_operation_new, maple_removal_selector_refine, MapleRemovalDetector,
+    MapleRemovalEmbedding, MapleRemovalSelector,
+};
+pub use removal_smart::{
+    maple_removal_people_suggestions_buf, maple_removal_smart_mask_buf,
+    maple_removal_smart_prompts_buf, maple_removal_smart_strokes_buf,
+};
 // #5163: cbindgen needs visibility on the f32 display buffer struct; the
 // entries are re-exported alongside it for Rust integration tests.
 pub use display_f32::{

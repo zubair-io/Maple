@@ -29,3 +29,5 @@ pub mod types;
 
 #[cfg(any(feature = "pano", feature = "pano-classical"))]
 pub mod pano;
+
+mod removal;

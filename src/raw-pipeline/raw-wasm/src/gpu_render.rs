@@ -340,6 +340,11 @@ mod primaries_tests {
     }
 }
 
+#[cfg(any(target_arch = "wasm32", test))]
+#[path = "gpu_render/prefix.rs"]
+mod prefix;
+#[cfg(any(target_arch = "wasm32", test))]
+pub(crate) use prefix::{develop_capture_prefix_rgba_saved, require_prepared_removals};
 /// The decode-boundary + GPU-chain CORE, factored out of [`render_bytes_gpu`] so
 /// a NATIVE (Metal) host test can drive the exact same plumbing the wasm entry
 /// runs — `render_bytes_gpu` is `#[wasm_bindgen]` (wasm-only), but everything
@@ -401,6 +406,7 @@ async fn render_gpu_core_with_status(
         .map_err(|e| format!("render_bytes_gpu: {e}"))?;
     let target = effective_target_long_edge(max_long_edge, &ctx);
 
+    crate::removal_saved::require_no_unresolved_removals(model)?;
     let prefix = develop_capture_prefix_rgba(raw_img, raw, ext, model, target)?;
     let (rgba, w, h) = (&prefix.rgba, prefix.width, prefix.height);
     // Film looks are session-resident; one-shot renders have no uploaded LUT.

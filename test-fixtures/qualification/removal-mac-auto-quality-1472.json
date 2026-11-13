@@ -1,0 +1,533 @@
+{
+  "issue": 1472,
+  "date": "2026-10-02",
+  "scope": "Mac-first Auto-fit C-FFI quality correction; no default profile, fit-size policy, shared color math, WGSL or budget change",
+  "baseRevision": "b03b8fb53d48ff0bc67e7bdff0411463a1f8db73",
+  "sourceHashes": {
+    "src/raw-pipeline/raw-ffi/src/auto_profile.rs": "9c1e6763f8c609e0acc47e5d9af290740074efafa71022f3ca5a1cd2c015601e",
+    "src/raw-pipeline/raw-ffi/src/gpu_auto_profile.rs": "d676d2ab0d6358bfe4acda3eb10082439250ee964a3c1a8ec98330e52584efac",
+    "src/raw-pipeline/raw-ffi/src/auto_profile_quality_tests.rs": "40435a4e59edb3a56eb9bdccbf9771b1a3bdd491231b068b606dada1384fe228",
+    "src/raw-pipeline/raw-ffi/src/lib.rs": "8b74daa8c19a46feddb6ae916c0b22b780aa62077139efc30a1f9d26d37c5066",
+    "src/apple/Packages/MapleCore/Tests/MapleCoreTests/ReportedExportParityTests+Removal.swift": "fee0c4af24b8844680a9dc5fefc613c589d999622710f58cabe08257f5ff53ae",
+    "src/apple/Packages/MapleCore/Tests/MapleCoreTests/Performance/EditorWorkflowPerfTests+Removal.swift": "8de4b179d92c73f6066b1cdc2da719f556e11f7b1eb9cf623146bdf6c052166b"
+  },
+  "qualityContract": {
+    "0": "Full",
+    "1": "Preview",
+    "2": "AMaZE",
+    "3": "Auto",
+    "other": "Full, same fallback as existing render/decode ABI"
+  },
+  "change": "Use the existing render/decode quality discriminants in Auto curve, composed cube and GPU-artifact fitting instead of treating every nonzero value as Preview",
+  "regressionMethod": "Distinct real cached curve/residual artifacts for all four qualities on unique undecodable temporary files; exact output comparisons prove selected cache identity and no decode on a hit",
+  "verification": [
+    {
+      "command": "cargo test -p raw-ffi --features gpu auto_profile -- --test-threads=1 (before fix)",
+      "result": "2 added regressions failed: AMaZE selected Preview artifacts",
+      "log": {
+        "path": "/tmp/maple-removal-auto-quality-before-20261002.log",
+        "sha256": "2da066a28a248d00f93b04a305ed8954313d6759a070ee6340796074c171c85f"
+      }
+    },
+    {
+      "command": "cargo test -p raw-ffi --features gpu --lib -- --test-threads=1",
+      "result": "302 passed, 0 failed, 5 existing ignores",
+      "log": {
+        "path": "/tmp/maple-removal-auto-quality-ffi-full-20261002.log",
+        "sha256": "9c6cd918920e2f60a67aa5fda223232795bf82ec5fd82995ec2dc43f1a108b3d"
+      }
+    },
+    {
+      "command": "cargo test -p raw-ffi --features gpu auto_profile_quality_tests -- --test-threads=1",
+      "result": "2 passed, 0 failed, 0 ignored; all four quality entries checked",
+      "log": {
+        "path": "/tmp/maple-removal-auto-quality-regressions-formatted-20261002.log",
+        "sha256": "e1e4eac127d5080f15e5153aa896a7387f358b2f82a52273bdd05bcc736fe20f"
+      }
+    },
+    {
+      "command": "./src/apple/scripts/build-xcframework.sh",
+      "result": "Four Apple release targets built; 157 declared symbols checked with platform exclusions",
+      "inputHash": "6f020ec71a6d8e4d41269757e6626b6880d665e0",
+      "freshness": "--check-only exit 0 after final rebuild",
+      "log": {
+        "path": "/tmp/maple-removal-auto-quality-xcframework-formatted-20261002.log",
+        "sha256": "b6e758bda7e70d87c89029b63d6b3567f89bedec0dd5932f7894abfbeee7eaca"
+      }
+    },
+    {
+      "command": "xcodebuild -project src/apple/Maple.xcodeproj -scheme Maple -destination 'platform=macOS' build",
+      "result": "BUILD SUCCEEDED",
+      "log": {
+        "path": "/tmp/maple-removal-auto-quality-mac-build-formatted-20261002.log",
+        "sha256": "6d843c5c34321c51fa942814f6fce477b73f1a5ef66a0bde9a92347791275540"
+      }
+    },
+    {
+      "command": "swift test --configuration release --filter 'RemovalExportSnapshotTests|RemovalRenderRecoveryTests|NativeSavedRemovalSessionTests|RemovalSceneHandoffTests|AutoCubeEncodeErrorPathTests'",
+      "result": "12 passed, 0 failures, 0 skips",
+      "seconds": 3.093,
+      "log": {
+        "path": "/tmp/maple-removal-auto-quality-swift-regressions-formatted-20261002.log",
+        "sha256": "289949e202064edd688096475bc17e146ae99e6b28aabfac8d262d536730fd8b"
+      }
+    },
+    {
+      "command": "swift test --configuration release --filter ReportedExportParityTests/testPhotographicSavedRemovalExportDiagnostic",
+      "result": "1 attribution test passed, 0 failures/skips; not a parity acceptance gate",
+      "seconds": 44.111,
+      "log": {
+        "path": "/tmp/maple-removal-auto-quality-photo-installed-final-20261002.log",
+        "sha256": "7e01139920a4dfae0a80cde1bd14a410f9aa321af6c0926a0f21d3bb5d1aac39"
+      }
+    },
+    {
+      "command": "MANIFEST=/Users/riabuz/Projects/_Maple/test-fixtures/references/manifest.json FILTER=baseline src/scripts/test_color_pipeline.sh",
+      "result": "Exit 1: 40 comparisons, 1 known Neutral test_0011 budget breach, 0 skips/errors; Auto 20/20 passes; detail filter has zero cases",
+      "log": {
+        "path": "/tmp/maple-removal-auto-quality-color-baseline-installed-20261002.log",
+        "sha256": "4cc19f5241a1cd48d9bc37eebb4a8c99e3143dadd57a9ab69ac00fd1e3a82935"
+      }
+    }
+  ],
+  "setupAttempts": [
+    {
+      "result": "Initial photographic run failed before rendering: private corpus missing accepted XMP and companions. Restored read-only copies of verified native-session assets; all hashes match earlier evidence",
+      "log": {
+        "path": "/tmp/maple-removal-auto-quality-photo-final-20261002.log",
+        "sha256": "988d502cbeb880d2d0c0b60dd901e4ec233fe0d9961fe3005bb6224e79e5836f"
+      }
+    },
+    {
+      "result": "Initial baseline command without MANIFEST override skipped for missing worktree manifest; not counted as pass",
+      "log": {
+        "path": "/tmp/maple-removal-auto-quality-color-baseline-20261002.log",
+        "sha256": "cb8b67bddd09cea610e5f8a5d6036cff9e899b8894fbdaaffd78c99077f31257"
+      }
+    },
+    {
+      "result": "Controlled 100MP corpus was incomplete. Regenerated in a new directory, matched all previously committed file hashes and source anchor, preserved incomplete folder, then installed complete corpus",
+      "log": {
+        "path": "/tmp/maple-removal-auto-quality-perf-fixtures-20261002.log",
+        "sha256": "17ce775dc2a4fb5a566b70c8887168c4c7a9cd9ca0eb5ecdb326a4f65795c5ff"
+      }
+    }
+  ],
+  "photographicCorpus": {
+    "source": "test-fixtures/raws/removal-photographic/portrait.dng",
+    "dimensions": [7216, 5412],
+    "sha256": "4a4154b2595dc76a7d5e10cdcb65a386319e31647a585c23e262fe62b969c0fe",
+    "xmpSha256": "eafcb3022d6de1c7cc8e6b7af2ed9301b86ae6b37f6b81af9fdd05b87b5b426d",
+    "acceptedRecords": 2,
+    "companionCount": 4,
+    "controlManifestSha256": "57eaffa22459ee1e9ab762ed6aee1772afeb0c0066eca72e1bd7fd69ca04b20f",
+    "integrity": "Exact source/accepted sidecar preserved; all three FFI AMaZE proxy cubes equal independently generated AMaZE control bytes"
+  },
+  "attributionCorrection": {
+    "priorEvidence": "test-fixtures/qualification/removal-mac-export-attribution-1472.json",
+    "priorLimitation": "The prior FFI calls labeled AMaZE selected Preview. Native controls used AMaZE, so that comparison did not isolate fit size",
+    "newEvidence": "After the fix, all 15 reports are numerically identical to the prior reports for this fixture, and FFI AMaZE proxy cubes exactly match independent AMaZE controls. At fixed AMaZE quality and fixed 33 cube, native-size control reduces max12 to3 and mean0.607928 to0.305082",
+    "conclusion": "Quality marshaling is corrected but does not reduce this photographic discrepancy; fit-size alignment remains required. This one unchanged photographic output does not qualify quality parity across sensors"
+  },
+  "photographicReports": [
+    {
+      "accepted": false,
+      "artifact": "/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/maple-1472-photographic-export-parity",
+      "case": "photographic-removal-export",
+      "channelsOver1": 0,
+      "height": 5412,
+      "limit": "Attribution diagnostic; not a passing parity budget",
+      "maximumChannelError": 1,
+      "meanChannelError": 0.25007013547131035,
+      "profile": "neutral",
+      "stage": "developed",
+      "width": 7216
+    },
+    {
+      "accepted": false,
+      "artifact": "/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/maple-1472-photographic-export-parity",
+      "case": "photographic-removal-export",
+      "channelsOver1": 0,
+      "height": 5412,
+      "limit": "Attribution diagnostic; not a passing parity budget",
+      "maximumChannelError": 1,
+      "meanChannelError": 0.25007013547131035,
+      "profile": "neutral",
+      "stage": "delivered",
+      "width": 7216
+    },
+    {
+      "accepted": true,
+      "artifact": "/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/maple-1472-photographic-export-parity",
+      "case": "photographic-removal-export",
+      "channelsOver1": 0,
+      "height": 5412,
+      "limit": "Attribution diagnostic; not a passing parity budget",
+      "maximumChannelError": 1,
+      "meanChannelError": 0.25008143635533314,
+      "profile": "neutral",
+      "stage": "developed",
+      "width": 7216
+    },
+    {
+      "accepted": true,
+      "artifact": "/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/maple-1472-photographic-export-parity",
+      "case": "photographic-removal-export",
+      "channelsOver1": 0,
+      "height": 5412,
+      "limit": "Attribution diagnostic; not a passing parity budget",
+      "maximumChannelError": 1,
+      "meanChannelError": 0.25008143635533314,
+      "profile": "neutral",
+      "stage": "delivered",
+      "width": 7216
+    },
+    {
+      "accepted": false,
+      "artifact": "/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/maple-1472-photographic-export-parity",
+      "case": "photographic-removal-export",
+      "channelsOver1": 8360717,
+      "height": 5412,
+      "limit": "Attribution diagnostic; not a passing parity budget",
+      "maximumChannelError": 12,
+      "meanChannelError": 0.6081861879707792,
+      "profile": "auto",
+      "stage": "developed",
+      "width": 7216
+    },
+    {
+      "accepted": false,
+      "artifact": "/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/maple-1472-photographic-export-parity",
+      "case": "photographic-removal-export",
+      "channelsOver1": 8360717,
+      "height": 5412,
+      "limit": "Attribution diagnostic; not a passing parity budget",
+      "maximumChannelError": 12,
+      "meanChannelError": 0.6081861879707792,
+      "profile": "auto",
+      "stage": "delivered",
+      "width": 7216
+    },
+    {
+      "accepted": true,
+      "artifact": "/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/maple-1472-photographic-export-parity",
+      "case": "photographic-removal-export",
+      "channelsOver1": 8337915,
+      "height": 5412,
+      "limit": "Attribution diagnostic; not a passing parity budget",
+      "maximumChannelError": 12,
+      "meanChannelError": 0.6079282905306376,
+      "profile": "auto",
+      "stage": "developed",
+      "width": 7216
+    },
+    {
+      "accepted": true,
+      "artifact": "/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/maple-1472-photographic-export-parity",
+      "case": "photographic-removal-export",
+      "channelsOver1": 8337915,
+      "height": 5412,
+      "limit": "Attribution diagnostic; not a passing parity budget",
+      "maximumChannelError": 12,
+      "meanChannelError": 0.6079282905306376,
+      "profile": "auto",
+      "stage": "delivered",
+      "width": 7216
+    },
+    {
+      "case": "photographic-removal-auto-cube",
+      "channelsOver1": 8337915,
+      "dimension": 33,
+      "fitOrigin": "standalone-proxy",
+      "limit": "Attribution diagnostic; production cube unchanged",
+      "maximumChannelError": 12,
+      "meanChannelError": 0.6079282905306376
+    },
+    {
+      "case": "photographic-removal-auto-cube",
+      "channelsOver1": 6841461,
+      "dimension": 49,
+      "fitOrigin": "standalone-proxy",
+      "limit": "Attribution diagnostic; production cube unchanged",
+      "maximumChannelError": 12,
+      "meanChannelError": 0.5544781135676706
+    },
+    {
+      "case": "photographic-removal-auto-cube",
+      "channelsOver1": 7355926,
+      "dimension": 65,
+      "fitOrigin": "standalone-proxy",
+      "limit": "Attribution diagnostic; production cube unchanged",
+      "maximumChannelError": 12,
+      "meanChannelError": 0.5666548843854695
+    },
+    {
+      "case": "photographic-removal-auto-cube",
+      "channelsOver1": 46169,
+      "dimension": 33,
+      "fitOrigin": "native-control",
+      "limit": "Uncached diagnostic native fit; production policy unchanged",
+      "maximumChannelError": 3,
+      "meanChannelError": 0.30508190853426376
+    },
+    {
+      "case": "photographic-removal-auto-cube",
+      "channelsOver1": 966365,
+      "dimension": 49,
+      "fitOrigin": "native-control",
+      "limit": "Uncached diagnostic native fit; production policy unchanged",
+      "maximumChannelError": 4,
+      "meanChannelError": 0.3075535330728736
+    },
+    {
+      "case": "photographic-removal-auto-cube",
+      "channelsOver1": 91,
+      "dimension": 65,
+      "fitOrigin": "native-control",
+      "limit": "Uncached diagnostic native fit; production policy unchanged",
+      "maximumChannelError": 2,
+      "meanChannelError": 0.2826351520859998
+    },
+    {
+      "case": "photographic-removal-full-metal",
+      "channelsOver1": 4752154,
+      "height": 5412,
+      "limit": "Attribution diagnostic; full-resolution readback is not a live-slider benchmark",
+      "maximumChannelError": 12,
+      "meanChannelError": 0.43763975881796713,
+      "width": 7216
+    }
+  ],
+  "performance": {
+    "command": "MAPLE_PERF=1 swift test --configuration release --filter EditorWorkflowPerfTests/test100MPAcceptedRemovalStacksAt60Hz",
+    "result": "1 passed, 0 failures/skips; 360/360 inputs published; none above16ms",
+    "seconds": 12.365,
+    "log": {
+      "path": "/tmp/maple-removal-auto-quality-perf-final-20261002.log",
+      "sha256": "470a66aaec02df8512488284b8388f84d453de7e6aabd870636e851ef69eaea5"
+    },
+    "maximumTickMs": 9.596625,
+    "framesMatchPreviousNominalRuns": true,
+    "rows": [
+      {
+        "case": "100MP-accepted-removals",
+        "chip": "Apple M5 Max",
+        "coldOpenMs": 1022.834084,
+        "commitSha": "b03b8fb53d48ff0bc67e7bdff0411463a1f8db73",
+        "deviceModel": "Mac17,6",
+        "excludes": "gesture dispatch, scanout, allocation trace, inference and AI quality",
+        "fixture": "dji-mavic3pro-100mp.dng",
+        "frameDigest": "blake3:a8679e0411bf663c1dcd628bd13e5f85d69d9a3dba404e142bb9fd1d1f8f67b0",
+        "gpu": "Apple M5 Max",
+        "hardLimitMs": 50,
+        "osVersion": "Version 27.0 (Build 26A428)",
+        "patchCount": 0,
+        "patchHeight": 512,
+        "patchWidth": 512,
+        "profile": "auto",
+        "refreshRateHz": 60,
+        "sourceDigest": "blake3:fed0379afc16033a471279c7391b572b19572ab03d058feebbd16bf3a21f7107",
+        "targetMs": 16,
+        "thermalState": "fair",
+        "tickContrast": {
+          "maxMs": 3.628792,
+          "over16": 0,
+          "p50Ms": 1.825333,
+          "p95Ms": 3.544417,
+          "published": 60
+        },
+        "tickExposure": {
+          "maxMs": 4.088667,
+          "over16": 0,
+          "p50Ms": 1.828541,
+          "p95Ms": 3.613875,
+          "published": 60
+        },
+        "viewportHeight": 1280,
+        "viewportWidth": 1920
+      },
+      {
+        "case": "100MP-accepted-removals",
+        "chip": "Apple M5 Max",
+        "coldOpenMs": 1201.191583,
+        "commitSha": "b03b8fb53d48ff0bc67e7bdff0411463a1f8db73",
+        "deviceModel": "Mac17,6",
+        "excludes": "gesture dispatch, scanout, allocation trace, inference and AI quality",
+        "fixture": "dji-mavic3pro-100mp.dng",
+        "frameDigest": "blake3:a3470e1ba5c1ba84335edaaf3701b5f3e62ab59614e41aafc816a1a0612d41cf",
+        "gpu": "Apple M5 Max",
+        "hardLimitMs": 50,
+        "osVersion": "Version 27.0 (Build 26A428)",
+        "patchCount": 1,
+        "patchHeight": 512,
+        "patchWidth": 512,
+        "profile": "auto",
+        "refreshRateHz": 60,
+        "sourceDigest": "blake3:fed0379afc16033a471279c7391b572b19572ab03d058feebbd16bf3a21f7107",
+        "targetMs": 16,
+        "thermalState": "fair",
+        "tickContrast": {
+          "maxMs": 9.596625,
+          "over16": 0,
+          "p50Ms": 1.816125,
+          "p95Ms": 4.306833,
+          "published": 60
+        },
+        "tickExposure": {
+          "maxMs": 3.641041,
+          "over16": 0,
+          "p50Ms": 1.659042,
+          "p95Ms": 3.492291,
+          "published": 60
+        },
+        "viewportHeight": 1280,
+        "viewportWidth": 1920
+      },
+      {
+        "case": "100MP-accepted-removals",
+        "chip": "Apple M5 Max",
+        "coldOpenMs": 1500.876834,
+        "commitSha": "b03b8fb53d48ff0bc67e7bdff0411463a1f8db73",
+        "deviceModel": "Mac17,6",
+        "excludes": "gesture dispatch, scanout, allocation trace, inference and AI quality",
+        "fixture": "dji-mavic3pro-100mp.dng",
+        "frameDigest": "blake3:44e68202fb11d59958f4ccc44b4bc15d76f810626b745ee87387d04619884036",
+        "gpu": "Apple M5 Max",
+        "hardLimitMs": 50,
+        "osVersion": "Version 27.0 (Build 26A428)",
+        "patchCount": 10,
+        "patchHeight": 512,
+        "patchWidth": 512,
+        "profile": "auto",
+        "refreshRateHz": 60,
+        "sourceDigest": "blake3:fed0379afc16033a471279c7391b572b19572ab03d058feebbd16bf3a21f7107",
+        "targetMs": 16,
+        "thermalState": "fair",
+        "tickContrast": {
+          "maxMs": 6.605458,
+          "over16": 0,
+          "p50Ms": 1.757084,
+          "p95Ms": 3.589542,
+          "published": 60
+        },
+        "tickExposure": {
+          "maxMs": 8.849042,
+          "over16": 0,
+          "p50Ms": 1.593333,
+          "p95Ms": 3.502416,
+          "published": 60
+        },
+        "viewportHeight": 1280,
+        "viewportWidth": 1920
+      }
+    ],
+    "inputAndPublication": [
+      {
+        "case": "removal-0-exposure",
+        "deliveredInputHz": 59.95355121990961,
+        "inputIntervalMaxMs": 17.835292,
+        "inputIntervalP50Ms": 16.662375,
+        "inputIntervalP95Ms": 17.736334,
+        "inputIntervalsOver17ms": 16,
+        "inputs": 60,
+        "inputSpanMs": 984.095167,
+        "maxMs": 4.088667,
+        "missedOrCoalesced": 0,
+        "over16ms": 0,
+        "p50Ms": 1.828541,
+        "p95Ms": 3.613875,
+        "published": 60
+      },
+      {
+        "case": "removal-0-contrast",
+        "deliveredInputHz": 59.950556053245094,
+        "inputIntervalMaxMs": 17.787834,
+        "inputIntervalP50Ms": 16.6845,
+        "inputIntervalP95Ms": 17.596542,
+        "inputIntervalsOver17ms": 19,
+        "inputs": 60,
+        "inputSpanMs": 984.144333,
+        "maxMs": 3.628792,
+        "missedOrCoalesced": 0,
+        "over16ms": 0,
+        "p50Ms": 1.825333,
+        "p95Ms": 3.544417,
+        "published": 60
+      },
+      {
+        "case": "removal-1-exposure",
+        "deliveredInputHz": 59.93142167280824,
+        "inputIntervalMaxMs": 17.634417,
+        "inputIntervalP50Ms": 16.653958,
+        "inputIntervalP95Ms": 17.550041,
+        "inputIntervalsOver17ms": 18,
+        "inputs": 60,
+        "inputSpanMs": 984.458542,
+        "maxMs": 3.641041,
+        "missedOrCoalesced": 0,
+        "over16ms": 0,
+        "p50Ms": 1.659042,
+        "p95Ms": 3.492291,
+        "published": 60
+      },
+      {
+        "case": "removal-1-contrast",
+        "deliveredInputHz": 59.933113629374134,
+        "inputIntervalMaxMs": 17.657042,
+        "inputIntervalP50Ms": 16.668542,
+        "inputIntervalP95Ms": 17.589375,
+        "inputIntervalsOver17ms": 16,
+        "inputs": 60,
+        "inputSpanMs": 984.43075,
+        "maxMs": 9.596625,
+        "missedOrCoalesced": 0,
+        "over16ms": 0,
+        "p50Ms": 1.816125,
+        "p95Ms": 4.306833,
+        "published": 60
+      },
+      {
+        "case": "removal-10-exposure",
+        "deliveredInputHz": 59.95553632389706,
+        "inputIntervalMaxMs": 17.808792,
+        "inputIntervalP50Ms": 16.65725,
+        "inputIntervalP95Ms": 17.750833,
+        "inputIntervalsOver17ms": 15,
+        "inputs": 60,
+        "inputSpanMs": 984.062584,
+        "maxMs": 8.849042,
+        "missedOrCoalesced": 0,
+        "over16ms": 0,
+        "p50Ms": 1.593333,
+        "p95Ms": 3.502416,
+        "published": 60
+      },
+      {
+        "case": "removal-10-contrast",
+        "deliveredInputHz": 59.988035396507634,
+        "inputIntervalMaxMs": 22.093125,
+        "inputIntervalP50Ms": 16.694,
+        "inputIntervalP95Ms": 17.825167,
+        "inputIntervalsOver17ms": 17,
+        "inputs": 60,
+        "inputSpanMs": 983.529459,
+        "maxMs": 6.605458,
+        "missedOrCoalesced": 0,
+        "over16ms": 0,
+        "p50Ms": 1.757084,
+        "p95Ms": 3.589542,
+        "published": 60
+      }
+    ],
+    "limits": "Single descriptive follow-up at fair thermal state, not a controlled performance ratchet; all three cold opens exceed1s. No allocation/peak-memory, physical gesture/scanout, inference, AI quality or hardware-fleet qualification"
+  },
+  "styleAndCoverage": "Strict Swift/rustfmt checks and file budget pass; one existing below-headroom soft warning at487 LOC. Swift regression coverage445 classes:245 run,200 explicitly excluded,0 untriaged",
+  "remaining": [
+    "Implement shared-Rust native-size Auto artifact selection and exact tail for Mac full export; do not hide interpolation error by increasing cube size or budgets",
+    "Representative GPU/CPU/full/tile/delivery parity across RAWs and edits; known Neutral broad color failure remains",
+    "Mac crowd/tiny-person/protected-overlap/large-ROI/HDR/noise/seam quality, portability and actual corrupt native repair, model licensing/signing/distribution",
+    "Improve cold-open latency; trace allocation/peak-memory and physical gesture/scanout across hardware",
+    "Fresh-main CI and every ordered epic slice must land; full goal active. Further ports follow Mac qualification"
+  ],
+  "formatRepair": "Normal commit hook caught Rust cfg(test) module declaration ordering; repaired ordering only, then reran focused C regressions, rebuilt all Apple release slices, passed source freshness/symbol checks, Mac app build and 12 Swift regressions. Earlier photographic/performance/full-C results remain for the same functional implementation"
+}

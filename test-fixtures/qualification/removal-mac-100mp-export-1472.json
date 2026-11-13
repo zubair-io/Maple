@@ -1,0 +1,452 @@
+{
+  "issue": 1472,
+  "date": "2026-10-02",
+  "baseRevision": "e5d84fad4250bed84748b29cc9db6042e69e6fac",
+  "scope": "Mac-first RAW WB authorship and actual 100MP full PNG/TIFF delivery; full removal goal remains active, ports deferred",
+  "sourceHashes": {
+    "docs/xmp-canonical-format.md": "367a78a18e36a51500eb2203837715b8545b0d9a3f3c8420c6708f02e9ea12b4",
+    "src/apple/Maple.xcodeproj/project.pbxproj": "72c319720574e79dbcb7db09f4fc7e12673a75e35bad31ad1908747abc01b996",
+    "src/apple/Packages/MapleCore/Sources/MapleCore/AdjustmentModel+Edited.swift": "90b96c7f59f0151f43ece1fddf402c0d50640a36292fce62c67e8a28f9056ab4",
+    "src/apple/Packages/MapleCore/Sources/MapleCore/AdjustmentModel+WhiteBalancePresence.swift": "de8388f11076e4941ae3d0bfe78aaa31172f63292f6afe9feb9d87694cad80da",
+    "src/apple/Packages/MapleCore/Sources/MapleCore/AdjustmentModel.swift": "3b8fcd0baeec2d92b0675bed37beb6f437b48c4b2c45dc978de4947f566fb391",
+    "src/apple/Packages/MapleCore/Sources/MapleCore/EditSession+Hydration.swift": "7aecaf1797ff6cf568d6dc4d3a0d24e5bc33836c162b3fd2c19e9ccc97749e4d",
+    "src/apple/Packages/MapleCore/Sources/MapleCore/Editor/AdjustmentGroupMerge.swift": "1852f10a19167cab3e86f54e9fac9552394bbc8a724ac946d54629cda4f38eb9",
+    "src/apple/Packages/MapleCore/Sources/MapleCore/GpuLiveParams.swift": "8e7f6c459bf353c7ecbccfa8d640ce0be23d948e85db506db3dfb14a54fd86e5",
+    "src/apple/Packages/MapleCore/Sources/MapleCore/PipelineRenderer.swift": "cb613a7a09350958b396a0b02f031622600a1a073f48a958cfcf770623b272f6",
+    "src/apple/Packages/MapleCore/Sources/MapleCore/RawCoreBridge.swift": "05408d4fb1ed299fb78783e2bb256bd621297ef91b0fa038a190b0b0d486d3f4",
+    "src/apple/Packages/MapleCore/Sources/MapleCore/SceneLinearChainCache.swift": "0fe25d086ac3e9ae1f517f55411859696af65a1a58ab73345f0f08cf76b5b276",
+    "src/apple/Packages/MapleCore/Sources/MapleCore/WhiteBalancePresenceValue.swift": "ea67c56ec43423992b5b9fdec2a39db5a831d7687b5e14ea48acb211269275da",
+    "src/apple/Packages/MapleCore/Sources/MapleCore/XMPSerialization+Attrs.swift": "592950928afcc4c7e3eac990acc6028c22aa680bb722385d6c0aec9e67bb81d2",
+    "src/apple/Packages/MapleCore/Sources/MapleCore/XMPSerialization+ParseAttrs.swift": "ee53bbba8ae6ac9a43c30701116ed31b110600d69961e7ed4fe7cfc2897d434f",
+    "src/apple/Packages/MapleCore/Sources/MapleCore/XMPSerialization.swift": "5fa4ce017f12a62acf732e51229851cccbee65e61db2954bb1e713ebdc52e535",
+    "src/apple/Packages/MapleCore/Tests/MapleCoreTests/NativeFloatExportTests.swift": "5ab9990dfe47fb5a0ce58837a9781f674860de434118fc5e53b38ff161734614",
+    "src/apple/Packages/MapleCore/Tests/MapleCoreTests/ReportedExportParityTests+100MP.swift": "39461245d6132575c2c15e55a610eaac64cec3b647095c680e69d14f37e0233a",
+    "src/apple/Packages/MapleCore/Tests/MapleCoreTests/SceneLinearChainCacheTests+WhiteBalancePresence.swift": "246d45621a916f29377ba828bbd6bd152300d7b81c52c172b79b97d49d1e9b5f",
+    "src/apple/Packages/MapleCore/Tests/MapleCoreTests/WbSliderFrameTests.swift": "0b5f7919cd65062f08d213e6a930523d276b083600d3bb7867442818463baf18",
+    "src/apple/Packages/MapleCore/Tests/MapleCoreTests/XMPSerializationTests+WhiteBalancePresence.swift": "4cd468a0a810977a8ce2d5f868026b9f9bd9588dfe1fb4dc57fef5b6897542b5"
+  },
+  "implementation": [
+    "Preserve independent Temperature/Tint presence through Swift XMP, JSON history, sidecar saves, group paste and export snapshots. Legacy JSON and programmatic models retain explicit-pair meaning; existing XMP vocabulary and schema are unchanged.",
+    "Hydrate omitted components from the camera without authoring numbers; late decode refines each untouched component independently. CPU and Metal bindings resolve imported absence/partial WB in the actual slider frame.",
+    "Decode cache keys canonicalize stripped WB presence; scene-chain keys include authorship and preset. Same-number explicit WB edits cannot hit As Shot pixels.",
+    "Remove Xcode automatic recursive deletion of fixture XMP/.maple trees; the actual Mac build preserves all 24 owned controlled-fixture files."
+  ],
+  "validation": {
+    "ciAllowlist": {
+      "classes": 247,
+      "tests": 2028,
+      "failures": 0,
+      "skipped": 0,
+      "seconds": 36.958,
+      "log": "/tmp/maple-removal-wb-presence-ci-final-20261002.log"
+    },
+    "focused": {
+      "tests": 32,
+      "failures": 0,
+      "skipped": 0,
+      "seconds": 1.159,
+      "log": "/tmp/maple-removal-wb-presence-final-focused-20261002.log"
+    },
+    "macBuild": {
+      "result": "BUILD SUCCEEDED",
+      "scheme": "Maple",
+      "log": "/tmp/maple-removal-preserve-fixtures-mac-build-20261002.log",
+      "preservedFixtureFiles": 24
+    },
+    "nativeLibrary": {
+      "fresh": true,
+      "inputHash": "0bb9e684802cf258af53a9c1577ce4ea9e4efab0",
+      "check": "build-xcframework.sh --check-only"
+    },
+    "coverage": {
+      "classes": 446,
+      "run": 247,
+      "excluded": 199,
+      "untriaged": 0
+    },
+    "fileBudget": "No hard or headroom violations; owned Swift formatting and git diff checks pass",
+    "explicitMissingFixtureControl": {
+      "result": "expected exit 1, zero skips; exact owned stack-0 sidecar restored",
+      "log": "/tmp/maple-removal-100mp-missing-fixture-control-20261002.log"
+    },
+    "fullExports": {
+      "passed": 6,
+      "failed": 0,
+      "skipped": 0,
+      "RGBChannelsComparedPerCase": 301989888,
+      "maximumChannelError": 1,
+      "channelsOver1": 0,
+      "reports": [
+        {
+          "artifactDirectory": "/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/100mp-export-1472-36198425-29EA-4CC6-955B-8D3C0AD7F59D",
+          "bitsPerComponent": 8,
+          "case": "100MP-native-float-removal-export",
+          "channelsOver1": 0,
+          "chip": "Apple M5 Max",
+          "commitSha": "e5d84fad4250bed84748b29cc9db6042e69e6fac",
+          "deliveredRGBADigest": "blake3:1a46b2300808083ef61a060ea30bcd4cf37d628fd5d4c60d2eeb2994e5aa3dfa",
+          "deliveryPeakRSSBytes": 14102560768,
+          "deviceModel": "Mac17,6",
+          "exportBytes": 180860108,
+          "exportMs": 9684.857292,
+          "format": "png",
+          "gpu": "Apple M5 Max",
+          "height": 8192,
+          "maximumChannelError": 1,
+          "meanChannelError": 0.25000638100836015,
+          "memoryScope": "Fresh process high-water RSS through exportData, before verification; includes fixture staging/test runtime; excludes subsequent ImageIO decode/reference render",
+          "osVersion": "Version 27.0 (Build 26A428)",
+          "parityLimit": "Maximum 1/255 and zero channels over 1, all 301989888 RGB channels",
+          "parityPassed": true,
+          "patchCount": 0,
+          "phase": "comparison",
+          "physicalMemoryBytes": 137438953472,
+          "profile": "auto",
+          "quality": "amaze",
+          "refreshRateHz": 60,
+          "sourceSha256": "f4b60b3672bdf7ff7f4376fba9da1b1d22c925ebc3e16baa5fd4a64fa1045aa5",
+          "thermalState": "nominal",
+          "timingScope": "Production full render plus encode, before file write; native caches cold, OS source pages warmed by identity check/copy; no live viewport or inference",
+          "width": 12288,
+          "log": "/tmp/maple-removal-100mp-final-ZeroRemovalPNG-20261002.log"
+        },
+        {
+          "artifactDirectory": "/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/100mp-export-1472-2C8374B2-D641-4809-A045-4F57903BCB9D",
+          "bitsPerComponent": 8,
+          "case": "100MP-native-float-removal-export",
+          "channelsOver1": 0,
+          "chip": "Apple M5 Max",
+          "commitSha": "e5d84fad4250bed84748b29cc9db6042e69e6fac",
+          "deliveredRGBADigest": "blake3:1aeb21b947f922775fe75cc8c77beba57c69a48bfba9d402daa7fe6c12385acc",
+          "deliveryPeakRSSBytes": 15317532672,
+          "deviceModel": "Mac17,6",
+          "exportBytes": 180334047,
+          "exportMs": 18022.771,
+          "format": "png",
+          "gpu": "Apple M5 Max",
+          "height": 8192,
+          "maximumChannelError": 1,
+          "meanChannelError": 0.2501709693007999,
+          "memoryScope": "Fresh process high-water RSS through exportData, before verification; includes fixture staging/test runtime; excludes subsequent ImageIO decode/reference render",
+          "osVersion": "Version 27.0 (Build 26A428)",
+          "parityLimit": "Maximum 1/255 and zero channels over 1, all 301989888 RGB channels",
+          "parityPassed": true,
+          "patchCount": 1,
+          "phase": "comparison",
+          "physicalMemoryBytes": 137438953472,
+          "profile": "auto",
+          "quality": "amaze",
+          "refreshRateHz": 60,
+          "sourceSha256": "f4b60b3672bdf7ff7f4376fba9da1b1d22c925ebc3e16baa5fd4a64fa1045aa5",
+          "thermalState": "nominal",
+          "timingScope": "Production full render plus encode, before file write; native caches cold, OS source pages warmed by identity check/copy; no live viewport or inference",
+          "width": 12288,
+          "log": "/tmp/maple-removal-100mp-final-OneRemovalPNG-20261002.log"
+        },
+        {
+          "artifactDirectory": "/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/100mp-export-1472-D81256C5-0AE3-4D2A-A338-C95F9A3FB47A",
+          "bitsPerComponent": 8,
+          "case": "100MP-native-float-removal-export",
+          "channelsOver1": 0,
+          "chip": "Apple M5 Max",
+          "commitSha": "e5d84fad4250bed84748b29cc9db6042e69e6fac",
+          "deliveredRGBADigest": "blake3:cfb4a621e57d160475fa0f06acea0868592846862d8dafa37abe4fb82f76e65b",
+          "deliveryPeakRSSBytes": 15271690240,
+          "deviceModel": "Mac17,6",
+          "exportBytes": 176429974,
+          "exportMs": 22932.141666,
+          "format": "png",
+          "gpu": "Apple M5 Max",
+          "height": 8192,
+          "maximumChannelError": 1,
+          "meanChannelError": 0.25164937641885543,
+          "memoryScope": "Fresh process high-water RSS through exportData, before verification; includes fixture staging/test runtime; excludes subsequent ImageIO decode/reference render",
+          "osVersion": "Version 27.0 (Build 26A428)",
+          "parityLimit": "Maximum 1/255 and zero channels over 1, all 301989888 RGB channels",
+          "parityPassed": true,
+          "patchCount": 10,
+          "phase": "comparison",
+          "physicalMemoryBytes": 137438953472,
+          "profile": "auto",
+          "quality": "amaze",
+          "refreshRateHz": 60,
+          "sourceSha256": "f4b60b3672bdf7ff7f4376fba9da1b1d22c925ebc3e16baa5fd4a64fa1045aa5",
+          "thermalState": "fair",
+          "timingScope": "Production full render plus encode, before file write; native caches cold, OS source pages warmed by identity check/copy; no live viewport or inference",
+          "width": 12288,
+          "log": "/tmp/maple-removal-100mp-final-TenRemovalPNG-20261002.log"
+        },
+        {
+          "artifactDirectory": "/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/100mp-export-1472-1AED8583-F1E3-42D5-A079-CF1B6AD9648B",
+          "bitsPerComponent": 16,
+          "case": "100MP-native-float-removal-export",
+          "channelsOver1": 0,
+          "chip": "Apple M5 Max",
+          "commitSha": "e5d84fad4250bed84748b29cc9db6042e69e6fac",
+          "deliveredRGBADigest": "blake3:bbf3a2c7d158ccd6129e7724e5840b2b21b31cdddc7539e6a13faf5dfc255933",
+          "deliveryPeakRSSBytes": 14603763712,
+          "deviceModel": "Mac17,6",
+          "exportBytes": 805372698,
+          "exportMs": 8834.625625,
+          "format": "tiff_16",
+          "gpu": "Apple M5 Max",
+          "height": 8192,
+          "maximumChannelError": 1,
+          "meanChannelError": 0.25001348389519584,
+          "memoryScope": "Fresh process high-water RSS through exportData, before verification; includes fixture staging/test runtime; excludes subsequent ImageIO decode/reference render",
+          "osVersion": "Version 27.0 (Build 26A428)",
+          "parityLimit": "Maximum 1/255 and zero channels over 1, all 301989888 RGB channels",
+          "parityPassed": true,
+          "patchCount": 0,
+          "phase": "comparison",
+          "physicalMemoryBytes": 137438953472,
+          "profile": "auto",
+          "quality": "amaze",
+          "refreshRateHz": 60,
+          "sourceSha256": "f4b60b3672bdf7ff7f4376fba9da1b1d22c925ebc3e16baa5fd4a64fa1045aa5",
+          "thermalState": "fair",
+          "timingScope": "Production full render plus encode, before file write; native caches cold, OS source pages warmed by identity check/copy; no live viewport or inference",
+          "width": 12288,
+          "log": "/tmp/maple-removal-100mp-final-ZeroRemovalTIFF-20261002.log"
+        },
+        {
+          "artifactDirectory": "/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/100mp-export-1472-4B9B00A4-257A-410D-A658-9E592CC36E61",
+          "bitsPerComponent": 16,
+          "case": "100MP-native-float-removal-export",
+          "channelsOver1": 0,
+          "chip": "Apple M5 Max",
+          "commitSha": "e5d84fad4250bed84748b29cc9db6042e69e6fac",
+          "deliveredRGBADigest": "blake3:feca77979ae8bb690cd9dec9daae18844e8c16e89f017468fa90199b57795210",
+          "deliveryPeakRSSBytes": 15832530944,
+          "deviceModel": "Mac17,6",
+          "exportBytes": 805372698,
+          "exportMs": 19155.405042,
+          "format": "tiff_16",
+          "gpu": "Apple M5 Max",
+          "height": 8192,
+          "maximumChannelError": 1,
+          "meanChannelError": 0.25017791986465454,
+          "memoryScope": "Fresh process high-water RSS through exportData, before verification; includes fixture staging/test runtime; excludes subsequent ImageIO decode/reference render",
+          "osVersion": "Version 27.0 (Build 26A428)",
+          "parityLimit": "Maximum 1/255 and zero channels over 1, all 301989888 RGB channels",
+          "parityPassed": true,
+          "patchCount": 1,
+          "phase": "comparison",
+          "physicalMemoryBytes": 137438953472,
+          "profile": "auto",
+          "quality": "amaze",
+          "refreshRateHz": 60,
+          "sourceSha256": "f4b60b3672bdf7ff7f4376fba9da1b1d22c925ebc3e16baa5fd4a64fa1045aa5",
+          "thermalState": "fair",
+          "timingScope": "Production full render plus encode, before file write; native caches cold, OS source pages warmed by identity check/copy; no live viewport or inference",
+          "width": 12288,
+          "log": "/tmp/maple-removal-100mp-final-OneRemovalTIFF-20261002.log"
+        },
+        {
+          "artifactDirectory": "/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/100mp-export-1472-5B402251-E9CA-48C4-A4C8-4029124AB8D8",
+          "bitsPerComponent": 16,
+          "case": "100MP-native-float-removal-export",
+          "channelsOver1": 0,
+          "chip": "Apple M5 Max",
+          "commitSha": "e5d84fad4250bed84748b29cc9db6042e69e6fac",
+          "deliveredRGBADigest": "blake3:1ba646bd9bc5cad241d8d949d07978ea3c175b6f761b5b07061619d7306dcabb",
+          "deliveryPeakRSSBytes": 15722659840,
+          "deviceModel": "Mac17,6",
+          "exportBytes": 805372698,
+          "exportMs": 20803.815708,
+          "format": "tiff_16",
+          "gpu": "Apple M5 Max",
+          "height": 8192,
+          "maximumChannelError": 1,
+          "meanChannelError": 0.2516558799478743,
+          "memoryScope": "Fresh process high-water RSS through exportData, before verification; includes fixture staging/test runtime; excludes subsequent ImageIO decode/reference render",
+          "osVersion": "Version 27.0 (Build 26A428)",
+          "parityLimit": "Maximum 1/255 and zero channels over 1, all 301989888 RGB channels",
+          "parityPassed": true,
+          "patchCount": 10,
+          "phase": "comparison",
+          "physicalMemoryBytes": 137438953472,
+          "profile": "auto",
+          "quality": "amaze",
+          "refreshRateHz": 60,
+          "sourceSha256": "f4b60b3672bdf7ff7f4376fba9da1b1d22c925ebc3e16baa5fd4a64fa1045aa5",
+          "thermalState": "fair",
+          "timingScope": "Production full render plus encode, before file write; native caches cold, OS source pages warmed by identity check/copy; no live viewport or inference",
+          "width": 12288,
+          "log": "/tmp/maple-removal-100mp-final-TenRemovalTIFF-20261002.log"
+        }
+      ]
+    },
+    "ownedFixtures": {
+      "exactFilesUnchangedAfterBuildAndExports": 24,
+      "sourceSha256": "f4b60b3672bdf7ff7f4376fba9da1b1d22c925ebc3e16baa5fd4a64fa1045aa5",
+      "manifest": [
+        {
+          "path": ".maple/inpaint/14a5fd1e8475ca50cfd0efecf7c94a1252931b25ce3d156702b2ccf97413ef24.f16",
+          "bytes": 2097184,
+          "sha256": "eed25d78cf31e88533bd56415bbdadc6d5b54fc07d74e0880a55af9a881dc0b2"
+        },
+        {
+          "path": ".maple/inpaint/17a9d7062f113302a1464798c76b4b213a3bcf1cb9105050d6e90cf9c399ba52.f16",
+          "bytes": 2097184,
+          "sha256": "79d6f097416b57f1b6c010f5fc1b426aa261396552f2d6ed295b8092d349bdf5"
+        },
+        {
+          "path": ".maple/inpaint/31d71916384c2a7c52e41ad249bcb5a2bc61bf5ac98dea6dcdcd0a82f8408c9b.f16",
+          "bytes": 2097184,
+          "sha256": "533d218dfcffcfc8c9778dbc025eaf52371e62a2cc82a595b126f8eaceec4073"
+        },
+        {
+          "path": ".maple/inpaint/348afd812b0edb79c4b90ecc373f02fc8f619fc00007eb7d76c09a19dc92d41d.mask",
+          "bytes": 32800,
+          "sha256": "ac23eaf05066b53c80b90587f6c5c0fae92723415132d5e10696b950da8ba847"
+        },
+        {
+          "path": ".maple/inpaint/54e95464b639808ce650c680f19fddcbfef70e2d6b2128b66c3b999da076204a.mask",
+          "bytes": 32800,
+          "sha256": "988646a5df202f33f8c77686004fc4bc96d60b21510acf8f9196a30d236e22b1"
+        },
+        {
+          "path": ".maple/inpaint/55eaca0be5d2194604b37bd29827025ea6d76aa65420ad6e3a311c7548ffb644.mask",
+          "bytes": 32800,
+          "sha256": "65bb18df997dbf90a6a070623dab23418314dc52d9e661672668a9796c1e676d"
+        },
+        {
+          "path": ".maple/inpaint/56f0e2d51dba28a244899e94873f4ff85fbf17f7af94ce53a234fffbd0ebe2f7.mask",
+          "bytes": 32800,
+          "sha256": "200f3b5142cfbb0ef4d607d42c28da0cf557c6eb9f5db5abdcbaf8cd3a7f282a"
+        },
+        {
+          "path": ".maple/inpaint/60a553370e4e50fb5aaae1c4ebc3b49ba8ec2b8f3e12f8c3f716f7151866d752.f16",
+          "bytes": 2097184,
+          "sha256": "1e0f3cf402cbb5dedd62b8f7f766023c7a43e66391bdf4e55891d70183283d91"
+        },
+        {
+          "path": ".maple/inpaint/84deaa74f7904dcabc4fe670590c1a87cc2baa0e4dfd7b7c92e80ac3ab5a34c6.f16",
+          "bytes": 2097184,
+          "sha256": "195b3197c1369ddcf9c2d9a0999e6ce657b48c5129b5693f78c5714bcfac9163"
+        },
+        {
+          "path": ".maple/inpaint/a286f5b5c019988d7bd0c346319c13ecef8cc900d0522e1b05abb3a0f4e52bb3.mask",
+          "bytes": 32800,
+          "sha256": "5193477785b0ca8f0d67eb8b999b6e87a0156d0d07bdb081d407f296a0b4dcb9"
+        },
+        {
+          "path": ".maple/inpaint/a44bbb82a6f5b731ef6f6d580e0c07a259233577cd8c8989a2e6516688676aac.f16",
+          "bytes": 2097184,
+          "sha256": "e6dd9820d89d5201d4d4211554bdc0809ee1fec2e30261ea6a7074b5ca000686"
+        },
+        {
+          "path": ".maple/inpaint/b250fba6bd0c1c387e8bb71c1a5efe6eba6d93d24b06be1983d745b05a7514fd.f16",
+          "bytes": 2097184,
+          "sha256": "a93e20ac2c34ba65547d64dbb954c658bb6315321a741ed8f29f2142ceb8a38c"
+        },
+        {
+          "path": ".maple/inpaint/b3a589f3669d93690c0344587e4d173e59152ef9e5aa7c497512f498a1998413.f16",
+          "bytes": 2097184,
+          "sha256": "9b433cdb771709451f04689271460a023ffec472a8baf278548a73a1aab1682b"
+        },
+        {
+          "path": ".maple/inpaint/b4a9933e9eb0ee0541a827cd0bb00bd91e7eb1bfc5a6315e3d168688a222fbab.mask",
+          "bytes": 32800,
+          "sha256": "6679bdc0cb4e0d8f495bde630aa34dc8ed41c334a10dbb96dae8d781710ee6dc"
+        },
+        {
+          "path": ".maple/inpaint/c37d67ab9047a0af79d61e31f8b3f42f122da09fe95969e0a202593e48e754c9.f16",
+          "bytes": 2097184,
+          "sha256": "75ac3e21ca21bd353bf0adaa78c9556acef12e2ff20e76fe9b883d2fb2f3b16c"
+        },
+        {
+          "path": ".maple/inpaint/cc80d126e659f2318480cc839cc9687cb9bb8f32eb1303c6a7d96b690b419aac.mask",
+          "bytes": 32800,
+          "sha256": "2d12e8b28ab2bbd68989148e08de183d823da3f99dfa213dd6dc37dad7557558"
+        },
+        {
+          "path": ".maple/inpaint/d0eda14e343debc9b31d5047f01b5a57bb8d4d2681fb27bdebc449440102da39.f16",
+          "bytes": 2097184,
+          "sha256": "8300d60ed3070764da521a504a5bacd1e3404143a3a3285c3e960c22684256ef"
+        },
+        {
+          "path": ".maple/inpaint/edc62aa2c9f4b67e58f8ccaf1284c2f4500a37ed0f084f705cdb9cce0d8554c8.mask",
+          "bytes": 32800,
+          "sha256": "67910864b58747f1e176d28b92e3ab492f8da2c7c7c93e7ba90f5471746d1612"
+        },
+        {
+          "path": ".maple/inpaint/f29c0092f17cc54a2c53fb55baff64e6d773e9a2e1f16adb3ad4f97bda82e55f.mask",
+          "bytes": 32800,
+          "sha256": "cfdd31f6b7bd00fb1fa3e5cc4da3eb52ab363d4963cfb6dc05dc7b448d1ef93a"
+        },
+        {
+          "path": ".maple/inpaint/f2e6e78980825e2fdd455ebe24490e2774f36d0d00932f84543603f1c5b9b91d.mask",
+          "bytes": 32800,
+          "sha256": "515dc7779b8bd33fd9bd1042bb776e82aae09ce56b7fa2501b6b1772894a6adb"
+        },
+        {
+          "path": "source-anchor.json",
+          "bytes": 214,
+          "sha256": "e9a22aaba1a18a5a8ca9ac8b67037f2c497d112cbb446712ee76686209ec6966"
+        },
+        {
+          "path": "stack-0.xmp",
+          "bytes": 292,
+          "sha256": "1db73d519e1fed1d2925909939fb73d36cd4a56e1572b73a86552abb1c384997"
+        },
+        {
+          "path": "stack-1.xmp",
+          "bytes": 1596,
+          "sha256": "decb5e4183e0227b1e8c92e52301866630af4d425b0ba2ad3ceb89ba8a838770"
+        },
+        {
+          "path": "stack-10.xmp",
+          "bytes": 13414,
+          "sha256": "b928d67011c02a81fa63be0c135a2d5eb499904fea0b1f9e3c71370b49a1654d"
+        }
+      ]
+    },
+    "beforeFix": {
+      "cause": "Absent numeric WB was serialized as explicit Custom 6500/0 in the full export snapshot",
+      "result": "Two failed assertions in the real zero-removal 100MP PNG test; source and sidecar identity checks passed",
+      "log": "/tmp/maple-removal-100mp-full-export-0-png-20261002.log",
+      "report": {
+        "artifactDirectory": "/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/100mp-export-1472-8741E5B7-F8AC-4FA3-AFA1-AF1C9773919C",
+        "bitsPerComponent": 8,
+        "case": "100MP-native-float-removal-export",
+        "channelsOver1": 241957875,
+        "chip": "Apple M5 Max",
+        "commitSha": "e5d84fad4250bed84748b29cc9db6042e69e6fac",
+        "deliveredRGBADigest": "blake3:8c8d328cee4b764c2fa5de69fd65cbfefdb37c658bce1aaf9fb1584e9c5d5ce7",
+        "deliveryPeakRSSBytes": 15310569472,
+        "deviceModel": "Mac17,6",
+        "exportBytes": 181668255,
+        "exportMs": 16433.107291,
+        "format": "png",
+        "gpu": "Apple M5 Max",
+        "height": 8192,
+        "maximumChannelError": 83,
+        "meanChannelError": 6.233031680186589,
+        "memoryScope": "Fresh process high-water RSS through exportData, before verification; includes fixture staging/test runtime; excludes subsequent ImageIO decode/reference render",
+        "osVersion": "Version 27.0 (Build 26A428)",
+        "parityLimit": "Maximum 1/255 and zero channels over 1, all 301989888 RGB channels",
+        "patchCount": 0,
+        "phase": "failed-comparison",
+        "physicalMemoryBytes": 137438953472,
+        "profile": "auto",
+        "quality": "amaze",
+        "refreshRateHz": 60,
+        "sourceSha256": "f4b60b3672bdf7ff7f4376fba9da1b1d22c925ebc3e16baa5fd4a64fa1045aa5",
+        "thermalState": "nominal",
+        "timingScope": "Production full render plus encode, before file write; native caches cold, OS source pages warmed by identity check/copy; no live viewport or inference",
+        "width": 12288,
+        "parityPassed": false
+      }
+    }
+  },
+  "limits": [
+    "The source is one canonical real 100MP photograph; accepted patches are generated fixed-color 512px controls, not an inference or photographic-removal-quality corpus.",
+    "One fresh XCTest process per case. RSS is Darwin process high-water through exportData, before verification, including staging/runtime. Timing includes full render and encode, excludes file write; OS source pages are warm. Point samples on M5 Max/128 GiB, nominal/fair thermal states; no p95, low-memory Mac, fleet or shipping performance claim.",
+    "PNG and TIFF comparisons decode the actual delivered files into sRGB RGB8; TIFF is verified as 16 bits/component. Sub-byte float precision is separately asserted on the committed tiny RAW/film TIFF test; these full-size cases do not establish per-channel RGB16 parity.",
+    "Normal live/export Auto fit-size parity remains open. No Rust color math, Auto default, WGSL, model distribution, cache version or ACR budget changed. The prior baseline retains its known Neutral test_0011 bias breach; no whole-project green claim.",
+    "Crowd/protected-subject/HDR/seam quality, signed model distribution/licenses, broader recovery/companion portability and reference-device performance remain required. Mac priority does not mark the original full goal complete.",
+    "Existing unqualified RemovalHistoryUITests.swift remains untouched and unstaged; SHA256 ca2988395f9974c1cd89482aa225d5857327c7dff7d7df2d70a204594f2eff52. No PR push or merge."
+  ]
+}

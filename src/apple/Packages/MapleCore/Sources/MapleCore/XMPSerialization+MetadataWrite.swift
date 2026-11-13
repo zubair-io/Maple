@@ -58,6 +58,7 @@ extension XMPSerializer {
       _buildAttrs(
         model: model, culling: culling, omitWhiteBalance: omitWhiteBalance)
       + _ratingAndLabelAttrs(culling: culling, passthrough: passthrough)
+      + _removalAttrs(model)
       + metaAttrs.map { ($0.0, escapeXMLAttr($0.1)) }
       + _passthroughAttrs(passthrough)
 

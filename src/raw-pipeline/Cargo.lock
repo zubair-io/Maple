@@ -2358,13 +2358,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "maple-ort"
+version = "0.1.0"
+dependencies = [
+ "libloading 0.8.9",
+ "ort",
+ "thiserror 2.0.18",
+]
+
+[[package]]
 name = "maple-pano"
 version = "0.1.0"
 dependencies = [
  "clap",
  "image",
  "libc",
- "libloading 0.8.9",
+ "maple-ort",
  "ort",
  "png 0.17.16",
  "quick-xml",
@@ -2377,6 +2386,20 @@ dependencies = [
  "thiserror 2.0.18",
  "toml",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "maple-removal"
+version = "0.1.0"
+dependencies = [
+ "image",
+ "maple-ort",
+ "ort",
+ "raw-core",
+ "serde",
+ "serde_json",
+ "sha2",
+ "thiserror 2.0.18",
 ]
 
 [[package]]
@@ -3400,6 +3423,7 @@ dependencies = [
  "image",
  "libc",
  "maple-pano",
+ "maple-removal",
  "maple-search",
  "raw-core",
  "raw-gpu",
@@ -3441,6 +3465,7 @@ dependencies = [
 name = "raw-wasm"
 version = "0.1.0"
 dependencies = [
+ "bytemuck",
  "console_error_panic_hook",
  "getrandom 0.4.2",
  "image",

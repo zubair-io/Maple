@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { fallbackFileMetadata, fallbackReadFile } from './fallback-backend';
+import { fallbackFileMetadata, fallbackReadFile, fallbackWriteFile } from './fallback-backend';
 import type { MapleFolderHandle } from './folder-access.types';
 
 function fixtureFile(path: string, contents: string, lastModified: number): File {
@@ -30,6 +30,25 @@ describe('fallback file access', () => {
     } finally {
       if (original) globalWithIdb.indexedDB = original;
     }
+  });
+
+  it('reads imported durable companions from source files and refuses to save them in cache', async () => {
+    const path = '2024/.maple/inpaint/accepted.f16';
+    const file = fixtureFile('Library/' + path, 'durable pixels', 2024);
+    const folder: MapleFolderHandle = {
+      name: 'Library',
+      read: true,
+      write: false,
+      fallbackFiles: [file],
+    };
+    expect(new TextDecoder().decode(await fallbackReadFile(folder, path))).toBe('durable pixels');
+    await expect(fallbackFileMetadata(folder, path)).resolves.toEqual({
+      size: file.size,
+      lastModified: 2024,
+    });
+    await expect(fallbackWriteFile(folder, path, new Uint8Array([1]))).rejects.toThrow(
+      'filesystem write access',
+    );
   });
 
   it('matches the complete relative source path when basenames collide', async () => {

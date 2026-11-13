@@ -1,0 +1,208 @@
+{
+  "schema": 1,
+  "issue": 1472,
+  "qualification": "offline Mac testing packaging only; not a shipping model or public distribution approval",
+  "parent_commit": "4735a715bbf49614d035241ce449e0f85fce4647",
+  "source_sha256": {
+    "tools/removal/mac_model_bundle.py": "4756694b8f1fc59c950bb84409b7a5156f2eee115bb3c9123d68d22dedc7cb19",
+    "tools/removal/mac_runtime_manifest.swift": "60f8ecca5486e8821f7c4f49e9b7504ec122b30b2467ae779ee211d8c2af590c",
+    "tools/removal/model-distribution-review.json": "b662e57454d5fb1a6cf15027f3d0d1e2c0135852a0db81ac49222a5950085225",
+    "tools/test_release_removal_bundle.py": "6e2b66e4f39ebf83223ea75a49a9d50e01dda6b696697bdd5a6e8f361a810983",
+    "tools/removal/removal-models.generated.json": "b1a50fac3d2b6f57f9e2d2d6b8931c0f94874168380a4b287fcd7985ca9dd4bc",
+    "src/apple/Packages/MapleCore/Sources/MapleCore/Panorama/PanoProvisionManifest.swift": "5d99d04a30c80e42d10c7c3288bda1497bafa1a4c3c014492014cac20c2c890a",
+    "tools/removal/notices/ATTRIBUTIONS.txt": "0a52e8b8ef2da0e4538b8ed26ee6fce2f68134caa133691f90afa4c53db15482",
+    "tools/removal/notices/ConvNeXt-LICENSE": "da6d3703ed11cbe42bd212c725957c98da23cbff1998c05fa4b3d976d1a58e93",
+    "tools/removal/notices/FFC-LICENSE": "236045f6e0cfd8b222f6bda7314504e490f7188db303a164559a5ed8b3d7146e",
+    "tools/removal/notices/LeViT-LICENSE": "b208c52b00a2df2c8f4c3298c34407bf2bfe409968213372251c91fcc737a1a5",
+    "tools/removal/notices/SAM-LICENSE": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
+    "tools/removal/notices/Swin-LICENSE": "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383",
+    "tools/removal/notices/TinyViT-LICENSE": "a6fd7405fa1855dda8e6333a46bb47e1c78a98a7414b9be20f8bbe90d35be1f6",
+    ".gitattributes": "32f10a192e7fff43ed1d10cb0137581ed03d16a9bba4a5aa45a0d58c4105acfb"
+  },
+  "host": {
+    "platform": "macOS-27.0-arm64-arm-64bit-Mach-O",
+    "architecture": "arm64"
+  },
+  "bundle": {
+    "path": "/tmp/maple-removal-offline-arm64-1472-20261002-confirmed",
+    "manifest_sha256": "55cae55962e47b9d385d2d75bd8d19be25a305ed2c31a1a384dbc080ccff6371",
+    "inventory_file_count": 28,
+    "inventory_bytes": 365280792,
+    "files": [
+      {
+        "file": "lama-native-1024.onnx",
+        "sha256": "339d078d9d1376d76a49efd4fa42f328c3f276af775505ae8b57c84db187c4f6",
+        "size": 204794328
+      },
+      {
+        "file": "mobile-sam-decoder.onnx",
+        "sha256": "878e0ba9952d4d35c78d8cbd3ee57cdc3691fda0deb39d2cf1f0c8004f2f38e7",
+        "size": 16496934
+      },
+      {
+        "file": "mobile-sam-encoder.onnx",
+        "sha256": "e12aec77d292b119aaa8add4e23a21114d3ff4fac44a1abfb8ca2a391f03bf2b",
+        "size": 27996392
+      },
+      {
+        "file": "provenance/decoder-LICENSE",
+        "sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
+        "size": 11357
+      },
+      {
+        "file": "provenance/decoder.json",
+        "sha256": "54d39de621401d579814999ae7f9360b3666f381fff694a3b2ecd22fcde2262e",
+        "size": 860
+      },
+      {
+        "file": "provenance/detector-LICENSE",
+        "sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
+        "size": 11357
+      },
+      {
+        "file": "provenance/detector.json",
+        "sha256": "1cc7063be2133e87357b96beb703688f83b787bb03fd1ea97561dee9d37055e5",
+        "size": 1355
+      },
+      {
+        "file": "provenance/encoder-LICENSE",
+        "sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
+        "size": 11357
+      },
+      {
+        "file": "provenance/encoder.json",
+        "sha256": "edb6dbfb8202363883a53b226142580178b26fd30ed2454be790b402be70eca7",
+        "size": 860
+      },
+      {
+        "file": "provenance/lama-LICENSE",
+        "sha256": "4ceeeac5a802e86c413c22b16cce8e9a22027b0250c97e6f8ac97c14cf0542c0",
+        "size": 11348
+      },
+      {
+        "file": "provenance/lama.json",
+        "sha256": "e298383a5b2fe2331fa502fe5300e8ca0b1555124123051724b17d87cb5236d5",
+        "size": 1085
+      },
+      {
+        "file": "provenance/model-pins.json",
+        "sha256": "dbae1d0fc8fd949814e511ccae9a1757b2df5e93208f7015963024fc74516efb",
+        "size": 1923
+      },
+      {
+        "file": "provenance/notices/ATTRIBUTIONS.txt",
+        "sha256": "0a52e8b8ef2da0e4538b8ed26ee6fce2f68134caa133691f90afa4c53db15482",
+        "size": 1755
+      },
+      {
+        "file": "provenance/notices/ConvNeXt-LICENSE",
+        "sha256": "da6d3703ed11cbe42bd212c725957c98da23cbff1998c05fa4b3d976d1a58e93",
+        "size": 1088
+      },
+      {
+        "file": "provenance/notices/FFC-LICENSE",
+        "sha256": "236045f6e0cfd8b222f6bda7314504e490f7188db303a164559a5ed8b3d7146e",
+        "size": 11336
+      },
+      {
+        "file": "provenance/notices/LeViT-LICENSE",
+        "sha256": "b208c52b00a2df2c8f4c3298c34407bf2bfe409968213372251c91fcc737a1a5",
+        "size": 11354
+      },
+      {
+        "file": "provenance/notices/SAM-LICENSE",
+        "sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
+        "size": 11357
+      },
+      {
+        "file": "provenance/notices/Swin-LICENSE",
+        "sha256": "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383",
+        "size": 1141
+      },
+      {
+        "file": "provenance/notices/TinyViT-LICENSE",
+        "sha256": "a6fd7405fa1855dda8e6333a46bb47e1c78a98a7414b9be20f8bbe90d35be1f6",
+        "size": 2067
+      },
+      {
+        "file": "provenance/review.json",
+        "sha256": "78d01f35ea34b97e5d6872ab5f5227e2ff39798fa245ff59b80f011bff641d2b",
+        "size": 5871
+      },
+      {
+        "file": "provenance/runtime/GIT_COMMIT_ID",
+        "sha256": "8991e24279baaf64c3f31ad73878a8ad75dfb1dcd129de309f8287c623170c29",
+        "size": 41
+      },
+      {
+        "file": "provenance/runtime/LICENSE",
+        "sha256": "2f07c72751aed99790b8a4869cf2311df85a860b22ded05fa22803587a48922c",
+        "size": 1073
+      },
+      {
+        "file": "provenance/runtime/Privacy.md",
+        "sha256": "9a15f9fd9d4c7b6dfc35f237f461863f84f8f73cf6189e330818a674d3828871",
+        "size": 2469
+      },
+      {
+        "file": "provenance/runtime/ThirdPartyNotices.txt",
+        "sha256": "e9e90971a8e75a9a8ac0c6412e29c1202d079998389915aa485f46c816c3b4cc",
+        "size": 326866
+      },
+      {
+        "file": "provenance/runtime/VERSION_NUMBER",
+        "sha256": "48d625eaf5c6c9ce0c6890c697201fd6087c6147773feb8ca9a85e4f8004e79f",
+        "size": 7
+      },
+      {
+        "file": "provenance/runtime-pins.json",
+        "sha256": "76daf157a550987a2c47b6469295b7af9051312d392eb979039cb585c0b48070",
+        "size": 423
+      },
+      {
+        "file": "rtdetrv2-r18.onnx",
+        "sha256": "e83fb962424fc2a881d080148194ed57c3276a9b186a1bc381e772c397228f58",
+        "size": 80426004
+      },
+      {
+        "file": "runtime.dylib",
+        "sha256": "d306d2bc768540766c7ed8a1e0ff05d2870c77a934ebeee4a7bafa1b732ef299",
+        "size": 35138784
+      }
+    ],
+    "actual_rebuild_inventory_identical": true,
+    "all_inventory_files_sha256_size_verified": true,
+    "all_copies_regular": true
+  },
+  "runtime": {
+    "loaded_get_version_string": "1.23.2",
+    "copied_dylib_codesign_verify_strict": "pass",
+    "archive": "official Microsoft current architecture runtime, authenticated with compiled PanoProvisionManifest",
+    "package_signing_or_notarization_qualified": false
+  },
+  "validation": {
+    "release_tool_suite": {
+      "tests": 58,
+      "new_bundle_tests": 15,
+      "failures": 0,
+      "skips": 0,
+      "elapsed_seconds": 56.826,
+      "log": "/tmp/maple-removal-bundle-release-tests-20261002.log",
+      "sha256": "391c8605e75f179979317090444cf4524b620a149d0409cb0fabef6f167c1e79"
+    },
+    "python_ruff": "format and lint pass",
+    "swift_format": "strict lint pass",
+    "prettier": "pass with repository-required src/web/.prettierrc",
+    "file_budget": "0 hard violations, 0 soft warnings"
+  },
+  "limitations": [
+    "The app installer still copies inference files only; retain provenance beside the offline bundle.",
+    "Engineering inventory establishes exact inputs and collected notices, not complete weight/transitive distribution clearance.",
+    "Apple Silicon actual packaging/runtime execution only; Intel manifest branch is reused but not executed here.",
+    "No public endpoint, package signing or notarization.",
+    "No model quality, background-person accuracy, physical-device/fleet or 16ms qualification.",
+    "No editor/app/runtime/ABI/schema/math/model pin/release flag changed; the user-testing Mac build is left running and untouched.",
+    "The inventory excludes itself; it is not a signature."
+  ],
+  "goal_status": "active"
+}

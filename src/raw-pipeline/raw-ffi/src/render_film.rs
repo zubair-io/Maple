@@ -61,13 +61,25 @@ pub(crate) fn render_file_body(
         3 => RenderQuality::Auto,
         _ => RenderQuality::Full,
     };
-    let (w, h, bytes) = match render_from_raw_with_quality_source_and_film(
+    let rendered = crate::removal_file::render_saved(
         &raw_img,
+        &raw_bytes,
         &model,
-        quality,
+        raw_path.parent(),
         Some(RawInput::Path(raw_path)),
+        quality,
         film_lut,
-    ) {
+    )
+    .unwrap_or_else(|| {
+        render_from_raw_with_quality_source_and_film(
+            &raw_img,
+            &model,
+            quality,
+            Some(RawInput::Path(raw_path)),
+            film_lut,
+        )
+    });
+    let (w, h, bytes) = match rendered {
         Ok(t) => t,
         Err(e) => {
             set_last_error(format!("render: {}", e));

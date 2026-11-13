@@ -50,7 +50,7 @@ public final class EditSession {
         self.selectedMaskId = nil
       }
       if model.profile != oldValue.profile { resetAutoFitStatus() }
-      guard !isHydratingInitialState else { return }
+      guard !isHydratingInitialState, acceptsModelChange(from: oldValue) else { return }
       // Slider → render wire. If this log doesn't fire on a slider
       // drag, the @Bindable write never landed on `session.model` (the
       // binding path is broken). If it fires but the image doesn't
@@ -339,6 +339,9 @@ public final class EditSession {
 
   // MARK: Undo / redo
   public let workflow = EditorWorkflowState()
+  public internal(set) var isSavingRemoval = false
+  @ObservationIgnored var removalCommitTask: Task<Void, Error>?
+  @ObservationIgnored var isApplyingRemovalCommit = false
 
   /// Storage only — the ring behaviour (`canUndo`/`canRedo`, `beginEdit`,
   /// `undo`, `redo`, `resetToOriginal`, `undoStackCap`) lives in
@@ -472,14 +475,6 @@ public final class EditSession {
   /// Current brush tip (#360) — tool state, not layer state: every dab the
   /// overlay stamps copies these values in.
   public var brushTip: BrushTip = .default
-
-  struct ActiveBrushStroke {
-    var maskId: UUID
-    var width: Int
-    var height: Int
-    var accumulator: [Float]
-    var currentDigest: String
-  }
 
   /// Incremental accumulator kept alive between `beginBrushStroke` and
   /// `endBrushStroke` (#4416) so a drag does not re-rasterize the entire dab series.

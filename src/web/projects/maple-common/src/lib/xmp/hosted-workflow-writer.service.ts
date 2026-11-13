@@ -10,6 +10,7 @@ import {
 import type { PassthroughBucket, XmpCulling, XmpMetadata } from './xmp.types';
 import { WorkflowXmpService } from './workflow-xmp.service';
 import { XmpParserService } from './xmp-parser.service';
+import { savedRemovalRecords } from '../removal/saved-removal-records';
 import { XmpSerializerService } from './xmp-serializer.service';
 import { HostedSidecarFreshnessService } from './hosted-sidecar-freshness.service';
 import { readSidecar } from './xmp-dom-utils';
@@ -128,7 +129,13 @@ export class HostedWorkflowWriterService {
       readonly metadata?: XmpMetadata;
     },
   ): Promise<SidecarWrite> {
-    const { current, base, pending, variantId } = disk;
+    const { current, base, variantId } = disk;
+    const records = current === null ? undefined : savedRemovalRecords(current);
+    const model = { ...edit.model, inpaintRemovals: records };
+    const pending = disk.pending.map((captured) => ({
+      ...captured,
+      model: { ...captured.model, inpaintRemovals: records },
+    }));
     const workflow = await this.selectedRecord(
       current === null ? null : readSidecar(current).xml,
       variantId,
@@ -137,7 +144,7 @@ export class HostedWorkflowWriterService {
       current === null ? edit.fallback : this.parser.parseAdjustmentModel(current).passthrough;
     const incoming = await this.core.checkpoint(
       this.serializer.serialize(
-        edit.model,
+        model,
         passthrough,
         edit.culling,
         passthrough ? undefined : edit.metadata,

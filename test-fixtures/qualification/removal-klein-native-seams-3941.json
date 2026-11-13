@@ -1,0 +1,1008 @@
+{
+  "issue": 3941,
+  "epic": 1472,
+  "recorded_at": "2026-10-03T09:21:55.222981+00:00",
+  "parent_commit": "0bd60d2a58eebd5cde3825f1cc92f24c4ab10d87",
+  "releaseQualified": false,
+  "app_limit_changed": false,
+  "model_catalog_changed": false,
+  "purpose": "Evaluate one native gradient-preserving boundary correction for the actual pinned Klein model outputs, including a reversible RAW scene-context bake. The solver is research only, not an application dependency or admitted model.",
+  "parent_model_and_raw_evidence": {
+    "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/test-fixtures/qualification/removal-klein-native-raw-3941.json",
+    "bytes": 63335,
+    "sha256": "424af5c2854432081dd299553e6bcde93403ff02d8e303a27e7a6272bc12e146"
+  },
+  "algorithm": "Independently authored four-neighbor Dirichlet correction: solve discrete Laplace(delta)=0 inside the binary domain, with source-minus-generated boundary values on known neighbors. Add delta to generated RGB inside the domain and copy known source f32 bits everywhere else. Equivalent gradient-guided Poisson insertion without mixed gradients. No selected original pixels in RHS, no resampling/clipping, no inferred unknown texture, no tile blending claim.",
+  "numeric_scope": "Solve f64, return f32. PyAMG classical Ruge-Stuben hierarchy preconditions CG for each channel, tol1e-8/max100; independently recomputed relative residual must be finite and <=1e-6 before return. Bounded1.8MP interior domain; touching context-edge rejects and requires more known context. No render-loop or slider integration.",
+  "cases": [
+    {
+      "name": "scene",
+      "first_report": {
+        "unknown_pixels": 19503,
+        "boundary_edges": 922,
+        "matrix_nonzeros": 96593,
+        "solver": "PyAMG classical Ruge-Stuben preconditioned conjugate gradients",
+        "channels": [
+          {
+            "relative_residual": 6.595774493883089e-09,
+            "iterations": 5
+          },
+          {
+            "relative_residual": 4.923798939027037e-09,
+            "iterations": 5
+          },
+          {
+            "relative_residual": 3.596049431194758e-09,
+            "iterations": 5
+          }
+        ],
+        "max_absolute_correction": 0.14249379434158532,
+        "range": [
+          0.001788296620361507,
+          0.9850000143051147
+        ],
+        "outside_float_bits_changed": 0,
+        "source_inside_domain_used_for_rhs": false,
+        "clipped": false,
+        "correction_ms": 83.03429209627211,
+        "display_preview_scope": "Display-only clipped u8 visualization. Persisted f32 correction is unmodified, never clipped.",
+        "model_domain_valid": true,
+        "source_prediction_sha256": "b0cf09a5f8e411c141e67e748e52c80710dd8c799ee94f2f85b061d62eb7f9c3",
+        "source_recipe_report_sha256": "d6d4eb3444f21872748383c3fbe033b47ccde759bd5ae490a9aa1e17ddf0ade4",
+        "domain_pixels": 19503,
+        "correction_sha256": "3243bfae77139ae471da0b7f792c17db52dc735cde3b169fb3ef47d31928579c",
+        "process_peak_resident_bytes": 231096320,
+        "toolchain": {
+          "pyamg": "5.3.0",
+          "scipy": "1.17.1",
+          "numpy": "2.4.6"
+        },
+        "releaseQualified": false
+      },
+      "replay_report": {
+        "unknown_pixels": 19503,
+        "boundary_edges": 922,
+        "matrix_nonzeros": 96593,
+        "solver": "PyAMG classical Ruge-Stuben preconditioned conjugate gradients",
+        "channels": [
+          {
+            "relative_residual": 6.595774493883089e-09,
+            "iterations": 5
+          },
+          {
+            "relative_residual": 4.923798939027037e-09,
+            "iterations": 5
+          },
+          {
+            "relative_residual": 3.596049431194758e-09,
+            "iterations": 5
+          }
+        ],
+        "max_absolute_correction": 0.14249379434158532,
+        "range": [
+          0.001788296620361507,
+          0.9850000143051147
+        ],
+        "outside_float_bits_changed": 0,
+        "source_inside_domain_used_for_rhs": false,
+        "clipped": false,
+        "source_sha256": "b6660902ccb0dd6228c904240cbb836c271157c4cf0ee91799e34eac3163e8c0",
+        "prediction_sha256": "b0cf09a5f8e411c141e67e748e52c80710dd8c799ee94f2f85b061d62eb7f9c3",
+        "domain_sha256": "5ac05f44491138672339f6ef32c5b6243aa0e2aec18701e8a5fe9e64dfd16f53",
+        "native_extent_hw": [
+          1024,
+          1024
+        ],
+        "source_resampled": false,
+        "correction_ms": 79.63645807467401,
+        "model_domain_valid": true,
+        "display_preview_scope": "Display-only clipped u8 visualization. Persisted f32 correction is unmodified, never clipped.",
+        "correction_sha256": "3243bfae77139ae471da0b7f792c17db52dc735cde3b169fb3ef47d31928579c",
+        "process_peak_resident_bytes": 218873856,
+        "toolchain": {
+          "pyamg": "5.3.0",
+          "scipy": "1.17.1",
+          "numpy": "2.4.6"
+        },
+        "releaseQualified": false,
+        "scope": "Native boundary correction research only; no RAW inverse, accepted record, editor/runtime, photographic corpus or hardware qualification is implied."
+      },
+      "replay_sha256_equal": true,
+      "independent_checks": {
+        "outside_float_bits_changed": 0,
+        "result_finite": true,
+        "boundary_generated_gradient_discrepancy_before": {
+          "mean": 0.03454021364450455,
+          "p95": 0.12106882035732269,
+          "max": 0.18643441796302795
+        },
+        "boundary_generated_gradient_discrepancy_after": {
+          "mean": 0.005471502896398306,
+          "p95": 0.017957812175154686,
+          "max": 0.0746215283870697
+        },
+        "metric_scope": "Consistency with generated gradients, not photographic seam accuracy or hidden-background truth."
+      },
+      "input_artifacts": [
+        {
+          "path": "/tmp/maple-removal-klein-seam-scene-20261003/source.f32",
+          "bytes": 12582912,
+          "sha256": "b6660902ccb0dd6228c904240cbb836c271157c4cf0ee91799e34eac3163e8c0"
+        },
+        {
+          "path": "/tmp/maple-removal-klein-seam-scene-20261003/domain.png",
+          "bytes": 2207,
+          "sha256": "5ac05f44491138672339f6ef32c5b6243aa0e2aec18701e8a5fe9e64dfd16f53"
+        }
+      ],
+      "result_artifacts": [
+        {
+          "path": "/tmp/maple-removal-klein-seam-replay-scene-20261003/report.json",
+          "bytes": 1603,
+          "sha256": "c9b2503f06a3a4b010a7bde2dd58267247577dada98a6c129076064324c38710"
+        },
+        {
+          "path": "/tmp/maple-removal-klein-seam-replay-scene-20261003/corrected.f32",
+          "bytes": 12582912,
+          "sha256": "3243bfae77139ae471da0b7f792c17db52dc735cde3b169fb3ef47d31928579c"
+        },
+        {
+          "path": "/tmp/maple-removal-klein-seam-replay-scene-20261003/corrected-nchw.f32",
+          "bytes": 12582912,
+          "sha256": "0d5e2a90441c36a66009dd1e7f14f16a4432d379a3d812dc1c62b79d93d6d7d6"
+        },
+        {
+          "path": "/tmp/maple-removal-klein-seam-replay-scene-20261003/display-preview.png",
+          "bytes": 1195629,
+          "sha256": "7cb7178d0970be66d33a93094fc83f948176f40cd34e5d6cc1b317942087a7d5"
+        }
+      ],
+      "first_report_artifact": {
+        "path": "/tmp/maple-removal-klein-seam-scene-20261003/report.json",
+        "bytes": 1323,
+        "sha256": "66458eaccf4da2ea82817bec35ba1f3bbaa612e2ba1aa3b897e3a5d6cfa79131"
+      },
+      "checks_artifact": {
+        "path": "/tmp/maple-removal-klein-seam-scene-20261003/independent-checks.json",
+        "bytes": 491,
+        "sha256": "2aa7e3c23d0c9e24c01e4874dce8e32ebef20b92be2242be0a3602d4e25e3faf"
+      },
+      "first_scope": "Three sequential solves in one process; RSS is process high-water mark, not per-case peak.",
+      "replay_scope": "Separate fresh CLI process per case, same source/prediction/domain and exact f32 output digest."
+    },
+    {
+      "name": "paint",
+      "first_report": {
+        "unknown_pixels": 990000,
+        "boundary_edges": 4140,
+        "matrix_nonzeros": 4945860,
+        "solver": "PyAMG classical Ruge-Stuben preconditioned conjugate gradients",
+        "channels": [
+          {
+            "relative_residual": 6.920120033511366e-10,
+            "iterations": 5
+          },
+          {
+            "relative_residual": 6.937800689753008e-10,
+            "iterations": 5
+          },
+          {
+            "relative_residual": 7.150405504127511e-10,
+            "iterations": 5
+          }
+        ],
+        "max_absolute_correction": 0.24671678376862724,
+        "range": [
+          0.0,
+          1.0
+        ],
+        "outside_float_bits_changed": 0,
+        "source_inside_domain_used_for_rhs": false,
+        "clipped": false,
+        "correction_ms": 1741.2013749126345,
+        "display_preview_scope": "Display-only clipped u8 visualization. Persisted f32 correction is unmodified, never clipped.",
+        "model_domain_valid": true,
+        "source_prediction_sha256": "bac73b4a610865d083d460db3bcdd8ca2fc282919acf23574934f2f84b0434d1",
+        "source_recipe_report_sha256": "52c92b0d4e06070eb9efed5364841ad56ee0b61c44ff655d7168d4be3253deb9",
+        "domain_pixels": 990000,
+        "correction_sha256": "72a61c9ce526ba89c0ac24f36704378c1ca708017a8e0ea7f5acae2fa2879139",
+        "process_peak_resident_bytes": 1014906880,
+        "toolchain": {
+          "pyamg": "5.3.0",
+          "scipy": "1.17.1",
+          "numpy": "2.4.6"
+        },
+        "releaseQualified": false
+      },
+      "replay_report": {
+        "unknown_pixels": 990000,
+        "boundary_edges": 4140,
+        "matrix_nonzeros": 4945860,
+        "solver": "PyAMG classical Ruge-Stuben preconditioned conjugate gradients",
+        "channels": [
+          {
+            "relative_residual": 6.920120033511366e-10,
+            "iterations": 5
+          },
+          {
+            "relative_residual": 6.937800689753008e-10,
+            "iterations": 5
+          },
+          {
+            "relative_residual": 7.150405504127511e-10,
+            "iterations": 5
+          }
+        ],
+        "max_absolute_correction": 0.24671678376862724,
+        "range": [
+          0.0,
+          1.0
+        ],
+        "outside_float_bits_changed": 0,
+        "source_inside_domain_used_for_rhs": false,
+        "clipped": false,
+        "source_sha256": "931147c6674d518eae29cec0d2f611e2a1e7290382c7e2522e6a29d1c023ec09",
+        "prediction_sha256": "bac73b4a610865d083d460db3bcdd8ca2fc282919acf23574934f2f84b0434d1",
+        "domain_sha256": "b61caf6d29d198236288343fa7f61a7edcf84fa4f356655b7f68124413ace12b",
+        "native_extent_hw": [
+          1536,
+          1024
+        ],
+        "source_resampled": false,
+        "correction_ms": 1670.9769999142736,
+        "model_domain_valid": true,
+        "display_preview_scope": "Display-only clipped u8 visualization. Persisted f32 correction is unmodified, never clipped.",
+        "correction_sha256": "72a61c9ce526ba89c0ac24f36704378c1ca708017a8e0ea7f5acae2fa2879139",
+        "process_peak_resident_bytes": 978403328,
+        "toolchain": {
+          "pyamg": "5.3.0",
+          "scipy": "1.17.1",
+          "numpy": "2.4.6"
+        },
+        "releaseQualified": false,
+        "scope": "Native boundary correction research only; no RAW inverse, accepted record, editor/runtime, photographic corpus or hardware qualification is implied."
+      },
+      "replay_sha256_equal": true,
+      "independent_checks": {
+        "outside_float_bits_changed": 0,
+        "result_finite": true,
+        "boundary_generated_gradient_discrepancy_before": {
+          "mean": 0.020688282325863838,
+          "p95": 0.04394003748893738,
+          "max": 0.27393537759780884
+        },
+        "boundary_generated_gradient_discrepancy_after": {
+          "mean": 0.006616977509111166,
+          "p95": 0.0173738282173872,
+          "max": 0.07081341743469238
+        },
+        "metric_scope": "Consistency with generated gradients, not photographic seam accuracy or hidden-background truth."
+      },
+      "input_artifacts": [
+        {
+          "path": "/tmp/maple-removal-klein-seam-paint-20261003/source.f32",
+          "bytes": 18874368,
+          "sha256": "931147c6674d518eae29cec0d2f611e2a1e7290382c7e2522e6a29d1c023ec09"
+        },
+        {
+          "path": "/tmp/maple-removal-klein-seam-paint-20261003/domain.png",
+          "bytes": 4272,
+          "sha256": "b61caf6d29d198236288343fa7f61a7edcf84fa4f356655b7f68124413ace12b"
+        }
+      ],
+      "result_artifacts": [
+        {
+          "path": "/tmp/maple-removal-klein-seam-replay-paint-20261003/report.json",
+          "bytes": 1576,
+          "sha256": "dd6b0e716d491b2aa5e5b2326d03285935d47ad133cb53c6a60bf1b223b25eab"
+        },
+        {
+          "path": "/tmp/maple-removal-klein-seam-replay-paint-20261003/corrected.f32",
+          "bytes": 18874368,
+          "sha256": "72a61c9ce526ba89c0ac24f36704378c1ca708017a8e0ea7f5acae2fa2879139"
+        },
+        {
+          "path": "/tmp/maple-removal-klein-seam-replay-paint-20261003/corrected-nchw.f32",
+          "bytes": 18874368,
+          "sha256": "edc8f1401135dc95b6b69947c6de667bc480beeb17f90b8e799fff73bd8f5db9"
+        },
+        {
+          "path": "/tmp/maple-removal-klein-seam-replay-paint-20261003/display-preview.png",
+          "bytes": 2450533,
+          "sha256": "e23b357dab977093935c9d9ef3ea15b736cc0181b5b0e1a1c2663b3fe8f55b95"
+        }
+      ],
+      "first_report_artifact": {
+        "path": "/tmp/maple-removal-klein-seam-paint-20261003/report.json",
+        "bytes": 1298,
+        "sha256": "d4503b3546d04fb468039c4529509e0669b23dec24241c9f46502db52c906cfc"
+      },
+      "checks_artifact": {
+        "path": "/tmp/maple-removal-klein-seam-paint-20261003/independent-checks.json",
+        "bytes": 491,
+        "sha256": "19500cb970e078f2c32f21a973b3b14974957c5bd4eb6959c582acda26b4283c"
+      },
+      "first_scope": "Three sequential solves in one process; RSS is process high-water mark, not per-case peak.",
+      "replay_scope": "Separate fresh CLI process per case, same source/prediction/domain and exact f32 output digest."
+    },
+    {
+      "name": "person",
+      "first_report": {
+        "unknown_pixels": 345996,
+        "boundary_edges": 5488,
+        "matrix_nonzeros": 1724492,
+        "solver": "PyAMG classical Ruge-Stuben preconditioned conjugate gradients",
+        "channels": [
+          {
+            "relative_residual": 2.1245250852745332e-09,
+            "iterations": 7
+          },
+          {
+            "relative_residual": 1.4639152811094193e-09,
+            "iterations": 7
+          },
+          {
+            "relative_residual": 8.778257927997814e-09,
+            "iterations": 6
+          }
+        ],
+        "max_absolute_correction": 0.3430774206977223,
+        "range": [
+          0.0,
+          1.0
+        ],
+        "outside_float_bits_changed": 0,
+        "source_inside_domain_used_for_rhs": false,
+        "clipped": false,
+        "correction_ms": 690.0230417959392,
+        "display_preview_scope": "Display-only clipped u8 visualization. Persisted f32 correction is unmodified, never clipped.",
+        "model_domain_valid": true,
+        "source_prediction_sha256": "d46a9b320ececa27338e0f376f0bad8f5267288ffd017456060268b1a3cbe86f",
+        "source_recipe_report_sha256": "faea753a4f8b24b372b1b018aa1b2580088d720ea7467dcc9f221da297ef25b7",
+        "domain_pixels": 345996,
+        "correction_sha256": "5830afa1daaa997613ca67367338bd6060d456d67f1f522ce891737ceebe4010",
+        "process_peak_resident_bytes": 1014906880,
+        "toolchain": {
+          "pyamg": "5.3.0",
+          "scipy": "1.17.1",
+          "numpy": "2.4.6"
+        },
+        "releaseQualified": false
+      },
+      "replay_report": {
+        "unknown_pixels": 345996,
+        "boundary_edges": 5488,
+        "matrix_nonzeros": 1724492,
+        "solver": "PyAMG classical Ruge-Stuben preconditioned conjugate gradients",
+        "channels": [
+          {
+            "relative_residual": 2.1245250852745332e-09,
+            "iterations": 7
+          },
+          {
+            "relative_residual": 1.4639152811094193e-09,
+            "iterations": 7
+          },
+          {
+            "relative_residual": 8.778257927997814e-09,
+            "iterations": 6
+          }
+        ],
+        "max_absolute_correction": 0.3430774206977223,
+        "range": [
+          0.0,
+          1.0
+        ],
+        "outside_float_bits_changed": 0,
+        "source_inside_domain_used_for_rhs": false,
+        "clipped": false,
+        "source_sha256": "931147c6674d518eae29cec0d2f611e2a1e7290382c7e2522e6a29d1c023ec09",
+        "prediction_sha256": "d46a9b320ececa27338e0f376f0bad8f5267288ffd017456060268b1a3cbe86f",
+        "domain_sha256": "69ba21109f380aee62af9ab4e11246d4f66b27325fefe4714c352a6fbb4ff93d",
+        "native_extent_hw": [
+          1536,
+          1024
+        ],
+        "source_resampled": false,
+        "correction_ms": 714.4003750290722,
+        "model_domain_valid": true,
+        "display_preview_scope": "Display-only clipped u8 visualization. Persisted f32 correction is unmodified, never clipped.",
+        "correction_sha256": "5830afa1daaa997613ca67367338bd6060d456d67f1f522ce891737ceebe4010",
+        "process_peak_resident_bytes": 502169600,
+        "toolchain": {
+          "pyamg": "5.3.0",
+          "scipy": "1.17.1",
+          "numpy": "2.4.6"
+        },
+        "releaseQualified": false,
+        "scope": "Native boundary correction research only; no RAW inverse, accepted record, editor/runtime, photographic corpus or hardware qualification is implied."
+      },
+      "replay_sha256_equal": true,
+      "independent_checks": {
+        "outside_float_bits_changed": 0,
+        "result_finite": true,
+        "boundary_generated_gradient_discrepancy_before": {
+          "mean": 0.028484033420681953,
+          "p95": 0.0870305746793747,
+          "max": 0.4078775942325592
+        },
+        "boundary_generated_gradient_discrepancy_after": {
+          "mean": 0.008692484349012375,
+          "p95": 0.024784933775663376,
+          "max": 0.15374183654785156
+        },
+        "metric_scope": "Consistency with generated gradients, not photographic seam accuracy or hidden-background truth."
+      },
+      "input_artifacts": [
+        {
+          "path": "/tmp/maple-removal-klein-seam-person-20261003/source.f32",
+          "bytes": 18874368,
+          "sha256": "931147c6674d518eae29cec0d2f611e2a1e7290382c7e2522e6a29d1c023ec09"
+        },
+        {
+          "path": "/tmp/maple-removal-klein-seam-person-20261003/domain.png",
+          "bytes": 5995,
+          "sha256": "69ba21109f380aee62af9ab4e11246d4f66b27325fefe4714c352a6fbb4ff93d"
+        }
+      ],
+      "result_artifacts": [
+        {
+          "path": "/tmp/maple-removal-klein-seam-replay-person-20261003/report.json",
+          "bytes": 1576,
+          "sha256": "7b595a60b0b51d58a1ae0f881b2c53bfdb7ca7563b54686b2d36df572498ce47"
+        },
+        {
+          "path": "/tmp/maple-removal-klein-seam-replay-person-20261003/corrected.f32",
+          "bytes": 18874368,
+          "sha256": "5830afa1daaa997613ca67367338bd6060d456d67f1f522ce891737ceebe4010"
+        },
+        {
+          "path": "/tmp/maple-removal-klein-seam-replay-person-20261003/corrected-nchw.f32",
+          "bytes": 18874368,
+          "sha256": "08f92e2e4e54a9ec64377e809f652f301db15c9b018aea45741b8f9199b3ac66"
+        },
+        {
+          "path": "/tmp/maple-removal-klein-seam-replay-person-20261003/display-preview.png",
+          "bytes": 2392580,
+          "sha256": "6d342f5915993a797b0869badef7d1a46bbbe586500123d3c8094d02c85271aa"
+        }
+      ],
+      "first_report_artifact": {
+        "path": "/tmp/maple-removal-klein-seam-person-20261003/report.json",
+        "bytes": 1298,
+        "sha256": "db9f351fe02a0d7ec3c0a829ab9983a37c8495911c62fe645b93a5135bda20a4"
+      },
+      "checks_artifact": {
+        "path": "/tmp/maple-removal-klein-seam-person-20261003/independent-checks.json",
+        "bytes": 491,
+        "sha256": "98d898cb7ef03ba7bb73134350eb3b12330a42e4101cd9c23e9be0adb0ed4eb1"
+      },
+      "first_scope": "Three sequential solves in one process; RSS is process high-water mark, not per-case peak.",
+      "replay_scope": "Separate fresh CLI process per case, same source/prediction/domain and exact f32 output digest."
+    }
+  ],
+  "corrected_raw_bake": {
+    "report": {
+      "as_shot_temperature": 5241.63671875,
+      "as_shot_tint": 15.853179931640625,
+      "auto_profile_engaged": true,
+      "encoding": {
+        "low": -0.03480941980694387,
+        "span": 3.739743307597713,
+        "version": 1
+      },
+      "generation_masks": "blake3:56fcb0a9c03b3789460445000ca717bebfeeae22e6e4971383989700ec2c6f26",
+      "grades": [
+        {
+          "case": "neutral_ev-3_wb-1000",
+          "max_scene_float_error_identity": 4.581175744533539e-06,
+          "outside_mask_max_error": 0,
+          "three_native_develops_ms": 737.420208
+        },
+        {
+          "case": "auto_ev-3_wb-1000",
+          "max_scene_float_error_identity": 4.581175744533539e-06,
+          "outside_mask_max_error": 0,
+          "three_native_develops_ms": 737.420208
+        },
+        {
+          "case": "neutral_ev-3_wb+0",
+          "max_scene_float_error_identity": 3.8053840398788452e-06,
+          "outside_mask_max_error": 0,
+          "three_native_develops_ms": 730.8584999999999
+        },
+        {
+          "case": "auto_ev-3_wb+0",
+          "max_scene_float_error_identity": 3.8053840398788452e-06,
+          "outside_mask_max_error": 0,
+          "three_native_develops_ms": 730.8584999999999
+        },
+        {
+          "case": "neutral_ev-3_wb+1000",
+          "max_scene_float_error_identity": 4.178844392299652e-06,
+          "outside_mask_max_error": 0,
+          "three_native_develops_ms": 718.573583
+        },
+        {
+          "case": "auto_ev-3_wb+1000",
+          "max_scene_float_error_identity": 4.178844392299652e-06,
+          "outside_mask_max_error": 0,
+          "three_native_develops_ms": 718.573583
+        },
+        {
+          "case": "neutral_ev+0_wb-1000",
+          "max_scene_float_error_identity": 3.664940595626831e-05,
+          "outside_mask_max_error": 0,
+          "three_native_develops_ms": 688.9561659999999
+        },
+        {
+          "case": "auto_ev+0_wb-1000",
+          "max_scene_float_error_identity": 3.664940595626831e-05,
+          "outside_mask_max_error": 0,
+          "three_native_develops_ms": 688.9561659999999
+        },
+        {
+          "case": "neutral_ev+0_wb+0",
+          "max_scene_float_error_identity": 3.0443072319030762e-05,
+          "outside_mask_max_error": 0,
+          "three_native_develops_ms": 705.980166
+        },
+        {
+          "case": "auto_ev+0_wb+0",
+          "max_scene_float_error_identity": 3.0443072319030762e-05,
+          "outside_mask_max_error": 0,
+          "three_native_develops_ms": 705.980166
+        },
+        {
+          "case": "neutral_ev+0_wb+1000",
+          "max_scene_float_error_identity": 3.343075513839722e-05,
+          "outside_mask_max_error": 0,
+          "three_native_develops_ms": 717.563292
+        },
+        {
+          "case": "auto_ev+0_wb+1000",
+          "max_scene_float_error_identity": 3.343075513839722e-05,
+          "outside_mask_max_error": 0,
+          "three_native_develops_ms": 717.563292
+        },
+        {
+          "case": "neutral_ev+3_wb-1000",
+          "max_scene_float_error_identity": 0.0002931952476501465,
+          "outside_mask_max_error": 0,
+          "three_native_develops_ms": 714.891084
+        },
+        {
+          "case": "auto_ev+3_wb-1000",
+          "max_scene_float_error_identity": 0.0002931952476501465,
+          "outside_mask_max_error": 0,
+          "three_native_develops_ms": 714.891084
+        },
+        {
+          "case": "neutral_ev+3_wb+0",
+          "max_scene_float_error_identity": 0.0002435445785522461,
+          "outside_mask_max_error": 0,
+          "three_native_develops_ms": 700.220416
+        },
+        {
+          "case": "auto_ev+3_wb+0",
+          "max_scene_float_error_identity": 0.0002435445785522461,
+          "outside_mask_max_error": 0,
+          "three_native_develops_ms": 700.220416
+        },
+        {
+          "case": "neutral_ev+3_wb+1000",
+          "max_scene_float_error_identity": 0.00026744604110717773,
+          "outside_mask_max_error": 0,
+          "three_native_develops_ms": 700.6017919999999
+        },
+        {
+          "case": "auto_ev+3_wb+1000",
+          "max_scene_float_error_identity": 0.00026744604110717773,
+          "outside_mask_max_error": 0,
+          "three_native_develops_ms": 700.6017919999999
+        }
+      ],
+      "max_scene_float_error_identity": 0.0002931952476501465,
+      "model_result": "blake3:b3872823ad5a35331459b3ddcce3db9bc2811a4ab84ae70d275fff378028a97e",
+      "native_context": {
+        "height": 1024,
+        "width": 1024,
+        "x": 750,
+        "y": 1500
+      },
+      "original": "blake3:7846a4170e1a3aa18bc18ef20e3e4738845c26e61150f17e50ffa4beec9173c8",
+      "outside_mask_max_error": 0,
+      "plate": "LinearCalibrationV1",
+      "profile_tier": "BundleConfident",
+      "qualification": "Full native camera-WB/DCP experiment. Bounded authoring, recipe quality, clone/heal, GPU/live/tile/export integration and supported-device gates remain.",
+      "release_qualified": false
+    },
+    "report_artifact": {
+      "path": "/tmp/maple-removal-klein-seam-scene-bake-20261003/report.json",
+      "bytes": 4466,
+      "sha256": "e990c0463a3315a82587a8a89c935b6b3d0acd75cf97b2ce36c7e954b0f59610"
+    },
+    "replacement_fp16_artifact": {
+      "path": "/tmp/maple-removal-klein-seam-scene-bake-20261003/replacement.f16",
+      "bytes": 8388640,
+      "sha256": "5da8fe117c11a2f697c354bf90a70baf14cde71c86d85eacdea8039ff6343cac"
+    },
+    "coverage_artifact": {
+      "path": "/tmp/maple-removal-klein-seam-scene-bake-20261003/coverage.png",
+      "bytes": 7743,
+      "sha256": "7795bfae7e4eeb648bf9a1b94e29f20bcc776cb8f1404df86ab038f9f8fd55c0"
+    },
+    "display_checks": [
+      {
+        "case": "neutral_ev-3_wb-1000",
+        "outside_coverage_png_channels_changed": 0,
+        "removal_artifact": {
+          "path": "/tmp/maple-removal-klein-seam-scene-bake-20261003/neutral_ev-3_wb-1000-removal.png",
+          "bytes": 666153,
+          "sha256": "09e35fb1defb137dd1d32a773064b320fd7c89397190c6be269f015e26b04c36"
+        },
+        "truth_artifact": {
+          "path": "/tmp/maple-removal-klein-seam-scene-bake-20261003/neutral_ev-3_wb-1000-truth.png",
+          "bytes": 660159,
+          "sha256": "201a0b9fbe325bada476ceadf7e650f85cf09827770bab5f2db3e16d49d7c41d"
+        }
+      },
+      {
+        "case": "auto_ev-3_wb-1000",
+        "outside_coverage_png_channels_changed": 0,
+        "removal_artifact": {
+          "path": "/tmp/maple-removal-klein-seam-scene-bake-20261003/auto_ev-3_wb-1000-removal.png",
+          "bytes": 1285565,
+          "sha256": "f7beb71b8143fc2eebb4d802cd3c9c0b092f2c58a00a6e6076c6f8796e767166"
+        },
+        "truth_artifact": {
+          "path": "/tmp/maple-removal-klein-seam-scene-bake-20261003/auto_ev-3_wb-1000-truth.png",
+          "bytes": 1280243,
+          "sha256": "b47da9a82358fbf023b94daf12cd282bae74da35480d1615b4ab431f5c238e35"
+        }
+      },
+      {
+        "case": "neutral_ev-3_wb+0",
+        "outside_coverage_png_channels_changed": 0,
+        "removal_artifact": {
+          "path": "/tmp/maple-removal-klein-seam-scene-bake-20261003/neutral_ev-3_wb+0-removal.png",
+          "bytes": 648413,
+          "sha256": "79ccc1282c1eaed989a49e9e84b624e53324717a999fb41c180e8af160b259cf"
+        },
+        "truth_artifact": {
+          "path": "/tmp/maple-removal-klein-seam-scene-bake-20261003/neutral_ev-3_wb+0-truth.png",
+          "bytes": 641916,
+          "sha256": "2556dd54be30358b3e19a52c2ceb6bba3c3049d80fc08bc1fc426067e1386fea"
+        }
+      },
+      {
+        "case": "auto_ev-3_wb+0",
+        "outside_coverage_png_channels_changed": 0,
+        "removal_artifact": {
+          "path": "/tmp/maple-removal-klein-seam-scene-bake-20261003/auto_ev-3_wb+0-removal.png",
+          "bytes": 1276312,
+          "sha256": "7d9db74209a0df6cef8325546f5e44e477c1c019416fab8e88f239512aa27ada"
+        },
+        "truth_artifact": {
+          "path": "/tmp/maple-removal-klein-seam-scene-bake-20261003/auto_ev-3_wb+0-truth.png",
+          "bytes": 1271281,
+          "sha256": "97736009ffe9f5585680ab1bacdb4f4966c1c2b8d5db933089c844d82a0af4bf"
+        }
+      },
+      {
+        "case": "neutral_ev-3_wb+1000",
+        "outside_coverage_png_channels_changed": 0,
+        "removal_artifact": {
+          "path": "/tmp/maple-removal-klein-seam-scene-bake-20261003/neutral_ev-3_wb+1000-removal.png",
+          "bytes": 643557,
+          "sha256": "9a5a945f5cc097f5019743b8925d934e9fab2a9914e98735e00ac15069397685"
+        },
+        "truth_artifact": {
+          "path": "/tmp/maple-removal-klein-seam-scene-bake-20261003/neutral_ev-3_wb+1000-truth.png",
+          "bytes": 637056,
+          "sha256": "34aeec55802ef7ae55e487627fc37df0ead50e1b5f91cd7b4007765e5a9ba284"
+        }
+      },
+      {
+        "case": "auto_ev-3_wb+1000",
+        "outside_coverage_png_channels_changed": 0,
+        "removal_artifact": {
+          "path": "/tmp/maple-removal-klein-seam-scene-bake-20261003/auto_ev-3_wb+1000-removal.png",
+          "bytes": 1271922,
+          "sha256": "9a7596f931a588246b77e1815362992752c36ae7f098dca3fa43d094b05e845f"
+        },
+        "truth_artifact": {
+          "path": "/tmp/maple-removal-klein-seam-scene-bake-20261003/auto_ev-3_wb+1000-truth.png",
+          "bytes": 1266958,
+          "sha256": "e1890b538ae73cdb9696dae80ed35c17205273ba753e04c0a9a9921c029ce58c"
+        }
+      },
+      {
+        "case": "neutral_ev+0_wb-1000",
+        "outside_coverage_png_channels_changed": 0,
+        "removal_artifact": {
+          "path": "/tmp/maple-removal-klein-seam-scene-bake-20261003/neutral_ev+0_wb-1000-removal.png",
+          "bytes": 1537641,
+          "sha256": "5c200e72c1678250dd3564cc9333cb932e5dada29b8f96864e8c018f421c960d"
+        },
+        "truth_artifact": {
+          "path": "/tmp/maple-removal-klein-seam-scene-bake-20261003/neutral_ev+0_wb-1000-truth.png",
+          "bytes": 1530846,
+          "sha256": "8261428d840b19a397efb81406456766880ffb9b937310ddfc3689826b0ae5eb"
+        }
+      },
+      {
+        "case": "auto_ev+0_wb-1000",
+        "outside_coverage_png_channels_changed": 0,
+        "removal_artifact": {
+          "path": "/tmp/maple-removal-klein-seam-scene-bake-20261003/auto_ev+0_wb-1000-removal.png",
+          "bytes": 1841017,
+          "sha256": "74f77e9a52ef232808c03fe5f00900da4f177209dd5dcd4fe46a2ddf0dfc03cf"
+        },
+        "truth_artifact": {
+          "path": "/tmp/maple-removal-klein-seam-scene-bake-20261003/auto_ev+0_wb-1000-truth.png",
+          "bytes": 1838000,
+          "sha256": "12e9173238a08456d4c0277c7457db1140d9d24faeeac95483584d1b50a27af7"
+        }
+      },
+      {
+        "case": "neutral_ev+0_wb+0",
+        "outside_coverage_png_channels_changed": 0,
+        "removal_artifact": {
+          "path": "/tmp/maple-removal-klein-seam-scene-bake-20261003/neutral_ev+0_wb+0-removal.png",
+          "bytes": 1521854,
+          "sha256": "2c9ee319ef714c6b97d397deb31db72f8e95b878e515829adf0bbb16ab278174"
+        },
+        "truth_artifact": {
+          "path": "/tmp/maple-removal-klein-seam-scene-bake-20261003/neutral_ev+0_wb+0-truth.png",
+          "bytes": 1515044,
+          "sha256": "3df2fea92ea610bc23a3ae4bb6af8eca1d36e85addd69d931bd4f2f54f36e255"
+        }
+      },
+      {
+        "case": "auto_ev+0_wb+0",
+        "outside_coverage_png_channels_changed": 0,
+        "removal_artifact": {
+          "path": "/tmp/maple-removal-klein-seam-scene-bake-20261003/auto_ev+0_wb+0-removal.png",
+          "bytes": 1816835,
+          "sha256": "0f8ea96b2469f81fed190747f5f69b4274e6048b8ccafb75e71be849a7bc2730"
+        },
+        "truth_artifact": {
+          "path": "/tmp/maple-removal-klein-seam-scene-bake-20261003/auto_ev+0_wb+0-truth.png",
+          "bytes": 1813631,
+          "sha256": "5a1113e0629bf5e3c8db8f29d17090896431552d527308aef249314c2e0ed0c5"
+        }
+      },
+      {
+        "case": "neutral_ev+0_wb+1000",
+        "outside_coverage_png_channels_changed": 0,
+        "removal_artifact": {
+          "path": "/tmp/maple-removal-klein-seam-scene-bake-20261003/neutral_ev+0_wb+1000-removal.png",
+          "bytes": 1526518,
+          "sha256": "fb65079643dc000600cb3fa79b4543ece852da5b1dcfeeb23d6e0560834f70fa"
+        },
+        "truth_artifact": {
+          "path": "/tmp/maple-removal-klein-seam-scene-bake-20261003/neutral_ev+0_wb+1000-truth.png",
+          "bytes": 1519608,
+          "sha256": "13769de3e612be8288baeca949a3810bb39b242bfb2715e8a355bbae2437b157"
+        }
+      },
+      {
+        "case": "auto_ev+0_wb+1000",
+        "outside_coverage_png_channels_changed": 0,
+        "removal_artifact": {
+          "path": "/tmp/maple-removal-klein-seam-scene-bake-20261003/auto_ev+0_wb+1000-removal.png",
+          "bytes": 1809748,
+          "sha256": "10ce589e4dff6ba1fbf418a008f315b52e0bba2fd9c69ea47e390254ae0b00ed"
+        },
+        "truth_artifact": {
+          "path": "/tmp/maple-removal-klein-seam-scene-bake-20261003/auto_ev+0_wb+1000-truth.png",
+          "bytes": 1806095,
+          "sha256": "755412fedac78600ec2579939935f2557baf548c57f2dd1f73ad522eae3d585d"
+        }
+      },
+      {
+        "case": "neutral_ev+3_wb-1000",
+        "outside_coverage_png_channels_changed": 0,
+        "removal_artifact": {
+          "path": "/tmp/maple-removal-klein-seam-scene-bake-20261003/neutral_ev+3_wb-1000-removal.png",
+          "bytes": 1748638,
+          "sha256": "e559eeb7b06a5224e90e3dc33a7ec25ef645af0556d091b11ac6a48d75f5c96f"
+        },
+        "truth_artifact": {
+          "path": "/tmp/maple-removal-klein-seam-scene-bake-20261003/neutral_ev+3_wb-1000-truth.png",
+          "bytes": 1749689,
+          "sha256": "5a76353b8752db3485077805cb6dd5682809e026153f7b27fa86da5ffbc377d2"
+        }
+      },
+      {
+        "case": "auto_ev+3_wb-1000",
+        "outside_coverage_png_channels_changed": 0,
+        "removal_artifact": {
+          "path": "/tmp/maple-removal-klein-seam-scene-bake-20261003/auto_ev+3_wb-1000-removal.png",
+          "bytes": 1781902,
+          "sha256": "4e0bfb1006beafb4b78866b862a5f4b31f9e486a1cef2ddb5e785378ebf87d49"
+        },
+        "truth_artifact": {
+          "path": "/tmp/maple-removal-klein-seam-scene-bake-20261003/auto_ev+3_wb-1000-truth.png",
+          "bytes": 1780379,
+          "sha256": "9fd780fdd2b56f44aceb6c21101d45c5f3288bd91dd11abdffd95a53fc18bf3e"
+        }
+      },
+      {
+        "case": "neutral_ev+3_wb+0",
+        "outside_coverage_png_channels_changed": 0,
+        "removal_artifact": {
+          "path": "/tmp/maple-removal-klein-seam-scene-bake-20261003/neutral_ev+3_wb+0-removal.png",
+          "bytes": 1777996,
+          "sha256": "830b685a151269a6810e608155c04097a0937243fbb012dd9320aa85329bfc2b"
+        },
+        "truth_artifact": {
+          "path": "/tmp/maple-removal-klein-seam-scene-bake-20261003/neutral_ev+3_wb+0-truth.png",
+          "bytes": 1779492,
+          "sha256": "5089717c12af6e06479187321619eb5aabe78f2a0c6cf2fc0562b7742638995c"
+        }
+      },
+      {
+        "case": "auto_ev+3_wb+0",
+        "outside_coverage_png_channels_changed": 0,
+        "removal_artifact": {
+          "path": "/tmp/maple-removal-klein-seam-scene-bake-20261003/auto_ev+3_wb+0-removal.png",
+          "bytes": 1769047,
+          "sha256": "018aafff4cf416ed906aee82d0130f8dc38a51fb3e63deb0b918852f504e2f85"
+        },
+        "truth_artifact": {
+          "path": "/tmp/maple-removal-klein-seam-scene-bake-20261003/auto_ev+3_wb+0-truth.png",
+          "bytes": 1767689,
+          "sha256": "5bf690ca9dd87af8da045f913e49155c4d2bb946ee62aecc06afe5371dd1ef3f"
+        }
+      },
+      {
+        "case": "neutral_ev+3_wb+1000",
+        "outside_coverage_png_channels_changed": 0,
+        "removal_artifact": {
+          "path": "/tmp/maple-removal-klein-seam-scene-bake-20261003/neutral_ev+3_wb+1000-removal.png",
+          "bytes": 1776208,
+          "sha256": "377ea7b60e1ad8e2ae6721adc3ba4afb8c397b4cb7250194c283ec4ae84e6bc5"
+        },
+        "truth_artifact": {
+          "path": "/tmp/maple-removal-klein-seam-scene-bake-20261003/neutral_ev+3_wb+1000-truth.png",
+          "bytes": 1777754,
+          "sha256": "fc2173a2dde268bfa547bd443bff416413be74a42301d93a55f514542ac39ed4"
+        }
+      },
+      {
+        "case": "auto_ev+3_wb+1000",
+        "outside_coverage_png_channels_changed": 0,
+        "removal_artifact": {
+          "path": "/tmp/maple-removal-klein-seam-scene-bake-20261003/auto_ev+3_wb+1000-removal.png",
+          "bytes": 1735610,
+          "sha256": "4b8d6a904882585c92f6dcccd2f60eb0439a9a8a23cf54c935c630144b42962b"
+        },
+        "truth_artifact": {
+          "path": "/tmp/maple-removal-klein-seam-scene-bake-20261003/auto_ev+3_wb+1000-truth.png",
+          "bytes": 1735001,
+          "sha256": "d5fdccea3a36687b18e51cf90458cc3ce48835ca63000ee78f1f2c4b992f65c5"
+        }
+      }
+    ],
+    "source_raw_verified": {
+      "path": "/tmp/maple-removal-corpus/public-raws/P1010153.RW2",
+      "bytes": 19678208,
+      "sha256": "874b652b9d2605030aac18eab4a687903083ac4b8a73029a35f46c36b1f7ba82"
+    },
+    "scope": "Shared Rust inverse and actual fp16 codec/camera-WB/DCP bake over nine exposure/WB settings, Auto/Neutral18outputs. Scene samples outside coverage checked bit-exact by existing freshly built harness; persisted18PNG comparisons independently exact outsidecoverage. Not accepted-record XMP/Keep/liveGPU/tile/export proof. Identitymaxerror0.000293195 is fp16 transport, not generated reconstruction accuracy.",
+    "inference_scope": "No new neural inference this checkpoint; corrected the three actual native model outputs from parent evidence. Canonical input has5367channels>1 and no negative source channels; signed/HDR synthetic correction test is separate, not a negative-channel photographic fixture claim."
+  },
+  "visual_findings": {
+    "paint": "Hard left colour seam is reduced visibly, fruit/crate/cloth/pavement layout remains. Altered/invented structure and texture remain; no photographic release qualification.",
+    "person": "Boundary colour drift improves but severe malformed stall/cloth geometry and unselected overlapping vendor fragments remain. Reject automatic People photographic acceptance.",
+    "scene": "Canonical RAW Auto bake has smoother tonal connection than uncorrected result; generated aisle/stall details and mask/content edge limitations persist. Broad HDR/noise/role quality is not proven."
+  },
+  "metric_scope": "Boundary generated-gradient discrepancy measures consistency with chosen guidance, not perceptual seam correctness or true hidden background. Solver convergence and better mathematical residual cannot establish photographic acceptance. No ACR/profile changes or perceptual harness pass claimed.",
+  "verification": {
+    "tests": {
+      "passed": 4,
+      "failed": 0,
+      "skipped": 0,
+      "log": {
+        "path": "/tmp/maple-removal-seam-tests-20261003.log",
+        "bytes": 858,
+        "sha256": "f9454ed25ad377ad74c538e8bc3f93a17c138739457fdc1708a28915e9d0e061"
+      },
+      "scope": "Flat signed/HDR offset recovery, exact known f32 bits, disconnected masks with generated detail retained, independence from changed selected-original values, matching-prediction no-op and edge/nonfinite/dtype refusals."
+    },
+    "format": {
+      "path": "/tmp/maple-removal-seam-format-20261003.log",
+      "bytes": 26,
+      "sha256": "eee76f865de5a9f2456950f710ae5d5f9b5bd0ea02aa54f614c5eed6642a0bfd"
+    },
+    "lint": {
+      "path": "/tmp/maple-removal-seam-lint-20261003.log",
+      "bytes": 19,
+      "sha256": "82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18"
+    },
+    "first_run_script": {
+      "path": "/tmp/maple-removal-klein-seam-run-20261003.py",
+      "bytes": 2240,
+      "sha256": "06893b75c480ecb1806b24f221068fdba033a7f810666aeca3e81afc0b431fcc"
+    },
+    "first_run_log": {
+      "path": "/tmp/maple-removal-klein-seam-run-20261003.log",
+      "bytes": 3518,
+      "sha256": "87404472afd2ba44a05f8eb790981c2d599da144fe113717df18551d04796aad"
+    },
+    "bake_log": {
+      "path": "/tmp/maple-removal-klein-seam-scene-bake-20261003.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "timing_scope": "Actual first solve scene83ms/Paint1741ms/person690ms; separate CLI replay80/1671/714ms. SharedM5Max128GB per-phase uncontrolled observations, not fair ratios/end-to-end/p50/p95/supported-device budgets. Initial combined process1.015GB RSS high-watermark includes prior solves; final CLI reports separate fresh-process high-watermarks.",
+    "source_budget": {
+      "path": "/tmp/maple-removal-seam-budget-20261003.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "incremental_headroom": {
+      "path": "/tmp/maple-removal-seam-headroom-20261003.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  },
+  "research_runtime_license_records": [
+    {
+      "package": "pyamg",
+      "version": "5.3.0",
+      "artifact": {
+        "path": "/private/tmp/maple-removal-mlx-gen-env/lib/python3.11/site-packages/pyamg-5.3.0.dist-info/licenses/LICENSE.txt",
+        "bytes": 1088,
+        "sha256": "853c14468ce2622c0e58310ca0823ee10d342897b17d28b8616a4f92fccc106c"
+      }
+    },
+    {
+      "package": "scipy",
+      "version": "1.17.1",
+      "artifact": {
+        "path": "/private/tmp/maple-removal-mlx-gen-env/lib/python3.11/site-packages/scipy-1.17.1.dist-info/LICENSE.txt",
+        "bytes": 46841,
+        "sha256": "60a7d05d729ed5c763852a324a1cb4223d665d4ad3f4b8a0c130ae5c60c93e49"
+      }
+    }
+  ],
+  "license_scope": "Installed research libraries and package licenses recorded; complete transitive binary/redistribution review and native Rust/Apple/Web replacement are not cleared. No upstream Poisson implementation code copied. Published mathematical formulation is cited.",
+  "source_files": {
+    "tools/removal/native_seam_correction.py": {
+      "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/tools/removal/native_seam_correction.py",
+      "bytes": 3799,
+      "sha256": "422ef1ddb98445fa051343daf216703fdff3a06d1a10bfa2976c639f10ebea3a"
+    },
+    "tools/removal/native_seam_correction_test.py": {
+      "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/tools/removal/native_seam_correction_test.py",
+      "bytes": 2786,
+      "sha256": "7c6a667799824e150cb050c9086bdcfe03b6c89d6ea3c7fecb685ac81da6f3af"
+    },
+    "tools/removal/probe_native_seams.py": {
+      "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/tools/removal/probe_native_seams.py",
+      "bytes": 3784,
+      "sha256": "219b9e58afa97869787ac6ad6190e6962bc2f53b180ae25c086c769c99b4aafa"
+    },
+    "tools/removal/seam-requirements.txt": {
+      "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/tools/removal/seam-requirements.txt",
+      "bytes": 130,
+      "sha256": "21acb3d05fb06ef94ad934c2d32ea54f75c7ea7350b1675a343587156206fb16"
+    }
+  },
+  "primary_sources": [
+    "https://www.cs.jhu.edu/~misha/Fall07/Papers/Perez03.pdf",
+    "https://pyamg.readthedocs.io/en/latest/",
+    "https://github.com/pyamg/pyamg"
+  ],
+  "decision": "Boundary correction is a promising authoring operation for this candidate, but does not solve object geometry/overlap/noise. Keep application/model/cap admission unchanged. Continue actual protected/overlapping selection reconstruction and lower-memory/native runtime work; port a qualified operation into the shared Rust authoring boundary rather than running Python or inference per slider tick.",
+  "still_unqualified": [
+    "Photographic native detail/seams/noise/crowd/subject and broad HDR corpus",
+    "Large canonical native contexts beyond current1024appcap",
+    "Supported physical Macs and production native inference/correction runtime",
+    "Complete conversion/model/transitive licensing/signing/distribution",
+    "Accepted durable XMP/render/export/recovery and all portable consumers/full epic gates"
+  ]
+}

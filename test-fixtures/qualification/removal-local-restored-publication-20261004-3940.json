@@ -1,0 +1,273 @@
+{
+  "issue": 3940,
+  "relatedIssues": [1472, 3936, 3944, 3984],
+  "recordedAt": "2026-10-04T06:20:27.939001+00:00",
+  "testedHead": "ca9839f42699e0caf45a3ffa3a54d7aab9989ec8",
+  "testedBase": "d405df896a6700469bb977fa12329949da17f2fa",
+  "releaseQualified": false,
+  "problem": "Restored valid companions and immutable reuse were checksummed but could be confirmed without synchronizing the referenced inode. Redo and workflow restore bypass new companion publication.",
+  "change": "Verify and fsync each target companion through the same open read handle, then sync inpaint/maple/photo directories under the XMP writer lock before sidecar publication. Reused and concurrent winning immutable targets also sync their verified file. Empty targets require no carrier directories.",
+  "baseline": {
+    "refused": true,
+    "reason": "Keep: missing referenced immutable file syncs before visibility",
+    "baselineHead": "e05c8e9560fbcab44ce88d1f542a6e843f1cfd25",
+    "successfulContentTest": true,
+    "actualUnsynchronizedRestoredFiles": true
+  },
+  "validation": {
+    "realFileXCTestPassed": 81,
+    "failed": 0,
+    "skipped": 0,
+    "restoredTraceVerifierControlsPassed": 7,
+    "priorDirectoryVerifierControlsPassed": 6,
+    "newMainRasterLabTestsPassed": 30,
+    "orderedFeaturePatchesPreserved": 143,
+    "confirmedDirectoryReceipts": 20,
+    "nativeInputStamp": "4f7b3b6d0071a25bb3139f3c8897ba7b320a3b37",
+    "fourReleaseRustTargetsBuilt": true,
+    "nativeExportedSymbolsVerified": 185,
+    "macOSBuild": "BUILD SUCCEEDED",
+    "arm64iPhone17ProSimulatorBuild": "BUILD SUCCEEDED",
+    "swiftRegressionCoverage": {
+      "classes": 499,
+      "run": 312,
+      "excluded": 187,
+      "untriaged": 0
+    }
+  },
+  "actualPhotographicSmartPaint": {
+    "report": {
+      "assets": {
+        "051bfa5d08e8dbfc12d1afa1615dfeefc95a843d45e8e7948cb5b2d6364fe2d2.f16": "blake3:051bfa5d08e8dbfc12d1afa1615dfeefc95a843d45e8e7948cb5b2d6364fe2d2",
+        "878987dc830be6765a1afc5a8acba72fe0a41e8f035648dcae0c2a1e54b46916.mask": "blake3:878987dc830be6765a1afc5a8acba72fe0a41e8f035648dcae0c2a1e54b46916"
+      },
+      "cancelWroteSidecar": false,
+      "largeIntentDigest": "blake3:f91ffbb2382107bfce64a74bd729a10317d0fcf7ad20089c81e2b9c617ef23d8",
+      "largeRefusedBeforeInference": true,
+      "originalUnchanged": true,
+      "protectedNativeContextExact": true,
+      "protectionDigest": "blake3:97b80da7ff45d60110f5633ceae0b1d1e4e6aafc35566649048898176bb7290d",
+      "releaseQualified": false,
+      "reopenedDigest": "blake3:0a05c7b41e421cb9fc2d447bdf6854c6bca8422f4b8c78873b507f3e5e3e6d9e",
+      "requests": [
+        {
+          "bake": {
+            "ev": 0,
+            "temp": 6500,
+            "tint": 0
+          },
+          "context_window": {
+            "height": 1024,
+            "width": 1024,
+            "x": 2933,
+            "y": 1248
+          },
+          "model": "blake3:11d91ba3f522282c1b0f0a3b9aa2be1646a1a65fd406b65f08e4d90740a4c492",
+          "model_version": "339d078d9d1376d76a49efd4fa42f328c3f276af775505ae8b57c84db187c4f6",
+          "patch_window": {
+            "height": 1024,
+            "width": 1024,
+            "x": 2933,
+            "y": 1248
+          },
+          "plate": "linear-calibration-v1",
+          "recipe": "blake3:c62a3714ba9e4f3535e8df99c5a3ab44b54ebe1ecfc315c473399c19f04f784a",
+          "source": {
+            "decode": "blake3:add2c2b7017c74c40e3b2229acc1804ab1ca5be9700e99f448093dd044bf87c9",
+            "height": 4000,
+            "original": "blake3:2019a5cbd7bcdcf8405528789cde7c05ed4bee8d31c533df786be64f42c97718",
+            "width": 6000
+          }
+        }
+      ],
+      "reviewDigest": "blake3:0a05c7b41e421cb9fc2d447bdf6854c6bca8422f4b8c78873b507f3e5e3e6d9e",
+      "reviewSize": [2048, 1365],
+      "scope": "Actual photographic Smart paint Add/Subtract gestures, deployed native MobileSAM selection, held-out visible sample checks, temporary review/Compare/Cancel, native LaMa reconstruction, one Keep/XMP/two assets/undo and exact model-free reopening. No independent complete silhouettes, person ownership, photographic fill quality, live UI or supported-device performance qualification.",
+      "selectionUndoRedoExact": true,
+      "smartIntentDigest": "blake3:878987dc830be6765a1afc5a8acba72fe0a41e8f035648dcae0c2a1e54b46916",
+      "source": {
+        "decode": "blake3:add2c2b7017c74c40e3b2229acc1804ab1ca5be9700e99f448093dd044bf87c9",
+        "height": 4000,
+        "original": "blake3:2019a5cbd7bcdcf8405528789cde7c05ed4bee8d31c533df786be64f42c97718",
+        "width": 6000
+      },
+      "undoSteps": 1
+    },
+    "files": [
+      {
+        "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/test-fixtures/raws/removal-photographic/smart-runs/7B846F91-4D80-481A-A750-DDE1D8D7CC70/051bfa5d08e8dbfc12d1afa1615dfeefc95a843d45e8e7948cb5b2d6364fe2d2.f16",
+        "sha256": "d0284fcdbaed174702a6c780920e1d24a9ee41babc8dc4e6e7c344688ee2a1b1",
+        "bytes": 8388640
+      },
+      {
+        "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/test-fixtures/raws/removal-photographic/smart-runs/7B846F91-4D80-481A-A750-DDE1D8D7CC70/878987dc830be6765a1afc5a8acba72fe0a41e8f035648dcae0c2a1e54b46916.mask",
+        "sha256": "35fbe6cb0fca2f596814e8ca2065a0a0dbcb9d7282bb20f4459af2807cea2d16",
+        "bytes": 16403
+      },
+      {
+        "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/test-fixtures/raws/removal-photographic/smart-runs/7B846F91-4D80-481A-A750-DDE1D8D7CC70/large-intent.mimf",
+        "sha256": "c274137b7ebe2d0d1fd40832ba231f981441a4bc3731d6f819e83305d982f53c",
+        "bytes": 191541
+      },
+      {
+        "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/test-fixtures/raws/removal-photographic/smart-runs/7B846F91-4D80-481A-A750-DDE1D8D7CC70/report.json",
+        "sha256": "f6292b46cf5f8073a5fb2e8cb59cb153bfa84f4cb8d3d8a5c62cccc8f82437b0",
+        "bytes": 2674
+      },
+      {
+        "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/test-fixtures/raws/removal-photographic/smart-runs/7B846F91-4D80-481A-A750-DDE1D8D7CC70/review.rgb8",
+        "sha256": "b1f26219730844575af39a6c2f87c9c04c846a20f4bbe28519d3d0fc21201643",
+        "bytes": 8386560
+      },
+      {
+        "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/test-fixtures/raws/removal-photographic/smart-runs/7B846F91-4D80-481A-A750-DDE1D8D7CC70/smart-intent.mimf",
+        "sha256": "35fbe6cb0fca2f596814e8ca2065a0a0dbcb9d7282bb20f4459af2807cea2d16",
+        "bytes": 16403
+      },
+      {
+        "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/test-fixtures/raws/removal-photographic/smart-runs/7B846F91-4D80-481A-A750-DDE1D8D7CC70/smart-protection.mimf",
+        "sha256": "1c1acf54bea8f671160c858ac707a3896238501753f7adef4eb5b19b2176e97c",
+        "bytes": 111
+      }
+    ]
+  },
+  "sourceFiles": [
+    {
+      "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/src/apple/Packages/MapleCore/Sources/MapleCore/Removal/LocalRemovalAssetStore.swift",
+      "sha256": "895d31ee682c8bfbe4c54fb07f7bfec0f38f8f085f4dceb15d9846edd4923ea0",
+      "bytes": 7418
+    },
+    {
+      "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/src/apple/Packages/MapleCore/Sources/MapleCore/XMPSidecarStore.swift",
+      "sha256": "3fd1074c5104f935e2e6f1934e3c2ffca15afc4d1cfeb1d47443a829d4eb2e08",
+      "bytes": 22641
+    },
+    {
+      "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/src/apple/Packages/MapleCore/Tests/MapleCoreTests/LocalRemovalRestoredPublicationTests.swift",
+      "sha256": "0b4101dc5fdd175b222381079087cc7d9aa6b4445306236134e6f700fa9684b8",
+      "bytes": 7480
+    },
+    {
+      "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/tools/removal/mac_directory_sync_audit.c",
+      "sha256": "59f3dae4393025f9699ec12175edd8709f0468b2a052ad38683f92fe135bfccb",
+      "bytes": 1358
+    },
+    {
+      "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/tools/removal/verify_mac_directory_sync.py",
+      "sha256": "f6008162b8510495bffbfe49604ccfb760a5436cd0955cdfc010714e33ce9726",
+      "bytes": 4397
+    },
+    {
+      "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/tools/removal/verify_mac_restored_sync.py",
+      "sha256": "0c75821c062e8e2a351f5ec2504d78a49a9a1d4cc2906d8f508619baf188fbea",
+      "bytes": 5915
+    },
+    {
+      "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/tools/removal/mac_restored_sync_test.py",
+      "sha256": "7201ea99c1e3a41f6a1e0e85c39b55371be5eef45c099ad9deb603755b1987e9",
+      "bytes": 3807
+    },
+    {
+      "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/.github/swift-regressions/run.txt",
+      "sha256": "15e983e7276cd0e77fcb3abaf1edaea655c0b9dc65748bc957e25a8d37b7feff",
+      "bytes": 11764
+    },
+    {
+      "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/docs/xmp-canonical-format.md",
+      "sha256": "d940b36e47d9ef10458e3bf1d4c7bf0d4a259af6c1cc23ed252ca851d47125c5",
+      "bytes": 105385
+    }
+  ],
+  "evidenceFiles": [
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/mac-restored-unsynced-baseline-trace-20261004.log",
+      "sha256": "ddf32897855c4eada1a0847d50ab3dbe8da880b820b369b75c342bd0fc8d1643",
+      "bytes": 3368
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/mac-restored-unsynced-baseline-refusal-20261004.json",
+      "sha256": "b67aa42d551db5ee38e70c440261872279f87c9d7ab7fdc308237fbffe037436",
+      "bytes": 241
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/mac-restored-sync-rebased-trace-20261004.log",
+      "sha256": "5517e052c65460a51fc593a96fe531cc18fa1655a55f331d77db9d44c95583bb",
+      "bytes": 5641
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/mac-restored-sync-rebased-audit-20261004.json",
+      "sha256": "cf624cd012a9a921d5579a964fa95b6dc9653eefd024bf1de57674923c79a1f4",
+      "bytes": 5201
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/mac-restored-sync-rebased-directory-trace-20261004.log",
+      "sha256": "da478a79bcb021dfd841545d378402f0b21fa064c71f15c8546f84b9f3b85682",
+      "bytes": 8333
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/mac-restored-sync-rebased-directory-audit-20261004.json",
+      "sha256": "cd50c68b7c981fbfaf261c813a1f2d0d48a10cdb3e4fdb75c6c7eca21a101b94",
+      "bytes": 6267
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/mac-restored-sync-rebased-tests-20261004.log",
+      "sha256": "69acf317bcd4e504f11e4bc5b4def46794f531f0f3fa3e8f9188a521c58939fa",
+      "bytes": 137813
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/mac-restored-sync-rebased-controls-20261004.log",
+      "sha256": "d2bb677668b06253db6f93703572862ec1d825da42c2ffa9bb714c1b4ef7cf99",
+      "bytes": 1087
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/mac-restored-sync-directory-controls-20261004.log",
+      "sha256": "fbf1c15c2d9e2865a430c982ee25c49c8865ed453b5c51fc64e46ace7cc88839",
+      "bytes": 952
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/mac-restored-sync-main-rust-tests-20261004.log",
+      "sha256": "c0ae3cdde9f813efa774c7f1cb8b7bdabfbdcd6795b05f373d0caf6a1531e6cb",
+      "bytes": 7487
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/mac-restored-sync-rebased-native-build-20261004.log",
+      "sha256": "bccb7dfff2ededd14523001250aa6ba1275637ad220ade021604dafe9b63cb5e",
+      "bytes": 198152
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/mac-restored-sync-rebased-mac-build-20261004.log",
+      "sha256": "4367585931d46abb16190d55c3390f3186c6dbf1e801e5879e1520ee75b05370",
+      "bytes": 864527
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/mac-restored-sync-rebased-ios-build-20261004.log",
+      "sha256": "7f8fe63e38e8dedb2629752e6c8dd80f61cfe7b8f9e5bdc758a10d5eeccedc0a",
+      "bytes": 834959
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/restored-sync-after-main-20261004.json",
+      "sha256": "2c5efa1c0b2cf7d527b845202f04ca354a6f5c1e63b150f8171a19f0fc4ea7e5",
+      "bytes": 31047
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/mac-restored-sync-rebased-headroom-20261004.log",
+      "sha256": "e5ab2a25f8061db32ffdb922fed42f0e27b479832ba0cc573d056ef342acf495",
+      "bytes": 55
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/mac-restored-sync-audit-20261004.dylib",
+      "sha256": "09f407c792dc16e98170aae65757e422ed6f7d9f734952bb3383f234d55b9a7e",
+      "bytes": 33784
+    }
+  ],
+  "observedOriginMainAfterValidation": "773c5941f2f50d59a04328c1ae0d2f039dd8cfca",
+  "mainAdvancedDuringValidation": "One subsequent test-only raster resize commit arrived after rebasing. This record proves the explicit tested base, not that newer base; maintenance validation remains pending.",
+  "scope": "Local Darwin fsync ordering, real RAW/XMP/companion history and workflow preservation; no live UI, photographic reconstruction quality, physical power-loss, NAS or supported-device performance acceptance.",
+  "remaining": [
+    "Local sidecar rename/lost-ack recovery and interrupted deep ancestor durability",
+    "Complete person ownership and photographic fill quality including native objects above 1024",
+    "Recovery UI and remote/portable companion transports",
+    "Latest-main validation and physical hardware/performance/full Apple/Web epic qualification"
+  ],
+  "pushOrMergePerformed": false
+}

@@ -12,6 +12,40 @@
 
 import type { DetailOverlay } from './image-canvas.native-detail';
 
+interface CanvasDrawingHost {
+  readonly comparison: import('./image-canvas.comparison').ImageCanvasComparison;
+  readonly gpuPresent: import('./image-canvas.gpu-present').ImageCanvasGpuPresent;
+  readonly state: import('../../state/library-state.service').LibraryStateService;
+  readonly canvasSvc: import('./image-canvas.service').ImageCanvasService;
+  readonly imageBitmap: () => ImageBitmap | null;
+  readonly wrapW: () => number;
+  readonly wrapH: () => number;
+  readonly nativeDetail: import('./image-canvas.native-detail').ImageCanvasNativeDetail;
+  currentLayout(): { canvasW: number; canvasH: number; pan: { x: number; y: number } };
+}
+
+/** Synchronous reads stay inside the owning component's draw effect. */
+export function drawCanvasState(
+  canvas: HTMLCanvasElement | undefined,
+  host: CanvasDrawingHost,
+): void {
+  if (!canvas) return;
+  const { canvasW, canvasH, pan } = host.currentLayout();
+  drawCanvas2d(canvas, {
+    wrapW: host.wrapW(),
+    wrapH: host.wrapH(),
+    canvasW,
+    canvasH,
+    pan,
+    bitmap: host.imageBitmap(),
+    before: host.comparison.bitmap(),
+    overlayOnly: host.gpuPresent.active(),
+    detail: host.nativeDetail.visibleOverlay(),
+    split: host.canvasSvc.beforeAfterSplitX(),
+    gradientUrl: host.state.focusedAsset()?.thumbnailGradient,
+  });
+}
+
 /** Canvas CSS size + scale for a zoom level (the `effectivePx` derivation). */
 export interface EffectivePx {
   scale: number;

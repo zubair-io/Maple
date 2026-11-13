@@ -15,6 +15,7 @@
 
 import type { HistogramBins } from '../thumbs/histogram.ts';
 import type { LensProfileInventory } from '../lens-profiles/types.ts';
+import type { VerifiedRemovalAssets } from './raw_ffi-removal-assets.ts';
 
 export interface RegisterLensProfileRequest {
   type: 'registerLensProfile';
@@ -124,6 +125,9 @@ export interface AsShotResponse {
 }
 
 export type FfiRequest =
+  | { type: 'removalAssets'; id: number; rawPath: string; records: string }
+  | { type: 'removalSource'; id: number; rawPath: string; records: string }
+  | { type: 'validateRemovalAsset'; id: number; filePath: string; name: string }
   | AsShotRequest
   | SidecarAdjustmentsRequest
   | ExportRecipeRequest
@@ -137,6 +141,9 @@ export type FfiRequest =
 /** Every `type` the child dispatches. `Record` rejects both missing and
  * unknown variants; the value below drives the runtime wire guard. */
 const requestTypes = {
+  removalAssets: true,
+  removalSource: true,
+  validateRemovalAsset: true,
   asShot: true,
   sidecarAdjustments: true,
   exportRecipe: true,
@@ -206,7 +213,15 @@ export interface ValidateAvifResponse {
 }
 
 export type FfiResponse =
+  | {
+      type: 'removalAssets' | 'removalSource';
+      id: number;
+      ok: boolean;
+      assets?: VerifiedRemovalAssets;
+      error?: string;
+    }
   | { type: 'exportRecipe'; id: number; ok: boolean; error?: string }
+  | { type: 'validateRemovalAsset'; id: number; ok: boolean; error?: string }
   | AsShotResponse
   | SidecarAdjustmentsResponse
   | RegisterLensProfileResponse

@@ -101,7 +101,7 @@ fn a_real_patch_blob_round_trips_and_changes_the_output() {
         coverage: vec![1.0; n],
     };
     assert!(patch.is_valid(), "test patch must be well-formed");
-    let blob = raw_core::pipeline::patches_to_blob(std::slice::from_ref(&patch));
+    let blob = raw_core::pipeline::patches_to_blob(std::slice::from_ref(&patch)).unwrap();
 
     // The codec must survive the round trip before we trust the render delta.
     let decoded = raw_core::pipeline::patches_from_blob(&blob).expect("blob decodes");

@@ -1,0 +1,80 @@
+{
+  "epic": 1472,
+  "measured_at_utc": "2026-10-02T07:36:49.364750+00:00",
+  "base_commit": "504b63a561053b5652d98a689942e22b19ac3d41",
+  "host": {
+    "system": "Darwin",
+    "machine": "arm64",
+    "bun": "1.4.3"
+  },
+  "native_build": {
+    "command": "./src/api/scripts/build-raw-ffi.sh",
+    "authoring_inference_features": false,
+    "result": "success"
+  },
+  "digests_sha256": {
+    "src/api/native/libraw_ffi.dylib": "b9563f9b1126039471f8631f4696db8e1094bcb48b511a315318068330a9ef14",
+    "test-fixtures/removal/calibration/source.dng": "24450571460687ee53852658deec26946c4a7877fe111a6ba5bb059c116f2618",
+    "test-fixtures/removal/calibration/preview-64.rgb": "96748afe66ddd37479439eec46038bc427c9d727a6a310deedb79c2c537c75a6",
+    "test-fixtures/removal/calibration/preview-64-q90.jpg": "aad8f8b53ae5cc1d81b607997b89ed8693b24c6e04c7144c22333f2c3c368065"
+  },
+  "focused": {
+    "command": "cd src/api && bun test src/indexer/removal-sidecar-derivatives.test.ts src/export/removal-export.integration.test.ts",
+    "passed": 14,
+    "failed": 0,
+    "skipped": 0,
+    "assertions": 162,
+    "log": "/tmp/maple-removal-api-qualified-14.log"
+  },
+  "combined_regressions": {
+    "files": [
+      "src/export/export.integration.test.ts",
+      "src/export/removal-export.integration.test.ts",
+      "src/indexer/removal-sidecar-derivatives.test.ts",
+      "src/indexer/raw-sidecar-derivatives.test.ts",
+      "src/ffi/raw_ffi.child-integrity.test.ts"
+    ],
+    "passed": 46,
+    "failed": 0,
+    "skipped": 1,
+    "skip_reason": "Optional camera RAW test_0017.dng absent; saved-removal tests did not skip.",
+    "log": "/tmp/maple-removal-api-jobs-consumers.log"
+  },
+  "full_api": {
+    "command": "cd src/api && bun test --timeout 30000",
+    "passed": 5396,
+    "failed": 0,
+    "skipped": 8,
+    "assertions": 19524,
+    "files": 595,
+    "seconds": 87.41,
+    "log": "/tmp/maple-removal-api-full-suite.log"
+  },
+  "checks": {
+    "api_typecheck": "passed",
+    "scoped_oxlint": "passed",
+    "prettier": "passed",
+    "rustfmt": "passed",
+    "file_budget": "zero hard violations or soft warnings",
+    "existing_calibration_fixture_regeneration": "all previously committed bytes reproduced exactly"
+  },
+  "verified": [
+    "Committed 4x2 and 16x8 RGB matches through real child-process recipe PNG export.",
+    "Developed JPEG exactly matches the committed RGB-derived quality-90 JPEG.",
+    "Histogram exactly matches committed RGB bin counts.",
+    "Schema-5 disable/re-enable reproduces the selected stack without companion writes.",
+    "Thumbnail and preview cold/warm/regenerated AVIF matches bitmap-encoded committed JPEG.",
+    "Missing mask, corrupt patch, changed source digest, future schema and disabled missing-mask reject all cold consumers without output or temporary-file leaks.",
+    "Persisted SQLite export job retains queued XMP snapshot after a later sidecar edit.",
+    "Missing companion records per-photo failure and allows intact later photos to export.",
+    "Lost publication acknowledgement recovers the committed output without rendering again.",
+    "Original RAW, XMP and companions are byte-checked against test inputs."
+  ],
+  "limitations": [
+    "Synthetic persistence/render qualification only; no photographic quality or inference qualification.",
+    "Local filesystem API consumer paths only; remote companion transport and other host adapters remain separate gates.",
+    "Warm reuse check covers an unchanged edit; edit-time invalidation/watchers remain a separate qualification.",
+    "No physical-device, 100MP memory/gesture timing, full color/parity, current-main CI or release qualification claim."
+  ],
+  "release_qualified": false
+}

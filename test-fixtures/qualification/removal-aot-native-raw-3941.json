@@ -1,0 +1,488 @@
+{
+  "issue": 3941,
+  "epic": 1472,
+  "recordedAt": "2026-10-04T00:50:00.826247+00:00",
+  "headBeforeCommit": "8111eeed6f3efe2708e881b1f208f1b1ddd695aa",
+  "releaseQualified": false,
+  "scope": "Unchanged official AOT-GAN Places2 at native1024 and native512 on shared reversible RAW float contexts. Research only; no app/model catalog/XMP/accepted-edit changes.",
+  "officialSources": {
+    "implementation": "https://github.com/researchmm/AOT-GAN-for-Inpainting/tree/2cd1afd8fdfabb101c678f6062d14bc7d302509e",
+    "places2CheckpointFolder": "https://drive.google.com/drive/folders/1bSOH-2nB3feFRyDEmiX81CEiWkghss3i",
+    "checkpointFileID": "1FgeLfUONic3IP690YhlpGpowXqi_NEAb",
+    "sourceLicense": "Apache-2.0",
+    "weightsDistributionAdmission": "Not established; official provenance recorded, no redistribution."
+  },
+  "probe": {
+    "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/tools/removal/probe_aot_native.py",
+    "sha256": "9612632007d33ffe992f2365bf39806fc425d84b796a2097f3033aafc2765c09",
+    "bytes": 10609
+  },
+  "executedSnapshots": [
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/probe-aot-native-executed-20261004.py",
+      "sha256": "65820433f501e57ce0b4b0b07fbfc7081d55c2e0512c380f1ce1d394f55f7fef",
+      "bytes": 7651
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/probe-aot-native-final-executed-20261004.py",
+      "sha256": "4beb3a6cde70a364d2fe0dee7c819ce7d0f3b9cc64b3daf0bd79159e24392b82",
+      "bytes": 9650
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/probe-aot-native-512-executed-20261004.py",
+      "sha256": "9612632007d33ffe992f2365bf39806fc425d84b796a2097f3033aafc2765c09",
+      "bytes": 10609
+    }
+  ],
+  "executionNotes": [
+    "Initial Bologna script formatted after launch; exact initial bytes not retained. Later snapshots identify Coast, upright Night and final native512 execution.",
+    "Legacy checkpoint mmap inspection failed; inference uses weights_only restricted loading after byte checks.",
+    "Initial Night canonical-orientation control excluded; admitted diagnostic runs upright with shared inverse.",
+    "Native512 and Night baking overlapped on shared M5 Max128GiB. Individual time/RSS observations are not p50/p95, supported-device or algorithm speed-ratio qualification.",
+    "No original or sidecar edits, model weights or generated photos published."
+  ],
+  "originals": [
+    {
+      "case": "bologna",
+      "file": "/Users/riabuz/.cache/maple-removal-research/raws/_DSC7409.NEF",
+      "sha256": "2ed291a09d7d4f72c8588b0c12d6cc5c470ad42ab9e3aaad1f888f34526b959f",
+      "bytes": 29019786,
+      "unchanged": true,
+      "blake3": "blake3:2019a5cbd7bcdcf8405528789cde7c05ed4bee8d31c533df786be64f42c97718",
+      "personModelReleaseVerified": false
+    },
+    {
+      "case": "coast",
+      "file": "/Users/riabuz/.cache/maple-removal-research/raws/DSC06078.ARW",
+      "sha256": "ec04e3ac69d54e7300ba0ff582d10ade0fc3ad28f48507b4c35cacc115e4ee86",
+      "bytes": 24969216,
+      "unchanged": true,
+      "blake3": "blake3:3bd41714b1b37007f7f3bda5382fe726980449c7b226e8f25cf26ec5fc20da21",
+      "personModelReleaseVerified": false
+    },
+    {
+      "case": "night-tiger",
+      "file": "/Users/riabuz/.cache/maple-removal-research/raws/DSC_0015.nef",
+      "sha256": "8cc49f506d3ebde3f3c87862e23497c639c806a54765bf8cb8a7fcaf664e10e5",
+      "bytes": 10981379,
+      "unchanged": true,
+      "blake3": "blake3:45f83349f8f98d19c2e60955201c2e8cd9bc08e435fec22079d8218395c02fa2",
+      "personModelReleaseVerified": false
+    }
+  ],
+  "cases": [
+    {
+      "id": "bologna-native1024",
+      "modelReport": {
+        "path": "/Users/riabuz/.cache/maple-removal-research/aot-bologna-native-20261004/report.json",
+        "sha256": "9303731e378713eaf47a1c85eb4eb3708a6af39caaa77f013c543133b181af4d",
+        "bytes": 1869
+      },
+      "report": {
+        "source_revision": "2cd1afd8fdfabb101c678f6062d14bc7d302509e",
+        "source_files_sha256": {
+          "src/model/aotgan.py": "3b956093c04f3ffcf4ae5c2eef18445f2a251ff8bf7365954612e91e19f0025c",
+          "src/model/common.py": "a6a870f2e66acdde3785047a061229e81f0e0383922feacf999bb4ad8aa27d1d",
+          "LICENSE": "3a08baf12a7cda0724fbcc8747b3bf428581a0644fb70f08378ffc86ec1d9129"
+        },
+        "checkpoint_sha256": "9c30e3b979b69e46ca80482f8a75f37fa2d62e97c678e7c7b0f12775e75d9e8e",
+        "checkpoint_bytes": 60829150,
+        "learned_tensors": 108,
+        "learned_parameters": 15200835,
+        "weights_unchanged": true,
+        "context_sha256": "ff1a313bc44bd90f4290cea3011e44f07848e652cdb5037e4d899d7b4b856b05",
+        "masks_sha256": "fe7b4f8e03e038d0deca02d188a9d4ad9adda5e7dd6a71b26f03abb25443c71c",
+        "source_anchor": {
+          "original": "blake3:2019a5cbd7bcdcf8405528789cde7c05ed4bee8d31c533df786be64f42c97718",
+          "decode": "blake3:add2c2b7017c74c40e3b2229acc1804ab1ca5be9700e99f448093dd044bf87c9",
+          "width": 6000,
+          "height": 4000
+        },
+        "native_extent_hw": [1024, 1024],
+        "selected_pixels": 101058,
+        "input_normalization": "f32 RGB * 2 - 1; selected RGB = +1; separate binary f32 mask",
+        "input_sha256": "3377775e02ae1f64efaf0bcb416534c822dee94e5aed9f17b0c0961fbef5c5dd",
+        "result_sha256": "4950920c7ce0e72cf439cc765e8ad098183750c37ea8f8c356c99b42d7c345c9",
+        "prediction_sha256": "5d24fd2add858a51cbae1b08c39742c062d8037832353aa9a38efd8ad92197ca",
+        "outside_float_bits_changed": 0,
+        "inference_seconds": 8.03057516699846,
+        "process_peak_rss_bytes_macos": 10484858880,
+        "torch": "2.14.1",
+        "device": "cpu",
+        "releaseQualified": false,
+        "scope": "Actual unchanged upstream Places2 generator on canonical native RAW f32. No resizing or clipping. One uncontrolled CPU point; RAW inverse, photographic quality, ONNX/native app and supported-device admission remain separate gates."
+      },
+      "inputContext": {
+        "path": "/Users/riabuz/.cache/maple-removal-research/bologna-person-current-contrast-8-r1-20261003/context.json",
+        "sha256": "ff1a313bc44bd90f4290cea3011e44f07848e652cdb5037e4d899d7b4b856b05",
+        "bytes": 849
+      },
+      "modelImage": {
+        "path": "/Users/riabuz/.cache/maple-removal-research/aot-bologna-native-20261004/candidate.png",
+        "sha256": "18601b61125d9ad2b931e3e57b890173203b27de9aba47e7fa9f83781b2eb261",
+        "bytes": 1394138
+      },
+      "qualitativeReview": "Patterned vertical smear and implausible texture replace the blue-coat shopper. Thin blue outline remains outside accepted coverage; no complete-person closure claim.",
+      "rawBake": {
+        "report": {
+          "path": "/Users/riabuz/.cache/maple-removal-research/aot-bologna-bake-20261004/report.json",
+          "sha256": "00d582879ea7da215d21522f59e6515b8b0b3c988f5ae18a2831c28d5df45412",
+          "bytes": 4499
+        },
+        "nativeGrades": 18,
+        "fullNativeFloatOutsideCoverageMaxError": 0,
+        "independentDisplayChecks": {
+          "path": "/Users/riabuz/.cache/maple-removal-research/aot-bologna-grade-checks-20261004.json",
+          "sha256": "425f04c7cabf04969493bdf885e71941cfe6d9eb17c7864970ebeacf42f534ba",
+          "bytes": 10260
+        },
+        "gradeImage": {
+          "path": "/Users/riabuz/.cache/maple-removal-research/aot-bologna-bake-20261004/auto_ev+0_wb+0-removal.png",
+          "sha256": "505d14979df29f180420857ecf5c63f6467cdd18049893d8f77848f1b9a48071",
+          "bytes": 1608037
+        }
+      }
+    },
+    {
+      "id": "coast-native1024",
+      "modelReport": {
+        "path": "/Users/riabuz/.cache/maple-removal-research/aot-coast-native-20261004/report.json",
+        "sha256": "90c4ba3ab29b7e2bbb9e9d6b2143b17e24b198277a9a81a1f606e82bd57d67ac",
+        "bytes": 1956
+      },
+      "report": {
+        "source_revision": "2cd1afd8fdfabb101c678f6062d14bc7d302509e",
+        "source_files_sha256": {
+          "src/model/aotgan.py": "3b956093c04f3ffcf4ae5c2eef18445f2a251ff8bf7365954612e91e19f0025c",
+          "src/model/common.py": "a6a870f2e66acdde3785047a061229e81f0e0383922feacf999bb4ad8aa27d1d",
+          "src/test.py": "56efd179953ebc2d9e1e011db08a43882242dd3d943e37d21e780e5f861f7e33",
+          "LICENSE": "3a08baf12a7cda0724fbcc8747b3bf428581a0644fb70f08378ffc86ec1d9129"
+        },
+        "checkpoint_sha256": "9c30e3b979b69e46ca80482f8a75f37fa2d62e97c678e7c7b0f12775e75d9e8e",
+        "checkpoint_bytes": 60829150,
+        "learned_tensors": 108,
+        "learned_parameters": 15200835,
+        "weights_unchanged": true,
+        "context_sha256": "036a7fcc71d05163b091eb59fde90fcc07d5a903221a29b1dbc336ae8d28e2e0",
+        "masks_sha256": "e50a6e20e3b2fa9be2b7ddfb00654dd2b066dfcb4a7d96e686d5872c33125f79",
+        "source_anchor": {
+          "original": "blake3:3bd41714b1b37007f7f3bda5382fe726980449c7b226e8f25cf26ec5fc20da21",
+          "decode": "blake3:0b32b9f8b0b603e43621c78df9d4cf193a13425568e912a7401caf1eebaea8c4",
+          "width": 6000,
+          "height": 4000
+        },
+        "native_extent_hw": [1024, 1024],
+        "selected_pixels": 4166,
+        "input_normalization": "f32 RGB * 2 - 1; selected RGB = +1; separate binary f32 mask",
+        "input_sha256": "eff68f12f696d28fb891e593cbff059b59fc9300b7b95d7733f580230f54ff95",
+        "result_sha256": "99df1ca22ee9139f7caf5b2edf90d502539fabc703b1b996dc5e94227e78dede",
+        "prediction_sha256": "a007c5acb04268b87b77006f933f20657e1215db4f6174758690aa5ef17af679",
+        "outside_float_bits_changed": 0,
+        "inference_seconds": 12.776985500000592,
+        "process_peak_rss_bytes_macos": 10486071296,
+        "torch": "2.14.1",
+        "device": "cpu",
+        "releaseQualified": false,
+        "scope": "Actual unchanged upstream Places2 generator on canonical native RAW f32. No resizing or clipping. One uncontrolled CPU point; RAW inverse, photographic quality, ONNX/native app and supported-device admission remain separate gates."
+      },
+      "inputContext": {
+        "path": "/Users/riabuz/.cache/maple-removal-research/coast-head-contrast-prepared-20261003/context.json",
+        "sha256": "036a7fcc71d05163b091eb59fde90fcc07d5a903221a29b1dbc336ae8d28e2e0",
+        "bytes": 849
+      },
+      "modelImage": {
+        "path": "/Users/riabuz/.cache/maple-removal-research/aot-coast-native-20261004/candidate.png",
+        "sha256": "b13a04a2cd1bfb8603642510d7c0c772d0129cc578a94a50fb129429ed649ce6",
+        "bytes": 1523166
+      },
+      "qualitativeReview": "Small head replaced by soft gray/blue patch with visible texture/edge transition. Model-domain image only; no RAW quality admission."
+    },
+    {
+      "id": "night-upright-native1024",
+      "modelReport": {
+        "path": "/Users/riabuz/.cache/maple-removal-research/aot-night-upright-native-20261004/report.json",
+        "sha256": "aed7dca7db75beac51e9cfd193e194b4878c3b979591136a0baee46fcf43ec82",
+        "bytes": 5130
+      },
+      "report": {
+        "source_revision": "2cd1afd8fdfabb101c678f6062d14bc7d302509e",
+        "source_files_sha256": {
+          "src/model/aotgan.py": "3b956093c04f3ffcf4ae5c2eef18445f2a251ff8bf7365954612e91e19f0025c",
+          "src/model/common.py": "a6a870f2e66acdde3785047a061229e81f0e0383922feacf999bb4ad8aa27d1d",
+          "src/test.py": "56efd179953ebc2d9e1e011db08a43882242dd3d943e37d21e780e5f861f7e33",
+          "LICENSE": "3a08baf12a7cda0724fbcc8747b3bf428581a0644fb70f08378ffc86ec1d9129"
+        },
+        "checkpoint_sha256": "9c30e3b979b69e46ca80482f8a75f37fa2d62e97c678e7c7b0f12775e75d9e8e",
+        "checkpoint_bytes": 60829150,
+        "learned_tensors": 108,
+        "learned_parameters": 15200835,
+        "weights_unchanged": true,
+        "context_sha256": "a21f20840a4fb7572aceca28ed05082f75d537e3d0ae60f60d44094e2de41ca9",
+        "masks_sha256": "617d4775621dd2a9e4351dca222e9a6339f35384fe808e49dea5b03923456b2f",
+        "source_anchor": {
+          "original": "blake3:45f83349f8f98d19c2e60955201c2e8cd9bc08e435fec22079d8218395c02fa2",
+          "decode": "blake3:f021d621d9593e428bc59f5d0861b719c7458d05c95a08c02ed85e8b3a24da2d",
+          "width": 4288,
+          "height": 2848
+        },
+        "orientation": 8,
+        "orientation_metadata": {
+          "height": 1024,
+          "input_blake3": "0fd74f5b2fb5387df4e9c5f9ac0475f52b075f785760b59cb7320ca51b472577",
+          "inverse": false,
+          "orientation": 8,
+          "output_blake3": "b772be8b5f59b9417f4c37f6939af7448afe03f920641f268579b04b7c92b7e3",
+          "raw_identity": {
+            "decoded_orientation": "Rotate270",
+            "decoder_verified": true,
+            "original_blake3": "45f83349f8f98d19c2e60955201c2e8cd9bc08e435fec22079d8218395c02fa2"
+          },
+          "releaseQualified": false,
+          "sample_math": "shared-core exact pixel permutation; no color math or resizing",
+          "width": 1024
+        },
+        "orientation_rows": {
+          "source": {
+            "forward": {
+              "height": 1024,
+              "input_blake3": "0fd74f5b2fb5387df4e9c5f9ac0475f52b075f785760b59cb7320ca51b472577",
+              "inverse": false,
+              "orientation": 8,
+              "output_blake3": "b772be8b5f59b9417f4c37f6939af7448afe03f920641f268579b04b7c92b7e3",
+              "raw_identity": null,
+              "releaseQualified": false,
+              "sample_math": "shared-core exact pixel permutation; no color math or resizing",
+              "width": 1024
+            },
+            "inverse": {
+              "height": 1024,
+              "input_blake3": "b772be8b5f59b9417f4c37f6939af7448afe03f920641f268579b04b7c92b7e3",
+              "inverse": true,
+              "orientation": 8,
+              "output_blake3": "0fd74f5b2fb5387df4e9c5f9ac0475f52b075f785760b59cb7320ca51b472577",
+              "raw_identity": null,
+              "releaseQualified": false,
+              "sample_math": "shared-core exact pixel permutation; no color math or resizing",
+              "width": 1024
+            },
+            "roundtrip_bits_exact": true
+          },
+          "hole": {
+            "forward": {
+              "height": 1024,
+              "input_blake3": "6b30c3241dee45aff3a5e11c531629a401653300f905b055b9be7f5f59047d03",
+              "inverse": false,
+              "orientation": 8,
+              "output_blake3": "955ba12a5d93bb9bc05bf415fb92715d325efc2ec6ff53e25fc4ccaeca88e173",
+              "raw_identity": null,
+              "releaseQualified": false,
+              "sample_math": "shared-core exact pixel permutation; no color math or resizing",
+              "width": 1024
+            },
+            "inverse": {
+              "height": 1024,
+              "input_blake3": "955ba12a5d93bb9bc05bf415fb92715d325efc2ec6ff53e25fc4ccaeca88e173",
+              "inverse": true,
+              "orientation": 8,
+              "output_blake3": "6b30c3241dee45aff3a5e11c531629a401653300f905b055b9be7f5f59047d03",
+              "raw_identity": null,
+              "releaseQualified": false,
+              "sample_math": "shared-core exact pixel permutation; no color math or resizing",
+              "width": 1024
+            },
+            "roundtrip_bits_exact": true
+          },
+          "prediction_inverse": {
+            "height": 1024,
+            "input_blake3": "71b4cbf29a4b1918abc474091a724ea9b02b13d8b9fb1e341e94a3c6ee457046",
+            "inverse": true,
+            "orientation": 8,
+            "output_blake3": "e0d1950c9ebcac144e8af61414f57e024dbcd3381b715bdaaf72428bf1203953",
+            "raw_identity": null,
+            "releaseQualified": false,
+            "sample_math": "shared-core exact pixel permutation; no color math or resizing",
+            "width": 1024
+          }
+        },
+        "orientation_probe_sha256": "f4d3746df2eb53d3059327bbcadd4cea7a0305fe51516d4d3af68eba7002829d",
+        "native_extent_hw": [1024, 1024],
+        "selected_pixels": 44905,
+        "input_normalization": "f32 RGB * 2 - 1; selected RGB = +1; separate binary f32 mask",
+        "input_sha256": "85fd4bab4705858f4980b3e37ed9205e4696feef9df06028637f3855a9e55e17",
+        "result_sha256": "5f1eb5497607643740f39364bdf479a6b7de2b520f216a92968d2b1c916882c3",
+        "prediction_sha256": "54b655075bd76eabefaad87d1e5c476c1897b1067601659fc9fbce080ba0851a",
+        "outside_float_bits_changed": 0,
+        "inference_seconds": 6.517479042002378,
+        "process_peak_rss_bytes_macos": 10531192832,
+        "torch": "2.14.1",
+        "device": "cpu",
+        "releaseQualified": false,
+        "scope": "Actual unchanged upstream Places2 generator on canonical native RAW f32. No resizing or clipping. One uncontrolled CPU point; RAW inverse, photographic quality, ONNX/native app and supported-device admission remain separate gates."
+      },
+      "inputContext": {
+        "path": "/Users/riabuz/.cache/maple-removal-research/night-poster-contrast-prepared-20261003/context.json",
+        "sha256": "a21f20840a4fb7572aceca28ed05082f75d537e3d0ae60f60d44094e2de41ca9",
+        "bytes": 847
+      },
+      "modelImage": {
+        "path": "/Users/riabuz/.cache/maple-removal-research/aot-night-upright-native-20261004/candidate.png",
+        "sha256": "ed07e9126b7b7ff4e1e3e5cfa4cf6644b844f804902cf8db2f07f2678ee59c00",
+        "bytes": 2041327
+      },
+      "qualitativeReview": "Poster face detail suppressed but repeated gray vertical marks and local texture/noise transition remain. Shared bit-exact upright and inverse EXIF8 permutation.",
+      "rawBake": {
+        "report": {
+          "path": "/Users/riabuz/.cache/maple-removal-research/aot-night-upright-bake-20261004/report.json",
+          "sha256": "4f6002a912b7e4167a1a1e26ab7e73fa37ca469553e550ee1a3f3ecc0a43c4d8",
+          "bytes": 4477
+        },
+        "nativeGrades": 18,
+        "fullNativeFloatOutsideCoverageMaxError": 0,
+        "independentDisplayChecks": {
+          "path": "/Users/riabuz/.cache/maple-removal-research/aot-night-upright-grade-checks-20261004.json",
+          "sha256": "ee908ef83d4e5e72dca6e0588b6a8ffa4877c6590ea49f86acccaeb3feaa8b9c",
+          "bytes": 10260
+        },
+        "gradeImage": {
+          "path": "/Users/riabuz/.cache/maple-removal-research/aot-night-upright-bake-20261004/auto_ev+0_wb+0-removal.png",
+          "sha256": "4cfc40f1f2f0290850967a69172fb74fc0e4aca944320eae71dc758301a7bba6",
+          "bytes": 1506837
+        }
+      }
+    },
+    {
+      "id": "bologna-native512",
+      "modelReport": {
+        "path": "/Users/riabuz/.cache/maple-removal-research/aot-bologna-native512-20261004/report.json",
+        "sha256": "9c1dd49d98ceecb78807ec0692054094778ccb28180e95b5913e65618ffea201",
+        "bytes": 2763
+      },
+      "report": {
+        "source_revision": "2cd1afd8fdfabb101c678f6062d14bc7d302509e",
+        "source_files_sha256": {
+          "src/model/aotgan.py": "3b956093c04f3ffcf4ae5c2eef18445f2a251ff8bf7365954612e91e19f0025c",
+          "src/model/common.py": "a6a870f2e66acdde3785047a061229e81f0e0383922feacf999bb4ad8aa27d1d",
+          "src/test.py": "56efd179953ebc2d9e1e011db08a43882242dd3d943e37d21e780e5f861f7e33",
+          "LICENSE": "3a08baf12a7cda0724fbcc8747b3bf428581a0644fb70f08378ffc86ec1d9129"
+        },
+        "checkpoint_sha256": "9c30e3b979b69e46ca80482f8a75f37fa2d62e97c678e7c7b0f12775e75d9e8e",
+        "checkpoint_bytes": 60829150,
+        "learned_tensors": 108,
+        "learned_parameters": 15200835,
+        "weights_unchanged": true,
+        "context_sha256": "ff1a313bc44bd90f4290cea3011e44f07848e652cdb5037e4d899d7b4b856b05",
+        "masks_sha256": "fe7b4f8e03e038d0deca02d188a9d4ad9adda5e7dd6a71b26f03abb25443c71c",
+        "source_anchor": {
+          "original": "blake3:2019a5cbd7bcdcf8405528789cde7c05ed4bee8d31c533df786be64f42c97718",
+          "decode": "blake3:add2c2b7017c74c40e3b2229acc1804ab1ca5be9700e99f448093dd044bf87c9",
+          "width": 6000,
+          "height": 4000
+        },
+        "orientation": 1,
+        "orientation_metadata": {
+          "height": 1024,
+          "input_blake3": "8444dd97c84684bc3194de047bf0331652f7c87ea58e0e0aed54c7aa75f8259f",
+          "inverse": false,
+          "orientation": 1,
+          "output_blake3": "8444dd97c84684bc3194de047bf0331652f7c87ea58e0e0aed54c7aa75f8259f",
+          "raw_identity": {
+            "decoded_orientation": "Normal",
+            "decoder_verified": true,
+            "original_blake3": "2019a5cbd7bcdcf8405528789cde7c05ed4bee8d31c533df786be64f42c97718"
+          },
+          "releaseQualified": false,
+          "sample_math": "shared-core exact pixel permutation; no color math or resizing",
+          "width": 1024
+        },
+        "orientation_rows": null,
+        "orientation_probe_sha256": null,
+        "native_extent_hw": [1024, 1024],
+        "model_extent_hw": [512, 512],
+        "native_model_crop_xywh_upright": [340, 206, 512, 512],
+        "selected_pixels": 101058,
+        "input_normalization": "f32 RGB * 2 - 1; selected RGB = +1; separate binary f32 mask",
+        "input_sha256": "3377775e02ae1f64efaf0bcb416534c822dee94e5aed9f17b0c0961fbef5c5dd",
+        "result_sha256": "b46ef1e61d0a49fc0c9b5c5d85b3ba5e02407b1e14311ebb1e745ef2a3555d68",
+        "prediction_sha256": "c888ed76d821929fd396bf7025ffe77f3176199278d02d43dfd8705277095c00",
+        "outside_float_bits_changed": 0,
+        "inference_seconds": 1.550405750000209,
+        "process_peak_rss_bytes_macos": 2897608704,
+        "torch": "2.14.1",
+        "device": "cpu",
+        "releaseQualified": false,
+        "scope": "Actual unchanged upstream Places2 generator on canonical native RAW f32. No resizing or clipping. One uncontrolled CPU point; RAW inverse, photographic quality, ONNX/native app and supported-device admission remain separate gates."
+      },
+      "inputContext": {
+        "path": "/Users/riabuz/.cache/maple-removal-research/bologna-person-current-contrast-8-r1-20261003/context.json",
+        "sha256": "ff1a313bc44bd90f4290cea3011e44f07848e652cdb5037e4d899d7b4b856b05",
+        "bytes": 849
+      },
+      "modelImage": {
+        "path": "/Users/riabuz/.cache/maple-removal-research/aot-bologna-native512-20261004/candidate.png",
+        "sha256": "dfc7fb987b9b961f4feec9e93989063ae55cb808b06e7be654cc160ad8966578",
+        "bytes": 1403849
+      },
+      "qualitativeReview": "Native512 contains every generation-hole pixel without resizing; warped patterned texture still fails photographic plausibility.",
+      "rawBake": {
+        "report": {
+          "path": "/Users/riabuz/.cache/maple-removal-research/aot-bologna-native512-bake-20261004/report.json",
+          "sha256": "094d070f5c6f721512063fa3641db7226667f3b39f54cacdb52ace782aabd0a3",
+          "bytes": 4473
+        },
+        "nativeGrades": 18,
+        "fullNativeFloatOutsideCoverageMaxError": 0,
+        "independentDisplayChecks": {
+          "path": "/Users/riabuz/.cache/maple-removal-research/aot-bologna-native512-grade-checks-20261004.json",
+          "sha256": "81737032ec2aa769408ab406cf753bd3cfb562618b75b013ff75b8a1e81bd240",
+          "bytes": 10260
+        },
+        "gradeImage": {
+          "path": "/Users/riabuz/.cache/maple-removal-research/aot-bologna-native512-bake-20261004/auto_ev+0_wb+0-removal.png",
+          "sha256": "b3df858f4b0acf55d48f25c7827b7d4ecb2096794dc684b1ce1f9f7886bb519e",
+          "bytes": 1617567
+        }
+      }
+    }
+  ],
+  "guards": {
+    "alteredInputsRefused": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/aot-context-refusals-20261004.json",
+      "sha256": "69c6b250d8a4720055fed5ad1ccd73743252dc3cb69b7403231acc8db0d752bb",
+      "bytes": 602
+    },
+    "largerHoleRefusedWithoutResize": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/aot-native512-crop-refusal-20261004.json",
+      "sha256": "e31141017e717fb17bb18ac04e75858e37ebc35b0ea079b24945808dd02bb484",
+      "bytes": 223
+    }
+  },
+  "sharedTools": {
+    "sceneProbe": {
+      "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/src/raw-pipeline/target/release/examples/removal-scene-probe",
+      "sha256": "a00aa216399431a48313b77958bf8f1d22273275c6b55de99626b81eb3860544",
+      "bytes": 15159808
+    },
+    "sceneBuildLog": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/aot-scene-probe-build-20261004.log",
+      "sha256": "06f06c76b70213ded2855bd3fc7f4410f4fc64d7ddb5b2551754bd3734711aef",
+      "bytes": 5575
+    },
+    "orientationProbe": {
+      "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/src/raw-pipeline/target/release/examples/removal-orientation-probe",
+      "sha256": "f4d3746df2eb53d3059327bbcadd4cea7a0305fe51516d4d3af68eba7002829d",
+      "bytes": 9511840
+    },
+    "orientationBuildLog": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/aot-orientation-probe-build-20261004.log",
+      "sha256": "2c8b7e7c1c1db9e4ac905bb7a31476e85854dcb3584f78125145e048bfe79d72",
+      "bytes": 2507
+    }
+  },
+  "decision": "Reject AOT-GAN as the next Mac reconstruction model. Native512 lowers the observed time/memory point but does not solve photographic structure/texture; native1024 also fails. Continue a structure-aware candidate rather than integrating this model or changing accepted mask/protection policy.",
+  "remaining": [
+    "Independent role/ownership/closure corpus and complete-person selection",
+    "Professional photographic fill and scene structure",
+    "Practical Mac device performance and model licensing/distribution",
+    "Full Mac UI and saved render/export/recovery, followed by Web interaction and portable consumers under unchanged epic1472"
+  ]
+}

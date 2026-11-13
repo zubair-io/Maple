@@ -336,6 +336,8 @@ pub use grain::{apply_grain, GrainOptions, GrainPass};
 pub use highlight_recovery::PostDcpHighlightPass;
 pub use hsl::{apply_hsl, HslPass};
 pub use image::GpuImage;
+pub mod inpaint_composite;
+pub use inpaint_composite::InpaintCompositePass;
 pub use live_chain::{
     build_live_chain, build_live_split, chain_signature, dehaze_is_active, scene_tone_is_noop,
     view_tail_pass_count, VIEW_TAIL_PASS_COUNT,

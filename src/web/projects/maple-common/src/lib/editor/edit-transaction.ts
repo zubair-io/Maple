@@ -79,6 +79,7 @@ const DECODE_INPUT_KEYS = [
   // colorimetry and before the chroma pre-filter, so placing or moving a
   // spot re-develops rather than re-running the per-tick chain.
   'retouchSpots',
+  'inpaintRemovals',
 ] as const satisfies readonly (keyof AdjustmentModel)[];
 
 /** JSON with recursively sorted object keys — a canonical, comparable form

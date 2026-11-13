@@ -16,7 +16,7 @@ pub fn parse(xml: &str) -> Result<AdjustmentModel> {
     let eligible = subject::eligible_descriptions(xml, false);
     let mut reader = Reader::from_str(xml);
     reader.config_mut().trim_text(true);
-    parse_events(
+    let mut model = parse_events(
         std::iter::from_fn(move || {
             Some(
                 reader
@@ -25,7 +25,9 @@ pub fn parse(xml: &str) -> Result<AdjustmentModel> {
             )
         }),
         Some(&eligible),
-    )
+    )?;
+    model.inpaint_removals = removal_records::parse(xml)?;
+    Ok(model)
 }
 
 pub(super) fn parse_events<'a>(
@@ -128,6 +130,7 @@ pub(super) fn parse_events<'a>(
                         &mut papp_seen,
                         &mut stamp,
                         &mut retouch_stamp,
+                        eligible.is_none(),
                     )?;
                 }
             }
@@ -165,6 +168,7 @@ pub(super) fn parse_events<'a>(
                         &mut papp_seen,
                         &mut stamp,
                         &mut retouch_stamp,
+                        eligible.is_none(),
                     )?;
                 }
             }

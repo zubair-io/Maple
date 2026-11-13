@@ -9,7 +9,7 @@ use crate::image::{ExifOrientation, Image, RawImage};
 use crate::pipeline::capture_first::{
     CaptureBase, Chain, CreativeHeader, CreativeStage, CreativeWire,
 };
-use crate::pipeline::develop::{capture_base, capture_colour, develop_camera};
+use crate::pipeline::develop::{capture_base, capture_colour, develop_camera, CameraReady};
 use crate::pipeline::develop_sized::develop_sized_camera;
 use crate::pipeline::orient::apply_orientation_f32_rgba;
 use crate::pipeline::{finite_or_zero, stage, RenderQuality};
@@ -65,6 +65,18 @@ pub fn render_capture_sized_sensor_framed_f32(
     finish(model, capture, ExifOrientation::Normal)
 }
 
+/// The capture decode from an already prepared camera buffer.
+pub(in crate::pipeline) fn render_capture_from_camera(
+    raw: &RawImage,
+    model: &AdjustmentModel,
+    (chain, ready): (Chain, CameraReady),
+    orientation: ExifOrientation,
+    cancel: CancelToken<'_>,
+) -> Result<CaptureRender> {
+    let (camera, input) = ready.colour(raw, model, chain, cancel);
+    finish(model, capture_colour(camera, input)?, orientation)
+}
+
 fn sized_capture(
     raw: &RawImage,
     model: &AdjustmentModel,
@@ -94,13 +106,24 @@ pub fn render_capture_with_base_from_raw_f32(
     max_long_edge: Option<u32>,
     cancel: CancelToken<'_>,
 ) -> Result<(CaptureRender, CaptureBase)> {
-    let (chain, ready) = match max_long_edge {
+    let prepared = match max_long_edge {
         Some(edge) => (
             Chain::Sized,
             develop_sized_camera(raw, model, quality, edge, cancel)?,
         ),
         None => (Chain::Full, develop_camera(raw, model, quality, cancel)?),
     };
+    render_capture_with_base_from_camera(raw, (loaded, model), prepared, cancel)
+}
+
+/// [`render_capture_with_base_from_raw_f32`] from an already prepared camera
+/// buffer.
+pub(in crate::pipeline) fn render_capture_with_base_from_camera(
+    raw: &RawImage,
+    (loaded, model): (&AdjustmentModel, &AdjustmentModel),
+    (chain, ready): (Chain, CameraReady),
+    cancel: CancelToken<'_>,
+) -> Result<(CaptureRender, CaptureBase)> {
     let (camera, input) = ready.colour(raw, model, chain, cancel);
     let base = capture_base(camera, input, loaded)?;
     let capture = base.refine_cpu(model, chain, cancel)?;

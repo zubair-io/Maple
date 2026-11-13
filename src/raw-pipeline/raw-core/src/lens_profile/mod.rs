@@ -9,8 +9,10 @@ mod resolve;
 mod xml;
 pub use resolve::{LensQuery, Resolution, SampleWeight, Source};
 mod apply;
+pub(crate) use apply::source as correction_source;
 pub use apply::{apply, apply_windowed, reach_px};
 mod auto;
+pub(crate) use auto::needs_acknowledgement;
 pub mod lensfun;
 pub(crate) mod metadata;
 pub use auto::{

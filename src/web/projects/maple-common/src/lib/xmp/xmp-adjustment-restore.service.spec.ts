@@ -190,6 +190,17 @@ describe('XmpAdjustmentRestoreService (#2406)', () => {
     expect(store.isEdited(ASSET_ID)()).toBe(false);
   });
 
+  it('opens a malformed sidecar with no removal records the way main does', async () => {
+    api.getXmpResult = of('<x:xmpmeta><rdf:RDF><rdf:Description photo:Exposure="2"');
+
+    state.hydrateSelfHostedFsAsset(ASSET_ID);
+    await flushAsync();
+
+    await expect(
+      TestBed.inject(XmpAdjustmentRestoreService).loadForWrite(ASSET_ID),
+    ).resolves.not.toBeNull();
+  });
+
   it('does not clobber an in-session edit with a late-arriving restore response', async () => {
     const deferred = new Subject<string>();
     api.getXmpResult = deferred.asObservable();

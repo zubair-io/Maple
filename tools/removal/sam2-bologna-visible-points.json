@@ -1,0 +1,117 @@
+{
+  "nativeReportSHA256": "83a8b950f10e9c154ccd68a5fd9a1dacf335410845ff0e870713f1980ec78bae",
+  "rawSHA256": "2ed291a09d7d4f72c8588b0c12d6cc5c470ad42ab9e3aaad1f888f34526b959f",
+  "proxyDigest": "blake3:f14887558e3e0bd5f54984c3ba43a8307c073b9d6199299b8a40263db7a35bff",
+  "proxySize": [1024, 683],
+  "coordinateFrame": "retained un-oriented RGB8 proxy pixel XY",
+  "annotationMethod": "Agent source-proxy visual sampling. Initial visible coordinates recorded before SAM2 outputs; protocol2 corrects one identity binding and adds merchant points after first output review. Sparse visibly interior pixels only; no independent full silhouettes, subjective main/background roles or occluded ownership truth.",
+  "cases": [
+    {
+      "personIds": [2],
+      "description": "Black quilted foreground wearer",
+      "include": [
+        [141, 254],
+        [147, 386],
+        [108, 599],
+        [177, 641]
+      ],
+      "exclude": [
+        [37, 205],
+        [371, 427]
+      ],
+      "positive": [[147, 386]],
+      "negative": [
+        [37, 205],
+        [371, 427]
+      ]
+    },
+    {
+      "personIds": [3, 10, 15],
+      "description": "Left brown coat wearer with navy hat; existing partial/full proposals may refer to this same visible wearer",
+      "include": [
+        [37, 205],
+        [20, 381],
+        [59, 572]
+      ],
+      "exclude": [
+        [147, 386],
+        [108, 599]
+      ],
+      "positive": [
+        [20, 381],
+        [37, 205]
+      ],
+      "negative": [
+        [147, 386],
+        [108, 599]
+      ]
+    },
+    {
+      "personIds": [4],
+      "description": "Central purple coat wearer",
+      "include": [
+        [361, 290],
+        [371, 427],
+        [374, 518]
+      ],
+      "exclude": [
+        [147, 386],
+        [496, 330]
+      ],
+      "positive": [[371, 427]],
+      "negative": [
+        [147, 386],
+        [496, 330]
+      ]
+    },
+    {
+      "personIds": [6],
+      "description": "Small distant blue coat shopper",
+      "include": [
+        [579, 272],
+        [594, 310],
+        [582, 331]
+      ],
+      "exclude": [
+        [548, 292],
+        [620, 328],
+        [503, 304]
+      ],
+      "positive": [
+        [594, 310],
+        [579, 272]
+      ],
+      "negative": [
+        [548, 292],
+        [620, 328],
+        [503, 304]
+      ]
+    },
+    {
+      "personIds": [1],
+      "description": "Green coat merchant leaning over foreground fruit",
+      "include": [
+        [499, 253],
+        [476, 360],
+        [450, 509]
+      ],
+      "exclude": [
+        [371, 427],
+        [594, 310],
+        [616, 440]
+      ],
+      "positive": [
+        [476, 360],
+        [499, 253]
+      ],
+      "negative": [
+        [371, 427],
+        [594, 310],
+        [616, 440]
+      ]
+    }
+  ],
+  "releaseQualified": false,
+  "protocolRevision": 2,
+  "correction": "The pre-output purple-coat sample coordinates were initially bound to Person1, whose detector box instead names the green-coat merchant. Corrected purple binding to Person4 from source coordinates after first candidate output review. The initial protocol/report are retained separately; neither protocol is independent full-mask truth."
+}

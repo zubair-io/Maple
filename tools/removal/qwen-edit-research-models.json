@@ -1,0 +1,251 @@
+{
+  "repo": "AbstractFramework/qwen-image-edit-2511-8bit",
+  "revision": "5f35885dfe4061e57c87df2c03123e5e8124edfa",
+  "files": [
+    {
+      "path": ".gitattributes",
+      "bytes": 1580,
+      "git_blob_id": "f1ca65ce6a5b0774360fde1ec05157d9f937aaa2",
+      "lfs_sha256": null,
+      "sha256": "caf3ca02d5e883f643e939cbed54f94237f94c171797f0dfea5e25c7e33315b3"
+    },
+    {
+      "path": "LICENSE.md",
+      "bytes": 11358,
+      "git_blob_id": "d645695673349e3947e8e5ae42332d0ac3164cd7",
+      "lfs_sha256": null,
+      "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+    },
+    {
+      "path": "README.md",
+      "bytes": 1962,
+      "git_blob_id": "0743d21d38b502f01fb5b484c7e171792a0461ef",
+      "lfs_sha256": null,
+      "sha256": "c74a6658c39d2909dd714312d6454a691f17f078dcbc27fddb48357c90562309"
+    },
+    {
+      "path": "text_encoder/model.safetensors.index.json",
+      "bytes": 92268,
+      "git_blob_id": "c8b6163323c83ca1d6d9ec6b3c23428771b25ee4",
+      "lfs_sha256": null,
+      "sha256": "7fe69e12e90874b3e3335fc1f62569a8a1e139f79c0bc47b4f991bfe976aefd2"
+    },
+    {
+      "path": "tokenizer/tokenizer.json",
+      "bytes": 11417006,
+      "git_blob_id": "2c0bc81e7ba1bfa2a690d2caaf4bb72d3166e2ac",
+      "lfs_sha256": "444a80c37c7f34f485c050cf374595a0cb7d88735459cf0505fd204453c33178",
+      "sha256": "444a80c37c7f34f485c050cf374595a0cb7d88735459cf0505fd204453c33178"
+    },
+    {
+      "path": "tokenizer/tokenizer_config.json",
+      "bytes": 269,
+      "git_blob_id": "3299687e615af5b239e5000b69cb0cb62ee2008f",
+      "lfs_sha256": null,
+      "sha256": "ebf4e7d1ac441e3d84a44228a1a7392977b375a34c8fbc8b87c68e6a832e98ba"
+    },
+    {
+      "path": "transformer/model.safetensors.index.json",
+      "bytes": 241760,
+      "git_blob_id": "c1e5a8a43af2ca41b5bf797ec61e8ab0ea9c1c04",
+      "lfs_sha256": null,
+      "sha256": "64238ee24b2c645a8f473e2cdebcce88c64af5d8375f9aa76dd23ce6ec6617bb"
+    },
+    {
+      "path": "vae/model.safetensors.index.json",
+      "bytes": 13512,
+      "git_blob_id": "e8b9611c39726bf40ee8cc2d8303806ed678cfe4",
+      "lfs_sha256": null,
+      "sha256": "0178247c899001d8f7e5ffa9686e838726a365eca9dda041aef0e874e6837d44"
+    },
+    {
+      "path": "text_encoder/0.safetensors",
+      "bytes": 2096110757,
+      "git_blob_id": "78f3d24ade7eafe25040b03a0d8e59c94d17e32c",
+      "lfs_sha256": "045669ba3ae4cb3cd19a124eefbba410d85a0504d1194f51e473ca7e10a50376",
+      "sha256": "045669ba3ae4cb3cd19a124eefbba410d85a0504d1194f51e473ca7e10a50376"
+    },
+    {
+      "path": "text_encoder/1.safetensors",
+      "bytes": 2125384621,
+      "git_blob_id": "845f6a1e510010c629e87e245c5af86d6a10bd27",
+      "lfs_sha256": "1a94b0e0ae34d795ca4b9aa3d5acdce6c440c99863a678c563af2b7ec6644968",
+      "sha256": "1a94b0e0ae34d795ca4b9aa3d5acdce6c440c99863a678c563af2b7ec6644968"
+    },
+    {
+      "path": "text_encoder/2.safetensors",
+      "bytes": 2084466661,
+      "git_blob_id": "3187b5cdfe0d09535cdef4dd2ac72e1482aefceb",
+      "lfs_sha256": "cf8cd1bd5f9db93f320e94474544d5cdb3e0ea0677ef21661a55607ad8777e1b",
+      "sha256": "cf8cd1bd5f9db93f320e94474544d5cdb3e0ea0677ef21661a55607ad8777e1b"
+    },
+    {
+      "path": "text_encoder/3.safetensors",
+      "bytes": 2059110344,
+      "git_blob_id": "ca515eedd57a92d504c1c033ca91e3921b3601bb",
+      "lfs_sha256": "9dddda10c8760f5d5637c6ed70e5b2d4ad41795850a759962333a0cd59148706",
+      "sha256": "9dddda10c8760f5d5637c6ed70e5b2d4ad41795850a759962333a0cd59148706"
+    },
+    {
+      "path": "transformer/0.safetensors",
+      "bytes": 2147291992,
+      "git_blob_id": "aca572323083e051b285015263c71b3df0a83829",
+      "lfs_sha256": "a396a4b8f415ea7fb3e612d810f6fcf81810ca5b003cb6a9916aed80e97a24f3",
+      "sha256": "a396a4b8f415ea7fb3e612d810f6fcf81810ca5b003cb6a9916aed80e97a24f3"
+    },
+    {
+      "path": "transformer/1.safetensors",
+      "bytes": 2129238946,
+      "git_blob_id": "564b3e83f4c965deefbc25fc4712e726d3683059",
+      "lfs_sha256": "5d5b9bcc694cd9b701b5f5aeae248c819db4bc41b51dccd051248c641e9da5c7",
+      "sha256": "5d5b9bcc694cd9b701b5f5aeae248c819db4bc41b51dccd051248c641e9da5c7"
+    },
+    {
+      "path": "transformer/10.safetensors",
+      "bytes": 381428288,
+      "git_blob_id": "2a80eae09686bf20fccd0ae3c286e75ff8cda755",
+      "lfs_sha256": "9589c06ec82821492a3b9b7852980f6c45f7c9d09b46b69683ecc8a4e86a6e64",
+      "sha256": "9589c06ec82821492a3b9b7852980f6c45f7c9d09b46b69683ecc8a4e86a6e64"
+    },
+    {
+      "path": "transformer/2.safetensors",
+      "bytes": 2106788646,
+      "git_blob_id": "af597046bb018d7a67b5db99c53bac6c3ca4260e",
+      "lfs_sha256": "e117417cdab9a8cd43a26ce8164de3f8c1a77fd841eb49f93cae2aa2c61d219e",
+      "sha256": "e117417cdab9a8cd43a26ce8164de3f8c1a77fd841eb49f93cae2aa2c61d219e"
+    },
+    {
+      "path": "transformer/3.safetensors",
+      "bytes": 2126873381,
+      "git_blob_id": "a84fbdbaf92b12925fb34349c26432a95bd58e30",
+      "lfs_sha256": "67bb9e2e51503785772dcaa6e265adfd7b1b1aca3ca756cde2f6bd02afd68566",
+      "sha256": "67bb9e2e51503785772dcaa6e265adfd7b1b1aca3ca756cde2f6bd02afd68566"
+    },
+    {
+      "path": "transformer/4.safetensors",
+      "bytes": 2126854960,
+      "git_blob_id": "daea7dfbdcd96badc3b08e2b561dd92b7f76538c",
+      "lfs_sha256": "bdbccb730de6ae72051446e8a8beceb26fe311bafed39708e9900b9121b955b1",
+      "sha256": "bdbccb730de6ae72051446e8a8beceb26fe311bafed39708e9900b9121b955b1"
+    },
+    {
+      "path": "transformer/5.safetensors",
+      "bytes": 2146920787,
+      "git_blob_id": "54293ffaa10a66c31f7485e156ac83ef437a7198",
+      "lfs_sha256": "c7653fa0e40df4967b65d6f65533b0a90aca3ef63dd206a2c34598b5723d722f",
+      "sha256": "c7653fa0e40df4967b65d6f65533b0a90aca3ef63dd206a2c34598b5723d722f"
+    },
+    {
+      "path": "transformer/6.safetensors",
+      "bytes": 2146919411,
+      "git_blob_id": "de04ac08d9fb573133731f9270d2c94ac17c77af",
+      "lfs_sha256": "55d54d9a82c74c4742ddb13c93637515b3d15f35b9b66f51a9004280f6996ec2",
+      "sha256": "55d54d9a82c74c4742ddb13c93637515b3d15f35b9b66f51a9004280f6996ec2"
+    },
+    {
+      "path": "transformer/7.safetensors",
+      "bytes": 2146920895,
+      "git_blob_id": "b9b8c8fba466b2c1df0598bd5aac4569f619575b",
+      "lfs_sha256": "344333683222e2360ce0e84fe987d19e66306f2a48c96923e32337e74973c933",
+      "sha256": "344333683222e2360ce0e84fe987d19e66306f2a48c96923e32337e74973c933"
+    },
+    {
+      "path": "transformer/8.safetensors",
+      "bytes": 2146920883,
+      "git_blob_id": "d8ac9221dc1129a49919efcc78ec00cfae9220eb",
+      "lfs_sha256": "cf5da41a83f7d659e04c41ab1c640d858c1090de584e22ee7aca9d528ee3ecf8",
+      "sha256": "cf5da41a83f7d659e04c41ab1c640d858c1090de584e22ee7aca9d528ee3ecf8"
+    },
+    {
+      "path": "transformer/9.safetensors",
+      "bytes": 2106788772,
+      "git_blob_id": "264b0f734b2aefa626886a597c27cf9059e69586",
+      "lfs_sha256": "69e36f894756170b3a5f58fdc0e92c4a8ea84643cd6003cbb3a0e324bd28ef52",
+      "sha256": "69e36f894756170b3a5f58fdc0e92c4a8ea84643cd6003cbb3a0e324bd28ef52"
+    },
+    {
+      "path": "vae/0.safetensors",
+      "bytes": 253586147,
+      "git_blob_id": "20bef55005f631d87050122dcafc6f0eb53cad42",
+      "lfs_sha256": "c71dcc9f4d35c66aecfde9997f8b649a791cd3602fcc26534ce916f712af90dc",
+      "sha256": "c71dcc9f4d35c66aecfde9997f8b649a791cd3602fcc26534ce916f712af90dc"
+    }
+  ],
+  "bytes": 30343385206,
+  "directory": "/tmp/maple-removal-models/qwen-edit-2511-mlx8bit",
+  "upstream_repo": "Qwen/Qwen-Image-Edit-2511",
+  "upstream_revision": "6f3ccc0b56e431dc6a0c2b2039706d7d26f22cb9",
+  "releaseQualified": false,
+  "license_scope": "Pinned converted Apache-2.0 LICENSE.md and official source model-card license statement; transitive provenance/conversion/distribution/terms remain unqualified.",
+  "runtimeSource": {
+    "repo": "https://github.com/lpalbou/mlx-gen",
+    "revision": "99fb94dd3eaa9dd1931cd3cd8eae1ae3e20f2ef3",
+    "version": "0.38.0",
+    "declaredLicense": "MIT",
+    "python_tree_sha256": "a976f1281842e8fc4e4427b1808c849874c8f33447734cd173347f66701d5a15",
+    "records": [
+      {
+        "path": "LICENSE",
+        "bytes": 1068,
+        "sha256": "4a232d09478519580a5c00d6eb9aa402ba4f672ac15fb80edd459ba863769064"
+      },
+      {
+        "path": "pyproject.toml",
+        "bytes": 7073,
+        "sha256": "17bb277145623beebe41fda1c625b29728e844c0e1390e789fb1ca13d06968af"
+      },
+      {
+        "path": "docs/masked-editing.md",
+        "bytes": 10606,
+        "sha256": "344614aba8e59e7e260f3e9792147895fcb6d0da1bd760e692b3e492bf4617e9"
+      },
+      {
+        "path": "src/mflux/models/flux2/variants/edit/flux2_klein_inpaint.py",
+        "bytes": 10006,
+        "sha256": "81f340fc799339ef7933cac24cca65fe0fa3d3f411016c61c7265e433c6e3769"
+      },
+      {
+        "path": "src/mflux/models/flux2/variants/edit/flux2_klein_edit_helpers.py",
+        "bytes": 19381,
+        "sha256": "76ea7455dc03b9561f034b462169fb87a02bf53eeb82ebdb07a796404108bbde"
+      },
+      {
+        "path": "src/mflux/models/flux2/flux2_initializer.py",
+        "bytes": 3932,
+        "sha256": "78fa2d3fe12d963e16c3ca6ddfd3e9fdb0839f93fc703f3f2a535cab887b9980"
+      },
+      {
+        "path": "src/mflux/models/common/weights/loading/weight_applier.py",
+        "bytes": 5457,
+        "sha256": "0b63a589c0c2cf473695f4e31ca65c8bdf68a9971acdd38a8b3a8b0e0693529a"
+      },
+      {
+        "path": "src/mflux/models/common/weights/loading/weight_loader.py",
+        "bytes": 22081,
+        "sha256": "255186d56aa16435eebd4f0b6122b233cde48127e795d41e0a914407b40f02e9"
+      },
+      {
+        "path": "src/mflux/utils/image_util.py",
+        "bytes": 16968,
+        "sha256": "cbaad89993d768dd9bfcbf8d5ddd508fc3e98e5f08e9d6c015bb6deb1cea143b"
+      },
+      {
+        "path": "src/mflux/utils/mask_util.py",
+        "bytes": 4536,
+        "sha256": "a12604f6b2fc9097d3086929a4db518257470a396a4ec3050acafd6295ecc18c"
+      },
+      {
+        "path": "src/mflux/models/common/latent_creator/latent_creator.py",
+        "bytes": 4184,
+        "sha256": "bf40f1b749480133db691f6da3ace30f3cb8b879ee25d689190727dd571575cc"
+      },
+      {
+        "path": "src/mflux/models/flux2/model/flux2_vae/vae.py",
+        "bytes": 3084,
+        "sha256": "58685fa0018b7c24fcf88d4ce2d1d3c61cb403ccb6315991ac4c98ec0fded4e3"
+      }
+    ]
+  },
+  "issue": 3941,
+  "epic": 1472
+}

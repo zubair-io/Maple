@@ -4,7 +4,7 @@
 // Lives in its own file rather than in `raw-pipeline.worker.ts` to keep that
 // file inside the size budget.
 
-import { export_bytes, export_bytes_with_film } from './pkg/raw_wasm';
+import { export_bytes, export_bytes_with_film, NativeDetailSession } from './pkg/raw_wasm';
 import type { ExportError, ExportRequest, ExportSuccess } from './raw-pipeline.types';
 import { ensureReady } from './raw-pipeline.worker-handlers';
 
@@ -40,8 +40,9 @@ export async function handleExport(req: ExportRequest): Promise<void> {
     // bytes ride `req.filmLut`, so the deliverable file carries the SAME
     // look the canvas showed. Absent/empty routes through the plain
     // `export_bytes` entry, byte-identical to pre-#2683 exports.
-    const handle =
-      req.filmLut && req.filmLut.byteLength > 0
+    const handle = req.removals
+      ? savedExport(req)
+      : req.filmLut && req.filmLut.byteLength > 0
         ? export_bytes_with_film(
             new Uint8Array(req.bytes),
             req.ext,
@@ -66,8 +67,11 @@ export async function handleExport(req: ExportRequest): Promise<void> {
       const total = handle.byteLength;
       const parts: BlobPart[] = [];
       for (let offset = 0; offset < total; offset += CHUNK_BYTES) {
-        const chunk = handle.chunk(offset, CHUNK_BYTES);
-        parts.push(new Uint8Array(chunk));
+        const bytes = handle.chunk(offset, CHUNK_BYTES);
+        const owner = bytes.buffer;
+        // Rust returns owned chunks; preserve that ownership without a copy (#3970).
+        if (!(owner instanceof ArrayBuffer)) throw new Error('Unexpected shared export chunk');
+        parts.push(new Uint8Array(owner, bytes.byteOffset, bytes.byteLength));
       }
       const response: ExportSuccess = {
         id: req.id,
@@ -93,5 +97,32 @@ export async function handleExport(req: ExportRequest): Promise<void> {
       fatal,
     };
     postMessage(response);
+  }
+}
+
+/** The cold export owns its RAW independently of the active live canvas.
+ * The core verifies all assets/source/records and frees this owner on every
+ * outcome; no model is loaded and no draft prefix is installed (#3955). */
+function savedExport(req: ExportRequest) {
+  if (!req.xmp || !req.removals) throw new Error('Saved export requires a complete recipe');
+  const session = new NativeDetailSession(new Uint8Array(req.bytes), req.ext);
+  try {
+    session.prepare_saved_removals(
+      req.xmp,
+      req.removals.manifest,
+      new Uint8Array(req.removals.companions),
+    );
+    return session.export_saved_removals(
+      req.xmp,
+      JSON.stringify({
+        format: req.options.format,
+        quality: req.options.quality,
+        color_space: req.options.colorSpace,
+        max_long_edge: longEdgeCap(req.options.maxSidePixels),
+      }),
+      req.filmLut ? new Uint8Array(req.filmLut) : new Uint8Array(),
+    );
+  } finally {
+    session.free();
   }
 }

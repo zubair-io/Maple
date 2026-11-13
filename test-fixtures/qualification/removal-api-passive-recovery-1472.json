@@ -1,0 +1,78 @@
+{
+  "issue": 1472,
+  "date": "2026-10-02",
+  "baseCommit": "c7c98c09c",
+  "scope": "Self Hosted RAW removal relocation: unconfirmed catalogue commits and passive discover startup/directory/event recovery",
+  "host": "macOS, Bun 1.4.3-canary.1; real temporary filesystem and SQLite databases",
+  "inputsSha256": {
+    "src/api/native/libraw_ffi.dylib": "b9563f9b1126039471f8631f4696db8e1094bcb48b511a315318068330a9ef14",
+    "test-fixtures/removal/calibration/source.dng": "24450571460687ee53852658deec26946c4a7877fe111a6ba5bb059c116f2618",
+    "test-fixtures/removal/calibration/saved.xmp": "fa466f58b17c1a7d073ffb751e300e3b9eebac4bba453d3e12d9ff02caa6e20a",
+    "test-fixtures/removal/calibration/preview-64.rgb": "96748afe66ddd37479439eec46038bc427c9d727a6a310deedb79c2c537c75a6"
+  },
+  "implementation": [
+    "Once the verified destination reaches the identity hook, an error retains both complete edits and the durable journal because the catalogue may already have committed",
+    "Discovery inspects journals before partitioning supported files, re-lists after recovery, and excludes blocked photos from both new and missing candidates",
+    "The shared discover event handler recovers before hash/catalogue mutation, including direct created/removed/rename producers",
+    "Complete verified publications survive; partial replacements restore their previous pair only with intact retained incoming source evidence",
+    "Busy, corrupt, changed and unsafe-source evidence defers the affected primary while other photos continue indexing",
+    "Passive recovery restricts existing source coordination files to canonical registered library roots, including cross-library sources",
+    "Discover stop joins active recovery/catalogue work before database shutdown",
+    "A failed post-recovery directory read emits no catalogue changes from the stale listing and retries on a later sweep"
+  ],
+  "qualified": [
+    "Real relocateAsset and real SQLite transaction: failure before commit, lost acknowledgement after commit, later destination sidecar after committed update",
+    "Byte-preserved RAW/XMP and exact native RGB exports at the source and retained destination; valid catalogue address after committed acknowledgement failure",
+    "Actual SIGKILL of live source/destination/XMP lease owner at prepared, partial and completed production publication",
+    "Production startDiscover resumes generation 3 from persisted SQLite checkpoint/frontier and settles recovery before stop returns",
+    "Complete recovered destination deduplicates onto the source asset's actual content identity",
+    "Partial replacement restores the previous RAW/XMP before hashing or adding a destination catalogue row",
+    "Active owner blocks direct events and sweep indexing for its primary; another photo continues; later SIGKILL permits recovery on the next visit",
+    "Absent primary with damaged journal does not acquire a missing-location tag",
+    "Create-only partial primary is removed before the supported-file partition",
+    "Complete publication recovers with missing source directory",
+    "Intact source in a different registered library is accepted; unregistered source cannot acquire new coordination files",
+    "Unreadable post-recovery listing defers catalogue writes without terminating the sweep"
+  ],
+  "checks": {
+    "focused": {
+      "command": "cd src/api && bun test src/workers/discover src/fs/relocate-removal.test.ts src/fs/removal-relocation-journal.test.ts src/library/removal-relocate-ack.test.ts",
+      "pass": 122,
+      "skip": 0,
+      "fail": 0,
+      "assertions": 738,
+      "files": 17,
+      "log": "/tmp/maple-removal-passive-catalogue-qualified-final.log"
+    },
+    "fullApi": {
+      "command": "cd src/api && bun test --timeout 20000",
+      "pass": 5476,
+      "skip": 8,
+      "fail": 0,
+      "assertions": 20128,
+      "files": 600,
+      "elapsedSeconds": 86.51,
+      "log": "/tmp/maple-removal-passive-full-api-final.log"
+    },
+    "typecheck": "PASS: /tmp/maple-removal-passive-api-typecheck-final2.log",
+    "oxlint": "PASS: /tmp/maple-removal-passive-api-oxlint-final.log; no new filesystem allowlist entries",
+    "prettier": "PASS: explicit src/web/.prettierrc over changed API files and features documentation",
+    "fileBudget": "PASS: nine changed/new API files, no hard violations, soft warnings or allowlist entries",
+    "headroom": "PASS against HEAD; new files independently verified by file-budget",
+    "diff": "PASS: git diff --check"
+  },
+  "earlierFailures": [
+    "Initial focused run failed four repeated native exports because test helpers reused the export staging destination. Unique filenames preserve the production create-only export contract; final runs pass without changing that contract",
+    "Initial scoped oxlint rejected a new node:fs type import. Directory entries now use their actual required name field; all I/O stays through fs/mirrored.ts without an allowlist exception"
+  ],
+  "limits": [
+    "Catalogue acknowledgement failure is injected at the SqliteDb transaction response boundary after a real COMMIT; no SQLite IPC writer-kill micro-window qualification is claimed",
+    "Startup recovery occurs as the discover worker resumes its sweep; this does not promise a completed whole-library recovery before HTTP readiness or while discovery is paused",
+    "No power-loss, Linux/Windows server, SMB, mirror restart, portable backup/sync or photographic/100MP relocation qualification",
+    "Synthetic accepted RGB proves durable edit/render integrity, not model reconstruction quality",
+    "No Rust color math, ABI, GPU stages, model artifacts or color budgets changed; existing full-corpus color breaches remain open",
+    "Native saved-controls UI remains unqualified; its failed diagnostic stays unstaged",
+    "No push, PR or merge; no claim of current-main required CI qualification",
+    "Full original #1472 goal remains active, including all prior quality/model/device/consumer/transport/recovery/CI requirements"
+  ]
+}

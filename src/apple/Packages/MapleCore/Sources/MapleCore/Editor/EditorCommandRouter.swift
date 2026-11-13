@@ -44,6 +44,12 @@ public final class EditorCommandRouter {
       guard state.session.hasLoadedSidecar else { return false }
     default: break
     }
+    if state.session.isSavingRemoval {
+      switch command {
+      case .undo, .redo, .resetGroup, .nudge, .nudgeRelease, .group: return false
+      default: break
+      }
+    }
     switch command {
     case .nudge, .nudgeRelease: break
     default: finishNudge()

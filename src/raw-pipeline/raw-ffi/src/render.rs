@@ -15,7 +15,7 @@ use crate::error::{set_last_error, with_large_stack};
 use crate::model::{load_xmp_model_owned, LoadModel};
 use raw_core::{
     decode::decode_bytes,
-    pipeline::{render_from_raw_with_quality, RenderQuality},
+    pipeline::{render_from_raw_with_quality, RawInput, RenderQuality},
 };
 use std::ffi::{c_char, CStr};
 
@@ -165,7 +165,22 @@ pub unsafe extern "C" fn maple_render_bytes(
             3 => RenderQuality::Auto,
             _ => RenderQuality::Full,
         };
-        let (w, h, out_bytes) = match render_from_raw_with_quality(&raw_img, &model, quality) {
+        let rendered = crate::removal_file::render_saved(
+            &raw_img,
+            &input,
+            &model,
+            xmp_path_str
+                .as_deref()
+                .and_then(|path| std::path::Path::new(path).parent()),
+            Some(RawInput::Bytes {
+                bytes: &input,
+                ext: &ext_owned,
+            }),
+            quality,
+            None,
+        )
+        .unwrap_or_else(|| render_from_raw_with_quality(&raw_img, &model, quality));
+        let (w, h, out_bytes) = match rendered {
             Ok(t) => t,
             Err(e) => {
                 set_last_error(format!("render: {}", e));

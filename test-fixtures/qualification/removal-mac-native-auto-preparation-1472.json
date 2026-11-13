@@ -1,0 +1,614 @@
+{
+  "issue": 1472,
+  "date": "2026-10-02",
+  "baseRevision": "ec166478fdeafd0a898e76425749fd887512fe91",
+  "scope": "Mac-first native Auto preparation and exact CPU/Metal tail integration; complete implementation checkpoint, not epic or release completion",
+  "sourceHashes": {
+    ".github/swift-regressions/excluded.txt": "d10350a260ad8505ebd0d1eb918376b451262f99dd84ff6a6678cd6a00544c11",
+    ".github/swift-regressions/run.txt": "ebbdbf4b81d96cae9e6d629dadb2515e5ddb8bd63cd45e0050055a1f98b77ddf",
+    "docs/caching.md": "c5bc00225ab82921abb0d130dd1f9cd942b7f6ad4d388072153042d2399e2ddd",
+    "docs/pipeline.md": "d27f4b5975875f422ef8593451900cef8a370f328bebd644756be9c3fed6a30a",
+    "src/apple/Packages/MapleCore/Sources/MapleCore/Cache/RenderedPreviewCache.swift": "16a9dab4800a8256e892d0e6c2594b9e01d3ea26eee301e99681843a5e137a9f",
+    "src/apple/Packages/MapleCore/Sources/MapleCore/Cache/TileManager.swift": "ad923391c5fe3d0a279033c85132077b95a0dbad05b26acdab64635295129b71",
+    "src/apple/Packages/MapleCore/Sources/MapleCore/EditSession+Cache.swift": "03971dee6e2c7b43d655d571dac9ffad4b1d0136c8707475eb27e807df574e38",
+    "src/apple/Packages/MapleCore/Sources/MapleCore/EditSession+DisplayPreviewPersist.swift": "f16fe1dc63e447767e967a24290bb61cd52abc58d52c530a108854a570e103f9",
+    "src/apple/Packages/MapleCore/Sources/MapleCore/EditSession+GpuLive.swift": "a3c3ce7ada19dc7b78399ddf8c2fdbaf1765ea023b3310ca27568c7f3e683d84",
+    "src/apple/Packages/MapleCore/Sources/MapleCore/EditSession+GpuPreviewPersist.swift": "612303b0430f94e0f0f1da4b0be4a591c56b566831c94ffffbc07e2cec340347",
+    "src/apple/Packages/MapleCore/Sources/MapleCore/EditSession+NativeAutoProfile.swift": "6734b28a748b4ff4485bb23c1edaecae80ba456bade523fe23fe822497663be6",
+    "src/apple/Packages/MapleCore/Sources/MapleCore/EditSession+NativeDetail.swift": "c932cf5146d206cf93b95f0ba94f64aa7dc54feaf95e13c2160deb8c3d6e2fb0",
+    "src/apple/Packages/MapleCore/Sources/MapleCore/EditSession+Render.swift": "a7d7d1f7b6ef2740d7f615fd3b8f6e8fde360d15f966cfc4f2b1c0b86610b882",
+    "src/apple/Packages/MapleCore/Sources/MapleCore/EditSession.swift": "f8ac28d36b711b29c40fe3f8502fe05723a815b58da8a68ce06b00a13127a4f8",
+    "src/apple/Packages/MapleCore/Sources/MapleCore/GpuLiveDriver+AutoProfile.swift": "073297fcf914611fa2796799d86a4a85b8b2f672a904d9252a98d6bf70c818e3",
+    "src/apple/Packages/MapleCore/Sources/MapleCore/GpuLiveDriver.swift": "9472aa1773acda7386a02ad8a0e560a9846eb41c27894d5504908e5a0666dee1",
+    "src/apple/Packages/MapleCore/Sources/MapleCore/GpuLiveSession.swift": "13e32ce92a812e09f2f1dc636c67be4c06af5af8276f2ebbbb339b95cd2f2ac0",
+    "src/apple/Packages/MapleCore/Sources/MapleCore/ImageEditPipeline+NativeAuto.swift": "652397357ed97587a5824b98d66aa5a6479dfc4b47abf4872734de96b35851c7",
+    "src/apple/Packages/MapleCore/Sources/MapleCore/ImageEditPipeline.swift": "9b56fc66ac459345213d1eaa3dec70bed8a2d61522b7875d635973e71f24b4cd",
+    "src/apple/Packages/MapleCore/Sources/MapleCore/NativeAutoProfile.swift": "37cc958a5195a82ab3f3c3a70ba21d559fcedd05bc0cd3a24689488875368074",
+    "src/apple/Packages/MapleCore/Sources/MapleCore/NativeAutoProfilePreparation.swift": "c19f3b81b6e2bedb8c25ee0d28ac085d7917f75a0591ca8bb7ce387a2cd1ac47",
+    "src/apple/Packages/MapleCore/Sources/MapleCore/NativeAutoProfileState.swift": "053534b3607b996ad4dda7089ae71d5ae8a772777b3df17564be2b571d446047",
+    "src/apple/Packages/MapleCore/Sources/MapleCore/PipelineRenderer+NativeAuto.swift": "9ca4e4449f011be3618073c96f41a238a074d5b766d0d51bdd94298fb90f1a9d",
+    "src/apple/Packages/MapleCore/Sources/MapleCore/PipelineRenderer.swift": "0a3c10365dadcd67299ed46b103f6bf6a446311fa46d268cd3a86f26489333e1",
+    "src/apple/Packages/MapleCore/Sources/MapleCore/RenderActor+CPUPreview.swift": "ad1606b2648dc1aa03644d75cc3a79c560c0403e03101f48d3b532aa30e3a735",
+    "src/apple/Packages/MapleCore/Sources/MapleCore/RenderActor+FloatExport.swift": "7ad86651004676f9c875735cc145698eb4fd3bab9b683648e1e95c98c4ab9fc5",
+    "src/apple/Packages/MapleCore/Tests/MapleCoreTests/NativeAutoProfilePhotographicTests.swift": "2bd8b740f8145ef221b56586aa3132ddac4e1a1d773bb76b3e7c6ba3e2bf329b",
+    "src/apple/Packages/MapleCore/Tests/MapleCoreTests/NativeAutoProfilePreparationTests.swift": "fc428804bd888156e2fbdd7078a11e6412821ddf3b1eb1b83d2c84f3f32b112f",
+    "src/apple/Packages/MapleCore/Tests/MapleCoreTests/RenderSchedulingBackpressureTests.swift": "933243cec791322be3c5f037f1ca73e4dbfb2a378aa7775e2c32b5307000699b",
+    "src/raw-pipeline/raw-core/examples/removal-auto-fit-attribution.rs": "d922bfeea3cb4fabb2b8de9cbdb5f2e2c81127c206bff7af5768296980ff5acf",
+    "src/raw-pipeline/raw-core/examples/removal-auto-fit-profile.rs": "178b3a6350a4a8f25212a5c64e912e774dd25b7b64134edd9bcc7f2caff4c69e",
+    "src/raw-pipeline/raw-core/src/pipeline/mod.rs": "1393f45bed48c7cb7152a5fd539698ddc3fdebb512eb234a8fd92b50ec04d283",
+    "src/raw-pipeline/raw-core/src/pipeline/render/auto_fit.rs": "38a525b1739580348499405bab52cca973773d3f2c2dceb8b85d18fd73136e08",
+    "src/raw-pipeline/raw-core/src/pipeline/render/auto_fit_develop.rs": "e1d9a51a226906a0a7195fab53643a5f89ab871547ebfb874b1389c0c4c3a98c",
+    "src/raw-pipeline/raw-core/src/pipeline/render/auto_fit_native.rs": "c0793b5083f4e0572610c1316736afd42585daa4db4ad5f29c5a5617534ac81a",
+    "src/raw-pipeline/raw-core/src/pipeline/render/auto_fit_native_tests.rs": "fe50bb4d8d558bf4bfbab4984b75d1d97c9c68a7507b6c2e9e438d8d75d6bc91",
+    "src/raw-pipeline/raw-core/src/pipeline/render/mod.rs": "76c3d87ec1de1e2c0be55d72971a11d864f836ad367442582f96a01e7b1f3085",
+    "src/raw-pipeline/raw-core/src/view/auto_profile/apply.rs": "eaf167cd2cf0b129f843443947172fe0b29277875a64f60933c799f3a6a889c8",
+    "src/raw-pipeline/raw-core/src/view/auto_profile/lut.rs": "fec045d2934f6f25cb64dfe4a4a87532857da8bb98e84c42f171c5f1f544ce2d",
+    "src/raw-pipeline/raw-ffi/src/lib.rs": "3d03dabb1275be54d6471a9741032e95785d32356ef122381b0beb663aec0afa",
+    "src/raw-pipeline/raw-ffi/src/native_auto_chain.rs": "9971f2d722741f44cd003eb2a20cde68c6250b7493e1bf78bad3cfeb0dc27568",
+    "src/raw-pipeline/raw-ffi/src/native_auto_chain_tests.rs": "f59327aad2399cfe3e036d5317bc7ff9185ff0ed807abad3ad5e355fe8a0cdae",
+    "src/raw-pipeline/raw-ffi/src/native_auto_profile.rs": "91abc52cb7ba1cd963f67f377b4a040b45adfde5d6688141ecf038ff40dfcf37",
+    "src/raw-pipeline/raw-ffi/src/native_auto_profile_tests.rs": "2fd9c801b418b8af6159989e56971ab71de66ab24a4805d47cf49c0dc313edc2",
+    "src/raw-pipeline/raw-ffi/src/scene_linear_f32.rs": "8e76893bf2ebf0e4d27ae29643d16060bdec4f8e552d3d8fc62e21036e35319c",
+    "src/raw-pipeline/raw-ffi/src/scene_linear_f32/file_decode.rs": "9e755438337192f69f5e7059e91826e4c2780a956edcdbc19791e37c49ee80d3"
+  },
+  "changes": [
+    "Prepare the unchanged pinned native Full/AMaZE Auto pair away from the GPU submission actor, using existing Render(None) quality keys.",
+    "Single active preparation, one completed result including absent, per-waiter cancellation, joined native return, source metadata revalidation and per-editor decode/quality guards.",
+    "Serialize native preparation and full Mac export on their shared worker so the expensive develops cannot overlap each other; each reuses the same core fit.",
+    "Rebind immutable artifacts on GPU resize; apply the same artifacts directly in the existing fused Rust CPU chain/encode before host quantization, without a sampled CI cube or extra image-sized buffer.",
+    "Preserve public legacy CPU APIs and iOS proxy behavior; invalid native artifacts refuse before rendering, and CPU failure releases its permit without publishing a legacy fallback.",
+    "Refresh on the current generation; reject stale proxy publication, require the actual frame identity before preview persistence, join/settle on exit and cancel/join on transient-memory release.",
+    "Bump Apple rendered-preview/tile versions to9/6; retain full-export arithmetic, original RAWs, XMP schema, model flags and ACR budgets."
+  ],
+  "validation": {
+    "core": {
+      "passed": 2609,
+      "failed": 0,
+      "ignored": 92,
+      "log": "/tmp/maple-native-auto-exact-core-20261002b.log",
+      "sha256": "15e717162d78226c791f15fb1d3cf24f3ea169a37d00f1e42f4f013a404a82b4"
+    },
+    "ffiFeaturesGpu": {
+      "passed": 311,
+      "failed": 0,
+      "ignored": 5,
+      "log": "/tmp/maple-native-auto-exact-ffi-full-20261002.log",
+      "sha256": "e3a8f5948c78878a6edca4e9ea87cb46827edb72a0d84733586054586f836f69"
+    },
+    "metal": {
+      "passed": 255,
+      "failed": 0,
+      "ignored": 3,
+      "log": "/tmp/maple-native-auto-exact-metal-20261002.log",
+      "sha256": "9d29f799d6a323611d8ca6d285c0f1ab5ddefabfa40b4a92029a6f32172ca737"
+    },
+    "appleCI": {
+      "classes": 248,
+      "passed": 2034,
+      "failed": 0,
+      "skipped": 0,
+      "seconds": 32.896,
+      "log": "/tmp/maple-native-auto-exact-swift-ci-20261002.log",
+      "sha256": "4ac295eed72398429db89102da96ad84b72148f46a673a67ab040ac03a0ab3ae"
+    },
+    "photographic": {
+      "source": {
+        "source": "test-fixtures/raws/removal-photographic/portrait.dng",
+        "sourceSha256": "4a4154b2595dc76a7d5e10cdcb65a386319e31647a585c23e262fe62b969c0fe",
+        "xmpSha256": "eafcb3022d6de1c7cc8e6b7af2ed9301b86ae6b37f6b81af9fdd05b87b5b426d",
+        "dimensions": [
+          7216,
+          5412
+        ],
+        "acceptedRecords": 2,
+        "assets": [
+          {
+            "path": ".maple/inpaint/1d6aca14812faac0b00536844597eab605876a1f4fdd3d6d71224d160d509e4c.f16",
+            "bytes": 8388640,
+            "sha256": "611c3ee6822302971f2f8d68ac51e00996871c3bfdf0bec270bbcec8f9aaaab8"
+          },
+          {
+            "path": ".maple/inpaint/7fb1f2a498fad9d968b885a85cf0f3290e3d922a3ae17199e2afe14f8cb610fd.mask",
+            "bytes": 12466,
+            "sha256": "74db870cd3cec5c294eb09bd9f392e2aeca55094dde9b894b063313d604050ef"
+          },
+          {
+            "path": ".maple/inpaint/87511d6477bf8abc5207b285bd05a0cd2b2290db9251a6049462fbe2914e3499.mask",
+            "bytes": 13372,
+            "sha256": "45379926e18412e089f4cd9e993ab38edf51c3fcbe569b3355ab71fb94770bdf"
+          },
+          {
+            "path": ".maple/inpaint/df0240597788e7c61dec80f7862076fd6922ab34ce7595946200f9fa5e706394.f16",
+            "bytes": 8388640,
+            "sha256": "ab6eb02cbad921751fde29c7a37c2acc536083e1d20d42a39b30f344f6927f51"
+          }
+        ]
+      },
+      "passedFocusedTests": 21,
+      "failed": 0,
+      "rows": [
+        {
+          "path": "cpu",
+          "accepted": false,
+          "maximumChannelError": 1,
+          "channelsOver1": 0,
+          "sumChannelError": 29297450,
+          "rgbChannels": 117158976
+        },
+        {
+          "path": "metal",
+          "accepted": false,
+          "maximumChannelError": 1,
+          "channelsOver1": 0,
+          "sumChannelError": 3353,
+          "rgbChannels": 117158976
+        },
+        {
+          "path": "cpu",
+          "accepted": true,
+          "maximumChannelError": 1,
+          "channelsOver1": 0,
+          "sumChannelError": 29296887,
+          "rgbChannels": 117158976
+        },
+        {
+          "path": "metal",
+          "accepted": true,
+          "maximumChannelError": 1,
+          "channelsOver1": 0,
+          "sumChannelError": 3348,
+          "rgbChannels": 117158976
+        }
+      ],
+      "log": "/tmp/maple-native-auto-exact-photographic-20261002c.log",
+      "sha256": "8b5a713f755c815c5657b3a0c1b50c72f590745a45c4e2342ef572531f22d5f0",
+      "limit": "Strict maximum1/255 and zero channels over1; this is renderer plumbing parity, not reconstruction quality"
+    },
+    "acr": {
+      "executed": 40,
+      "passed": 39,
+      "failed": 1,
+      "allMetricRowsUnchanged": true,
+      "existingFailureIssue": 3633,
+      "failures": [
+        [
+          "FAIL",
+          "test_0011",
+          "baseline",
+          "10.67M",
+          "5.64",
+          "19.56",
+          "34.81",
+          "+0.0378",
+          "+0.0315",
+          "+0.0312",
+          "bias_R",
+          "+0.0378>0.0113,",
+          "bias_G",
+          "+0.0315>0.0113,",
+          "bias_B",
+          "+0.0312>0.0113"
+        ]
+      ],
+      "log": "/tmp/maple-native-auto-exact-color-baseline-20261002.log",
+      "sha256": "e0fccde5dd29ff38d4f3ab2c2105e607174a6a4ac79fcb8e2e1c69124818a170"
+    },
+    "exports": {
+      "reports": [
+        {
+          "artifactDirectory": "/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/100mp-export-1472-5E8EA412-DF04-4B00-8D78-A552CB1219DC",
+          "bitsPerComponent": 8,
+          "case": "100MP-native-float-removal-export",
+          "channelsOver1": 0,
+          "chip": "Apple M5 Max",
+          "commitSha": "ec166478fdeafd0a898e76425749fd887512fe91",
+          "deliveredRGBADigest": "blake3:1a46b2300808083ef61a060ea30bcd4cf37d628fd5d4c60d2eeb2994e5aa3dfa",
+          "deliveryPeakRSSBytes": 8704753664,
+          "deviceModel": "Mac17,6",
+          "exportBytes": 180860108,
+          "exportMs": 10179.183333,
+          "format": "png",
+          "gpu": "Apple M5 Max",
+          "height": 8192,
+          "maximumChannelError": 1,
+          "meanChannelError": 0.25000638100836015,
+          "memoryScope": "Fresh process high-water RSS through exportData, before verification; includes fixture staging/test runtime; excludes subsequent ImageIO decode/reference render",
+          "osVersion": "Version 27.0 (Build 26A428)",
+          "parityLimit": "Maximum 1/255 and zero channels over 1, all 301989888 RGB channels",
+          "parityPassed": true,
+          "patchCount": 0,
+          "phase": "comparison",
+          "physicalMemoryBytes": 137438953472,
+          "profile": "auto",
+          "quality": "amaze",
+          "refreshRateHz": 60,
+          "sourceSha256": "f4b60b3672bdf7ff7f4376fba9da1b1d22c925ebc3e16baa5fd4a64fa1045aa5",
+          "thermalState": "nominal",
+          "timingScope": "Production full render plus encode, before file write; native caches cold, OS source pages warmed by identity check/copy; no live viewport or inference",
+          "width": 12288,
+          "log": "/tmp/maple-native-auto-exact-export-ZeroRemovalPNG-20261002.log",
+          "baselineDeliveryPeakRSSBytes": 11282464768,
+          "RSSReductionBytes": 2577711104,
+          "baselineExportMs": 12338.008541
+        },
+        {
+          "artifactDirectory": "/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/100mp-export-1472-F4A353F1-D046-4243-B8F1-465347099DB9",
+          "bitsPerComponent": 8,
+          "case": "100MP-native-float-removal-export",
+          "channelsOver1": 0,
+          "chip": "Apple M5 Max",
+          "commitSha": "ec166478fdeafd0a898e76425749fd887512fe91",
+          "deliveredRGBADigest": "blake3:1aeb21b947f922775fe75cc8c77beba57c69a48bfba9d402daa7fe6c12385acc",
+          "deliveryPeakRSSBytes": 9973956608,
+          "deviceModel": "Mac17,6",
+          "exportBytes": 180334047,
+          "exportMs": 23105.09125,
+          "format": "png",
+          "gpu": "Apple M5 Max",
+          "height": 8192,
+          "maximumChannelError": 1,
+          "meanChannelError": 0.2501709693007999,
+          "memoryScope": "Fresh process high-water RSS through exportData, before verification; includes fixture staging/test runtime; excludes subsequent ImageIO decode/reference render",
+          "osVersion": "Version 27.0 (Build 26A428)",
+          "parityLimit": "Maximum 1/255 and zero channels over 1, all 301989888 RGB channels",
+          "parityPassed": true,
+          "patchCount": 1,
+          "phase": "comparison",
+          "physicalMemoryBytes": 137438953472,
+          "profile": "auto",
+          "quality": "amaze",
+          "refreshRateHz": 60,
+          "sourceSha256": "f4b60b3672bdf7ff7f4376fba9da1b1d22c925ebc3e16baa5fd4a64fa1045aa5",
+          "thermalState": "fair",
+          "timingScope": "Production full render plus encode, before file write; native caches cold, OS source pages warmed by identity check/copy; no live viewport or inference",
+          "width": 12288,
+          "log": "/tmp/maple-native-auto-exact-export-OneRemovalPNG-20261002.log",
+          "baselineDeliveryPeakRSSBytes": 12499042304,
+          "RSSReductionBytes": 2525085696,
+          "baselineExportMs": 19938.186042
+        },
+        {
+          "artifactDirectory": "/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/100mp-export-1472-52B8A16E-8785-469F-949B-96B8117E28E7",
+          "bitsPerComponent": 8,
+          "case": "100MP-native-float-removal-export",
+          "channelsOver1": 0,
+          "chip": "Apple M5 Max",
+          "commitSha": "ec166478fdeafd0a898e76425749fd887512fe91",
+          "deliveredRGBADigest": "blake3:cfb4a621e57d160475fa0f06acea0868592846862d8dafa37abe4fb82f76e65b",
+          "deliveryPeakRSSBytes": 9993732096,
+          "deviceModel": "Mac17,6",
+          "exportBytes": 176429974,
+          "exportMs": 17305.208417,
+          "format": "png",
+          "gpu": "Apple M5 Max",
+          "height": 8192,
+          "maximumChannelError": 1,
+          "meanChannelError": 0.25164937641885543,
+          "memoryScope": "Fresh process high-water RSS through exportData, before verification; includes fixture staging/test runtime; excludes subsequent ImageIO decode/reference render",
+          "osVersion": "Version 27.0 (Build 26A428)",
+          "parityLimit": "Maximum 1/255 and zero channels over 1, all 301989888 RGB channels",
+          "parityPassed": true,
+          "patchCount": 10,
+          "phase": "comparison",
+          "physicalMemoryBytes": 137438953472,
+          "profile": "auto",
+          "quality": "amaze",
+          "refreshRateHz": 60,
+          "sourceSha256": "f4b60b3672bdf7ff7f4376fba9da1b1d22c925ebc3e16baa5fd4a64fa1045aa5",
+          "thermalState": "fair",
+          "timingScope": "Production full render plus encode, before file write; native caches cold, OS source pages warmed by identity check/copy; no live viewport or inference",
+          "width": 12288,
+          "log": "/tmp/maple-native-auto-exact-export-TenRemovalPNG-20261002.log",
+          "baselineDeliveryPeakRSSBytes": 12444172288,
+          "RSSReductionBytes": 2450440192,
+          "baselineExportMs": 20462.06675
+        },
+        {
+          "artifactDirectory": "/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/100mp-export-1472-BB9EF8D1-84CE-46D4-93B1-2239C8647CD8",
+          "bitsPerComponent": 16,
+          "case": "100MP-native-float-removal-export",
+          "channelsOver1": 0,
+          "chip": "Apple M5 Max",
+          "commitSha": "ec166478fdeafd0a898e76425749fd887512fe91",
+          "deliveredRGBADigest": "blake3:bbf3a2c7d158ccd6129e7724e5840b2b21b31cdddc7539e6a13faf5dfc255933",
+          "deliveryPeakRSSBytes": 9211543552,
+          "deviceModel": "Mac17,6",
+          "exportBytes": 805372698,
+          "exportMs": 7057.025083,
+          "format": "tiff_16",
+          "gpu": "Apple M5 Max",
+          "height": 8192,
+          "maximumChannelError": 1,
+          "meanChannelError": 0.25001348389519584,
+          "memoryScope": "Fresh process high-water RSS through exportData, before verification; includes fixture staging/test runtime; excludes subsequent ImageIO decode/reference render",
+          "osVersion": "Version 27.0 (Build 26A428)",
+          "parityLimit": "Maximum 1/255 and zero channels over 1, all 301989888 RGB channels",
+          "parityPassed": true,
+          "patchCount": 0,
+          "phase": "comparison",
+          "physicalMemoryBytes": 137438953472,
+          "profile": "auto",
+          "quality": "amaze",
+          "refreshRateHz": 60,
+          "sourceSha256": "f4b60b3672bdf7ff7f4376fba9da1b1d22c925ebc3e16baa5fd4a64fa1045aa5",
+          "thermalState": "fair",
+          "timingScope": "Production full render plus encode, before file write; native caches cold, OS source pages warmed by identity check/copy; no live viewport or inference",
+          "width": 12288,
+          "log": "/tmp/maple-native-auto-exact-export-ZeroRemovalTIFF-20261002.log",
+          "baselineDeliveryPeakRSSBytes": 11778310144,
+          "RSSReductionBytes": 2566766592,
+          "baselineExportMs": 8569.548458
+        },
+        {
+          "artifactDirectory": "/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/100mp-export-1472-456BFF02-76BE-4B67-ABB2-B4641A0AD3D7",
+          "bitsPerComponent": 16,
+          "case": "100MP-native-float-removal-export",
+          "channelsOver1": 0,
+          "chip": "Apple M5 Max",
+          "commitSha": "ec166478fdeafd0a898e76425749fd887512fe91",
+          "deliveredRGBADigest": "blake3:feca77979ae8bb690cd9dec9daae18844e8c16e89f017468fa90199b57795210",
+          "deliveryPeakRSSBytes": 10475962368,
+          "deviceModel": "Mac17,6",
+          "exportBytes": 805372698,
+          "exportMs": 12735.291458,
+          "format": "tiff_16",
+          "gpu": "Apple M5 Max",
+          "height": 8192,
+          "maximumChannelError": 1,
+          "meanChannelError": 0.25017791986465454,
+          "memoryScope": "Fresh process high-water RSS through exportData, before verification; includes fixture staging/test runtime; excludes subsequent ImageIO decode/reference render",
+          "osVersion": "Version 27.0 (Build 26A428)",
+          "parityLimit": "Maximum 1/255 and zero channels over 1, all 301989888 RGB channels",
+          "parityPassed": true,
+          "patchCount": 1,
+          "phase": "comparison",
+          "physicalMemoryBytes": 137438953472,
+          "profile": "auto",
+          "quality": "amaze",
+          "refreshRateHz": 60,
+          "sourceSha256": "f4b60b3672bdf7ff7f4376fba9da1b1d22c925ebc3e16baa5fd4a64fa1045aa5",
+          "thermalState": "nominal",
+          "timingScope": "Production full render plus encode, before file write; native caches cold, OS source pages warmed by identity check/copy; no live viewport or inference",
+          "width": 12288,
+          "log": "/tmp/maple-native-auto-exact-export-OneRemovalTIFF-20261002.log",
+          "baselineDeliveryPeakRSSBytes": 13004275712,
+          "RSSReductionBytes": 2528313344,
+          "baselineExportMs": 16076.803708
+        },
+        {
+          "artifactDirectory": "/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/100mp-export-1472-6099254A-8B32-4730-9B2F-DA343721D850",
+          "bitsPerComponent": 16,
+          "case": "100MP-native-float-removal-export",
+          "channelsOver1": 0,
+          "chip": "Apple M5 Max",
+          "commitSha": "ec166478fdeafd0a898e76425749fd887512fe91",
+          "deliveredRGBADigest": "blake3:1ba646bd9bc5cad241d8d949d07978ea3c175b6f761b5b07061619d7306dcabb",
+          "deliveryPeakRSSBytes": 10507272192,
+          "deviceModel": "Mac17,6",
+          "exportBytes": 805372698,
+          "exportMs": 14868.370584,
+          "format": "tiff_16",
+          "gpu": "Apple M5 Max",
+          "height": 8192,
+          "maximumChannelError": 1,
+          "meanChannelError": 0.2516558799478743,
+          "memoryScope": "Fresh process high-water RSS through exportData, before verification; includes fixture staging/test runtime; excludes subsequent ImageIO decode/reference render",
+          "osVersion": "Version 27.0 (Build 26A428)",
+          "parityLimit": "Maximum 1/255 and zero channels over 1, all 301989888 RGB channels",
+          "parityPassed": true,
+          "patchCount": 10,
+          "phase": "comparison",
+          "physicalMemoryBytes": 137438953472,
+          "profile": "auto",
+          "quality": "amaze",
+          "refreshRateHz": 60,
+          "sourceSha256": "f4b60b3672bdf7ff7f4376fba9da1b1d22c925ebc3e16baa5fd4a64fa1045aa5",
+          "thermalState": "fair",
+          "timingScope": "Production full render plus encode, before file write; native caches cold, OS source pages warmed by identity check/copy; no live viewport or inference",
+          "width": 12288,
+          "log": "/tmp/maple-native-auto-exact-export-TenRemovalTIFF-20261002.log",
+          "baselineDeliveryPeakRSSBytes": 13076021248,
+          "RSSReductionBytes": 2568749056,
+          "baselineExportMs": 15923.885708
+        }
+      ],
+      "allBaselineDecodedRGBADigestsUnchanged": true,
+      "all24OwnedFixturesUnchanged": true,
+      "sourceUnchanged": true,
+      "limit": "TIFF16 delivery is compared through decoded RGB8; noRGB16 precision claim. Timing/RSS are fresh-process point trials, not a performance ratchet; initial exports overlap the UI test and thermal state changes."
+    },
+    "actualEditor": {
+      "passed": 2,
+      "failed": 0,
+      "skipped": 0,
+      "seconds": 184.139,
+      "cpuSeconds": 43.217,
+      "gpuSeconds": 140.922,
+      "isolation": {
+        "app": "/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/maple-native-auto-ui1472-p5hnwtag/Maple Native Auto QA.app",
+        "sourceApp": "/Users/riabuz/Library/Developer/Xcode/DerivedData/Maple-bcxcszgchtnsezbioxxblbrryuue/Build/Products/Debug/Maple.app",
+        "xctestrun": "/Users/riabuz/Library/Developer/Xcode/DerivedData/Maple-bcxcszgchtnsezbioxxblbrryuue/Build/Products/MapleNativeAutoQA1472_20261002.xctestrun",
+        "bundleID": "app.justmaple.nativeautoqa1472",
+        "removedRegistrations": [
+          "CFBundleDocumentTypes",
+          "CFBundleURLTypes"
+        ],
+        "removedBundledExtensions": true,
+        "binaryHashes": {
+          "Maple": "a1ac3df0de73a39e5022b6a0a8cc5eb66dbe237477d1dc0571d93f41c798df45",
+          "__preview.dylib": "88d8e75b07b8f344677a3c2d747e622ff992cad655d28ecf60442af5b1d2dda6",
+          "Maple.debug.dylib": "c1e33193e701724eb0cfcb9b388a3405d923ab19bd1eee33f98cce6f6e905d91"
+        }
+      },
+      "sidecars": [
+        {
+          "test": "RemovalHistoryUITests/testResetUndoRedoPersistTheAcceptedRemovalFromEditorControls()",
+          "schema": 4,
+          "id": null,
+          "active": true
+        },
+        {
+          "test": "RemovalHistoryUITests/testSavedControlsPersistAndReopenWithoutModelsAndCancelReplacementWritesNothing()",
+          "schema": 5,
+          "id": "blake3:a8cc95aa771fd932e1205f1e81ff10b376c8a8168011b052b91d80ca91a3d21b",
+          "active": true
+        }
+      ],
+      "attachments": [
+        {
+          "test": "RemovalHistoryUITests/testResetUndoRedoPersistTheAcceptedRemovalFromEditorControls()",
+          "name": "Actual saved XMP",
+          "path": "/tmp/maple-native-auto-ui-20261002-attachments/40FCBF88-8C40-469E-9D62-C4FC74DA7CB1.txt",
+          "sha256": "f8bb8835312acc1201afd55ad2bd6214ab88f4555aff272a555e4710e34533e3"
+        },
+        {
+          "test": "RemovalHistoryUITests/testResetUndoRedoPersistTheAcceptedRemovalFromEditorControls()",
+          "name": "Removal history accessibility tree",
+          "path": "/tmp/maple-native-auto-ui-20261002-attachments/E1A157B2-AE94-4527-B772-C15DDDC7FB99.txt",
+          "sha256": "0656c41f78396834f33a9286698d37995b958c57382e8b9e42125c9ad9cc3dc9"
+        },
+        {
+          "test": "RemovalHistoryUITests/testResetUndoRedoPersistTheAcceptedRemovalFromEditorControls()",
+          "name": "Saved removal restored by keyboard undo",
+          "path": "/tmp/maple-native-auto-ui-20261002-attachments/FEA6391D-3608-4163-BF37-748FD0CA0839.png",
+          "sha256": "3a321dd8a80d4ca63e4fb84aebf1fe90ba8a93e78bbc1ad96465af86e6f459f1"
+        },
+        {
+          "test": "RemovalHistoryUITests/testResetUndoRedoPersistTheAcceptedRemovalFromEditorControls()",
+          "name": "Saved removal before reset",
+          "path": "/tmp/maple-native-auto-ui-20261002-attachments/009F2E3D-E990-4508-9177-07EA94C93961.png",
+          "sha256": "d15a0db07f2243dbe3bd66a4df4fdac4a53b6517c98ffa115fb110210ccf8151"
+        },
+        {
+          "test": "RemovalHistoryUITests/testSavedControlsPersistAndReopenWithoutModelsAndCancelReplacementWritesNothing()",
+          "name": "Saved removal final state",
+          "path": "/tmp/maple-native-auto-ui-20261002-attachments/F300B98D-0DB4-4958-8FF7-58D02ED1864C.png",
+          "sha256": "de9fc360a7753741f7b3e431835c0eb1b53c50531ce87bbf9e70a557541669cc"
+        },
+        {
+          "test": "RemovalHistoryUITests/testSavedControlsPersistAndReopenWithoutModelsAndCancelReplacementWritesNothing()",
+          "name": "Actual saved XMP",
+          "path": "/tmp/maple-native-auto-ui-20261002-attachments/E5C7D232-E6C2-4B49-86C1-700F970EA8E8.txt",
+          "sha256": "be2b454cf9b16c9a1cf92c19b84368a67c17a66e37aba10e8db3c9e383560bc6"
+        },
+        {
+          "test": "RemovalHistoryUITests/testSavedControlsPersistAndReopenWithoutModelsAndCancelReplacementWritesNothing()",
+          "name": "Saved removal accessibility tree",
+          "path": "/tmp/maple-native-auto-ui-20261002-attachments/56BEC022-32C3-4C55-9FC0-A5C69E719A3E.txt",
+          "sha256": "775632e6e76db9650caaae6f160f598aa900988fb0fecc9add161e446d51cbdc"
+        },
+        {
+          "test": "RemovalHistoryUITests/testSavedControlsPersistAndReopenWithoutModelsAndCancelReplacementWritesNothing()",
+          "name": "Saved removal reopened without inference",
+          "path": "/tmp/maple-native-auto-ui-20261002-attachments/506FFE33-87E7-4198-81F8-03F3932EA176.png",
+          "sha256": "2f06e219d0ff38997e76f4335bfc0a8f2f922f8b26c4994a9629dc9a13ac19a3"
+        },
+        {
+          "test": "RemovalHistoryUITests/testSavedControlsPersistAndReopenWithoutModelsAndCancelReplacementWritesNothing()",
+          "name": "Removal controls before saved expansion",
+          "path": "/tmp/maple-native-auto-ui-20261002-attachments/E5D6F34D-89E3-4B8A-B764-C498037CD3B1.png",
+          "sha256": "66f86373b6a8b9962968c936af441090d6f18c590e6d6c1892f220d4f5b4e84c"
+        },
+        {
+          "test": "RemovalHistoryUITests/testSavedControlsPersistAndReopenWithoutModelsAndCancelReplacementWritesNothing()",
+          "name": "Removal controls before saved expansion",
+          "path": "/tmp/maple-native-auto-ui-20261002-attachments/A214E3F5-BD15-4934-BB4B-4F75FA49E9EF.txt",
+          "sha256": "5f481e0cfb885b00eeb44b1b6aa13033dcf0d504a8509253c8f820e210bc0b71"
+        },
+        {
+          "test": "RemovalHistoryUITests/testSavedControlsPersistAndReopenWithoutModelsAndCancelReplacementWritesNothing()",
+          "name": "Saved mask loaded for replacement",
+          "path": "/tmp/maple-native-auto-ui-20261002-attachments/D922134B-8FCA-456E-8991-C4D9FEC304CA.png",
+          "sha256": "979594b8ecad57ef683213e0896066f47114884273b9c92701b845f898a34d99"
+        },
+        {
+          "test": "RemovalHistoryUITests/testSavedControlsPersistAndReopenWithoutModelsAndCancelReplacementWritesNothing()",
+          "name": "Saved removal enabled",
+          "path": "/tmp/maple-native-auto-ui-20261002-attachments/1AE13BF8-3AFE-41A1-BBA6-5AAC9D625C41.png",
+          "sha256": "3dffa91c65d95a5ca022cd333815e16b6506056d18cdf28bb7b5bad4c0e7c221"
+        },
+        {
+          "test": "RemovalHistoryUITests/testSavedControlsPersistAndReopenWithoutModelsAndCancelReplacementWritesNothing()",
+          "name": "Removal controls before saved expansion",
+          "path": "/tmp/maple-native-auto-ui-20261002-attachments/9F6386AD-B9A9-44AB-B30E-8B1B03848FE9.png",
+          "sha256": "b9c1fdfdc18490809cd548ccad7a375b5be250d0acfb403278fc74f1a9d64fee"
+        },
+        {
+          "test": "RemovalHistoryUITests/testSavedControlsPersistAndReopenWithoutModelsAndCancelReplacementWritesNothing()",
+          "name": "Removal controls before saved expansion",
+          "path": "/tmp/maple-native-auto-ui-20261002-attachments/D33BA958-D030-4F4D-979A-7D0C3531D054.txt",
+          "sha256": "9e6fa9f88f9e4bce97859a00698a928cd9b8b6d2a065ca896c4a65ed7893eb2e"
+        }
+      ],
+      "warnings": [
+        "[Internal] Thread running at User-initiated quality-of-service class waiting on a lower QoS thread running at Utility quality-of-service class. Investigate ways to avoid priority inversions",
+        "[Internal] Thread running at User-initiated quality-of-service class waiting on a lower QoS thread running at Utility quality-of-service class. Investigate ways to avoid priority inversions",
+        "[Internal] Thread running at User-interactive quality-of-service class waiting on a lower QoS thread running at Default quality-of-service class. Investigate ways to avoid priority inversions"
+      ],
+      "summarySha256": "b2e10fca75babc497364b5364438150d134d0682b841b292b70d8869f8a66851",
+      "log": "/tmp/maple-native-auto-ui-20261002.log",
+      "limit": "Tiny accepted calibration fixture: history, durability and reopening; no inference, people-role or photographic-quality claim. Installed /Applications/Maple.app PID62140 remains running, unchanged."
+    },
+    "native": {
+      "profile": "release",
+      "appleTargets": 4,
+      "verifiedSymbols": 161,
+      "inputHash": "587cce9dd50c749a3923979c7c088b8756fd53a3",
+      "checkOnly": "passed",
+      "macTestBuild": "passed"
+    },
+    "formatBudgetCoverage": {
+      "strictRustSwift": "passed",
+      "prettier": "passed",
+      "diffCheck": "passed",
+      "fileBudgetHardViolations": 0,
+      "headroom": "passed",
+      "coverage": {
+        "classes": 448,
+        "run": 248,
+        "excluded": 200,
+        "untriaged": 0
+      }
+    }
+  },
+  "rejectedCPUProbe": {
+    "production33": {
+      "maximum": 3,
+      "over1": [
+        46513,
+        46169
+      ]
+    },
+    "control65": {
+      "maximum": 2,
+      "over1": [
+        96,
+        91
+      ]
+    },
+    "control97": {
+      "maximum": 2,
+      "over1": [
+        6,
+        6
+      ]
+    },
+    "control128": {
+      "maximum": 2,
+      "over1": [
+        147,
+        142
+      ]
+    },
+    "control129": "Core Image rejected dimension129; supported maximum128. No passing claim or production change from any of these cube probes."
+  },
+  "limits": [
+    "The entire goal remains active. Web/iOS/Windows ports are deferred by Mac-first steering.",
+    "This single39MP photo and tiny UI fixture cannot establish consented/labeled crowd quality, protected-subject safety, Smart paint or reconstruction halos/texture/shadow/reflection quality; the corpus question remains unanswered.",
+    "The existing Neutral ACR failure remains red and unchanged; no budget waiver, PR, push or merge.",
+    "Native-fit memory, 100MP interactive16ms/50ms performance under inference, lower-memory Mac tiers, distribution signing/model packaging and source-adapter qualification remain release gates.",
+    "Core cache identity remains canonical path+mtime. Host metadata adds size/ctime/inode, but no full-content-hash validation is added to a slider tick.",
+    "Noninterruptible solvers may finish after cancellation. Waiters retain buffers/cancel flags until actual joined return; cancelled callers cannot publish a result.",
+    "The new CPU tail borrows artifacts and uses the existing output allocation; this is not a claim that the entire CPU fallback has zero allocations or meets GPU live-frame budgets."
+  ]
+}

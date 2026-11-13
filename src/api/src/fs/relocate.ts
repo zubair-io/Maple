@@ -73,6 +73,8 @@ import {
 } from './relocate-sidecar-plan.ts';
 import { carryLateSidecars } from './relocate-late-sidecar.ts';
 import { deleteOriginals } from './relocate-originals.ts';
+import { carryRemovalAssets, withRelocationLease } from './relocate-removal.ts';
+import { recoverRemovalRelocation } from './removal-relocation-journal.ts';
 
 export { sidecarRenameTarget };
 
@@ -340,7 +342,12 @@ async function copyPrimaryAndSidecars(
     ...entry,
     keepSource: keepSource && !isLegacyBackupSidecarOf(req.sourceAbsPath, entry.source),
   }));
-  return { copiedSidecars, movedSidecars, companionPaths, movedCompanionSources };
+  return {
+    copiedSidecars,
+    movedSidecars,
+    companionPaths,
+    movedCompanionSources,
+  };
 }
 
 /** Step 5: run the caller's identity-repoint hook (if any) between the
@@ -401,7 +408,9 @@ async function refuseSameFile(req: RelocateRequest): Promise<RelocateOutcome | n
           'relocate: case-only rename target is the same file as the source on a case-insensitive filesystem — copy is not meaningful',
       };
     }
-    return performCaseOnlyRename(req);
+    return withRelocationLease(req.sourceAbsPath, req.destAbsPath, () =>
+      performCaseOnlyRename(req),
+    ).catch(errorOutcome);
   }
   return null;
 }
@@ -427,7 +436,10 @@ async function relocateWithCollisionRetry(req: RelocateRequest): Promise<Relocat
 const MAX_COLLISION_RETRIES = 8;
 
 function errorOutcome(err: unknown): RelocateOutcome {
-  return { kind: 'error', error: err instanceof Error ? err.message : String(err) };
+  return {
+    kind: 'error',
+    error: err instanceof Error ? err.message : String(err),
+  };
 }
 
 function isSuffixing(collision: CollisionPolicy): boolean {
@@ -442,6 +454,7 @@ async function relocateOnce(
   ownSidecars: readonly string[],
 ): Promise<RelocateOutcome> {
   // 1. Resolve the destination per the caller's collision policy.
+  await recoverRemovalRelocation(req.destAbsPath);
   const resolution = await resolveDestination(req, ownSidecars);
   if (resolution.kind === 'skip') {
     return { kind: 'skipped', reason: 'collision' };
@@ -449,9 +462,12 @@ async function relocateOnce(
   const { finalDest } = resolution;
   await fs.mkdir(path.dirname(finalDest), { recursive: true });
   const execute = () => relocateResolved(req, finalDest, ownSidecars);
-  return req.collision === 'replace' && req.carrySidecars !== false
-    ? withReplaceSidecarFence(req.sourceAbsPath, finalDest, req.mode, execute)
-    : execute();
+  return withRelocationLease(req.sourceAbsPath, finalDest, async () => {
+    if (req.carrySidecars !== false) await carryRemovalAssets(req.sourceAbsPath, finalDest);
+    return req.collision === 'replace' && req.carrySidecars !== false
+      ? withReplaceSidecarFence(req.sourceAbsPath, finalDest, req.mode, execute)
+      : execute();
+  });
 }
 
 async function relocateResolved(

@@ -1,0 +1,293 @@
+{
+  "issue": 1472,
+  "date": "2026-10-02",
+  "baselineRevision": "4fdc2172b9e7f70383378719b4d33b6da81a01bf",
+  "scope": "Mac-first second denoise memory reduction; full removal goal active, ports deferred",
+  "sourceHashes": {
+    "src/raw-pipeline/raw-core/src/stages/nlm.rs": "aa94afde85d405414c24fe9729518e668d26c3e0ea6cc802c2c86580fb0e5909",
+    "src/raw-pipeline/raw-core/src/stages/nlm_shift.rs": "410228f23ed874af99eecc58abac7ca257ce71214afe80f05089d94eca1ab80a",
+    "src/raw-pipeline/raw-core/src/stages/nlm_radius.rs": "801ea36f0d35e661f82eef91c0a3f88798f9a48f21f87315f92df4dda6ee0f8f",
+    "src/raw-pipeline/raw-core/src/stages/nlm_tests_box.rs": "41ad06b8340a00d24ff263a8899e4867cbcd149e81c1440a776f0bf2f9d6d139",
+    "src/raw-pipeline/raw-core/src/stages/noise_reduction.rs": "b97667251f4369bd7543b1d626270ad19378dce5c224e711e94375deab2b9a25"
+  },
+  "implementation": [
+    "Fuse squared differences into the existing per-worker column scratch before horizontal summation; vertical seeding overwrites all accumulator columns. Remove the full difference plane while preserving global strip starts, adaptive heights, horizontal reseeding, border guards and arithmetic order.",
+    "Store ordinary local search radii in u8 instead of isize. A wider representation preserves existing public parameters above 255; variance scaling and inverse normalization are unchanged.",
+    "Split the private shift kernel and radius storage into small Rust modules; update the existing independent box-sum proof to read input patches directly. No view, shader, pipeline-order, schema or model changes."
+  ],
+  "validation": {
+    "floatBeforeAfter": {
+      "fixedCases": 7,
+      "profileCases": 24,
+      "components": 47996386,
+      "bitIdentical": true,
+      "scope": "Fixed luma/chroma planes through 4000x3000; negative planes and guide luminance through 12.0 with six/eight-component camera profiles and high-ISO fallback through 2048x1536",
+      "dumpSha256": {
+        "maple-removal-nlm-fused-before-1472_chroma_1024x768.f32": "7df87ce320d552e99889b7173ef8ed8092efb15270542dd94357f414291d6ba0",
+        "maple-removal-nlm-fused-before-1472_chroma_257x193.f32": "02363c4e54e8c32ab15edc64f68b2b5f65cde26370a58936d0ece7b7ceae35ac",
+        "maple-removal-nlm-fused-before-1472_chroma_4000x3000.f32": "f0acce79d2085a2ed9bb8d3c339403dd94b912047b56f6bfb6024e945313748f",
+        "maple-removal-nlm-fused-before-1472_luma_1024x768.f32": "0d2a64d662a865729254425d726f4fd9999204619a1f047f5aa95bc66ef3ab72",
+        "maple-removal-nlm-fused-before-1472_luma_2048x1536.f32": "cba981b620cac7da3ca985698a35a1779e7a452c0147e3fefe57d685459fb316",
+        "maple-removal-nlm-fused-before-1472_luma_257x193.f32": "b21b30550d20b934d8c8febaaaabee0eee5f09673e266c406724393f77588e13",
+        "maple-removal-nlm-fused-before-1472_luma_4000x3000.f32": "ccf3e42f68e91deeac11c083114844d44c84503fe66f8159a254c569bccc4d04",
+        "maple-removal-nlm-profile-before-1472-camera6-chroma-2048x1536.f32": "26d93e1f81d6a6b588d003a78ec70885ffe39cf7a479c4f5f38bf1b75ed19b7d",
+        "maple-removal-nlm-profile-before-1472-camera6-chroma-257x193.f32": "ee84897429728c67d8876fba4afdb514656136bb7e92a6929145be7c9d0b0dea",
+        "maple-removal-nlm-profile-before-1472-camera6-chroma-37x29.f32": "9e77fb5d1ffbac270f38f0579e43ddc9afa328f5bce4d1a72dbbd69830e14d39",
+        "maple-removal-nlm-profile-before-1472-camera6-chroma-3x10.f32": "f0122af2060937e677ff20fdce5f5fde316d62c5108f505ade294ac5a3d4dcc6",
+        "maple-removal-nlm-profile-before-1472-camera6-luma-2048x1536.f32": "3c629e96d706106ef308e1b13827fbd37e48db1cf73b2e92c7bdbd55286d01df",
+        "maple-removal-nlm-profile-before-1472-camera6-luma-257x193.f32": "fc3b0b5a1fc908c97facf857722f1bebc4db39bd77b6a8bd59753f34e88e7529",
+        "maple-removal-nlm-profile-before-1472-camera6-luma-37x29.f32": "7a4dd56fe8b1e967f8533f3b79dcae7e8da6f89cfc6ac84774078bcfb3588b00",
+        "maple-removal-nlm-profile-before-1472-camera6-luma-3x10.f32": "f0122af2060937e677ff20fdce5f5fde316d62c5108f505ade294ac5a3d4dcc6",
+        "maple-removal-nlm-profile-before-1472-camera8-chroma-2048x1536.f32": "26d93e1f81d6a6b588d003a78ec70885ffe39cf7a479c4f5f38bf1b75ed19b7d",
+        "maple-removal-nlm-profile-before-1472-camera8-chroma-257x193.f32": "ee84897429728c67d8876fba4afdb514656136bb7e92a6929145be7c9d0b0dea",
+        "maple-removal-nlm-profile-before-1472-camera8-chroma-37x29.f32": "9e77fb5d1ffbac270f38f0579e43ddc9afa328f5bce4d1a72dbbd69830e14d39",
+        "maple-removal-nlm-profile-before-1472-camera8-chroma-3x10.f32": "f0122af2060937e677ff20fdce5f5fde316d62c5108f505ade294ac5a3d4dcc6",
+        "maple-removal-nlm-profile-before-1472-camera8-luma-2048x1536.f32": "3f58a72e6a692857c0aed9f5d8e75f739bf0cbcc5082057ae852777ab2a2d03e",
+        "maple-removal-nlm-profile-before-1472-camera8-luma-257x193.f32": "38f7d71da1fc4b4a4cc27819a83de14738513ef15ee85336460875fc8ab437b2",
+        "maple-removal-nlm-profile-before-1472-camera8-luma-37x29.f32": "9f551f048cf80b5835232eb5cff6d5456a3f677b4a8efbcd3b9e8b2f24d1532e",
+        "maple-removal-nlm-profile-before-1472-camera8-luma-3x10.f32": "f0122af2060937e677ff20fdce5f5fde316d62c5108f505ade294ac5a3d4dcc6",
+        "maple-removal-nlm-profile-before-1472-fallback-chroma-2048x1536.f32": "dc4cbf8bfe0da144301097d0fe1695c6b4d38c6db302417fff4431f2e1b4682c",
+        "maple-removal-nlm-profile-before-1472-fallback-chroma-257x193.f32": "2b57698bb1f50113f41b222979b87dbb92f1c3abb1ac317c55e226abf73538cb",
+        "maple-removal-nlm-profile-before-1472-fallback-chroma-37x29.f32": "8cee538e32e5d4d39842b4ef20990965426b6371bd77be55aae36d46fab8bfe6",
+        "maple-removal-nlm-profile-before-1472-fallback-chroma-3x10.f32": "f0122af2060937e677ff20fdce5f5fde316d62c5108f505ade294ac5a3d4dcc6",
+        "maple-removal-nlm-profile-before-1472-fallback-luma-2048x1536.f32": "b667a59660722a7933ca0de8d56331f61e1e5683dcb4b343016c6af686438312",
+        "maple-removal-nlm-profile-before-1472-fallback-luma-257x193.f32": "55121a166a887367d6aed92aa330ec2d20f8663ce4312aa40e2ce7d95a06c6b5",
+        "maple-removal-nlm-profile-before-1472-fallback-luma-37x29.f32": "b3ba84378bda814151f0da809c98c918933f15babebfcb935e676d94a04db3f4",
+        "maple-removal-nlm-profile-before-1472-fallback-luma-3x10.f32": "f0122af2060937e677ff20fdce5f5fde316d62c5108f505ade294ac5a3d4dcc6"
+      },
+      "logs": [
+        "/tmp/maple-removal-nlm-fused-before-20261002.log",
+        "/tmp/maple-removal-nlm-fused-after-20261002.log",
+        "/tmp/maple-removal-nlm-profile-before-20261002.log",
+        "/tmp/maple-removal-nlm-profile-after-20261002.log"
+      ]
+    },
+    "radiusBoundary": "Pass: exact radii 255/256/300; compact representation used only through 255",
+    "rawCore": {
+      "passed": 2601,
+      "failed": 0,
+      "ignored": 92,
+      "seconds": 33.51,
+      "log": "/tmp/maple-removal-nlm-fused-core-20261002.log"
+    },
+    "metal": {
+      "passed": 255,
+      "failed": 0,
+      "ignored": 3,
+      "seconds": 23.03,
+      "log": "/tmp/maple-removal-nlm-fused-metal-20261002.log"
+    },
+    "ffi": {
+      "passed": 266,
+      "failed": 0,
+      "ignored": 1,
+      "seconds": 78.85,
+      "command": "cargo test -p raw-ffi --lib",
+      "log": "/tmp/maple-removal-nlm-fused-ffi-20261002.log"
+    },
+    "nativeLibrary": {
+      "fresh": true,
+      "profile": "release",
+      "inputHash": "d8522b89c91864561f45039893b4f05835f13947",
+      "symbolsVerified": 159,
+      "appleSlices": 4,
+      "log": "/tmp/maple-removal-nlm-fused-xcframework-20261002.log"
+    },
+    "fullExports": {
+      "passed": 6,
+      "failed": 0,
+      "skipped": 0,
+      "allDecodedRGBADigestsEqualBaseline": true,
+      "maximumChannelError": 1,
+      "channelsOver1": 0,
+      "dimensions": [
+        12288,
+        8192
+      ],
+      "RGBChannelsComparedPerCase": 301989888,
+      "reports": [
+        {
+          "patchCount": 0,
+          "format": "png",
+          "bitsPerComponent": 8,
+          "exportMs": 12338.008541,
+          "baselineExportMs": 12591.498083,
+          "deliveryPeakRSSBytes": 11282464768,
+          "baselineDeliveryPeakRSSBytes": 12890734592,
+          "RSSReductionBytes": 1608269824,
+          "thermalState": "fair",
+          "deliveredRGBADigest": "blake3:1a46b2300808083ef61a060ea30bcd4cf37d628fd5d4c60d2eeb2994e5aa3dfa",
+          "maximumChannelError": 1,
+          "channelsOver1": 0,
+          "exportBytes": 180860108,
+          "artifactDirectory": "/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/100mp-export-1472-0189EEF6-F705-47BB-926E-EDACD2A47766",
+          "log": "/tmp/maple-removal-nlm-fused-export-ZeroRemovalPNG-20261002.log"
+        },
+        {
+          "patchCount": 1,
+          "format": "png",
+          "bitsPerComponent": 8,
+          "exportMs": 19938.186042,
+          "baselineExportMs": 19116.10925,
+          "deliveryPeakRSSBytes": 12499042304,
+          "baselineDeliveryPeakRSSBytes": 14111391744,
+          "RSSReductionBytes": 1612349440,
+          "thermalState": "fair",
+          "deliveredRGBADigest": "blake3:1aeb21b947f922775fe75cc8c77beba57c69a48bfba9d402daa7fe6c12385acc",
+          "maximumChannelError": 1,
+          "channelsOver1": 0,
+          "exportBytes": 180334047,
+          "artifactDirectory": "/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/100mp-export-1472-E9FD3D8A-AD63-41F4-940B-37DBD6A3588F",
+          "log": "/tmp/maple-removal-nlm-fused-export-OneRemovalPNG-20261002.log"
+        },
+        {
+          "patchCount": 10,
+          "format": "png",
+          "bitsPerComponent": 8,
+          "exportMs": 20462.06675,
+          "baselineExportMs": 21578.735709,
+          "deliveryPeakRSSBytes": 12444172288,
+          "baselineDeliveryPeakRSSBytes": 14157758464,
+          "RSSReductionBytes": 1713586176,
+          "thermalState": "fair",
+          "deliveredRGBADigest": "blake3:cfb4a621e57d160475fa0f06acea0868592846862d8dafa37abe4fb82f76e65b",
+          "maximumChannelError": 1,
+          "channelsOver1": 0,
+          "exportBytes": 176429974,
+          "artifactDirectory": "/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/100mp-export-1472-324098CA-AA5C-4853-91A6-1EB9BC3BF1F7",
+          "log": "/tmp/maple-removal-nlm-fused-export-TenRemovalPNG-20261002.log"
+        },
+        {
+          "patchCount": 0,
+          "format": "tiff_16",
+          "bitsPerComponent": 16,
+          "exportMs": 8569.548458,
+          "baselineExportMs": 8226.818583,
+          "deliveryPeakRSSBytes": 11778310144,
+          "baselineDeliveryPeakRSSBytes": 13392216064,
+          "RSSReductionBytes": 1613905920,
+          "thermalState": "fair",
+          "deliveredRGBADigest": "blake3:bbf3a2c7d158ccd6129e7724e5840b2b21b31cdddc7539e6a13faf5dfc255933",
+          "maximumChannelError": 1,
+          "channelsOver1": 0,
+          "exportBytes": 805372698,
+          "artifactDirectory": "/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/100mp-export-1472-994A90B4-4783-4DE7-BA09-B2FA7C4D2582",
+          "log": "/tmp/maple-removal-nlm-fused-export-ZeroRemovalTIFF-20261002.log"
+        },
+        {
+          "patchCount": 1,
+          "format": "tiff_16",
+          "bitsPerComponent": 16,
+          "exportMs": 16076.803708,
+          "baselineExportMs": 16859.294958,
+          "deliveryPeakRSSBytes": 13004275712,
+          "baselineDeliveryPeakRSSBytes": 14629765120,
+          "RSSReductionBytes": 1625489408,
+          "thermalState": "nominal",
+          "deliveredRGBADigest": "blake3:feca77979ae8bb690cd9dec9daae18844e8c16e89f017468fa90199b57795210",
+          "maximumChannelError": 1,
+          "channelsOver1": 0,
+          "exportBytes": 805372698,
+          "artifactDirectory": "/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/100mp-export-1472-29EE4A93-B6DF-4E41-A357-031C7B5D954C",
+          "log": "/tmp/maple-removal-nlm-fused-export-OneRemovalTIFF-20261002.log"
+        },
+        {
+          "patchCount": 10,
+          "format": "tiff_16",
+          "bitsPerComponent": 16,
+          "exportMs": 15923.885708,
+          "baselineExportMs": 16977.15025,
+          "deliveryPeakRSSBytes": 13076021248,
+          "baselineDeliveryPeakRSSBytes": 14683226112,
+          "RSSReductionBytes": 1607204864,
+          "thermalState": "nominal",
+          "deliveredRGBADigest": "blake3:1ba646bd9bc5cad241d8d949d07978ea3c175b6f761b5b07061619d7306dcabb",
+          "maximumChannelError": 1,
+          "channelsOver1": 0,
+          "exportBytes": 805372698,
+          "artifactDirectory": "/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/100mp-export-1472-07048691-538E-4F37-86BF-0DC0903124F2",
+          "log": "/tmp/maple-removal-nlm-fused-export-TenRemovalTIFF-20261002.log"
+        }
+      ]
+    },
+    "macBuild": {
+      "result": "BUILD SUCCEEDED",
+      "scheme": "Maple",
+      "log": "/tmp/maple-removal-nlm-fused-mac-build-20261002.log"
+    },
+    "appleCIAllowlist": {
+      "classes": 247,
+      "passed": 2028,
+      "failed": 0,
+      "skipped": 0,
+      "seconds": 32.894,
+      "log": "/tmp/maple-removal-nlm-fused-swift-ci-20261002.log"
+    },
+    "referenceDiagnostic": {
+      "test_0011_originalAndToneSprintXMPIdentical": true,
+      "XMP_SHA256": "23cdfdc027d919721421a3f68a2f30790b37b41837e2bfce924e79db86033b52",
+      "existingNeutralBiasWorkTrackedBy": 3633,
+      "evidence": "test-fixtures/qualification/color-baseline-3633.md; final/known-green logs reproduce the same Neutral failure"
+    },
+    "colorBaseline": {
+      "command": "MANIFEST=/Users/riabuz/Projects/_Maple/test-fixtures/references/manifest.json FILTER=baseline bash src/scripts/test_color_pipeline.sh",
+      "exit": 1,
+      "executed": 40,
+      "failed": 1,
+      "skipped": 0,
+      "neutralPassed": 19,
+      "autoPassed": 20,
+      "failure": "Existing test_0011/baseline Neutral RGB bias; mean 5.64, p95 19.56, max 34.81; bias RGB +0.0378/+0.0315/+0.0312 versus ceilings +0.0113",
+      "allPrintedComparisonRowsEqualPriorRun": true,
+      "comparisonTableSHA256": "6b9ada0c5ae70e3efed74c32dfce250dd570f74d00111f3e3a691ba741e80fa6",
+      "log": "/tmp/maple-removal-nlm-fused-color-baseline-20261002.log",
+      "priorLog": "/tmp/maple-removal-nr-storage-color-baseline-20261002.log",
+      "releaseGate": "RED; unchanged failure is not waived. No PR, push or merge."
+    },
+    "integrity": {
+      "sourceSHA256": "f4b60b3672bdf7ff7f4376fba9da1b1d22c925ebc3e16baa5fd4a64fa1045aa5",
+      "controlledFixtureFilesPreserved": 24,
+      "fixtureManifest": "test-fixtures/qualification/removal-mac-100mp-export-1472.json: validation.ownedFixtures.manifest",
+      "after": "All six exports, actual Mac app build, Apple CI allowlist and color baseline comparisons",
+      "unqualifiedUIDiagnostic": "Preserved unchanged and excluded from this commit"
+    }
+  },
+  "focusedDenoiseBenchmark": {
+    "runsPerCase": 3,
+    "statistic": "median milliseconds; warmed standalone kernel, existing nlm_bench harness",
+    "before": {
+      "luma2MP": 34.44,
+      "chroma2MP": 66.3,
+      "luma100MP": 1116.8,
+      "chroma100MP": 2165.0
+    },
+    "after": {
+      "luma2MP": 29.93,
+      "chroma2MP": 52.24,
+      "luma100MP": 931.31,
+      "chroma100MP": 1847.0
+    },
+    "beforeLog": "/tmp/maple-removal-nlm-fused-bench-before-20261002.log",
+    "afterLog": "/tmp/maple-removal-nlm-fused-bench-after-20261002.log",
+    "scopeLimit": "Not the live editor, not a percentile, and not proof of the 16ms slider budget"
+  },
+  "measurement": {
+    "device": "Mac17,6 / Apple M5 Max / 128 GiB",
+    "os": "macOS 27.0 (26A428)",
+    "RSSScope": "Fresh process high-water RSS through exportData, before verification; includes fixture staging/test runtime; excludes subsequent ImageIO decode/reference render",
+    "timingScope": "Production full render plus encode, before file write; native caches cold, OS source pages warmed by identity check/copy; no live viewport or inference",
+    "minimumAdditionalRSSReductionBytes": 1607204864,
+    "maximumAdditionalRSSReductionBytes": 1713586176,
+    "peakRSSRangeBytes": [
+      11282464768,
+      13076021248
+    ],
+    "thermals": "Four fair, two nominal; all prior samples fair. Six fresh-process points; no end-to-end speedup/p95 claim."
+  },
+  "limitations": [
+    "These are six fresh-process point samples on a 128 GiB Mac. Lower-memory devices, the complete live editor with resident inference models and hardware-tier limits remain unqualified.",
+    "Controlled accepted 512px patches exercise delivery, not photographic inpainting quality, background-person selection or protected-subject recall.",
+    "TIFF16 containers are verified and compared after conversion to sRGB RGB8. Full-image RGB16 per-channel parity is not established here; the separate native float-export record covers small-fixture sub-byte precision.",
+    "Production Auto preview/export fit-size consistency and the full consented photographic-quality corpus remain open gates. No budget, model, schema or rendering policy was changed."
+  ]
+}

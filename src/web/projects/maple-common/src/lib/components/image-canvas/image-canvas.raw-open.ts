@@ -2,6 +2,7 @@ import type { WritableSignal } from '@angular/core';
 import type { AssetId } from '../../models/asset';
 import type { EmbeddedPreviewService } from '../../raw-pipeline/embedded-preview.service';
 import { isNonRawExtension } from '../../state/raw-extensions';
+import { savedRemovalRecords } from '../../removal/saved-removal-records';
 import { settleFailedAutoFit } from './image-canvas.fit-failure';
 import type { ByteLoadError } from './image-canvas.byteload';
 import { editorInput, type EditorInput } from './image-canvas.input';
@@ -46,7 +47,8 @@ export class ImageCanvasRawOpen {
     const request = ++this.loadGeneration;
     this.deps.byteLoadError.set(null);
     const sourceExt = filename.split('.').pop()?.toLowerCase() ?? '';
-    if (!isNonRawExtension(sourceExt) && sourceExt !== 'x3f') {
+    const xml = this.host.serializeForRender(this.host.state.adjustmentFor(assetId)());
+    if (!isNonRawExtension(sourceExt) && sourceExt !== 'x3f' && !savedRemovalRecords(xml)) {
       void this.showEmbeddedPreview(assetId, bytes, sourceExt);
     }
 

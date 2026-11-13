@@ -114,9 +114,29 @@ pub unsafe extern "C" fn maple_render_file_scene_linear(
         // was authored against (the cube applies the curve on top — without
         // this the AE-lift and curve-lift stack and Auto highlights blow out).
         let model = force_ae_off_if_auto_will_fit_path(&model, raw_path);
-        let (w, h, fp16) = match raw_core::pipeline::render_scene_linear_from_raw_with_quality(
-            &raw_img, &model, quality,
-        ) {
+        let (w, h, fp16) = match crate::removal_file::render_saved_scene(
+            &raw_img,
+            &raw_bytes,
+            &model,
+            raw_path.parent(),
+            quality,
+            None,
+            raw_core::CancelToken::never(),
+        )
+        .map(|rendered| {
+            rendered.map(|(w, h, rgba, _, _, _)| {
+                (
+                    w,
+                    h,
+                    rgba.into_iter()
+                        .map(raw_core::pipeline::f32_to_f16_bits)
+                        .collect(),
+                )
+            })
+        })
+        .unwrap_or_else(|| {
+            raw_core::pipeline::render_scene_linear_from_raw_with_quality(&raw_img, &model, quality)
+        }) {
             Ok(t) => t,
             Err(e) => {
                 set_last_error(format!("render: {}", e));
@@ -190,9 +210,31 @@ pub unsafe extern "C" fn maple_render_bytes_scene_linear(
         // #871: force auto_exposure Off when an Auto Profile curve will fit
         // (see the file-source entry above for the rationale).
         let model = force_ae_off_if_auto_will_fit_bytes(&model, &input, &ext_owned);
-        let (w, h, fp16) = match raw_core::pipeline::render_scene_linear_from_raw_with_quality(
-            &raw_img, &model, quality,
-        ) {
+        let (w, h, fp16) = match crate::removal_file::render_saved_scene(
+            &raw_img,
+            &input,
+            &model,
+            xmp_path_str
+                .as_deref()
+                .and_then(|path| std::path::Path::new(path).parent()),
+            quality,
+            None,
+            raw_core::CancelToken::never(),
+        )
+        .map(|rendered| {
+            rendered.map(|(w, h, rgba, _, _, _)| {
+                (
+                    w,
+                    h,
+                    rgba.into_iter()
+                        .map(raw_core::pipeline::f32_to_f16_bits)
+                        .collect(),
+                )
+            })
+        })
+        .unwrap_or_else(|| {
+            raw_core::pipeline::render_scene_linear_from_raw_with_quality(&raw_img, &model, quality)
+        }) {
             Ok(t) => t,
             Err(e) => {
                 set_last_error(format!("render: {}", e));
@@ -283,12 +325,34 @@ pub unsafe extern "C" fn maple_render_file_scene_linear_sized(
         };
         // #871: force auto_exposure Off when an Auto Profile curve will fit.
         let model = force_ae_off_if_auto_will_fit_path(&model, raw_path);
-        let (w, h, fp16) = match raw_core::pipeline::render_scene_linear_sized_from_raw_with_quality(
+        let (w, h, fp16) = match crate::removal_file::render_saved_scene(
             &raw_img,
+            &raw_bytes,
             &model,
+            raw_path.parent(),
             quality,
-            max_long_edge,
-        ) {
+            Some(max_long_edge),
+            raw_core::CancelToken::never(),
+        )
+        .map(|rendered| {
+            rendered.map(|(w, h, rgba, _, _, _)| {
+                (
+                    w,
+                    h,
+                    rgba.into_iter()
+                        .map(raw_core::pipeline::f32_to_f16_bits)
+                        .collect(),
+                )
+            })
+        })
+        .unwrap_or_else(|| {
+            raw_core::pipeline::render_scene_linear_sized_from_raw_with_quality(
+                &raw_img,
+                &model,
+                quality,
+                max_long_edge,
+            )
+        }) {
             Ok(t) => t,
             Err(e) => {
                 set_last_error(format!("render: {}", e));
@@ -367,12 +431,36 @@ pub unsafe extern "C" fn maple_render_bytes_scene_linear_sized(
         };
         // #871: force auto_exposure Off when an Auto Profile curve will fit.
         let model = force_ae_off_if_auto_will_fit_bytes(&model, &input, &ext_owned);
-        let (w, h, fp16) = match raw_core::pipeline::render_scene_linear_sized_from_raw_with_quality(
+        let (w, h, fp16) = match crate::removal_file::render_saved_scene(
             &raw_img,
+            &input,
             &model,
+            xmp_path_str
+                .as_deref()
+                .and_then(|path| std::path::Path::new(path).parent()),
             quality,
-            max_long_edge,
-        ) {
+            Some(max_long_edge),
+            raw_core::CancelToken::never(),
+        )
+        .map(|rendered| {
+            rendered.map(|(w, h, rgba, _, _, _)| {
+                (
+                    w,
+                    h,
+                    rgba.into_iter()
+                        .map(raw_core::pipeline::f32_to_f16_bits)
+                        .collect(),
+                )
+            })
+        })
+        .unwrap_or_else(|| {
+            raw_core::pipeline::render_scene_linear_sized_from_raw_with_quality(
+                &raw_img,
+                &model,
+                quality,
+                max_long_edge,
+            )
+        }) {
             Ok(t) => t,
             Err(e) => {
                 set_last_error(format!("render: {}", e));

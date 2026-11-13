@@ -27,6 +27,7 @@
 //! chain use (`vignette` → `sharpen` → `nr_luminance` → `nr_color`).
 
 mod composite;
+pub use composite::{composite_window_into_f32, composite_window_into_fp16};
 mod endcaps;
 // `ChainOptions` lives in a sibling file to keep this module inside the
 // file-size budget (same split shape as `composite` / `endcaps`).

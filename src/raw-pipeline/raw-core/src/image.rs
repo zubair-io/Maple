@@ -555,5 +555,7 @@ pub fn apply_orientation<T: Copy + Default + Send + Sync>(
 #[path = "image_tests.rs"]
 mod tests;
 
+#[path = "image/display_geometry.rs"]
+mod display_geometry;
 #[path = "image_orientation.rs"]
 mod orientation;

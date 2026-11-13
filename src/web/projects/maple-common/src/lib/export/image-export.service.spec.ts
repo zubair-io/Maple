@@ -25,7 +25,7 @@ import type { Asset } from '../models/asset';
 import type { RawExportOptions } from '../raw-pipeline/raw-pipeline.types';
 
 const RAW_BYTES = new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8]);
-const SIDECAR_XML = '<x:xmpmeta>serialized</x:xmpmeta>';
+const SIDECAR_XML = '<x:xmpmeta xmlns:x="adobe:ns:meta/" />';
 
 function makeAsset(overrides: Partial<Asset> = {}): Asset {
   return {

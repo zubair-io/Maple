@@ -1,0 +1,461 @@
+{
+  "version": 1,
+  "issue": 3941,
+  "epic": 1472,
+  "releaseQualified": false,
+  "scope": "Public RAW photographic research fixtures. Native linear-calibration Paint and refined person cases, with pinned external instance masks. No photographic release acceptance budget or broad corpus claim.",
+  "raws": {
+    "coast": {
+      "file": "DSC06078.ARW",
+      "bytes": 24969216,
+      "sha256": "ec04e3ac69d54e7300ba0ff582d10ade0fc3ad28f48507b4c35cacc115e4ee86",
+      "photographer": "seume",
+      "source_page": "https://discuss.pixls.us/t/cabin-at-the-swedish-coast-and-a-spot-i-dont-know-how-to-remove/40822",
+      "download": "https://discuss.pixls.us/uploads/short-url/ao2rNLbM3YBzToH0w7Zsy5G3Z6v.ARW",
+      "publisher_license_statement": "License: CC0.",
+      "license": "CC0 as stated by publishing photographer",
+      "person_model_release_verified": false
+    },
+    "bologna": {
+      "file": "_DSC7409.NEF",
+      "bytes": 29019786,
+      "sha256": "2ed291a09d7d4f72c8588b0c12d6cc5c470ad42ab9e3aaad1f888f34526b959f",
+      "photographer": "anon42681393",
+      "source_page": "https://discuss.pixls.us/t/street-market-bologna-italy-december-2019/35639",
+      "download": "https://discuss.pixls.us/uploads/short-url/6teql8aZKoWNFt98Njj04VEP7w4.NEF",
+      "publisher_license_statement": "This file is licensed CC0.",
+      "license": "CC0 as stated by publishing photographer",
+      "person_model_release_verified": false
+    },
+    "night-tiger": {
+      "file": "DSC_0015.nef",
+      "bytes": 10981379,
+      "sha256": "8cc49f506d3ebde3f3c87862e23497c639c806a54765bf8cb8a7fcaf664e10e5",
+      "photographer": "thehatterman",
+      "source_page": "https://discuss.pixls.us/t/lights-tigers/47762",
+      "download": "https://discuss.pixls.us/uploads/short-url/aXYdkTfa4egMScDk15aeuye7vK2.nef",
+      "publisher_license_statement": "This file is marked with CC0 1.0 Universal.",
+      "license": "CC0 as stated by publishing photographer",
+      "person_model_release_verified": false
+    }
+  },
+  "cases": [
+    {
+      "id": "coast-head",
+      "raw": "coast",
+      "window_xywh": [1900, 1800, 1024, 1024],
+      "intent_rects_xywh": [[440, 437, 65, 44]],
+      "protected_rects_xywh": [[0, 481, 1024, 543]],
+      "hole_radius": 8,
+      "fringe_radius": 4,
+      "expected_scene_blake3": "blake3:50f65b33b413746281b59cb89be7dd221d6e06328c7fd7b99a8d60d283fd2f43",
+      "expected_model_input_blake3": "blake3:625c01c734ea6cab3afb6a295452f58c85b16b3669d56ac40d765861412c12d4",
+      "annotation": "Small partially occluded head above cabin railing; explicit Paint rectangle and protected wood below.",
+      "annotation_scope": "Manual research Paint/protection control, not background-role, Smart paint, silhouette closure, hidden-content ground truth or shipping mask policy.",
+      "orientation": 1
+    },
+    {
+      "id": "bologna-paint",
+      "raw": "bologna",
+      "window_xywh": [2850, 1300, 1024, 1024],
+      "intent_rects_xywh": [[260, 210, 520, 480]],
+      "protected_rects_xywh": [[0, 0, 245, 1024]],
+      "hole_radius": 8,
+      "fringe_radius": 4,
+      "expected_scene_blake3": "blake3:f920aac4690f61e12ac296d120ee1895e3023816e2d9393d20ebb4e7fff80ccb",
+      "expected_model_input_blake3": "blake3:7a035c8376f84f5480a44e9b9a893791558aa49a995a360b81146e5146b8b423",
+      "annotation": "Paint rectangle over blue-coat shopper/bag and part of adjacent dark-coated shopper. Protected left foreground; partial unselected person fragments are a known annotation limit, not automatic mask truth.",
+      "annotation_scope": "Manual research Paint/protection control, not background-role, Smart paint, silhouette closure, hidden-content ground truth or shipping mask policy.",
+      "orientation": 1
+    },
+    {
+      "id": "night-tiger-poster",
+      "raw": "night-tiger",
+      "orientation": 8,
+      "window_xywh": [2800, 1650, 1024, 1024],
+      "intent_rects_xywh": [[261, 267, 267, 143]],
+      "protected_rects_xywh": [
+        [0, 435, 1024, 589],
+        [610, 0, 414, 435]
+      ],
+      "hole_radius": 8,
+      "fringe_radius": 4,
+      "expected_scene_blake3": "blake3:a3b247c266eb5106c64096c99f9f2b6026bced854d95f0477b9fe5e072d33781",
+      "expected_model_input_blake3": "blake3:79cd4e40b752cc92958c3eedd5b0fa7d444053c7fc58fedf98e8fed0907b7798",
+      "annotation": "Complete left wall portrait poster. Canonical rectangle is the exact EXIF8 inverse of upright pixel-edge rectangle [267,496,143,267]. Adjacent posters and upper scene protected.",
+      "annotation_scope": "Manual research Paint rectangle; no automatic silhouette, semantic role, text reconstruction, person model release, hidden-content ground truth or shipping mask policy claim."
+    },
+    {
+      "id": "bologna-person-refined",
+      "raw": "bologna",
+      "window_xywh": [2850, 1300, 1024, 1024],
+      "hole_radius": 8,
+      "fringe_radius": 4,
+      "expected_scene_blake3": "blake3:f920aac4690f61e12ac296d120ee1895e3023816e2d9393d20ebb4e7fff80ccb",
+      "expected_model_input_blake3": "blake3:7a035c8376f84f5480a44e9b9a893791558aa49a995a360b81146e5146b8b423",
+      "annotation": "Detector proposal refined with positive painted head/coat/bag points and negative adjacent-shopper/produce points; two other SAM instance proposals explicitly kept. One visible blue-coat target, no rectangle crossing adjacent person.",
+      "annotation_scope": "Pinned model instance proposals and manual point intent; visually reviewed silhouette, not independently labeled closure or automated role/subject truth. Occluded anatomy, ambiguous ownership at touching hands/cuffs, shadows/reflections and hidden background remain unqualified.",
+      "orientation": 1,
+      "intent_mask_sha256": "64cdb7af92e5d6c39c2d2475e6d13f84fd589bef83adeb796c25dea5b2894f46",
+      "protected_mask_sha256": "cb0fa9be05df73b74f884e6c85c2b698647961d3b5e74701033e6669bd0f3410",
+      "selection_provenance": {
+        "intent_mask": {
+          "path": "/tmp/maple-removal-bologna-person-sam-20261003/mask-1.png",
+          "sha256": "64cdb7af92e5d6c39c2d2475e6d13f84fd589bef83adeb796c25dea5b2894f46"
+        },
+        "protected_mask": {
+          "path": "/tmp/maple-removal-bologna-keep-sam-20261003/protected.png",
+          "sha256": "cb0fa9be05df73b74f884e6c85c2b698647961d3b5e74701033e6669bd0f3410"
+        },
+        "detector_report": {
+          "path": "/tmp/maple-removal-bologna-detector-20261003/report.json",
+          "sha256": "c12efc6b3e04eb163358063c756733d8eeccb9d33d942fcf8f0541a2aa6350f8"
+        },
+        "selector_report": {
+          "path": "/tmp/maple-removal-bologna-person-sam-20261003/report.json",
+          "sha256": "e06d8736c779305e12efd5cd653eee73544d12f709b70b898bf644f3d1c73403"
+        },
+        "protection_report": {
+          "path": "/tmp/maple-removal-bologna-keep-sam-20261003/report.json",
+          "sha256": "78f406b34a207535e3742527fa082136d792ff60d26414721afed093c98f7ed5"
+        },
+        "display_proxy": {
+          "path": "/tmp/maple-removal-klein-bologna-erased-paint-bake-20261003/auto_ev+0_wb+0-identity.png",
+          "sha256": "c1f069bf69c120ea560a38e068dfa5320a8180e0762db5b354e0db20e478d4ff"
+        }
+      }
+    },
+    {
+      "id": "bologna-person-hole-64",
+      "raw": "bologna",
+      "window_xywh": [2850, 1300, 1024, 1024],
+      "hole_radius": 64,
+      "fringe_radius": 4,
+      "expected_scene_blake3": "blake3:f920aac4690f61e12ac296d120ee1895e3023816e2d9393d20ebb4e7fff80ccb",
+      "expected_model_input_blake3": "blake3:7a035c8376f84f5480a44e9b9a893791558aa49a995a360b81146e5146b8b423",
+      "annotation": "Detector proposal refined with positive painted head/coat/bag points and negative adjacent-shopper/produce points; two other SAM instance proposals explicitly kept. One visible blue-coat target, no rectangle crossing adjacent person. Research generation hole expands 64 native pixels while accepted intent, fringe4 coverage and protected masks remain identical.",
+      "annotation_scope": "Pinned model instance proposals and manual point intent; visually reviewed silhouette, not independently labeled closure or automated role/subject truth. Occluded anatomy, ambiguous ownership at touching hands/cuffs, shadows/reflections and hidden background remain unqualified.",
+      "orientation": 1,
+      "intent_mask_sha256": "64cdb7af92e5d6c39c2d2475e6d13f84fd589bef83adeb796c25dea5b2894f46",
+      "protected_mask_sha256": "cb0fa9be05df73b74f884e6c85c2b698647961d3b5e74701033e6669bd0f3410",
+      "selection_provenance": {
+        "intent_mask": {
+          "path": "/tmp/maple-removal-bologna-person-sam-20261003/mask-1.png",
+          "sha256": "64cdb7af92e5d6c39c2d2475e6d13f84fd589bef83adeb796c25dea5b2894f46"
+        },
+        "protected_mask": {
+          "path": "/tmp/maple-removal-bologna-keep-sam-20261003/protected.png",
+          "sha256": "cb0fa9be05df73b74f884e6c85c2b698647961d3b5e74701033e6669bd0f3410"
+        },
+        "detector_report": {
+          "path": "/tmp/maple-removal-bologna-detector-20261003/report.json",
+          "sha256": "c12efc6b3e04eb163358063c756733d8eeccb9d33d942fcf8f0541a2aa6350f8"
+        },
+        "selector_report": {
+          "path": "/tmp/maple-removal-bologna-person-sam-20261003/report.json",
+          "sha256": "e06d8736c779305e12efd5cd653eee73544d12f709b70b898bf644f3d1c73403"
+        },
+        "protection_report": {
+          "path": "/tmp/maple-removal-bologna-keep-sam-20261003/report.json",
+          "sha256": "78f406b34a207535e3742527fa082136d792ff60d26414721afed093c98f7ed5"
+        },
+        "display_proxy": {
+          "path": "/tmp/maple-removal-klein-bologna-erased-paint-bake-20261003/auto_ev+0_wb+0-identity.png",
+          "sha256": "c1f069bf69c120ea560a38e068dfa5320a8180e0762db5b354e0db20e478d4ff"
+        }
+      }
+    },
+    {
+      "id": "bologna-person-hole-192",
+      "raw": "bologna",
+      "window_xywh": [2850, 1300, 1024, 1024],
+      "hole_radius": 192,
+      "fringe_radius": 4,
+      "expected_scene_blake3": "blake3:f920aac4690f61e12ac296d120ee1895e3023816e2d9393d20ebb4e7fff80ccb",
+      "expected_model_input_blake3": "blake3:7a035c8376f84f5480a44e9b9a893791558aa49a995a360b81146e5146b8b423",
+      "annotation": "Detector proposal refined with positive painted head/coat/bag points and negative adjacent-shopper/produce points; two other SAM instance proposals explicitly kept. One visible blue-coat target, no rectangle crossing adjacent person. Research generation hole expands 192 native pixels while accepted intent, fringe4 coverage and protected masks remain identical.",
+      "annotation_scope": "Pinned model instance proposals and manual point intent; visually reviewed silhouette, not independently labeled closure or automated role/subject truth. Occluded anatomy, ambiguous ownership at touching hands/cuffs, shadows/reflections and hidden background remain unqualified.",
+      "orientation": 1,
+      "intent_mask_sha256": "64cdb7af92e5d6c39c2d2475e6d13f84fd589bef83adeb796c25dea5b2894f46",
+      "protected_mask_sha256": "cb0fa9be05df73b74f884e6c85c2b698647961d3b5e74701033e6669bd0f3410",
+      "selection_provenance": {
+        "intent_mask": {
+          "path": "/tmp/maple-removal-bologna-person-sam-20261003/mask-1.png",
+          "sha256": "64cdb7af92e5d6c39c2d2475e6d13f84fd589bef83adeb796c25dea5b2894f46"
+        },
+        "protected_mask": {
+          "path": "/tmp/maple-removal-bologna-keep-sam-20261003/protected.png",
+          "sha256": "cb0fa9be05df73b74f884e6c85c2b698647961d3b5e74701033e6669bd0f3410"
+        },
+        "detector_report": {
+          "path": "/tmp/maple-removal-bologna-detector-20261003/report.json",
+          "sha256": "c12efc6b3e04eb163358063c756733d8eeccb9d33d942fcf8f0541a2aa6350f8"
+        },
+        "selector_report": {
+          "path": "/tmp/maple-removal-bologna-person-sam-20261003/report.json",
+          "sha256": "e06d8736c779305e12efd5cd653eee73544d12f709b70b898bf644f3d1c73403"
+        },
+        "protection_report": {
+          "path": "/tmp/maple-removal-bologna-keep-sam-20261003/report.json",
+          "sha256": "78f406b34a207535e3742527fa082136d792ff60d26414721afed093c98f7ed5"
+        },
+        "display_proxy": {
+          "path": "/tmp/maple-removal-klein-bologna-erased-paint-bake-20261003/auto_ev+0_wb+0-identity.png",
+          "sha256": "c1f069bf69c120ea560a38e068dfa5320a8180e0762db5b354e0db20e478d4ff"
+        }
+      }
+    },
+    {
+      "id": "bologna-person-contrast-hole-8",
+      "raw": "bologna",
+      "window_xywh": [2850, 1300, 1024, 1024],
+      "hole_radius": 8,
+      "fringe_radius": 4,
+      "expected_scene_blake3": "blake3:f920aac4690f61e12ac296d120ee1895e3023816e2d9393d20ebb4e7fff80ccb",
+      "expected_model_input_blake3": "blake3:9bd6ca0d3cf29a6b5a2bb9834e03e320b25b3a4f895edc21183cb7b8f19f4864",
+      "annotation": "Detector proposal refined with positive painted head/coat/bag points and negative adjacent-shopper/produce points; two other SAM instance proposals explicitly kept. One visible blue-coat target, no rectangle crossing adjacent person. Research generation hole expands 8 native pixels while accepted intent, fringe4 coverage and protected masks remain identical.",
+      "annotation_scope": "Pinned model instance proposals and manual point intent; visually reviewed silhouette, not independently labeled closure or automated role/subject truth. Occluded anatomy, ambiguous ownership at touching hands/cuffs, shadows/reflections and hidden background remain unqualified.",
+      "orientation": 1,
+      "intent_mask_sha256": "64cdb7af92e5d6c39c2d2475e6d13f84fd589bef83adeb796c25dea5b2894f46",
+      "protected_mask_sha256": "cb0fa9be05df73b74f884e6c85c2b698647961d3b5e74701033e6669bd0f3410",
+      "selection_provenance": {
+        "intent_mask": {
+          "path": "/tmp/maple-removal-bologna-person-sam-20261003/mask-1.png",
+          "sha256": "64cdb7af92e5d6c39c2d2475e6d13f84fd589bef83adeb796c25dea5b2894f46"
+        },
+        "protected_mask": {
+          "path": "/tmp/maple-removal-bologna-keep-sam-20261003/protected.png",
+          "sha256": "cb0fa9be05df73b74f884e6c85c2b698647961d3b5e74701033e6669bd0f3410"
+        },
+        "detector_report": {
+          "path": "/tmp/maple-removal-bologna-detector-20261003/report.json",
+          "sha256": "c12efc6b3e04eb163358063c756733d8eeccb9d33d942fcf8f0541a2aa6350f8"
+        },
+        "selector_report": {
+          "path": "/tmp/maple-removal-bologna-person-sam-20261003/report.json",
+          "sha256": "e06d8736c779305e12efd5cd653eee73544d12f709b70b898bf644f3d1c73403"
+        },
+        "protection_report": {
+          "path": "/tmp/maple-removal-bologna-keep-sam-20261003/report.json",
+          "sha256": "78f406b34a207535e3742527fa082136d792ff60d26414721afed093c98f7ed5"
+        },
+        "display_proxy": {
+          "path": "/tmp/maple-removal-klein-bologna-erased-paint-bake-20261003/auto_ev+0_wb+0-identity.png",
+          "sha256": "c1f069bf69c120ea560a38e068dfa5320a8180e0762db5b354e0db20e478d4ff"
+        }
+      },
+      "model_encoding": "photographic-contrast"
+    },
+    {
+      "id": "bologna-person-contrast-hole-192",
+      "raw": "bologna",
+      "window_xywh": [2850, 1300, 1024, 1024],
+      "hole_radius": 192,
+      "fringe_radius": 4,
+      "expected_scene_blake3": "blake3:f920aac4690f61e12ac296d120ee1895e3023816e2d9393d20ebb4e7fff80ccb",
+      "expected_model_input_blake3": "blake3:9bd6ca0d3cf29a6b5a2bb9834e03e320b25b3a4f895edc21183cb7b8f19f4864",
+      "annotation": "Detector proposal refined with positive painted head/coat/bag points and negative adjacent-shopper/produce points; two other SAM instance proposals explicitly kept. One visible blue-coat target, no rectangle crossing adjacent person. Research generation hole expands 192 native pixels while accepted intent, fringe4 coverage and protected masks remain identical.",
+      "annotation_scope": "Pinned model instance proposals and manual point intent; visually reviewed silhouette, not independently labeled closure or automated role/subject truth. Occluded anatomy, ambiguous ownership at touching hands/cuffs, shadows/reflections and hidden background remain unqualified.",
+      "orientation": 1,
+      "intent_mask_sha256": "64cdb7af92e5d6c39c2d2475e6d13f84fd589bef83adeb796c25dea5b2894f46",
+      "protected_mask_sha256": "cb0fa9be05df73b74f884e6c85c2b698647961d3b5e74701033e6669bd0f3410",
+      "selection_provenance": {
+        "intent_mask": {
+          "path": "/tmp/maple-removal-bologna-person-sam-20261003/mask-1.png",
+          "sha256": "64cdb7af92e5d6c39c2d2475e6d13f84fd589bef83adeb796c25dea5b2894f46"
+        },
+        "protected_mask": {
+          "path": "/tmp/maple-removal-bologna-keep-sam-20261003/protected.png",
+          "sha256": "cb0fa9be05df73b74f884e6c85c2b698647961d3b5e74701033e6669bd0f3410"
+        },
+        "detector_report": {
+          "path": "/tmp/maple-removal-bologna-detector-20261003/report.json",
+          "sha256": "c12efc6b3e04eb163358063c756733d8eeccb9d33d942fcf8f0541a2aa6350f8"
+        },
+        "selector_report": {
+          "path": "/tmp/maple-removal-bologna-person-sam-20261003/report.json",
+          "sha256": "e06d8736c779305e12efd5cd653eee73544d12f709b70b898bf644f3d1c73403"
+        },
+        "protection_report": {
+          "path": "/tmp/maple-removal-bologna-keep-sam-20261003/report.json",
+          "sha256": "78f406b34a207535e3742527fa082136d792ff60d26414721afed093c98f7ed5"
+        },
+        "display_proxy": {
+          "path": "/tmp/maple-removal-klein-bologna-erased-paint-bake-20261003/auto_ev+0_wb+0-identity.png",
+          "sha256": "c1f069bf69c120ea560a38e068dfa5320a8180e0762db5b354e0db20e478d4ff"
+        }
+      },
+      "model_encoding": "photographic-contrast"
+    },
+    {
+      "id": "bologna-person-current-contrast-hole-8",
+      "raw": "bologna",
+      "window_xywh": [2850, 1300, 1024, 1024],
+      "hole_radius": 8,
+      "fringe_radius": 4,
+      "expected_scene_blake3": "blake3:f920aac4690f61e12ac296d120ee1895e3023816e2d9393d20ebb4e7fff80ccb",
+      "expected_model_input_blake3": "blake3:9bd6ca0d3cf29a6b5a2bb9834e03e320b25b3a4f895edc21183cb7b8f19f4864",
+      "annotation": "Detector proposal refined with positive painted head/coat/bag points and negative adjacent-shopper/produce points; two other SAM instance proposals explicitly kept. One visible blue-coat target, no rectangle crossing adjacent person. Research generation hole expands 8 native pixels while accepted intent, fringe4 coverage and protected masks remain identical. Replayed identical recorded points on the current-main Auto identity proxy; mask bytes differ from the earlier research case.",
+      "annotation_scope": "Pinned model instance proposals and manual point intent; visually reviewed silhouette, not independently labeled closure or automated role/subject truth. Occluded anatomy, ambiguous ownership at touching hands/cuffs, shadows/reflections and hidden background remain unqualified.",
+      "orientation": 1,
+      "intent_mask_sha256": "3dbe214f0d51c5e343718c956a0749d8f0111745af59d7d5ba728b3bd59b3e36",
+      "protected_mask_sha256": "672ba107c33d616765d3a683625422e2a3974984d2393da40f0a0f0f3f2ad55a",
+      "model_encoding": "photographic-contrast",
+      "selection_provenance": {
+        "prior_case": "bologna-person-contrast-hole-8",
+        "display_proxy": {
+          "path": "/Users/riabuz/.cache/maple-removal-research/bologna-identity-bake-20261003/auto_ev+0_wb+0-identity.png",
+          "sha256": "131669966a623fd27b494b1b07905591f70934a18d41a5e9f00b91f3910f70f8"
+        },
+        "selector_report": {
+          "path": "/Users/riabuz/.cache/maple-removal-research/bologna-target-current-20261003/report.json",
+          "sha256": "0741100e775acd4289990765bb59317331bfb39b848bc9a6d554b4fe0b315a85"
+        },
+        "protection_report": {
+          "path": "/Users/riabuz/.cache/maple-removal-research/bologna-protection-current-20261003/report.json",
+          "sha256": "ff387fd16f8d72bca24722852d7ba20404bdb379a2d1570d47bf338c4292b355"
+        },
+        "intent_mask": {
+          "path": "test-fixtures/qualification/removal-powerpaint-native-float-3941/intent.png",
+          "sha256": "3dbe214f0d51c5e343718c956a0749d8f0111745af59d7d5ba728b3bd59b3e36"
+        },
+        "protected_mask": {
+          "path": "test-fixtures/qualification/removal-powerpaint-native-float-3941/protected.png",
+          "sha256": "672ba107c33d616765d3a683625422e2a3974984d2393da40f0a0f0f3f2ad55a"
+        }
+      }
+    },
+    {
+      "id": "bologna-person-current-contrast-hole-192",
+      "raw": "bologna",
+      "window_xywh": [2850, 1300, 1024, 1024],
+      "hole_radius": 192,
+      "fringe_radius": 4,
+      "expected_scene_blake3": "blake3:f920aac4690f61e12ac296d120ee1895e3023816e2d9393d20ebb4e7fff80ccb",
+      "expected_model_input_blake3": "blake3:9bd6ca0d3cf29a6b5a2bb9834e03e320b25b3a4f895edc21183cb7b8f19f4864",
+      "annotation": "Detector proposal refined with positive painted head/coat/bag points and negative adjacent-shopper/produce points; two other SAM instance proposals explicitly kept. One visible blue-coat target, no rectangle crossing adjacent person. Research generation hole expands 192 native pixels while accepted intent, fringe4 coverage and protected masks remain identical. Replayed identical recorded points on the current-main Auto identity proxy; mask bytes differ from the earlier research case.",
+      "annotation_scope": "Pinned model instance proposals and manual point intent; visually reviewed silhouette, not independently labeled closure or automated role/subject truth. Occluded anatomy, ambiguous ownership at touching hands/cuffs, shadows/reflections and hidden background remain unqualified.",
+      "orientation": 1,
+      "intent_mask_sha256": "3dbe214f0d51c5e343718c956a0749d8f0111745af59d7d5ba728b3bd59b3e36",
+      "protected_mask_sha256": "672ba107c33d616765d3a683625422e2a3974984d2393da40f0a0f0f3f2ad55a",
+      "model_encoding": "photographic-contrast",
+      "selection_provenance": {
+        "prior_case": "bologna-person-contrast-hole-8",
+        "display_proxy": {
+          "path": "/Users/riabuz/.cache/maple-removal-research/bologna-identity-bake-20261003/auto_ev+0_wb+0-identity.png",
+          "sha256": "131669966a623fd27b494b1b07905591f70934a18d41a5e9f00b91f3910f70f8"
+        },
+        "selector_report": {
+          "path": "/Users/riabuz/.cache/maple-removal-research/bologna-target-current-20261003/report.json",
+          "sha256": "0741100e775acd4289990765bb59317331bfb39b848bc9a6d554b4fe0b315a85"
+        },
+        "protection_report": {
+          "path": "/Users/riabuz/.cache/maple-removal-research/bologna-protection-current-20261003/report.json",
+          "sha256": "ff387fd16f8d72bca24722852d7ba20404bdb379a2d1570d47bf338c4292b355"
+        },
+        "intent_mask": {
+          "path": "test-fixtures/qualification/removal-powerpaint-native-float-3941/intent.png",
+          "sha256": "3dbe214f0d51c5e343718c956a0749d8f0111745af59d7d5ba728b3bd59b3e36"
+        },
+        "protected_mask": {
+          "path": "test-fixtures/qualification/removal-powerpaint-native-float-3941/protected.png",
+          "sha256": "672ba107c33d616765d3a683625422e2a3974984d2393da40f0a0f0f3f2ad55a"
+        }
+      }
+    },
+    {
+      "id": "bologna-person-accepted-hole-8-hard",
+      "raw": "bologna",
+      "window_xywh": [2850, 1300, 1024, 1024],
+      "hole_radius": 0,
+      "fringe_radius": 0,
+      "expected_scene_blake3": "blake3:f920aac4690f61e12ac296d120ee1895e3023816e2d9393d20ebb4e7fff80ccb",
+      "expected_model_input_blake3": "blake3:9bd6ca0d3cf29a6b5a2bb9834e03e320b25b3a4f895edc21183cb7b8f19f4864",
+      "annotation": "Controlled acceptance of the previous native radius8 reconstruction hole as an opaque selection. The actual prior model run, generation conditioning, source pixels and kept-person protection remain unchanged; this isolates accepted coverage versus the earlier intent/fringe4 bake.",
+      "annotation_scope": "Research coverage control, not independent instance closure/ownership truth or a shipping expansion policy.",
+      "orientation": 1,
+      "intent_mask_sha256": "baf75848d898a3a9e078f3ec1c5dafbb8f3961b4b74b374f153c83d558f2089b",
+      "protected_mask_sha256": "672ba107c33d616765d3a683625422e2a3974984d2393da40f0a0f0f3f2ad55a",
+      "model_encoding": "photographic-contrast",
+      "selection_provenance": {
+        "parent_case": "bologna-person-current-contrast-hole-8",
+        "intent_mask": {
+          "path": "test-fixtures/qualification/removal-powerpaint-edge-coverage-3941/accepted-hole-8.png",
+          "sha256": "baf75848d898a3a9e078f3ec1c5dafbb8f3961b4b74b374f153c83d558f2089b"
+        },
+        "protected_mask": {
+          "path": "test-fixtures/qualification/removal-powerpaint-native-float-3941/protected.png",
+          "sha256": "672ba107c33d616765d3a683625422e2a3974984d2393da40f0a0f0f3f2ad55a"
+        },
+        "parent_generation_masks": {
+          "path": "/Users/riabuz/.cache/maple-removal-research/bologna-person-current-contrast-8-r1-20261003/masks.f32",
+          "sha256": "1e9d2db047829583fafd910e1f38e5c537e3d04a15bb9caa641de2b16577bd1e"
+        },
+        "held_inference": "test-fixtures/qualification/removal-powerpaint-native-float-3941.json; radius8 actual run"
+      }
+    },
+    {
+      "id": "bologna-person-expanded-16-contrast-hole-8",
+      "raw": "bologna",
+      "window_xywh": [2850, 1300, 1024, 1024],
+      "hole_radius": 8,
+      "fringe_radius": 4,
+      "expected_scene_blake3": "blake3:f920aac4690f61e12ac296d120ee1895e3023816e2d9393d20ebb4e7fff80ccb",
+      "expected_model_input_blake3": "blake3:9bd6ca0d3cf29a6b5a2bb9834e03e320b25b3a4f895edc21183cb7b8f19f4864",
+      "annotation": "Research accepted intent expands the refined target16 native pixels using the shared Rust Euclidean generator, clipped against the exact same kept-person protection. Generation expands this derived intent8 more pixels and coverage uses exterior fringe4. A fresh actual model run is required.",
+      "annotation_scope": "Controlled mask-expansion sensitivity, not independent object ownership/closure truth or shipping native thresholds. Both accepted coverage and inference hole change relative to the original case; conclusions must not attribute differences to only one factor.",
+      "orientation": 1,
+      "intent_mask_sha256": "d813e38f68dbc1b063aa12cd8ad4d2d60c0cc93cd9c52d94bbcc2f7677df42ac",
+      "protected_mask_sha256": "672ba107c33d616765d3a683625422e2a3974984d2393da40f0a0f0f3f2ad55a",
+      "model_encoding": "photographic-contrast",
+      "selection_provenance": {
+        "parent_case": "bologna-person-current-contrast-hole-8",
+        "intent_mask": {
+          "path": "test-fixtures/qualification/removal-powerpaint-edge-coverage-3941/expanded-intent-16.png",
+          "sha256": "d813e38f68dbc1b063aa12cd8ad4d2d60c0cc93cd9c52d94bbcc2f7677df42ac"
+        },
+        "protected_mask": {
+          "path": "test-fixtures/qualification/removal-powerpaint-native-float-3941/protected.png",
+          "sha256": "672ba107c33d616765d3a683625422e2a3974984d2393da40f0a0f0f3f2ad55a"
+        },
+        "derivation": {
+          "path": "/Users/riabuz/.cache/maple-removal-research/bologna-edge16-derivation-20261003/derivation.json",
+          "sha256": "9fbbce373b4e3f5fdc511b516668e7aa38eb50f7657a4b094a154d9beae38c60"
+        }
+      }
+    },
+    {
+      "id": "coast-head-photographic-contrast",
+      "raw": "coast",
+      "window_xywh": [1900, 1800, 1024, 1024],
+      "intent_rects_xywh": [[440, 437, 65, 44]],
+      "protected_rects_xywh": [[0, 481, 1024, 543]],
+      "hole_radius": 8,
+      "fringe_radius": 4,
+      "expected_scene_blake3": "blake3:50f65b33b413746281b59cb89be7dd221d6e06328c7fd7b99a8d60d283fd2f43",
+      "expected_model_input_blake3": "blake3:f7ac7b659be89b25c02b088fe4a6168faf82f01480475e419aa8a71a4c2c914c",
+      "annotation": "Small partially occluded head above cabin railing; explicit Paint rectangle and protected wood below.",
+      "annotation_scope": "Manual research Paint/protection control, not background-role, Smart paint, silhouette closure, hidden-content ground truth or shipping mask policy.",
+      "orientation": 1,
+      "model_encoding": "photographic-contrast"
+    },
+    {
+      "id": "night-tiger-poster-photographic-contrast",
+      "raw": "night-tiger",
+      "orientation": 8,
+      "window_xywh": [2800, 1650, 1024, 1024],
+      "intent_rects_xywh": [[261, 267, 267, 143]],
+      "protected_rects_xywh": [
+        [0, 435, 1024, 589],
+        [610, 0, 414, 435]
+      ],
+      "hole_radius": 8,
+      "fringe_radius": 4,
+      "expected_scene_blake3": "blake3:a3b247c266eb5106c64096c99f9f2b6026bced854d95f0477b9fe5e072d33781",
+      "expected_model_input_blake3": "blake3:b76280514e3c4deb42b200c475e28d778d50f8857f49c22bae2f483ce43de55b",
+      "annotation": "Complete left wall portrait poster. Canonical rectangle is the exact EXIF8 inverse of upright pixel-edge rectangle [267,496,143,267]. Adjacent posters and upper scene protected.",
+      "annotation_scope": "Manual research Paint rectangle; no automatic silhouette, semantic role, text reconstruction, person model release, hidden-content ground truth or shipping mask policy claim.",
+      "model_encoding": "photographic-contrast"
+    }
+  ]
+}

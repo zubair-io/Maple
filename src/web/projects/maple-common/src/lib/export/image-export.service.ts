@@ -22,6 +22,7 @@ import { XmpStoreService } from '../xmp/xmp-store.service';
 import { XmpSerializerService } from '../xmp/xmp-serializer.service';
 import { RawPipelineService } from '../raw-pipeline/raw-pipeline.service';
 import type { ExportedFile, RawExportOptions } from '../raw-pipeline/raw-pipeline.types';
+import { RemovalExportAssetsService } from '../removal/removal-export-assets.service';
 import { FilmLutService } from '../film/film-lut.service';
 import { downloadBlob } from './download-blob';
 import { exportFilename, lastSegment } from './export-dialog.vm';
@@ -46,6 +47,7 @@ export class ImageExportService {
   private readonly serializer = inject(XmpSerializerService);
   private readonly pipeline = inject(RawPipelineService);
   private readonly filmLut = inject(FilmLutService);
+  private readonly removals = inject(RemovalExportAssetsService);
 
   /**
    * Render `asset` under its current adjustments and download the result.
@@ -58,6 +60,7 @@ export class ImageExportService {
    */
   async exportAsset(asset: Asset, options: RawExportOptions): Promise<ExportOutcome> {
     const xmp = this.sidecarXml(asset);
+    const saved = await this.removals.load(asset.id, asset.filename, xmp);
     const bytes = await this.library.bytesForAsset(asset.id);
     // Film emulation (epic #2683): when a look is active, the deliverable
     // must carry the SAME grid the canvas showed — `filmStrength` itself
@@ -74,6 +77,7 @@ export class ImageExportService {
       options,
       xmp,
       filmLut ?? undefined,
+      saved,
     );
     await this.persistSidecar(asset.id);
     return this.deliver(asset, file);

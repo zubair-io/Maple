@@ -1,0 +1,73 @@
+{
+  "epic": 1472,
+  "authoring_issue": 3984,
+  "measured_at_utc": "2026-10-02T09:51:29.541924+00:00",
+  "base_commit": "1f90cc8e2278ca2955d207f974fc6b8c52b320db",
+  "platform": "macOS-27.0-arm64-arm-64bit-Mach-O",
+  "scope": "Self Hosted durable companion transport and source-bound full-XMP CAS. Inference remains local; Web editor integration is still open.",
+  "digests_sha256": {
+    "src/api/src/fs/removal-authoring.ts": "93de044cccaafbdd6035431262ddf2f58c45267c867296f72aced546df21f7bd",
+    "src/api/src/routes/removal.ts": "acde600894c6a0c786bea5e919a76c90195b3043da833a60f99254294137686b",
+    "src/api/src/routes/removal.test.ts": "515485a809eafbd3587cc69246ee3d1a87da2372eb3f89a35186ca2d5a343e4f",
+    "src/api/src/routes/authed-api.ts": "c16883a27002464add1f2534e5a834a88df89a8a9f3637ca266ecbfa71dbb646",
+    "src/api/src/routes/xmp.ts": "f2ebf01fde15251fcfb8f3452db5b75ca330affa885a111dc2bee8961d34cfb0",
+    "src/api/src/ffi/raw_ffi-removal-assets.ts": "2b1f73c8db68681903d0ca1c1b2fc30ce604c66e05b8f8a64c99e638ac915c49",
+    "src/api/src/ffi/raw_ffi-protocol.ts": "5d242c0562e437647577efaa55e4709d9b341a712712fdfb0ecf7a3031def552",
+    "src/api/src/ffi/raw_ffi-protocol.test.ts": "072105b9f83f8b84bcb12d4c1c6caf0fb7b834c98ede58acf40a244ef3e04628",
+    "src/api/src/ffi/raw_ffi-dispatch.ts": "c8ab1518e42ee50dc8041a36158ebc6690d11cc973aef4b0160d12ffa25686f4",
+    "src/api/src/ffi/ffi-pool.ts": "6a18915e5670eeb45a5024edd8196b63e77213315c8148ffcff46c0b0d61b528",
+    "src/api/native/libraw_ffi.dylib": "b9563f9b1126039471f8631f4696db8e1094bcb48b511a315318068330a9ef14",
+    "test-fixtures/removal/calibration/source.dng": "24450571460687ee53852658deec26946c4a7877fe111a6ba5bb059c116f2618",
+    "test-fixtures/removal/calibration/saved.xmp": "fa466f58b17c1a7d073ffb751e300e3b9eebac4bba453d3e12d9ff02caa6e20a",
+    "test-fixtures/removal/calibration/records.txt": "9c516b85a250626d5263dcd1201a83b4cdd14726947d801dc300006c46b58f3d",
+    "test-fixtures/removal/calibration/mask.mimf": "227416ea26ec9956771ecbec1923f0111ac322fc94416d6d140d73451f62a05b",
+    "test-fixtures/removal/calibration/patch.f16": "60b485914633a2cf3673b123e1df95cc6fa4a323a2907c7a9371ff4d6df99e27",
+    "test-fixtures/removal/calibration/preview-64.rgb": "96748afe66ddd37479439eec46038bc427c9d727a6a310deedb79c2c537c75a6"
+  },
+  "focused": {
+    "command": "bun test src/routes/removal.test.ts src/ffi/raw_ffi-protocol.test.ts src/ffi/raw_ffi-dispatch.test.ts",
+    "working_directory": "/Users/riabuz/.codex/worktrees/2c7f/_Maple",
+    "passed": 33,
+    "failed": 0,
+    "skipped": 0,
+    "assertions": 160,
+    "files": 3,
+    "log": "/tmp/maple-removal-server-authoring-qualified-tests.log"
+  },
+  "full_api": {
+    "command": "cd src/api && bun test",
+    "passed": 5461,
+    "failed": 0,
+    "skipped": 8,
+    "assertions": 19954,
+    "files": 598,
+    "seconds": 86.44,
+    "log": "/tmp/maple-removal-server-authoring-final-full-api.log"
+  },
+  "checks": {
+    "typecheck": "PASS; /tmp/maple-removal-server-authoring-final-typecheck.log",
+    "scoped_oxlint": "PASS",
+    "explicit_config_prettier": "PASS",
+    "diff_check": "PASS",
+    "file_budget": "No hard violations; one soft warning at 402 lines in removal.test.ts",
+    "headroom": "PASS; no changed file grown past 570 lines"
+  },
+  "coverage": [
+    "Production authedApi mounting, real bearer tokens, real Elysia HTTP Request body parsing, actual temp files, native validators in disposable IPC children; no sidecar mocks.",
+    "Create-only, file- and directory-synced immutable publication; exact retries, concurrent uploads, independent photos sharing assets, corrupt occupants, empty uploads and directory/file symlink refusals.",
+    "Exact whole-document SHA-256 XMP revisions, stale foreign-field changes, competing commits, exact postcondition retries after lost acknowledgement, malformed XMP and native NUL transport rejection.",
+    "Missing/corrupt companions, changed original identity, future record schemas and wrong expected history reject without replacing the prior sidecar.",
+    "Clear works with missing old assets only while the original identity is intact. Disabled schema-5 assets survive enable/clear; durable files are retained.",
+    "Actual committed synthetic DNG export through the API child matches the shared 64-pixel RGB oracle exactly; original bytes are unchanged.",
+    "Literal percent, plus and Unicode source filenames are decoded once; writes address their own sidecars.",
+    "A held source/sidecar kernel lease refuses publication; endpoint reads have private, no-store headers."
+  ],
+  "limits": [
+    "This is a transport checkpoint under #3984, not completion or enablement of Self Hosted browser authoring. Existing local Paint/Smart/People browser tests were not re-run for API-only changes.",
+    "Browser HTTP service/auth integration, remote companion consumers, confirmed editor history/cache adoption, pending metadata saves and ordinary full-document XMP overwrite coordination remain open.",
+    "HTTP tests use the production Elysia sub-app in process, not a real network socket or browser against a running Self Hosted server.",
+    "Synthetic 16x8 workflow/render qualification is not photographic quality, crowd classification, HDR, 100MP transfer/performance, memory, scanout or physical-device qualification.",
+    "macOS local filesystem only; Linux, Windows saved consumers, SMB, mirror crash ordering, power loss and passive startup/indexer recovery are not qualified here.",
+    "Known color corpus breaches, failed native saved-controls UI test, shipping model distribution, fresh-main CI, PRs and landing all full-goal slices remain open. No Rust math, XMP schema, model pins or color budgets changed."
+  ]
+}

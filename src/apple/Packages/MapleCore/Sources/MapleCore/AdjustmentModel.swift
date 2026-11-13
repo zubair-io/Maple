@@ -316,6 +316,10 @@ public struct AdjustmentModel: Codable, Sendable, Equatable, Hashable {
   /// (`XMPSerialization+Retouch.swift`).
   public var retouchSpots: [RetouchSpot]  // default []
 
+  /// Source-bound accepted AI edits (#3955). Kept in the decoded-model key
+  /// and immutable export/history snapshots; never copied through preset groups.
+  /// An absent field remains compatible with older Codable snapshots.
+  public var inpaintRemovals: RemovalRecords? = nil
   /// `true` (nil otherwise, so older persisted models still decode) for a list read without `papp:RetouchFrameVersion` from a Maple
   /// sidecar (#4473): it predates the upright-frame stamp, is written back
   /// unstamped, and becomes upright when a spot is edited. Never set by authoring.

@@ -1,0 +1,80 @@
+{
+  "schema": 1,
+  "issue": 3984,
+  "epic": 1472,
+  "parent_commit": "f55bc97b9debbb8371fe744a87662d1d6588838e",
+  "qualification": "Mac automatic people detection and multiselect authoring workflow; photographic quality and larger objects remain unfinished",
+  "source_sha256": {
+    "docs/apple.md": "a9ca07c438f13f9fa618ef87c62b1e6b64c4b01c5fabb3db6c5529f656a3f186",
+    "docs/caching.md": "97ca4b4e881b04a9b78c3a3598c03e1e8ded7cb466fe55dd5746815b75198992",
+    "src/apple/Maple/Views/Removal/RemovalPanel.swift": "ccd1aa7b69c2b838dc7fa850c379d97187d62bce6834610ee5f3ba736bc6fc82",
+    "src/apple/Packages/MapleCore/Sources/MapleCore/Removal/NativeRemovalOverlay.swift": "c3c8b76535715f154939564a4453622d91ee0ec6be41908d3be50153602b9580",
+    "src/apple/Packages/MapleCore/Sources/MapleCore/Removal/RemovalSession+Inference.swift": "808a6ed424373b712f50c7265661cf5111d3dcc7c21b20f1450b1b5756f4fd66",
+    "src/apple/Packages/MapleCore/Sources/MapleCore/Removal/RemovalSession+PersonRefinement.swift": "48bbb18bd014bcbac82ee78f1c9c62676eae222e0f41c5019861c86983a96aa7",
+    "src/apple/Packages/MapleCore/Sources/MapleCore/Removal/RemovalSession+Saved.swift": "1dca9446a805b9422ddc37d7d7a8f327fc7c8ce8c6b96d8e61d1b879109aa3d7",
+    "src/apple/Packages/MapleCore/Sources/MapleCore/Removal/RemovalSession.swift": "f28e7cd5d48828fdd1404dab93cf626d1b1b0e32e5c7c758373868406ec516ff",
+    "src/apple/Packages/MapleCore/Tests/MapleCoreTests/NativeRemovalAuthoringJobTests.swift": "6e22dde2f0d4cf59d4566c13796aa5f69db8df25915a3078582bcbe2a33e3d88",
+    "src/apple/Packages/MapleCore/Tests/MapleCoreTests/NativeRemovalSelectorTests.swift": "a5ea099000d23a9646fabc3526de570b9f396399e1f62b8ee3128631993675a7",
+    "src/apple/Packages/MapleCore/Tests/MapleCoreTests/RemovalPersonRefinementTests.swift": "858e4f6ddd0f3a04e68cc3e929851104a0e68d0728345a902e0e2eb71558729b",
+    "src/apple/Packages/MapleCore/Tests/MapleCoreTests/RemovalSavedControlsTests.swift": "db4eafeaa19a54340cd1be3451468db6a9eccf695ea712963526a9054bec8d4f",
+    "src/apple/Packages/MapleCore/Tests/MapleCoreTests/RemovalSessionTests.swift": "82fd8ab5c22a21d93cdafd9813eaa7bb3336c328f479a337326bc74dc1393040"
+  },
+  "changes": [
+    "Opening Background people automatically runs real local detection and segmentation, including after model import and photo reopen",
+    "Bounded multiselect checkbox list preselects shared-policy background people, keeps subjects and uncertain people unchecked, and allows manual changes",
+    "Suggest background people and Apply person choices buttons are removed; Remove prepares current choices with generation guards",
+    "Detected source masks are retained only for the current authoring context; checkbox preview and Remove/Refine composition use the actor without re-segmentation",
+    "Checkbox changes immediately project selected people red and kept people green; manual protection and independent person windows survive composition"
+  ],
+  "validation": {
+    "ci_regressions": {
+      "classes": 249,
+      "unique_passed": 2058,
+      "failed": 0,
+      "skipped": 0,
+      "log": "/tmp/maple-removal-auto-people-regressions-20261002.log",
+      "interrupted_attempt": "/tmp/maple-removal-auto-people-regressions-interrupted-20261002.log",
+      "retry_reason": "An intermediate run stalled in unrelated ChangeFeedClientRestartTests.Server.stop waiting for an already-exited child. Sample retained; owned test runner terminated and the complete suite rerun cleanly."
+    },
+    "actual_models": {
+      "passed": 5,
+      "failed": 0,
+      "skipped": 0,
+      "log": "/tmp/maple-removal-auto-people-actual-final-20261002.log",
+      "scope": "Photographic RAW automatic detection after import/reopen, selector failure/cancellation/reference checks, and two selected source masks reconstructed in sequential real-model jobs with one durable Keep. Synthetic group masks validate lifecycle, not crowd quality."
+    },
+    "focused": {
+      "passed": 18,
+      "failed": 0,
+      "skipped": 0,
+      "log": "/tmp/maple-removal-auto-people-final-focused-20261002.log"
+    },
+    "mac_build": {
+      "success": true,
+      "log": "/tmp/maple-removal-auto-people-mac-final-20261002.log",
+      "app": "/tmp/maple-removal-auto-people-build-20261002/Build/Products/Debug/Maple.app"
+    },
+    "ios_simulator_compile": {
+      "success": true,
+      "log": "/tmp/maple-removal-auto-people-ios-final-20261002.log",
+      "runtime_qualified": false
+    },
+    "native_ui": {
+      "method": "CUA accessibility and before/after screenshots in a sandboxed isolated test identity on a copied 39MP portrait RAW",
+      "verified": [
+        "Opening Background people produced one likely subject automatically",
+        "Likely subject initially unchecked and green, Remove disabled",
+        "Checking row enabled Remove and changed mask red without Apply",
+        "Remove applied the current choice and reached the existing explicit 1024-source-pixel model limit",
+        "Final compact Refine row visually fits; unchecking last person shows no-selection message and disables Remove"
+      ],
+      "limitations": "One-person native fixture does not qualify background recall or native multiselect crowd quality; two selected masks and kept/manual protections are covered separately by actual authoring and core tests."
+    }
+  },
+  "limitations": [
+    "1024-source-pixel context still limits each object and its expansion; large-object support remains unfinished",
+    "No Rust/math/ABI/XMP schema/model pin/releaseQualified changes",
+    "Original user photo and sidecar unchanged; test copies only",
+    "Full epic remains unfinished; this is a workflow checkpoint"
+  ]
+}

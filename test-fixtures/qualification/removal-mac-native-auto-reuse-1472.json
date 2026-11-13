@@ -1,0 +1,308 @@
+{
+  "issue": 1472,
+  "date": "2026-10-02",
+  "baseRevision": "ccd009a23c6bb90420fcc31c639f381f43b3b9b2",
+  "scope": "Mac GPU Auto fitting resolves the source only when new provisional work is needed, preserving native decode/quality identity and cancellation",
+  "changes": [
+    "Ready immutable native artifacts install without resolving the RAW URL through the source actor.",
+    "A completed provisional GPU fit and a matching pending native request reuse their owned state on slider ticks: no redundant URL resolution, fit call or duplicate-request generation await.",
+    "Actual cold/replacement fits retain the staged source and security scope until their joined return; stale source resumes are rejected before fitting.",
+    "A new decode or native quality still replaces the request. Actual fit completion is followed by generation/cancellation checks before starting cold native preparation.",
+    "Failed and valid-absent native results keep their prior distinctions; failed same-key preparation is not retried on every tick.",
+    "All existing pre-upload, pre-film, pre-submit and confirmed-publication guards remain. No color math, fit-quality policy, task priority, pool, Rust/WGSL/ABI/XMP/model or threshold changes."
+  ],
+  "sourceHashes": {
+    "docs/caching.md": "e950cfa0d9b5a49198ab6d2d54ccf887f2b4ebfb586d4798dfa594823b868fcd",
+    "src/apple/Packages/MapleCore/Sources/MapleCore/EditSession+GpuLive.swift": "651dff410e34cdeb938fb68faea3c74e9e95a8a6d095c2fc5d92bfc43f009439",
+    "src/apple/Packages/MapleCore/Sources/MapleCore/EditSession+NativeAutoProfile.swift": "67cd31489a81ea3ecb57676f51347c4f866b3b36c2fe35821cebedaeb33fd2e9",
+    "src/apple/Packages/MapleCore/Sources/MapleCore/GpuLiveDriver+AutoProfile.swift": "907bcce87c9b45f2815020aafc7c1794af521ded9bfb307b209ffaa7ee1973ed",
+    "src/apple/Packages/MapleCore/Sources/MapleCore/NativeAutoProfileState.swift": "afdc8bd8f345e75fab13af3008839788a97265fd634423fc466725955b453dc0",
+    "src/apple/Packages/MapleCore/Tests/MapleCoreTests/NativeAutoProfilePreparationTests.swift": "daae60ef95e7d04066dc186391edc0286060bb06410c6c8bf247fccaa4fcce30"
+  },
+  "releaseTestBinary": {
+    "path": "src/apple/Packages/MapleCore/.build/out/Products/Release/MapleCoreTests.xctest/Contents/MacOS/MapleCoreTests",
+    "sha256": "962dd7b02558c145bd24e3d3243ad24900f453dee0a7c056a1a2210c47447dc7"
+  },
+  "sourceNote": "Production files are unchanged after the 46-test run, full2037-test suite, Mac build and performance run. The test-only gate then gained an exact provider count and support for multiple erroneous waiters so failures cannot hang; all seven final-source preparation tests pass.",
+  "regressions": [
+    "A real provisional GPU fit can continue while a gated native source download remains pending; only one actual provider invocation is allowed.",
+    "Replacing decode, then native quality on the same decode, cancels older waiters and publishes only the correct final negative result after the provider is released.",
+    "A source held across newer actor admission cannot mutate provisional fit state or start a native request when it resumes."
+  ],
+  "performance": {
+    "path": "/tmp/maple-native-auto-reuse-final-perf-20261002.log",
+    "sha256": "2b8e7adca70700074b83c7c5e60074357cfee86ee960be8d15b5f7399aeb2b19",
+    "releaseTestBinary": {
+      "path": "src/apple/Packages/MapleCore/.build/out/Products/Release/MapleCoreTests.xctest/Contents/MacOS/MapleCoreTests",
+      "sha256": "1f0a6e744d6a042536dbcdcfacb53f2e0ab149ef78f1f73bd54d138ea61e76b7"
+    },
+    "command": "MAPLE_PERF=1 MAPLE_GPU_LIVE=1 swift test --package-path src/apple/Packages/MapleCore --configuration release -Xswiftc -enable-testing --skip-build --filter EditorWorkflowPerfTests.test100MPAcceptedRemovalStacksAt60Hz",
+    "instrumented": false,
+    "passed": 1,
+    "failed": 0,
+    "skipped": 0,
+    "durationSeconds": 29.52,
+    "aggregates": {
+      "immediate": {
+        "inputs": 360,
+        "published": 314,
+        "over16ms": 34,
+        "maxMs": 39.984042
+      },
+      "native": {
+        "inputs": 360,
+        "published": 360,
+        "over16ms": 0,
+        "maxMs": 7.298416
+      }
+    },
+    "rows": [
+      {
+        "case": "100MP-accepted-removals",
+        "chip": "Apple M5 Max",
+        "coldOpenMs": 995.298042,
+        "commitSha": "ccd009a23c6bb90420fcc31c639f381f43b3b9b2",
+        "deviceModel": "Mac17,6",
+        "excludes": "gesture dispatch, scanout, allocation trace, inference and AI quality",
+        "firstGPUMs": 995.294834,
+        "firstSeedMs": 130.684792,
+        "fixture": "dji-mavic3pro-100mp.dng",
+        "frameDigest": "blake3:1ac222350decd802f4cc045a72212b94b0efa00e914f698b3a254794841b576a",
+        "gpu": "Apple M5 Max",
+        "hardLimitMs": 50,
+        "nativeFrameDigest": "blake3:f530d28dbe37f8214fd7acf541f2b83f84cdfe9319ee2acb6f8d2c7631c415d8",
+        "nativeReadyAtImmediateEnd": false,
+        "nativeSettledMs": 6438.358,
+        "osVersion": "Version 27.0 (Build 26A428)",
+        "patchCount": 0,
+        "patchHeight": 512,
+        "patchWidth": 512,
+        "profile": "auto",
+        "refreshRateHz": 60,
+        "sourceDigest": "blake3:fed0379afc16033a471279c7391b572b19572ab03d058feebbd16bf3a21f7107",
+        "targetMs": 16,
+        "thermalState": "nominal",
+        "tickContrast": {
+          "maxMs": 36.868458,
+          "over16": 10,
+          "p50Ms": 10.518708,
+          "p95Ms": 26.694042,
+          "published": 47
+        },
+        "tickExposure": {
+          "maxMs": 23.450208,
+          "over16": 6,
+          "p50Ms": 8.544292,
+          "p95Ms": 20.24525,
+          "published": 54
+        },
+        "tickNativeContrast": {
+          "maxMs": 4.265792,
+          "over16": 0,
+          "p50Ms": 2.317416,
+          "p95Ms": 4.124708,
+          "published": 60
+        },
+        "tickNativeExposure": {
+          "maxMs": 7.298416,
+          "over16": 0,
+          "p50Ms": 2.1015,
+          "p95Ms": 4.496042,
+          "published": 60
+        },
+        "viewportHeight": 1280,
+        "viewportWidth": 1920
+      },
+      {
+        "case": "100MP-accepted-removals",
+        "chip": "Apple M5 Max",
+        "coldOpenMs": 1221.72075,
+        "commitSha": "ccd009a23c6bb90420fcc31c639f381f43b3b9b2",
+        "deviceModel": "Mac17,6",
+        "excludes": "gesture dispatch, scanout, allocation trace, inference and AI quality",
+        "firstGPUMs": 1221.719708,
+        "firstSeedMs": 42.986625,
+        "fixture": "dji-mavic3pro-100mp.dng",
+        "frameDigest": "blake3:927ee2ff25acefae518fc67bddd9ac07d1f7862bb607364317f382c2a0598792",
+        "gpu": "Apple M5 Max",
+        "hardLimitMs": 50,
+        "nativeFrameDigest": "blake3:d3d69e422dc452b858a070fce0e7f5a1485cb936ace5c59f3414cc385579055f",
+        "nativeReadyAtImmediateEnd": false,
+        "nativeSettledMs": 6783.061541,
+        "osVersion": "Version 27.0 (Build 26A428)",
+        "patchCount": 1,
+        "patchHeight": 512,
+        "patchWidth": 512,
+        "profile": "auto",
+        "refreshRateHz": 60,
+        "sourceDigest": "blake3:fed0379afc16033a471279c7391b572b19572ab03d058feebbd16bf3a21f7107",
+        "targetMs": 16,
+        "thermalState": "nominal",
+        "tickContrast": {
+          "maxMs": 22.891709,
+          "over16": 5,
+          "p50Ms": 7.093542,
+          "p95Ms": 20.714792,
+          "published": 55
+        },
+        "tickExposure": {
+          "maxMs": 18.75425,
+          "over16": 2,
+          "p50Ms": 8.082334,
+          "p95Ms": 14.333125,
+          "published": 58
+        },
+        "tickNativeContrast": {
+          "maxMs": 4.129125,
+          "over16": 0,
+          "p50Ms": 1.914208,
+          "p95Ms": 3.61825,
+          "published": 60
+        },
+        "tickNativeExposure": {
+          "maxMs": 5.521125,
+          "over16": 0,
+          "p50Ms": 2.07275,
+          "p95Ms": 4.029417,
+          "published": 60
+        },
+        "viewportHeight": 1280,
+        "viewportWidth": 1920
+      },
+      {
+        "case": "100MP-accepted-removals",
+        "chip": "Apple M5 Max",
+        "coldOpenMs": 1567.020208,
+        "commitSha": "ccd009a23c6bb90420fcc31c639f381f43b3b9b2",
+        "deviceModel": "Mac17,6",
+        "excludes": "gesture dispatch, scanout, allocation trace, inference and AI quality",
+        "firstGPUMs": 1567.0189169999999,
+        "firstSeedMs": 40.848917,
+        "fixture": "dji-mavic3pro-100mp.dng",
+        "frameDigest": "blake3:be3f4249c38a72b7e74033981515157b043afe0e553ff4a3ae4da26f22eba97a",
+        "gpu": "Apple M5 Max",
+        "hardLimitMs": 50,
+        "nativeFrameDigest": "blake3:ff77997720694e20ee1e2396cb4c6adc15b974cee4ff20f2436e675fef448121",
+        "nativeReadyAtImmediateEnd": false,
+        "nativeSettledMs": 7559.86375,
+        "osVersion": "Version 27.0 (Build 26A428)",
+        "patchCount": 10,
+        "patchHeight": 512,
+        "patchWidth": 512,
+        "profile": "auto",
+        "refreshRateHz": 60,
+        "sourceDigest": "blake3:fed0379afc16033a471279c7391b572b19572ab03d058feebbd16bf3a21f7107",
+        "targetMs": 16,
+        "thermalState": "nominal",
+        "tickContrast": {
+          "maxMs": 39.984042,
+          "over16": 4,
+          "p50Ms": 1.623208,
+          "p95Ms": 20.8685,
+          "published": 48
+        },
+        "tickExposure": {
+          "maxMs": 24.347917,
+          "over16": 7,
+          "p50Ms": 1.605,
+          "p95Ms": 19.560042,
+          "published": 52
+        },
+        "tickNativeContrast": {
+          "maxMs": 4.887708,
+          "over16": 0,
+          "p50Ms": 2.052625,
+          "p95Ms": 4.268917,
+          "published": 60
+        },
+        "tickNativeExposure": {
+          "maxMs": 5.251125,
+          "over16": 0,
+          "p50Ms": 2.035125,
+          "p95Ms": 4.195834,
+          "published": 60
+        },
+        "viewportHeight": 1280,
+        "viewportWidth": 1920
+      }
+    ],
+    "hard50ms": "PASS in this one source-current run; worst39.984042ms",
+    "target16ms": "OPEN: 34 observed immediate ticks exceed16ms; 46 immediate inputs were canceled/coalesced or unobserved",
+    "nativePhase": "All360inputs observed after native publication, zero over16ms, worst7.298416ms in this point",
+    "coldOpenMs": [
+      995.298042,
+      1221.72075,
+      1567.020208
+    ],
+    "checkedNativeSettlementMs": [
+      6438.358,
+      6783.061541,
+      7559.86375
+    ],
+    "limits": [
+      "Do not infer stable improvement from comparing this shared-host nominal-thermal point with the earlier fair-thermal 73.693ms failure. That earlier source revision and all preliminary controls remain in their committed artifacts.",
+      "This does not establish a quiet-machine, device-fleet, physical-scanout or stable50ms qualification.",
+      "Checked native settlement includes immediate drags and explicitly scheduling/publishing a native frame; it is not earliest fit completion or fit latency.",
+      "Controlled constant512px patches measure saved-removal rendering, not inference, background-person classification or photographic reconstruction quality."
+    ]
+  },
+  "validation": {
+    "focused": {
+      "path": "/tmp/maple-native-auto-reuse-final-regressions-20261002.log",
+      "sha256": "44dc7d88ccbed944707e2c93b5e88cbd51f2fda6e4dbdade91aa6e8a4eeb3449",
+      "passed": 46,
+      "failed": 0,
+      "skipped": 0,
+      "photographicRows": [
+        "MAPLE_PRODUCTION_NATIVE_AUTO_CPU accepted=false max=1 over1=0 sum=29297450 lanes=117158976",
+        "MAPLE_PRODUCTION_NATIVE_AUTO accepted=false max=1 over1=0 sum=3353 lanes=117158976",
+        "MAPLE_PRODUCTION_NATIVE_AUTO_CPU accepted=true max=1 over1=0 sum=29296887 lanes=117158976",
+        "MAPLE_PRODUCTION_NATIVE_AUTO accepted=true max=1 over1=0 sum=3348 lanes=117158976"
+      ]
+    },
+    "preliminaryFocused": {
+      "path": "/tmp/maple-native-auto-reuse-preliminary-regressions-20261002.log",
+      "sha256": "acf9f3db3cdd60f6a4f15620fa774bd415cbcbcc7105548aeac123b523442c66",
+      "passed": 46,
+      "failed": 0,
+      "skipped": 0,
+      "version": "Before the pre-fit stale-source guard and extended same-decode quality replacement regression; not final-source evidence"
+    },
+    "fullCI": {
+      "path": "/tmp/maple-native-auto-reuse-swift-ci-20261002.log",
+      "sha256": "0b4ada8c30c565504fc9e9d94ce33207af166836cf9f6d69edb2a98cebe3d2d4",
+      "classes": 248,
+      "passed": 2037,
+      "failed": 0,
+      "skipped": 0
+    },
+    "finalExactSourceCount": {
+      "path": "/tmp/maple-native-auto-reuse-source-count-regressions-20261002.log",
+      "sha256": "1fe45dfbc82870d7fc8a6f1d63cb6fd7beeccb63e8ade4b563e7410b58d6450e",
+      "passed": 7,
+      "failed": 0,
+      "skipped": 0
+    },
+    "macBuild": {
+      "path": "/tmp/maple-native-auto-reuse-mac-build-20261002.log",
+      "sha256": "5a4ea0b553f2e291805c88ae11d0231e7493705cfe5a1c0709556b7a658ddff0",
+      "scheme": "Maple",
+      "result": "BUILD SUCCEEDED"
+    },
+    "fixtures": {
+      "original100MPSha256": "f4b60b3672bdf7ff7f4376fba9da1b1d22c925ebc3e16baa5fd4a64fa1045aa5",
+      "controlledFilesUnchanged": 24,
+      "original39MPSha256": "4a4154b2595dc76a7d5e10cdcb65a386319e31647a585c23e262fe62b969c0fe",
+      "portraitXmpSha256": "eafcb3022d6de1c7cc8e6b7af2ed9301b86ae6b37f6b81af9fdd05b87b5b426d",
+      "portraitCompanionsUnchanged": 4,
+      "initialAndNativeFrameDigestsUnchanged": true
+    }
+  },
+  "remaining": [
+    "Mac immediate16ms target and repeatable50ms limit during concurrent native preparation; remaining source/generation waits and background CPU resource use",
+    "Consented labeled RAW scenes for background roles and removal/shadow/reflection/noise/HDR quality",
+    "Managed model/runtime packaging, audited redistribution, signing and lower-memory physical Macs",
+    "PhotoKit/source consumers and existing canonical Neutral#3633 gate",
+    "Full goal active, Mac first; other platform ports deferred"
+  ]
+}

@@ -81,6 +81,7 @@ export type ToolId =
   | 'defringe'
   | 'mask'
   | 'heal'
+  | 'remove'
   | 'crop'
   | 'geometry'
   | 'presets';
@@ -121,6 +122,7 @@ export const TOOL_DISPLAY: Record<ToolId, string> = {
   defringe: 'Defringe',
   mask: 'Mask',
   heal: 'Heal',
+  remove: 'Remove',
   crop: 'Crop',
   geometry: 'Geometry',
   presets: 'Presets',
@@ -159,6 +161,7 @@ export const TOOLS_IN_GROUP: Record<ToolGroup, readonly ToolId[]> = {
     'defringe',
     'mask',
     'heal',
+    'remove',
     'crop',
     'geometry',
     'presets',
@@ -207,7 +210,7 @@ export function visibleToolsInGroup(group: ToolGroup, blackWhiteOn: boolean): re
 // its whole value pipe, so the drag bar must reject writes for it.
 // Heal (#3409) is the same again: `AdjustmentModel.retouchSpots` is a spot
 // list driven by the canvas overlay + `RetouchSessionService`.
-const STUB_TOOLS = new Set<ToolId>(['crop', 'mask', 'heal']);
+const STUB_TOOLS = new Set<ToolId>(['crop', 'mask', 'heal', 'remove']);
 
 export function isWired(tool: ToolId): boolean {
   return !STUB_TOOLS.has(tool);

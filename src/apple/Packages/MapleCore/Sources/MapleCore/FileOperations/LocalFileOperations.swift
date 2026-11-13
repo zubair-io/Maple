@@ -159,6 +159,12 @@ public enum LocalFileOperations {
     let variantCopies = variantPairs.filter {
       !SidecarOwnership.localSidecarAlreadyCarried($0.source.path, at: $0.destination.path)
     }
+    // Accepted removals need their immutable companions beside the
+    // destination before its XMP is published (#3944).
+    let removalSource =
+      hasSourceSidecar && sidecarCarriesRemovals(sourceSidecarURL)
+      ? try LocalRemovalRelocation.open(rawURL: sourcePrimaryURL) : nil
+    try await removalSource?.copyCompanions(to: resolvedTargetURL)
 
     let primaryTmp = try stageVerifiedCopy(
       from: sourcePrimaryURL, forDestination: resolvedTargetURL)
@@ -196,6 +202,7 @@ public enum LocalFileOperations {
     // branches are withdrawn. Never replace an unrelated UUID branch.
     var publishedVariants: [URL] = []
     do {
+      try removalSource?.verifySnapshot()
       for item in variantTemps {
         try fm.moveItem(at: item.temp, to: item.destination)
         publishedVariants.append(item.destination)
@@ -252,8 +259,12 @@ public enum LocalFileOperations {
       sidecarFollowed: plan.finalSidecarPath != nil || !plan.finalVariantPaths.isEmpty
     )
     guard !plan.isNoop else { return outcome }
+    if let snapshot = plan.localSnapshot {
+      await finalizeLocalSnapshot(plan, snapshot: snapshot)
+      return outcome
+    }
     carryFreshDerivatives(for: plan)
-    guard plan.mode == .move else { return outcome }
+    guard plan.mode == .move, !removalSourceChangedSincePlan(plan) else { return outcome }
 
     let fm = FileManager.default
     do {
@@ -286,18 +297,6 @@ public enum LocalFileOperations {
     await invalidateDerivedCaches(forOldPrimaryPath: plan.sourcePrimaryPath)
     await refreshLibraryIndexAfterMove(plan)
     return outcome
-  }
-
-  /// Undo a plan that will never be finalized — removes the staged
-  /// copies, leaving the source (and everything else) exactly as it was
-  /// before `planRelocate` ran. Not applicable to a case-only rename
-  /// (`sourceAlreadyRelocated`) — that has no staged copies to revert;
-  /// undoing it would mean renaming back, which a caller that actually
-  /// needs that can do by calling `planRelocate` again in reverse.
-  public static func revertPlan(_ plan: RelocatePlan) {
-    for path in plan.createdPaths {
-      try? FileManager.default.removeItem(atPath: path)
-    }
   }
 
   // MARK: - Copy + verify

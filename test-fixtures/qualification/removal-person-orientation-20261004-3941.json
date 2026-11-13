@@ -1,0 +1,182 @@
+{
+  "issue": 3941,
+  "recordedAt": "2026-10-04T02:44:20.990627+00:00",
+  "releaseQualified": false,
+  "problem": "Mac person detection consumed the un-oriented native RAW proxy. An actual EXIF8 RAW produced zero class0 proposals above0.5; upright pixels produce two proposals. These are model proposals, not two verified people.",
+  "change": "Retained RAW EXIF tag reaches the native detector. Shared Rust permutes the existing640x640 CHW input without changing samples, swaps target dimensions when required, and inversely maps float box corners to native source axes. Normal orientation keeps box bits and the old ABI. SAM proxies, masks, saved edit framing and RAW bytes retain source axes.",
+  "nativeInputStamp": "0b34db37e2c0ca979acedda8986996f2aea0ff4c",
+  "research": {
+    "path": "/Users/riabuz/.cache/maple-removal-research/person-orientation-night-resize-20261004/report.json",
+    "sha256": "30dd18f324632cca33ca82e77f57de41ee3d7ca516dd4ea1576dac7c49c99fc9",
+    "sourceOrientation": 8,
+    "swiftEncoderReplayExact": true,
+    "rotateBeforeVersusAfterResizeExact": false,
+    "arms": [
+      {
+        "frame": "native",
+        "targetSize": [4288, 2848],
+        "people": [],
+        "tensorSHA256": "a248a02b4ba9aefd264d3013869cb92d2ed13c9cd73ae7898379ef2a1272717f"
+      },
+      {
+        "frame": "upright",
+        "targetSize": [2848, 4288],
+        "people": [
+          {
+            "class": 0,
+            "bounds": [1074.1044921875, 949.7491455078125, 1964.9332275390625, 2776.525390625],
+            "score": 0.9079991579055786
+          },
+          {
+            "class": 0,
+            "bounds": [480.658203125, 1824.5308837890625, 1390.2447509765625, 2769.122802734375],
+            "score": 0.5216549038887024
+          }
+        ],
+        "tensorSHA256": "a448a40d3115b34dd4e78574fec9e70f1e138f449cd4dc10d88cb44621ebe7cf"
+      },
+      {
+        "frame": "upright_after_resize",
+        "targetSize": [2848, 4288],
+        "people": [
+          {
+            "class": 0,
+            "bounds": [1074.0692138671875, 949.7383422851562, 1964.92919921875, 2776.53173828125],
+            "score": 0.9079642295837402
+          },
+          {
+            "class": 0,
+            "bounds": [
+              480.64996337890625, 1824.4998779296875, 1390.2601318359375, 2769.125244140625
+            ],
+            "score": 0.52140212059021
+          }
+        ],
+        "tensorSHA256": "65fa7f5244f3a5564ca17ec4478459248768e52a9f66bbdfff7c4bc298d57c1b"
+      }
+    ],
+    "onnxruntime": "1.23.2",
+    "scope": "Actual deployed model CPU diagnostic. Resizing uses rounded RGB8 interpolation, so rotate-before/after tensors differ; final native path intentionally permutes the already-prepared640 tensor."
+  },
+  "portraitNativeRegression": {
+    "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/test-fixtures/raws/removal-photographic/orientation-runs/D8A8CAC2-8C56-45E1-9B1C-B27F6A6814C6/report.json",
+    "sha256": "0ef2a46dd8844abb0d06ae1dd2f05960f3d544bd10cf9c5e7392f83404a7e322",
+    "cancelledRunRejected": true,
+    "legacyPeople": 0,
+    "orientation": 8,
+    "originalUnchanged": true,
+    "proxyDigest": "blake3:3d6064b32bc0a09f26ad2790f986ab57a36586d9f73c31039c352474228b9dda",
+    "releaseQualified": false,
+    "scope": "Actual portrait RAW, production engine/Swift/C-FFI/deployed detector, upright model inputs/source box mapping, tab-triggered session detection and native SAM mask framing. No semantic proposal truth, complete silhouettes, accepted edits, fill quality or supported-device performance qualification.",
+    "sessionMasks": [
+      {
+        "digest": "blake3:d9fdd86159d8f8093872ab1318d71881ecf99f627abad58fa666ef6f14e7f920",
+        "file": "detected-1.mimf",
+        "id": 1
+      },
+      {
+        "digest": "blake3:57e1308a2555c36e3f7f2f4f272cea2c56810cee722f69cd5943d12bff5ceba5",
+        "file": "detected-2.mimf",
+        "id": 2
+      }
+    ],
+    "sidecarWritten": false,
+    "source": {
+      "decode": "blake3:f021d621d9593e428bc59f5d0861b719c7458d05c95a08c02ed85e8b3a24da2d",
+      "height": 2848,
+      "original": "blake3:45f83349f8f98d19c2e60955201c2e8cd9bc08e435fec22079d8218395c02fa2",
+      "width": 4288
+    },
+    "uprightPeople": 2,
+    "allProposalCount": 300,
+    "personProposals": [
+      {
+        "bounds": [1511.4683, 1074.0692, 3338.2615, 1964.9292],
+        "class": 0,
+        "score": 0.9079642
+      },
+      {
+        "bounds": [1518.8748, 480.64996, 2463.5, 1390.2601],
+        "class": 0,
+        "score": 0.5214021
+      }
+    ],
+    "interpretation": "The lower-confidence second box appears to cover the tiger figure. This is not ground-truth person detection; subject and uncertain suggestions both stay kept."
+  },
+  "normalRawRegression": {
+    "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/test-fixtures/raws/removal-photographic/group-runs/0DA46F9B-D9AE-4DBD-AA06-0CB8C5D1E4D7/report.json",
+    "sha256": "17c40673ef9901c50de04e16a19c7e5aeafacf8b5e1ffbd306862c851016d845",
+    "source": {
+      "decode": "blake3:add2c2b7017c74c40e3b2229acc1804ab1ca5be9700e99f448093dd044bf87c9",
+      "height": 4000,
+      "original": "blake3:2019a5cbd7bcdcf8405528789cde7c05ed4bee8d31c533df786be64f42c97718",
+      "width": 6000
+    },
+    "detections": 15,
+    "reviewDigest": "blake3:56d7c48751a53faeb5fb5637e81d385f7921aa458e62a1388f3c8b8b2cc62985",
+    "reopenedDigest": "blake3:56d7c48751a53faeb5fb5637e81d385f7921aa458e62a1388f3c8b8b2cc62985",
+    "undoSteps": 1,
+    "originalUnchanged": true,
+    "scope": "Actual photographic detection/SAM, explicit list choices, protection-conflict pause and explicit partial-removal choice, native planner/default masks, two sequential deployed model jobs, review and one durable Keep with sidecar/companions, undo/redo and byte-exact reopening. Native UI, automatic role/closure quality, photographic fills and supported-device performance are not qualified.",
+    "timingQualification": false
+  },
+  "checks": [
+    {
+      "check": "shared Rust all8 EXIF, non-square box edges, planar float-bit/channel roundtrip, normal box bits/outside edges, invalid geometry/pixels",
+      "passed": 4,
+      "ignored": 0,
+      "path": "/Users/riabuz/.cache/maple-removal-research/person-orientation-core-tests-20261004.log",
+      "sha256": "0fc72999e84b2aeaa2a52245927daeed38f83d2836f617d5ed5664bbdd3c43d3"
+    },
+    {
+      "check": "raw-ffi selection null/ownership ABI checks",
+      "passed": 1,
+      "ignored": 1,
+      "limitation": "Historical exact model reference tensors unavailable; ignored corpus not restored or fabricated.",
+      "path": "/Users/riabuz/.cache/maple-removal-research/person-orientation-ffi-tests-20261004.log",
+      "sha256": "1cce68670a90720b3eb46b248d4e037f2489ec4612e39520b25724d64d2e4240"
+    },
+    {
+      "check": "focused MapleCore native detail/saved removal/people/proxy/session and two actual photographic RAW regressions",
+      "passed": 25,
+      "skipped": 0,
+      "path": "/Users/riabuz/.cache/maple-removal-research/person-orientation-swift-tests-20261004.log",
+      "sha256": "1b47cc892577a695ceb21b6cfaf9d2909415088c2c8feb2fd17c1415fdfa8398"
+    },
+    {
+      "check": "release four-slice native xcframework and184 exported symbols",
+      "result": "pass",
+      "path": "/Users/riabuz/.cache/maple-removal-research/person-orientation-xcframework-20261004.log",
+      "sha256": "919d06a6fe66e2367b2c8c74a7b411a698228489f0605731e5a1bd9e3184f549"
+    },
+    {
+      "check": "macOS Maple build",
+      "result": "BUILD SUCCEEDED",
+      "path": "/Users/riabuz/.cache/maple-removal-research/person-orientation-mac-build-20261004.log",
+      "sha256": "42f66074443f025576b55e6a9656898d7c1de52304985cacf55401d8cdaa19d3"
+    },
+    {
+      "check": "arm64 iOS simulator Maple build, unsigned",
+      "result": "BUILD SUCCEEDED",
+      "runtimeTested": false,
+      "path": "/Users/riabuz/.cache/maple-removal-research/person-orientation-ios-build-20261004.log",
+      "sha256": "884f2ef0c38c8b821c6d6758b563c22bb972c808d0cf8a306525be5bd7e8b50b"
+    }
+  ],
+  "sourceFiles": {
+    "src/raw-pipeline/raw-core/src/stages/removal_detection_geometry.rs": "eccbfbe96c98443965ff735739bd783c2021a9545d703356dcc69a079da36f9b",
+    "src/raw-pipeline/raw-core/src/stages/removal_detection_geometry_tests.rs": "4c90531fbc5557b5d9a95e24cf159ae1339df8b68fe0740b1e4dc74634f88287",
+    "src/raw-pipeline/maple-removal/src/detection.rs": "ccd47d1c0f5cffab1611974b1723343411632f7c94c8036d68475abfe88e7084",
+    "src/raw-pipeline/raw-ffi/src/removal_selection_inference.rs": "0ae7c3bc742eb274a60d2f7ee801d0de76c51b2a23a2e85c0e932d47ce8d5721",
+    "src/apple/Packages/MapleCore/Sources/MapleCore/Removal/NativeRemovalEditorEngine.swift": "bd9c8eed45acf4e5374ee7e826ff28aec05fb54e66c39f9024256f546c57e958",
+    "src/apple/Packages/MapleCore/Sources/MapleCore/Removal/NativeRemovalPersonDetector.swift": "14f5d1a2f818a1246bc22d45d465705cb6b4cef69d35201aa13b5608b8ba83ce",
+    "src/apple/Packages/MapleCore/Tests/MapleCoreTests/PhotographicRemovalOrientationTests.swift": "225cb81a4564f5995b03b0546f29f3cedd037b57b884750233ebd6dd886633c7",
+    "tools/removal/probe_person_orientation.py": "9b9d9da7372c069a10d3cb5a951ef0c988f967fb2f93828579b2928cc967c781"
+  },
+  "limits": [
+    "No fresh live SwiftUI interaction validation for this patch.",
+    "Web orientation integration remains pending under the Mac-first scope.",
+    "No semantic ownership or complete silhouette truth, accepted portrait edit, fill quality, supported-device latency, color-chain or CPU/GPU pixel-parity qualification.",
+    "No new shipping model, automatic deduplication, mask dilation, role threshold or pipeline color transformation."
+  ]
+}

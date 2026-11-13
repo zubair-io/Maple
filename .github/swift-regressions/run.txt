@@ -261,6 +261,7 @@ RevealTargetTests
 SavedFolderStoreTests
 SceneLinearChainF32BandingTests
 ChainCurvesWiringTests
+SceneLinearHalfShadowTransportTests
 SearchAssetAddressTests
 SearchCursorPaginationTests
 SearchRankPinTests
@@ -569,6 +570,36 @@ TemporalSettingsFormTests
 TemporalSettingsClientTests
 TemporalSettingsModelTests
 
+# AI removal (#1472 / #3955): real committed RAW/XMP/companions and native FFI.
+LocalRemovalAssetStoreTests
+LocalRemovalDirectoryPublicationTests
+LocalRemovalRestoredPublicationTests
+LocalRemovalCommitRecoveryTests
+RemovalWorkflowRetryTests
+LocalRemovalRelocateTests
+NativeDetailRemovalTests
+NativeSavedRemovalSessionTests
+RemovalCalibrationContextTests
+RemovalExportSnapshotTests
+RemovalGenerationBridgeTests
+RemovalMaskCombineTests
+RemovalModelStateTests
+RemovalSceneHandoffTests
+RemovalSidecarNamespaceTests
+RemovalSmartBridgeTests
+RemovalXMPRecordsTests
+RemovalHistoryTests
+RemovalGroupTests
+RemovalSnapshotTests
+RemovalSessionTests
+MacRemovalModelStoreTests
+RemovalProxyTensorTests
+RemovalPeopleBridgeTests
+RemovalPersonRefinementTests
+RemovalSavedControlsTests
+RemovalRenderRecoveryTests
+SMBRemovalPublicationTests # #3984: retained removal records through real SMB model publication
+NativeRemovalPaintGroupsTests
 # Canvas-first editor A3 (#5121): white-balance pad mapping, sidecar parity
 # with the sliders and one-step undo on a preview session; tone-curve press
 # rule per input kind. Pure math and an in-memory session.

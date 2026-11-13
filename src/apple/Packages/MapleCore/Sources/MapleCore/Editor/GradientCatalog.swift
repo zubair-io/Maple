@@ -118,7 +118,7 @@ public enum GradientCatalog {
     // seven independent sliders and no single track to tint.
     case .crop, .presets, .colorGrade, .bwMix, .filmLook, .lensCorrections, .geometry,
       .defringe,
-      .mask, .heal:
+      .mask, .heal, .remove:
       return nil
     }
   }

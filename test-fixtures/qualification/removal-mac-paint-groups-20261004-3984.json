@@ -1,0 +1,229 @@
+{
+  "issue": 3984,
+  "recordedAt": "2026-10-04T03:23:24.431587+00:00",
+  "releaseQualified": false,
+  "problem": "A manual Paint selection containing two small distant areas was refused because the combined context exceeded native1024, even though each complete connected area fits.",
+  "change": "Shared Rust retains fitting intent bytes; otherwise packs complete eight-connected areas into fitting native contexts. All contexts validate before inference; oversized connected areas refuse without partial inference. Mac manual Paint uses those intents, two successful jobs review/save as one Keep and undo. Saved replacement refuses multi-context intent before inference. Smart paint and reviewed person masks retain their existing object boundaries.",
+  "nativeInputStamp": "5ae5e1421051ba931d7549d6c83c4bdadc438a5c",
+  "photographicWorkflow": {
+    "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/test-fixtures/raws/removal-photographic/paint-runs/F66AAB11-D92F-43ED-B853-A56393AE9842/report.json",
+    "sha256": "e2752c4dadbf52079a4c7476afe7df1867c2dad4747b16c804aecf35b7bed337",
+    "assets": {
+      "9c56d54140f7ab7aee051c4c1b51cad978ce66b5eef799f2b417bd1ef9b3d4ac.f16": "blake3:9c56d54140f7ab7aee051c4c1b51cad978ce66b5eef799f2b417bd1ef9b3d4ac",
+      "86b88784372a94322b31254ac36217e9876117072f291dc9a115656edb58a1fc.f16": "blake3:86b88784372a94322b31254ac36217e9876117072f291dc9a115656edb58a1fc",
+      "862ea1439baf79c89e3fcd23a72fb5f7482972fc619babde2642a537837ce931.mask": "blake3:862ea1439baf79c89e3fcd23a72fb5f7482972fc619babde2642a537837ce931",
+      "7103dc2e87f1a1948cb34d84a70e3abd29380e9e61bafcbedef289cd62361eb5.mask": "blake3:7103dc2e87f1a1948cb34d84a70e3abd29380e9e61bafcbedef289cd62361eb5"
+    },
+    "knownProtectedContextExact": true,
+    "multiContextSavedReplacementRefusedBeforeInference": true,
+    "originalUnchanged": true,
+    "oversizedConnectedSelectionRefusedBeforeInference": true,
+    "paintIntentDigest": "blake3:e7a4de60e70b70dec342456902a7c3ba299f68d6b39ee63b6b7e3a76ff10adb6",
+    "protectionDigest": "blake3:0608869e637724043411ae4790aa941a9c722a2439276233c3133d257d5705dc",
+    "releaseQualified": false,
+    "reopenedDigest": "blake3:9d776ce4dedae02af4950d5647bd17d47fbef7d13222cf13e95eb5e761d0a523",
+    "requests": [
+      {
+        "bake": {
+          "ev": 0,
+          "temp": 6500,
+          "tint": 0
+        },
+        "context_window": {
+          "height": 1024,
+          "width": 1024,
+          "x": 88,
+          "y": 88
+        },
+        "model": "blake3:11d91ba3f522282c1b0f0a3b9aa2be1646a1a65fd406b65f08e4d90740a4c492",
+        "model_version": "339d078d9d1376d76a49efd4fa42f328c3f276af775505ae8b57c84db187c4f6",
+        "patch_window": {
+          "height": 1024,
+          "width": 1024,
+          "x": 88,
+          "y": 88
+        },
+        "plate": "linear-calibration-v1",
+        "recipe": "blake3:1ef3e236f19d42ec1d0d1535ad9fe30a2107290bc7936ae0b1c2c7a3b63b0b78",
+        "source": {
+          "decode": "blake3:add2c2b7017c74c40e3b2229acc1804ab1ca5be9700e99f448093dd044bf87c9",
+          "height": 4000,
+          "original": "blake3:2019a5cbd7bcdcf8405528789cde7c05ed4bee8d31c533df786be64f42c97718",
+          "width": 6000
+        }
+      },
+      {
+        "bake": {
+          "ev": 0,
+          "temp": 6500,
+          "tint": 0
+        },
+        "context_window": {
+          "height": 1024,
+          "width": 1024,
+          "x": 4888,
+          "y": 88
+        },
+        "model": "blake3:11d91ba3f522282c1b0f0a3b9aa2be1646a1a65fd406b65f08e4d90740a4c492",
+        "model_version": "339d078d9d1376d76a49efd4fa42f328c3f276af775505ae8b57c84db187c4f6",
+        "patch_window": {
+          "height": 1024,
+          "width": 1024,
+          "x": 4888,
+          "y": 88
+        },
+        "plate": "linear-calibration-v1",
+        "recipe": "blake3:d50fdfe55768e698f87977796308f37c9ea6aaceb116ff96476fcba626c24b2c",
+        "source": {
+          "decode": "blake3:add2c2b7017c74c40e3b2229acc1804ab1ca5be9700e99f448093dd044bf87c9",
+          "height": 4000,
+          "original": "blake3:2019a5cbd7bcdcf8405528789cde7c05ed4bee8d31c533df786be64f42c97718",
+          "width": 6000
+        }
+      }
+    ],
+    "reviewDigest": "blake3:9d776ce4dedae02af4950d5647bd17d47fbef7d13222cf13e95eb5e761d0a523",
+    "reviewSize": [2048, 1365],
+    "scope": "Actual photographic RAW Paint gestures/protection/selection undo-redo, shared context grouping, two native pinned model jobs, temporary review, one durable Keep/XMP/four assets, edit undo-redo and exact reopening without model installation. Original bytes and distant protected native f32 context unchanged. Architectural selections are workflow evidence, not complete people, semantic ownership, fill quality or supported-device performance qualification.",
+    "source": {
+      "decode": "blake3:add2c2b7017c74c40e3b2229acc1804ab1ca5be9700e99f448093dd044bf87c9",
+      "height": 4000,
+      "original": "blake3:2019a5cbd7bcdcf8405528789cde7c05ed4bee8d31c533df786be64f42c97718",
+      "width": 6000
+    },
+    "undoSteps": 1
+  },
+  "checks": [
+    {
+      "check": "shared removal planner and preparation",
+      "passed": 75,
+      "skipped": 0,
+      "path": "/Users/riabuz/.cache/maple-removal-research/paint-group-core-tests-20261004.log",
+      "sha256": "75e50572f4a5fdacf8378881db1e5238d728c8881386db2bcec30260e71bc55a"
+    },
+    {
+      "check": "real FFI proposal boundaries",
+      "passed": 2,
+      "skipped": 0,
+      "path": "/Users/riabuz/.cache/maple-removal-research/paint-group-ffi-tests-20261004.log",
+      "sha256": "5bae72e38e5ba4daa46eba4a20300655698ebb2e0c16e1f4e2de4a7428043555"
+    },
+    {
+      "check": "native Swift and actual photographic RAW sessions",
+      "passed": 28,
+      "skipped": 0,
+      "path": "/Users/riabuz/.cache/maple-removal-research/paint-group-swift-tests-20261004.log",
+      "sha256": "acc39d1590a4f4161371304abcecaabe721cbc9f071004c1fdce7d3c5035688e"
+    },
+    {
+      "check": "four release Apple slices and 185 exported symbols",
+      "result": "pass",
+      "path": "/Users/riabuz/.cache/maple-removal-research/paint-group-xcframework-20261004.log",
+      "sha256": "7531f4dc4f53ea5dcf2836ca9b6eeb8ca72a35180e175db791a0d61985e01186"
+    },
+    {
+      "check": "Mac app BUILD SUCCEEDED",
+      "result": "pass",
+      "path": "/Users/riabuz/.cache/maple-removal-research/paint-group-mac-build-20261004.log",
+      "sha256": "a8eb2ee069d51eabf179161b0ec8bb5f731de2bb9131693ad5aab0c932963b64"
+    }
+  ],
+  "sourceFiles": {
+    "src/apple/Packages/MapleCore/Sources/MapleCore/Removal/RemovalSession+Inference.swift": "36c9b4cfba9772e5cc4e93db4fd8d572ce5393333ff1de7eb78588e707e0dde8",
+    "src/raw-pipeline/raw-core/src/pipeline/mod.rs": "c1f4afdb7a630ab4cd80de1282e00a919b1f5062e787782adc936b6a0580f78d",
+    "src/raw-pipeline/raw-core/src/pipeline/removal_proposal_plan.rs": "9945274b4c237dae66d1ce46ec1c0c0519da01fc5e62666ec4ae5f857a086ca9",
+    "src/raw-pipeline/raw-ffi/src/lib.rs": "4a628128ab6e9664d04dbd3bf36717e4ead1d03d9594a67797dc29b0ce6392e4",
+    "src/raw-pipeline/raw-ffi/src/removal_proposal.rs": "760193a002d8aae7ca703b9be6adc3f42f31bf700eb996ba2cba89f6bcea9fac",
+    "src/raw-pipeline/raw-ffi/src/removal_proposal_tests.rs": "cc34a634aa299ba91baa1b90270157b7f96b34ce638165c7a36a669cf4c7287b",
+    "src/apple/Packages/MapleCore/Sources/MapleCore/Removal/NativeRemovalGeneration+Paint.swift": "8b91e48222cbaf5e5f5cd5fe40b06d676940e05467b672ff203df87f81cbbc91",
+    "src/apple/Packages/MapleCore/Tests/MapleCoreTests/NativeRemovalPaintGroupsTests.swift": "d053c44cf13d3297ac375f5eea55167b137ee84c0d22d68f266507a124e08a25",
+    "src/apple/Packages/MapleCore/Tests/MapleCoreTests/PhotographicRemovalPaintTests.swift": "2e3dba9e510c4f8e947a797d59bbcaadcdc9937190fd6f83474385856d7a241b",
+    "src/raw-pipeline/raw-core/src/pipeline/removal_paint_groups.rs": "7cbc5744850047e73f6c526a8eabb22e8d51214e2941102008c42686f9d9eea7",
+    "src/raw-pipeline/raw-core/src/pipeline/removal_paint_groups_tests.rs": "6f3e869ed70fb78b56c28a2b553cf635d8cc1202c7f6067f9f689f05ee56db17"
+  },
+  "nativeUI": {
+    "build": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/paint-group-ui-20261004/build.json",
+      "sha256": "c71cdf75f12002579fe27fc34186eb4bf5ac50d9704ff526414f19eefbdca705"
+    },
+    "bundleId": "app.justmaple.aperture.removalqa4",
+    "twoDistantPaintSelectionsReachReview": true,
+    "compareEnabledObserved": true,
+    "cancelReturnsSelection": true,
+    "connectedOversizeVisibleRefusal": true,
+    "originalSHA256": "2ed291a09d7d4f72c8588b0c12d6cc5c470ad42ab9e3aaad1f888f34526b959f",
+    "sidecarWritten": false,
+    "inpaintAssetsWritten": false,
+    "qaClosed": true,
+    "evidence": [
+      {
+        "path": "/Users/riabuz/.cache/maple-removal-research/paint-group-ui-20261004/before.png",
+        "sha256": "e52600516b2c12cfaf098f0605fa6bd3bb90102ae5284f38bb47247d3c22dafe"
+      },
+      {
+        "path": "/Users/riabuz/.cache/maple-removal-research/paint-group-ui-20261004/selection.png",
+        "sha256": "ae8d69aac77eb69a4c92c27a35ba35d4dccbbc809864eb11cc518bb85188307b"
+      },
+      {
+        "path": "/Users/riabuz/.cache/maple-removal-research/paint-group-ui-20261004/selection.ax.txt",
+        "sha256": "94518f52676047b135d38ba158e29f6a94eb8afab4f79d536f0897f4ec91559c"
+      },
+      {
+        "path": "/Users/riabuz/.cache/maple-removal-research/paint-group-ui-20261004/working.png",
+        "sha256": "8903eea824dc06442ef0cd19e324389c32442751ebc6b7a3c05dff1d8386edec"
+      },
+      {
+        "path": "/Users/riabuz/.cache/maple-removal-research/paint-group-ui-20261004/working.ax.txt",
+        "sha256": "02b870a3c7a0013314a748053e001635535063cf36c92849c614c7b3ed8a02e7"
+      },
+      {
+        "path": "/Users/riabuz/.cache/maple-removal-research/paint-group-ui-20261004/review.png",
+        "sha256": "340df19883ad49e2c57c2f037970d0f9d4798473220701a21f9eb835c51da363"
+      },
+      {
+        "path": "/Users/riabuz/.cache/maple-removal-research/paint-group-ui-20261004/review.ax.txt",
+        "sha256": "ae6861995410afdab163260d7845a64eecb0041802ed32f1c892cbc5f8bf9069"
+      },
+      {
+        "path": "/Users/riabuz/.cache/maple-removal-research/paint-group-ui-20261004/compare.png",
+        "sha256": "2d79fbdb2705e54899d8dcd7f68fe78dd18af63fce7b425a2d18386f069a063e"
+      },
+      {
+        "path": "/Users/riabuz/.cache/maple-removal-research/paint-group-ui-20261004/compare.ax.txt",
+        "sha256": "618574a83def2465729a3539ab9c27e6935624694478b2bfeac0b68bcbbfa620"
+      },
+      {
+        "path": "/Users/riabuz/.cache/maple-removal-research/paint-group-ui-20261004/cancel.png",
+        "sha256": "1130a68045869f6e4ab7431d0f7f122e086779a1459451ff39e782c1f345108b"
+      },
+      {
+        "path": "/Users/riabuz/.cache/maple-removal-research/paint-group-ui-20261004/cancel.ax.txt",
+        "sha256": "94518f52676047b135d38ba158e29f6a94eb8afab4f79d536f0897f4ec91559c"
+      },
+      {
+        "path": "/Users/riabuz/.cache/maple-removal-research/paint-group-ui-20261004/connected-selection.png",
+        "sha256": "3b1c33c606587c5e4792a161ac6a0006ff3b33411d4206c9a5cf5cfbe1512c88"
+      },
+      {
+        "path": "/Users/riabuz/.cache/maple-removal-research/paint-group-ui-20261004/oversize.png",
+        "sha256": "35bf4b7e9b96fb79cb18515573133c4a94fa68676d8387bb54c42e47ca1e9bbe"
+      },
+      {
+        "path": "/Users/riabuz/.cache/maple-removal-research/paint-group-ui-20261004/oversize.ax.txt",
+        "sha256": "e2d1444c50139562ab9313f60de5ef34381669e84aafcd4f6b8c009e43b0b3b5"
+      },
+      {
+        "path": "/Users/riabuz/.cache/maple-removal-research/paint-group-ui-20261004/runtime.log",
+        "sha256": "45d51a7ae1bab55c1d0729db36102e6fdf016d8bef07e4b39132e9ab22f47c0c"
+      }
+    ]
+  },
+  "limits": [
+    "Small architectural selections prove workflow only; no complete-person ownership, silhouette or photographic fill quality qualification.",
+    "The native1024 limit remains for one connected area; no cropping or downsampling of large objects.",
+    "Mac-first integration; Web caller and full cross-host authoring qualification remain.",
+    "Shared M5 Max128GiB timings are uncontrolled. No supported-device performance,100MP slider budget, distribution signing or physical iOS runtime qualification.",
+    "Ad-hoc isolated sandbox QA preserves executable section hashes but changes bundle identity and removes copied extensions; production app/settings/accounts untouched. A filtered log with no entries does not establish absence of runtime errors.",
+    "Existing broad color/performance/model gates remain unqualified; no shipping model, recipe, setting or durable schema change."
+  ]
+}

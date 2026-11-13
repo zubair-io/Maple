@@ -110,6 +110,7 @@ namespace Maple.WinUI.ViewModels
             var before = Adjustments;
             _redoStack.Add(Adjustments.Clone());
             Adjustments = _undoStack[^1];
+            Adjustments.InpaintRemovals = before.InpaintRemovals;
             _undoStack.RemoveAt(_undoStack.Count - 1);
             _undoBaseline = Adjustments.Clone();
             AfterModelReplaced(before);
@@ -132,6 +133,7 @@ namespace Maple.WinUI.ViewModels
             UndoHistoryLogic.Push(_undoStack, _redoStack, Adjustments.Clone(), UndoDepth);
             _redoStack.AddRange(remainingRedo);
             Adjustments = next;
+            Adjustments.InpaintRemovals = before.InpaintRemovals;
             _undoBaseline = Adjustments.Clone();
             AfterModelReplaced(before);
         }
@@ -143,7 +145,9 @@ namespace Maple.WinUI.ViewModels
         {
             if (!AdjustmentsReady) return;
             var before = Adjustments;
-            if (!BeginModelReplacement(DefaultAdjustments()))
+            var defaults = DefaultAdjustments();
+            defaults.InpaintRemovals = before.InpaintRemovals;
+            if (!BeginModelReplacement(defaults))
                 return;
             if (before.LocalAdjustments.Any(layer => layer.Mask is BrushMask) && SelectedPhoto is { } photo)
             {
@@ -167,7 +171,9 @@ namespace Maple.WinUI.ViewModels
             if (_originalModel == null)
                 return;
             var before = Adjustments;
-            if (!BeginModelReplacement(_originalModel.Clone()))
+            var original = _originalModel.Clone();
+            original.InpaintRemovals = before.InpaintRemovals;
+            if (!BeginModelReplacement(original))
                 return;
             Adjustments = _undoBaseline!.Clone();
             AfterModelReplaced(before);

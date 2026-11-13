@@ -14,8 +14,11 @@ mod import;
 mod import_validation;
 pub use import::{parse_namespaced, SUBJECT_EXTRA_ATTRIBUTES, SUBJECT_EXTRA_CONTAINERS};
 mod local_adjustments;
+mod removal_records;
 mod retouch;
 mod subject;
+#[cfg(test)]
+mod tests_removal_namespace;
 mod tone_curves;
 use fields::set_field;
 pub use local_adjustments::serialize_local_adjustments;
@@ -69,6 +72,7 @@ fn apply_attributes(
     papp_seen: &mut bool,
     stamp: &mut Option<WbScaleVersion>,
     retouch_stamp: &mut Option<RetouchFrame>,
+    namespaced: bool,
 ) -> Result<()> {
     // Track whether the new-style `papp:CaptureSharpeningSigma`
     // attribute has been written into `capture_sharpening_sigma`
@@ -132,6 +136,12 @@ fn apply_attributes(
                 Some(RetouchFrame::from_stamp(value.as_ref()).ok_or_else(|| {
                     Error::Xmp(format!("unknown RetouchFrameVersion: {}", value))
                 })?);
+        }
+        // The namespaced import has already resolved ownership and the primary
+        // subject, so its normalized attribute is authoritative here.
+        if namespaced && key == "papp:InpaintRemovals" {
+            model.inpaint_removals = crate::types::inpaint::decode_removals(&value)
+                .map_err(|e| Error::Xmp(format!("InpaintRemovals: {e}")))?;
         }
         set_field(
             model,

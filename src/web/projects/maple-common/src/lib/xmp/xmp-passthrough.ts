@@ -203,6 +203,7 @@ function isModeledDescriptionChild(
   model: Partial<AdjustmentModel>,
   seenCurves: Set<string>,
 ): boolean {
+  if (managedXmpName(child) === 'papp:InpaintRemovals') return true;
   const curveKey = toneCurveElementKey(child);
   if (curveKey) {
     if (!seenCurves.has(curveKey)) {
@@ -258,6 +259,13 @@ export function collectXmpPassthrough(
       return managedName === null || !KNOWN_ATTRIBUTES.has(managedName);
     })
     .map((attr) => {
+      // Removal records remain opaque metadata until the Rust boundary, but
+      // the writer owns their replacement. Normalize recognized aliases so a
+      // Keep cannot leave the old list beside a second canonical list (#3941).
+      if (managedXmpName(attr) === 'papp:InpaintRemovals') {
+        passthroughNamespaceUris.set('papp', CANONICAL_NAMESPACE_URIS['papp']);
+        return { name: 'papp:InpaintRemovals', value: attr.value };
+      }
       const canonicalUri = attr.prefix ? CANONICAL_NAMESPACE_URIS[attr.prefix] : undefined;
       if (attr.prefix && attr.namespaceURI && canonicalUri && canonicalUri !== attr.namespaceURI) {
         const prefix = `passthrough_${attr.prefix}`;
@@ -270,8 +278,16 @@ export function collectXmpPassthrough(
   const descriptions = eligibleDescriptions(description);
   const retouchSpots = retouchSpotsFrom(descriptions);
   if (retouchSpots.length > 0) model.retouchSpots = retouchSpots;
+  for (const current of descriptions)
+    for (const child of Array.from(current.children))
+      if (managedXmpName(child) === 'papp:InpaintRemovals') {
+        passthroughNamespaceUris.set('papp', CANONICAL_NAMESPACE_URIS['papp']);
+        unknownAttributes.push({ name: 'papp:InpaintRemovals', value: child.textContent ?? '' });
+      }
   const unknownNodes = hydrateDescriptionChildren(descriptions, description, model);
 
+  if (unknownAttributes.filter((a) => a.name === 'papp:InpaintRemovals').length > 1)
+    throw new Error('The sidecar contains conflicting removal records.');
   const { verbatim: groupKeys, ...maskGroups } = collectMaskGroups(description, model);
   const verbatimLayerOrderKeys = [...verbatimBrushLayerOrders(descriptions), ...groupKeys];
   orderLocalAdjustments(model, verbatimLayerOrderKeys);

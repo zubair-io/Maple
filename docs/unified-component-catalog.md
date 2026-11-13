@@ -180,6 +180,8 @@ Regions only, no content. Apple: `Templates/`. Windows: `MapleUI/Templates/`. Ev
 
 ## 5. Organisms
 
+The experimental Web [Removal Panel and Overlay](design/maple-ui/components/removal-panel.md) compose these primitives under #3941 / #1472. They are excluded from the released component counts until Apple and qualification are complete.
+
 Built from molecules. Apple splits these across `Organisms/` and `OrganismsB/`; web across `organisms-lane-a.ts` and `organisms-lane-b.ts`; Windows keeps one `MapleUI/Organisms/` directory.
 
 | Component              | Web | Apple | Windows |
