@@ -166,7 +166,15 @@ internal class CloudSearchModel(
     private var dropped = 0
 
     fun selectServer(server: Folder?) {
-        if (server?.uri == mutable.value.server?.uri) return
+        if (server?.uri != mutable.value.server?.uri) start(server)
+    }
+
+    /** A sign-in on [server] keeps its id; results and facets shown for it belonged to the previous account. */
+    fun signedIn(server: Folder) {
+        if (server.uri == mutable.value.server?.uri) start(server)
+    }
+
+    private fun start(server: Folder?) {
         job?.cancel()
         next = null
         mutable.value = CloudSearchState(server = server, query = mutable.value.query)

@@ -121,6 +121,7 @@ internal constructor(
                         cloudConnectionsVersion = it.cloudConnectionsVersion + 1,
                     )
                 }
+                search.signedIn(source)
                 browse(source)
             } catch (failure: Exception) {
                 if (failure is CancellationException) return@launch
