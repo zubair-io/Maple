@@ -114,4 +114,25 @@ describe('CPU source serialized retirement', () => {
     expect(reopened.bytes.byteLength).toBe(3);
     expect(reopened.cpuSourceToken).not.toBe(opened.cpuSourceToken);
   });
+
+  it('export releases a saved-removal preview source, and an ordinary export sends no release', async () => {
+    const service = TestBed.inject(RawPipelineService);
+    const bytes = new Uint8Array([1, 2, 3]);
+    const types = () =>
+      worker.postMessage.mock.calls.map(([message]) => (message as { type: string }).type);
+    void service.exportImage(bytes, 'dng', {} as never).catch(() => undefined);
+    await vi.waitFor(() => expect(types()).toEqual(['export']));
+    const ordinary = worker.postMessage.mock.calls[0][0] as { id: number };
+    worker.reply({ id: ordinary.id, type: 'export-error', message: 'stop' } as never);
+    const bundle = { manifest: '[]', bytes: new Uint8Array() };
+    void service.savedPreview
+      .render({ sourceId: 'photo', bytes, ext: 'dng' }, '[1]', '<x/>', async () => bundle, 80)
+      .catch(() => undefined);
+    await vi.waitFor(() => expect(types()).toEqual(['export', 'removal-authoring']));
+    const source = worker.postMessage.mock.calls[1][0] as { id: number };
+    worker.reply({ id: source.id, type: 'removal-authoring-error', message: 'stop' } as never);
+    void service.exportImage(bytes, 'dng', {} as never).catch(() => undefined);
+    await vi.waitFor(() => expect(types()).toHaveLength(4));
+    expect(types().slice(2)).toEqual(['close-native-detail', 'export']);
+  });
 });

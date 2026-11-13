@@ -5,9 +5,15 @@ type LockCallback = (lock: Lock | null) => unknown;
 /** Install a real or serializing Web Locks manager for filesystem integration tests.
  * Node exposes a native LockManager; Bun's worker_threads currently does not.
  */
-export function installTestWebLocks(): void {
+export function installTestWebLocks(): () => void {
+  const previous = Object.getOwnPropertyDescriptor(navigator, 'locks');
   const locks = Reflect.get(workerThreads, 'locks') ?? createSerialTestLockManager();
   Object.defineProperty(navigator, 'locks', { configurable: true, value: locks });
+  // Specs share a test worker; a leaked manager reroutes later specs' writes.
+  return () => {
+    if (previous) Object.defineProperty(navigator, 'locks', previous);
+    else Reflect.deleteProperty(navigator, 'locks');
+  };
 }
 
 export function createSerialTestLockManager(): LockManager {

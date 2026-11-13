@@ -4,7 +4,6 @@ import { HttpClient, provideHttpClient, withInterceptors } from '@angular/common
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { authInterceptor } from './auth.interceptor';
 import { AuthService } from './auth.service';
-import { expectRequestAfterWebLock } from './auth-test-helpers';
 
 describe('authInterceptor', () => {
   let http: HttpClient;
@@ -34,10 +33,7 @@ describe('authInterceptor', () => {
   it('does not renew again for signed-out background requests after session hydration fails', async () => {
     (auth as unknown as { accessToken: string | null }).accessToken = null;
     const hydration = auth.refresh();
-    (await expectRequestAfterWebLock(ctrl, '/api/auth/refresh')).flush(
-      {},
-      { status: 401, statusText: 'Unauthorized' },
-    );
+    ctrl.expectOne('/api/auth/refresh').flush({}, { status: 401, statusText: 'Unauthorized' });
     expect(await hydration).toBe('rejected');
     const errors: number[] = [];
     for (const path of ['/api/render/config', '/api/observability/config']) {
@@ -58,7 +54,7 @@ describe('authInterceptor', () => {
     http.get('/api/render/config').subscribe();
     ctrl.expectOne('/api/render/config').flush({}, { status: 401, statusText: 'Unauthorized' });
     const hydration = auth.refresh();
-    (await expectRequestAfterWebLock(ctrl, '/api/auth/refresh')).flush({ access_token: 'A2' });
+    ctrl.expectOne('/api/auth/refresh').flush({ access_token: 'A2' });
     expect(await hydration).toBe('refreshed');
     const retried = ctrl.expectOne('/api/render/config');
     expect(retried.request.headers.get('Authorization')).toBe('Bearer A2');

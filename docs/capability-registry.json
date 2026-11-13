@@ -907,7 +907,7 @@
         "src/apple/Packages/MapleCore/Tests/MapleCoreTests/XMPPassthroughTests.swift",
         "src/apple/Packages/MapleCore/Sources/MapleCore/XmpMetadata+Empty.swift"
       ],
-      "corpus_hash": "blake3:0c6f5e4c64c37b61d329cc798b771ede40aae213082db62385352de98985aa1c",
+      "corpus_hash": "blake3:1469c8aefee0cc53da70f41b9ade213097225819251ab03765769ccd77ba076d",
       "status": "stale_corpus",
       "record": {
         "backend": "xctest-macos",
@@ -945,7 +945,7 @@
         "src/api/src/fs/xmp.ts",
         "src/api/src/fs/xmp-sidecar-path.ts"
       ],
-      "corpus_hash": "blake3:4749005f38c0f35f0aa9eb24bd6a5be21d2fd57f56a6d8d39c98c3eb4fb33637",
+      "corpus_hash": "blake3:d98b16c0ed09b9271b7e03fca57498e25282540788ca787222576946c1e31556",
       "status": "stale_corpus",
       "record": {
         "backend": "bun",
@@ -985,7 +985,7 @@
         "src/raw-pipeline/raw-wasm/src/gpu_render",
         "src/apple/MapleUITests/Fixtures/synthetic/grey-l018-rggb.dng"
       ],
-      "corpus_hash": "blake3:472e8b2e87980df907e54016f0de2bce65f504510a3ced334741d53af1c1832e",
+      "corpus_hash": "blake3:24f0ecd447b3674393b89afea773d2454a453f28cedf45a151f0afb8509ae3cb",
       "status": "stale_corpus",
       "record": {
         "backend": "metal",

@@ -32,7 +32,8 @@ extension XMPParser {
 
     // Only namespace-owned primary records are modeled. Foreign attributes
     // and locally rebound child bytes must remain opaque (#3955).
-    let removal = try? RemovalXMPRecords.field(Data(xml.utf8))
+    let removal =
+      RemovalXMPRecords.mayCarryRecords(xml) ? try? RemovalXMPRecords.field(Data(xml.utf8)) : nil
     let modeledRemoval = removal?.primary == true ? removal : nil
     let attributes = delegate.unknownAttributes.filter {
       modeledRemoval?.propertyNamespaces != nil || $0.name != modeledRemoval?.name

@@ -24,7 +24,7 @@ struct EditorRenderStatus: View {
         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14))
         .allowsHitTesting(false)
       }
-      if let error = session.renderError {
+      if let error = session.renderError, session.model.inpaintRemovals?.isEmpty == false {
         VStack(spacing: 10) {
           Text(error is RemovalError ? "Saved removal incomplete" : "Photo could not be rendered")
             .font(.headline)

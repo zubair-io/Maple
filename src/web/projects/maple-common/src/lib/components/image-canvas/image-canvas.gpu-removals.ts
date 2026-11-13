@@ -5,6 +5,12 @@ import type { RemovalCompanionBundle } from '../../removal/removal-companion-bun
 import { savedRemovalRecords } from '../../removal/saved-removal-records';
 import type { SavedRemovalRenderService } from '../../removal/saved-removal-render.service';
 
+/** Clears a session's saved patches once its sidecar no longer carries them. */
+export const CLEAR_SAVED_REMOVALS: RemovalCompanionBundle = {
+  manifest: '[]',
+  bytes: new Uint8Array(),
+};
+
 /** Resolve saved patches only when a RAW session opens, never on slider ticks. */
 export async function loadGpuSessionRemovals(
   assetId: AssetId,

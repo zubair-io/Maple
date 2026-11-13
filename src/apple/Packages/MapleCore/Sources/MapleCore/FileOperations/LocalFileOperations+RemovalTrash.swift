@@ -105,12 +105,26 @@ extension LocalFileOperations {
       let staging = raw.deletingLastPathComponent().appendingPathComponent(".maple/trash-staging")
       let folder = staging.appendingPathComponent(
         String(raw.lastPathComponent.prefix(40)) + " Recovery " + UUID().uuidString)
+      // Owned workflow variants travel inside the folder, as main's Trash
+      // recycles them with the photo; restore relocates them back with it.
+      let variants =
+        SidecarOwnership.localStemClaimedBySibling(raw)
+        ? [] : try LocalWorkflowVariants.paired(with: raw)
       let plan = try await prepareRemovalTrashPackage(source, raw: raw, directory: folder)
       var result: NSURL?
+      var packedVariants: [(original: URL, packed: URL)] = []
       do {
         try source.verifySnapshot()
+        for variant in variants {
+          let packed = folder.appendingPathComponent(variant.lastPathComponent)
+          try fm.moveItem(at: variant, to: packed)
+          packedVariants.append((variant, packed))
+        }
         try fm.trashItem(at: folder, resultingItemURL: &result)
       } catch {
+        for variant in packedVariants.reversed() {
+          try? fm.moveItem(at: variant.packed, to: variant.original)
+        }
         revertPlan(plan)
         throw error
       }

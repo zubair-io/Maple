@@ -76,7 +76,7 @@ export async function preparePrimarySidecarWrite(
   sidecar: string,
   xmlContent: string,
   signal?: AbortSignal,
-): Promise<{ ok: true; data: string } | { ok: false; error: string }> {
+): Promise<{ ok: true; data: string } | { ok: false; error: string; removalConflict?: true }> {
   const allowed = await authorizeUnlessAborted(sidecar, signal);
   if (!allowed.ok) return { ok: false, error: allowed.error ?? 'Sidecar path not allowed' };
   try {
@@ -87,6 +87,9 @@ export async function preparePrimarySidecarWrite(
       if (isMissingSidecar(error)) return null;
       throw error;
     });
+    // Ordinary saves cannot introduce, discard or replace accepted removal pixels.
+    if (removalStackChanged(existing, xmlContent))
+      return { ok: false, error: REMOVAL_STACK_CHANGED, removalConflict: true };
     return {
       ok: true,
       data: await prepareWorkflowWrite(existing, xmlContent, signal),
@@ -115,10 +118,12 @@ async function requirePrimarySidecarDestination(rawAbsPath: string): Promise<str
   return allowed.data;
 }
 
-/** Ordinary saves cannot introduce, discard or replace accepted removal pixels. */
+const REMOVAL_STACK_CHANGED =
+  'Removal history changed; use a confirmed removal commit before saving this document';
+
 class RemovalStackChangedError extends Error {
   constructor() {
-    super('Removal history changed; use a confirmed removal commit before saving this document');
+    super(REMOVAL_STACK_CHANGED);
   }
 }
 
@@ -128,15 +133,8 @@ async function publishPrimarySidecar(
   signal?: AbortSignal,
 ): Promise<OpResult<string>> {
   signal?.throwIfAborted();
-  const current = await waitForAbortable(readSidecarNoFollow(destination), signal).catch(
-    (error: unknown) => {
-      if (isMissingSidecar(error)) return null;
-      throw error;
-    },
-  );
-  if (removalStackChanged(current, xmlContent)) throw new RemovalStackChangedError();
-  signal?.throwIfAborted();
   const prepared = await preparePrimarySidecarWrite(destination, xmlContent, signal);
+  if (!prepared.ok && prepared.removalConflict) throw new RemovalStackChangedError();
   if (!prepared.ok) return prepared;
   signal?.throwIfAborted();
   const result = await writeSidecarAtomic(destination, prepared.data, 'XMP write failed', signal);
@@ -479,6 +477,7 @@ export async function writeXmpWithPrecondition(
             }
 
             const prepared = await preparePrimarySidecarWrite(sidecar, xmlContent, signal);
+            if (!prepared.ok && prepared.removalConflict) return writeConflictCopy();
             if (!prepared.ok)
               return {
                 kind: 'error',

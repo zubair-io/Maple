@@ -407,7 +407,7 @@ public enum RawCoreBridge {
     // (#3955). Malformed owned metadata fails instead of becoming a
     // successful original-only preview.
     let originalXML = original.flatMap { try? String(contentsOf: $0, encoding: .utf8) }
-    let carriesRemovals = originalXML?.contains("InpaintRemovals") == true
+    let carriesRemovals = originalXML.map(RemovalXMPRecords.mayCarryRecords) == true
     var stripped: AdjustmentModel
     let culling: CullingState
     if let original {

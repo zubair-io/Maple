@@ -137,7 +137,8 @@ EXPECTED_SLICE_DIRS=(ios-arm64 ios-arm64-simulator macos-arm64_x86_64)
 
 # Stable content hash over the inputs that affect the build:
 #   - every .rs, .wgsl, and .bin under raw-core/src, raw-ffi/src,
-#     maple-pano/src, maple-removal/src, and raw-gpu/src (the .bin blobs are include_bytes!-
+#     maple-pano/src, maple-removal/src, maple-ort/src (the ONNX Runtime
+#     setup both ML crates link), and raw-gpu/src (the .bin blobs are include_bytes!-
 #     embedded LUT / profile-bundle build inputs — #1946)
 #   - Cargo.lock (exact dependency versions)
 #   - the workspace + raw-core + raw-ffi Cargo.toml files
@@ -174,12 +175,13 @@ compute_input_hash() {
                 # profile-only regeneration touches no `.rs`/`.wgsl`
                 # file, so without hashing these a stale xcframework would ship — the same
                 # bug class #1513 fixed for `.wgsl`, never extended to the `.bin` files.
-                find raw-core/src raw-ffi/src maple-pano/src maple-removal/src raw-gpu/src \
+                find raw-core/src raw-ffi/src maple-pano/src maple-removal/src maple-ort/src raw-gpu/src \
                     -type f \( -name '*.rs' -o -name '*.wgsl' -o -name '*.bin' \) -print0 || return 1
                 for f in \
                     Cargo.lock Cargo.toml \
                     raw-core/Cargo.toml raw-ffi/Cargo.toml \
-                    maple-pano/Cargo.toml maple-removal/Cargo.toml raw-gpu/Cargo.toml \
+                    maple-pano/Cargo.toml maple-removal/Cargo.toml maple-ort/Cargo.toml \
+                    raw-gpu/Cargo.toml \
                     raw-ffi/cbindgen.toml; do
                     if [[ ! -f "$f" ]]; then
                         echo "ERROR: missing xcframework input: $f" >&2
@@ -232,7 +234,7 @@ if [[ "$ARG_CHECK_ONLY" == "1" ]]; then
     {
         echo ""
         echo "ERROR: RawPipeline.xcframework is stale or incomplete."
-        echo "       raw-core/raw-ffi/raw-gpu/maple-pano/maple-removal sources have changed since the"
+        echo "       raw-core/raw-ffi/raw-gpu/maple-pano/maple-removal/maple-ort sources have changed since the"
         echo "       last successful build (or a slice is missing), so MapleCore would"
         echo "       fail to compile against the checked-in header with a confusing"
         echo "       \"value of type '...' has no member '...'\" error."

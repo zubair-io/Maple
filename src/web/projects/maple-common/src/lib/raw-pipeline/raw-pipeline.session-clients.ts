@@ -8,6 +8,7 @@ import { SavedRemovalPreviewClient } from './raw-pipeline.saved-preview';
 export class RawPipelineSessionClients {
   readonly removal: RemovalAuthoringClient;
   readonly savedPreview: SavedRemovalPreviewClient;
+  private readonly savedPreviewSource: RemovalAuthoringClient;
   private readonly detail: NativeDetailClient;
 
   constructor(
@@ -17,10 +18,8 @@ export class RawPipelineSessionClients {
     sampleQueue: <T>(run: () => Promise<T>) => Promise<T>,
   ) {
     this.removal = new RemovalAuthoringClient(worker, nextId, pending);
-    this.savedPreview = new SavedRemovalPreviewClient(
-      new RemovalAuthoringClient(worker, nextId, pending),
-      sampleQueue,
-    );
+    this.savedPreviewSource = new RemovalAuthoringClient(worker, nextId, pending);
+    this.savedPreview = new SavedRemovalPreviewClient(this.savedPreviewSource, sampleQueue);
     this.detail = new NativeDetailClient(worker, nextId, pending);
   }
 
@@ -34,8 +33,10 @@ export class RawPipelineSessionClients {
 
   closeNativeDetail(worker: Worker | null): void {
     this.savedPreview.close();
-    if (this.removal.isOpen) this.detail.detach();
-    else this.detail.close(this.removal.releaseRetainedSource() ? worker : null);
+    if (this.removal.isOpen) return this.detail.detach();
+    const authoring = this.removal.releaseRetainedSource();
+    const savedPreview = this.savedPreviewSource.releaseRetainedSource();
+    this.detail.close(authoring || savedPreview ? worker : null);
   }
 
   workerFailed(): void {

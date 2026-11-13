@@ -39,7 +39,7 @@ final class SMBModelPublication: @unchecked Sendable {
         // Explicit workflow restoration uses WorkflowPublication instead (#3984).
         var savedModel = model
         savedModel.inpaintRemovals = try RemovalXMPRecords.ordinaryWriteRecords(
-          current.map { Data($0.utf8) })
+          current.flatMap { RemovalXMPRecords.mayCarryRecords($0) ? Data($0.utf8) : nil })
         let checkpoint = XMPSerializer.serialize(
           model: savedModel, culling: culling,
           metadata: current.map { XMPParser.parseMetadata($0) } ?? XmpMetadata(),

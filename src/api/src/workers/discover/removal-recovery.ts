@@ -16,12 +16,14 @@ const suffix = '.removal-relocation.json';
 /** False defers this photo to a later sweep. Active owners and changed or
  * corrupt recovery evidence never become partial catalogue entries. */
 export async function recoverRemovalForDiscover(target: string, root: string): Promise<boolean> {
+  // A probe that cannot see a journal never blocks the ordinary event; only real evidence defers.
+  const journal = await fs.lstat(removalJournalPath(target)).catch((error: unknown) => {
+    if (!removalPathAbsent(error))
+      log.warn({ target, error: String(error) }, 'removal journal probe failed');
+    return null;
+  });
+  if (!journal) return true;
   try {
-    const journal = await fs.lstat(removalJournalPath(target)).catch((error: unknown) => {
-      if (removalPathAbsent(error)) return null;
-      throw error;
-    });
-    if (!journal) return true;
     const directory = await fs.realpath(dirname(target));
     if (!isWithinRoot(await fs.realpath(root), directory))
       throw new Error('Removal recovery destination is outside the library');

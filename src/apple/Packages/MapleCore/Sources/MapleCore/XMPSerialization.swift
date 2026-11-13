@@ -69,7 +69,7 @@ public struct XMPParser {
     // `XMPSerialization+Retouch.swift`.
     m.retouchSpots = delegate.retouch.finish()
     m.inpaintRemovals =
-      xml.contains("InpaintRemovals")
+      RemovalXMPRecords.mayCarryRecords(xml)
       ? try RemovalXMPRecords.read(Data(xml.utf8)).map { try RemovalRecords(json: $0) } : nil
     // An unstamped Maple list is the legacy sensor frame (#4473). It is kept
     // exactly as read and left unstamped, so an unrelated save cannot relabel

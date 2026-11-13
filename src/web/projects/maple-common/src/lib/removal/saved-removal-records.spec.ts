@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { savedRemovalRecords } from './saved-removal-records';
 const rdf = 'http://www.w3.org/1999/02/22-rdf-syntax-ns#';
 const maple = 'http://ns.justmaple.app/photo/1.0/';
@@ -36,9 +36,16 @@ describe('saved removal record discovery', () => {
         ),
       ),
     ).toThrow('conflicting');
-    expect(() => savedRemovalRecords('<broken')).toThrow('malformed');
+    expect(() => savedRemovalRecords('<broken photo:InpaintRemovals="[1]"')).toThrow('malformed');
     expect(() =>
       savedRemovalRecords(sidecar('<r:Description photo:InpaintRemovals="{}"/>')),
     ).toThrow('record list');
+  });
+  it('leaves a sidecar that never names removals, even a malformed one, to the ordinary path', () => {
+    const parse = vi.spyOn(DOMParser.prototype, 'parseFromString');
+    expect(savedRemovalRecords(sidecar('<r:Description photo:Exposure="1"/>'))).toBeUndefined();
+    expect(savedRemovalRecords('<broken')).toBeUndefined();
+    expect(parse).not.toHaveBeenCalled();
+    parse.mockRestore();
   });
 });

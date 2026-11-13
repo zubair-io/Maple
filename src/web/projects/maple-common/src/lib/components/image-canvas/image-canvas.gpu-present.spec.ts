@@ -12,6 +12,7 @@ import { signal } from '@angular/core';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
 import { ImageCanvasGpuPresent } from './image-canvas.gpu-present';
+import { CLEAR_SAVED_REMOVALS } from './image-canvas.gpu-removals';
 import { buildLiveParams, canUseLiveFastPath } from './image-canvas.live-params';
 import type { GpuPresentHost } from './image-canvas.gpu-present';
 import type { OpenedLiveSession } from '../../raw-pipeline/raw-pipeline.service';
@@ -128,7 +129,7 @@ function makeHost(
     canvasSvc,
     xmpSerializer,
     savedRemovals: {
-      load: vi.fn(async () => null),
+      load: vi.fn(async () => undefined),
     } as unknown as GpuPresentHost['savedRemovals'],
     gpuFallback,
     serializeForRender: () => '<x/>',
@@ -150,7 +151,8 @@ function makeHost(
 
 // ── Test suite ────────────────────────────────────────────────────────────────
 
-const NO_SAVED_REMOVALS = { manifest: '[]', bytes: new Uint8Array() };
+const withRemovals = (records: string) =>
+  `<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns:papp="http://ns.justmaple.app/photo/1.0/"><rdf:Description papp:InpaintRemovals='${records}'/></rdf:RDF>`;
 
 describe('ImageCanvasGpuPresent — present-failure detection (#1572)', () => {
   beforeEach(() => {
@@ -176,18 +178,18 @@ describe('ImageCanvasGpuPresent — present-failure detection (#1572)', () => {
     const neutral = '<rdf:Description papp:Profile="Neutral"/>';
 
     await present.render(auto, 1, params);
-    expect(render).toHaveBeenLastCalledWith(auto, undefined, NO_SAVED_REMOVALS);
+    expect(render).toHaveBeenLastCalledWith(auto, undefined);
     await present.render(auto, 1, params);
-    expect(render).toHaveBeenLastCalledWith(auto, params, undefined);
+    expect(render).toHaveBeenLastCalledWith(auto, params);
     await present.render(neutral, 1);
-    expect(render).toHaveBeenLastCalledWith(neutral, undefined, NO_SAVED_REMOVALS);
+    expect(render).toHaveBeenLastCalledWith(neutral, undefined);
     await present.render(auto, 1, params);
-    expect(render).toHaveBeenLastCalledWith(auto, undefined, NO_SAVED_REMOVALS);
+    expect(render).toHaveBeenLastCalledWith(auto, undefined);
     await present.render(auto, 1, params);
-    expect(render).toHaveBeenLastCalledWith(auto, params, undefined);
+    expect(render).toHaveBeenLastCalledWith(auto, params);
     present.teardown();
     await present.render(auto, 1, params);
-    expect(render).toHaveBeenLastCalledWith(auto, undefined, NO_SAVED_REMOVALS);
+    expect(render).toHaveBeenLastCalledWith(auto, undefined);
   });
 
   it('tracks prefixModel across set-then-revert of a prefix field and resumes scalar renders (#4736)', async () => {
@@ -211,7 +213,7 @@ describe('ImageCanvasGpuPresent — present-failure detection (#1572)', () => {
     modelSig.set({ ...baseline, highlightRecovery: 'Off' });
     expect(canUseLiveFastPath(modelSig(), present.prefixModel)).toBe(false);
     await present.render('<off/>', 1, undefined);
-    expect(render).toHaveBeenLastCalledWith('<off/>', undefined, NO_SAVED_REMOVALS);
+    expect(render).toHaveBeenLastCalledWith('<off/>', undefined);
     expect(present.prefixModel?.highlightRecovery).toBe('Off');
 
     // 2. Revert `highlightRecovery` to default: `present.prefixModel` still has `'Off'`,
@@ -219,7 +221,7 @@ describe('ImageCanvasGpuPresent — present-failure detection (#1572)', () => {
     modelSig.set(baseline);
     expect(canUseLiveFastPath(modelSig(), present.prefixModel)).toBe(false);
     await present.render('<default/>', 1, undefined);
-    expect(render).toHaveBeenLastCalledWith('<default/>', undefined, NO_SAVED_REMOVALS);
+    expect(render).toHaveBeenLastCalledWith('<default/>', undefined);
     expect(present.prefixModel?.highlightRecovery).toBe(baseline.highlightRecovery);
 
     // 3. Subsequent scalar tick uses fastParams immediately now that prefixModel is back at default.
@@ -228,7 +230,7 @@ describe('ImageCanvasGpuPresent — present-failure detection (#1572)', () => {
     expect(canUseLiveFastPath(nextModel, present.prefixModel)).toBe(true);
     const params = buildLiveParams(nextModel);
     await present.render('<scalar/>', 1, params);
-    expect(render).toHaveBeenLastCalledWith('<scalar/>', params, undefined);
+    expect(render).toHaveBeenLastCalledWith('<scalar/>', params);
   });
 
   it('uses full XMP when Auto is chosen while a Neutral render is pending', async () => {
@@ -249,29 +251,49 @@ describe('ImageCanvasGpuPresent — present-failure detection (#1572)', () => {
         }),
     );
     const pendingNeutral = present.render('Neutral', 1);
-    await vi.waitFor(() => expect(render).toHaveBeenCalledTimes(2));
     Object.assign(host, { renderGeneration: 2 });
     await present.render('Auto', 2, params);
-    expect(render).toHaveBeenLastCalledWith('Auto', undefined, NO_SAVED_REMOVALS);
+    expect(render).toHaveBeenLastCalledWith('Auto', undefined);
     resolveNeutral({ colorSpace: 'srgb', width: 4000, height: 3000 });
     expect(await pendingNeutral).toBe(false);
     await present.render('Auto', 2, params);
-    expect(render).toHaveBeenLastCalledWith('Auto', params, undefined);
+    expect(render).toHaveBeenLastCalledWith('Auto', params);
   });
 
-  it('transfers verified companions on a cold render and performs no companion read on scalar ticks', async () => {
+  it('reads companions only on cold renders and clears a session’s saved removals exactly once', async () => {
     const host = makeHost(() => Promise.resolve(makeOpenedSession()));
     const present = new ImageCanvasGpuPresent(host);
     const bundle = { manifest: '[{"name":"saved","length":1}]', bytes: new Uint8Array([7]) };
-    vi.mocked(host.savedRemovals.load).mockResolvedValue(bundle);
+    vi.mocked(host.savedRemovals.load).mockResolvedValueOnce(bundle);
     const render = vi
       .mocked(host.pipeline.renderLiveSession)
       .mockResolvedValue({ colorSpace: 'srgb', width: 31, height: 19 });
     const params = new Float32Array(19);
-    await present.render('accepted recipe', 1, params);
-    expect(render).toHaveBeenLastCalledWith('accepted recipe', undefined, bundle);
+    await present.render(withRemovals('[1]'), 1, params);
     await present.render('next exposure', 1, params);
-    expect(render).toHaveBeenLastCalledWith('next exposure', params, undefined);
+    await present.render(withRemovals('[]'), 1);
+    await present.render('<rdf:Description papp:Exposure="1"/>', 1);
+    expect(render.mock.calls.map((call) => [call[1], call[2]])).toEqual([
+      [undefined, bundle],
+      [params, undefined],
+      [undefined, CLEAR_SAVED_REMOVALS],
+      [undefined, undefined],
+    ]);
+    expect(render.mock.calls[3]).toHaveLength(2);
+    expect(host.savedRemovals.load).toHaveBeenCalledTimes(2);
+  });
+
+  it('sends no saved-removal bundle and reads no companions for an ordinary photo', async () => {
+    const host = makeHost(() => Promise.resolve(makeOpenedSession()));
+    const present = new ImageCanvasGpuPresent(host);
+    await present.open('asset-1', new Uint8Array([1]), 'dng');
+    const render = vi
+      .mocked(host.pipeline.renderLiveSession)
+      .mockResolvedValue({ colorSpace: 'srgb', width: 31, height: 19 });
+    await present.render('<rdf:Description papp:Exposure="1"/>', 1);
+    await present.render('<rdf:Description papp:Exposure="2"/>', 1);
+    expect(vi.mocked(host.pipeline.openLiveSession).mock.calls[0][5]).toBeUndefined();
+    expect(render.mock.calls.every((call) => call.length === 2)).toBe(true);
     expect(host.savedRemovals.load).toHaveBeenCalledTimes(1);
   });
 

@@ -11,7 +11,7 @@ import { DEFAULT_EXPORT_RECIPE } from '../generated/export-recipe.generated.ts';
 import { relocateFile } from './relocate.ts';
 import { removalRecords } from './removal-records.ts';
 import { moveToTrash, moveOutOfTrash } from './trash.ts';
-import { removalJournalPath } from './removal-relocation-journal.ts';
+import { removalJournalPath, recoverRemovalRelocation } from './removal-relocation-journal.ts';
 
 const fixture = resolve(import.meta.dir, '../../../../test-fixtures/removal/calibration');
 describe.skipIf(!nativeLibAvailable())('RAW relocation preserves durable removals (#1472)', () => {
@@ -180,6 +180,25 @@ describe.skipIf(!nativeLibAvailable())('RAW relocation preserves durable removal
     }
   }
 
+  // #3944: production relocation does not journal yet; re-derive on main's publish pipeline.
+  it.skip('late destination edits after repoint preserve both originals and the later edit', async () => {
+    const later = xml.replace('rdf:Description', 'rdf:Description Later="destination-edit"');
+    const result = await relocateFile({
+      sourceAbsPath: raw,
+      destAbsPath: target,
+      mode: 'move',
+      collision: 'skip',
+      onVerified: async () => {
+        await fs.writeFile(target.replace('.dng', '.xmp'), later);
+      },
+    });
+    expect(result.kind).toBe('error');
+    expect(await fs.readFile(target.replace('.dng', '.xmp'), 'utf8')).toBe(later);
+    expect(await fs.readFile(raw)).toEqual(await fs.readFile(join(fixture, 'source.dng')));
+    expect(await fs.readFile(xmp, 'utf8')).toBe(xml);
+    expect(await fs.readFile(target)).toEqual(await fs.readFile(raw));
+  }, 30_000);
+
   it('a destination edit made during identity repoint is kept with the moved accepted edit', async () => {
     const later = xml.replace('rdf:Description', 'rdf:Description Later="destination-edit"');
     const result = await relocateFile({
@@ -245,6 +264,34 @@ describe.skipIf(!nativeLibAvailable())('RAW relocation preserves durable removal
     }, 30_000);
   }
 
+  // #3944: production relocation does not journal yet; re-derive on main's publish pipeline.
+  it.skip('unconfirmed identity repoint retains both complete edits and recovery evidence', async () => {
+    await fs.mkdir(dirname(target), { recursive: true });
+    await fs.writeFile(target, 'previous occupant');
+    await fs.writeFile(target.replace('.dng', '.xmp'), 'previous edits');
+    const result = await relocateFile({
+      sourceAbsPath: raw,
+      destAbsPath: target,
+      mode: 'move',
+      collision: 'replace',
+      onVerified: async () => {
+        throw new Error('repoint refused');
+      },
+    });
+    expect(result.kind).toBe('error');
+    expect(result.kind === 'error' && result.error).toContain('repoint refused');
+    await assertDestinationPixels(target);
+    expect(await fs.readFile(raw)).toEqual(await fs.readFile(join(fixture, 'source.dng')));
+    expect(await fs.readFile(xmp, 'utf8')).toBe(xml);
+    expect(await fs.stat(removalJournalPath(target))).toBeDefined();
+    expect(
+      (await fs.readdir(dirname(target))).filter((name) => name.endsWith('.rollback')),
+    ).toHaveLength(2);
+    await recoverRemovalRelocation(target);
+    await assertDestinationPixels(target);
+    await expect(fs.stat(removalJournalPath(target))).rejects.toThrow();
+  }, 30_000);
+
   it('a refused identity repoint restores the previous destination and keeps the source edit', async () => {
     await fs.mkdir(dirname(target), { recursive: true });
     await fs.writeFile(target, 'previous occupant');
@@ -267,6 +314,25 @@ describe.skipIf(!nativeLibAvailable())('RAW relocation preserves durable removal
     expect(await fs.readFile(target, 'utf8')).toBe('previous occupant');
     expect(await fs.readFile(target.replace('.dng', '.xmp'), 'utf8')).toBe('previous edits');
     await expect(fs.stat(removalJournalPath(target))).rejects.toThrow();
+  }, 30_000);
+
+  // #3944: production relocation does not journal yet; re-derive on main's publish pipeline.
+  it.skip('later source edits after identity repoint retain both complete copies', async () => {
+    const later = xml.replace('rdf:Description', 'rdf:Description Later="new-edit"');
+    const result = await relocateFile({
+      sourceAbsPath: raw,
+      destAbsPath: target,
+      mode: 'move',
+      collision: 'skip',
+      onVerified: async () => {
+        await fs.writeFile(xmp, later);
+      },
+    });
+    expect(result.kind).toBe('error');
+    expect(result.kind === 'error' && result.error).toContain('sidecars changed');
+    expect(await fs.readFile(xmp, 'utf8')).toBe(later);
+    expect(await fs.readFile(raw)).toEqual(await fs.readFile(join(fixture, 'source.dng')));
+    await assertDestinationPixels(target);
   }, 30_000);
 
   it('a source edit made during identity repoint is carried to the destination', async () => {

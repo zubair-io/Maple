@@ -40,7 +40,8 @@ import type { LibraryStateService } from '../../state/library-state.service';
 import type { ImageCanvasService } from './image-canvas.service';
 import type { XmpSerializerService } from '../../xmp/xmp-serializer.service';
 import { publishCropInputDimensions } from './image-canvas.gpu-dimensions';
-import { loadGpuSessionRemovals } from './image-canvas.gpu-removals';
+import { loadGpuSessionRemovals, CLEAR_SAVED_REMOVALS } from './image-canvas.gpu-removals';
+import { savedRemovalRecords } from '../../removal/saved-removal-records';
 import type { SavedRemovalRenderService } from '../../removal/saved-removal-render.service';
 import type { AssetId } from '../../models/asset';
 import type { AdjustmentModel } from '../../models/adjustment-model';
@@ -132,6 +133,7 @@ export class ImageCanvasGpuPresent {
   // Establish a compatible prefix through full XMP before using the fast path.
   private scalarPrefixRevision: number | undefined;
   private scalarPrefixAsset: AssetId | null = null;
+  private sessionHoldsSaved = false;
   prefixModel: AdjustmentModel | null = null;
 
   /**
@@ -250,6 +252,7 @@ export class ImageCanvasGpuPresent {
         this.host.viewportTargetLongEdge(),
         saved,
       );
+      this.sessionHoldsSaved = saved !== undefined;
 
       // Stale guard: a fast asset switch may have moved on (or torn this down)
       // while the open was in flight.
@@ -385,16 +388,19 @@ export class ImageCanvasGpuPresent {
       this.prefixModel = null;
     }
     try {
-      // Only a cold prefix change reads companions. Scalar ticks keep their
-      // existing flat-params path with no file I/O or additional WASM call.
+      // Only a cold prefix change of a photo with saved removals reads companions;
+      // a session that held them sends one clearing bundle when they are gone.
       const saved =
-        !fastParams && this.host.currentAssetId
-          ? ((await this.host.savedRemovals.load(this.host.currentAssetId, xmp)) ?? {
-              manifest: '[]',
-              bytes: new Uint8Array(),
-            })
+        !fastParams &&
+        this.host.currentAssetId &&
+        (this.sessionHoldsSaved || savedRemovalRecords(xmp))
+          ? ((await this.host.savedRemovals.load(this.host.currentAssetId, xmp)) ??
+            CLEAR_SAVED_REMOVALS)
           : undefined;
-      const rendered = await this.host.pipeline.renderLiveSession(xmp, fastParams, saved);
+      const rendered = await (saved
+        ? this.host.pipeline.renderLiveSession(xmp, fastParams, saved)
+        : this.host.pipeline.renderLiveSession(xmp, fastParams));
+      if (saved) this.sessionHoldsSaved = saved !== CLEAR_SAVED_REMOVALS;
       publishCropInputDimensions(this.host.canvasSvc, rendered);
       // The surface already has these dims, stale or not: a crop change resizes it.
       this.host.recordPaintedDims(rendered.width, rendered.height);
@@ -456,6 +462,7 @@ export class ImageCanvasGpuPresent {
 
   /** Tear down the GPU live session + remove its canvas element. Idempotent. */
   teardown(): void {
+    this.sessionHoldsSaved = false;
     this.scalarPrefixRevision = undefined;
     this.prefixModel = null;
     if (this.active() || this.canvasEl) {

@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
-import { beforeAll, beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
 import {
   initSync,
   removal_saved_edit,
@@ -44,6 +44,9 @@ const text = (name: string) => new TextDecoder().decode(bytes(name));
 
 // The sidecar writer, locks, RAW, companions and files are real. Only the
 // library presentation signal is adapted to avoid bootstrapping a whole shell.
+let restoreWebLocks: () => void = () => undefined;
+afterAll(() => restoreWebLocks());
+
 describe('confirmed Web removal history with real XMP and companions', () => {
   let root: string,
     folder: MapleFolderHandle,
@@ -65,7 +68,7 @@ describe('confirmed Web removal history with real XMP and companions', () => {
         resolve(process.cwd(), 'projects/maple-common/src/lib/raw-pipeline/pkg/raw_wasm_bg.wasm'),
       ),
     });
-    installTestWebLocks();
+    restoreWebLocks = installTestWebLocks();
   });
   beforeEach(async () => {
     TestBed.resetTestingModule();

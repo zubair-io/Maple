@@ -1,8 +1,8 @@
 import MapleCore
-import MapleUI
 import SwiftUI
 
-/// Shared status in the desktop inspector and compact phone controls.
+/// Removal-save progress in the desktop inspector and compact phone controls.
+/// Save failures stay in the header's `EditorSidecarLoadNotice`.
 struct EditorSidecarStatus: View {
   let session: EditSession
 
@@ -12,13 +12,6 @@ struct EditorSidecarStatus: View {
         .font(.caption)
         .padding(12)
         .accessibilityIdentifier("editor-saving-removal")
-    }
-    if let error = session.sidecarError {
-      Text(error.localizedDescription)
-        .font(.caption)
-        .foregroundStyle(ProTokens.textMuted)
-        .padding(12)
-        .accessibilityIdentifier("editor-sidecar-save-error")
     }
   }
 }

@@ -4,15 +4,28 @@
 import Foundation
 
 enum RemovalXMPRecords {
+  private static let marker = "InpaintRemovals"
+
   static func read(_ data: Data) throws -> String? {
     try field(data)?.records
+  }
+
+  /// Every removal element or attribute is named `…InpaintRemovals` and XML
+  /// names cannot be escaped, so a sidecar without that text carries no
+  /// records and skips the removal parse. UTF-16/32 bytes are not
+  /// byte-searchable and always take the full parse.
+  static func mayCarryRecords(_ xml: String) -> Bool { xml.contains(marker) }
+
+  static func mayCarryRecords(_ data: Data) -> Bool {
+    data.range(of: Data(marker.utf8)) != nil || data.prefix(4).contains(0)
+      || data.starts(with: [0xFE, 0xFF]) || data.starts(with: [0xFF, 0xFE])
   }
 
   /// Ordinary remote/PhotoKit saves cannot author or roll back a stack from
   /// an incoming scalar snapshot. Keep only the current source document's
   /// validated owned records, refusing ownership the writer cannot preserve.
   static func ordinaryWriteRecords(_ data: Data?) throws -> RemovalRecords? {
-    guard let data else { return nil }
+    guard let data, mayCarryRecords(data) else { return nil }
     let owned = try field(data)
     if let owned, !owned.primary {
       throw RemovalError.invalid(
@@ -31,6 +44,7 @@ enum RemovalXMPRecords {
   static func field(_ data: Data) throws
     -> (name: String, records: String, propertyNamespaces: [String: String]?, primary: Bool)?
   {
+    guard mayCarryRecords(data) else { return nil }
     let parser = XMLParser(data: data)
     let delegate = RemovalAttributeReader()
     parser.delegate = delegate

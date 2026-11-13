@@ -10,7 +10,7 @@ trap 'rm -rf "$scratch"' EXIT
 make_root() {
 	local root="$1" path
 	mkdir -p "$root/src/apple/scripts" "$root/src/raw-pipeline"
-	for path in raw-core raw-ffi maple-pano raw-gpu; do
+	for path in raw-core raw-ffi maple-pano maple-removal maple-ort raw-gpu; do
 		mkdir -p "$root/src/raw-pipeline/$path/src"
 		printf 'crate = "%s"\n' "$path" >"$root/src/raw-pipeline/$path/Cargo.toml"
 		printf 'pub fn %s() {}\n' "${path//-/_}" >"$root/src/raw-pipeline/$path/src/lib.rs"
@@ -119,6 +119,15 @@ printf 'changed\n' >>"$second/src/raw-pipeline/raw-core/src/profile.bin"
 expect_changed 'embedded binary content'
 cp "$first/src/raw-pipeline/raw-core/src/profile.bin" \
 	"$second/src/raw-pipeline/raw-core/src/profile.bin"
+
+for crate in maple-removal maple-ort; do
+	printf 'changed\n' >>"$second/src/raw-pipeline/$crate/src/lib.rs"
+	expect_changed "$crate source content"
+	cp "$first/src/raw-pipeline/$crate/src/lib.rs" "$second/src/raw-pipeline/$crate/src/lib.rs"
+	printf 'changed\n' >>"$second/src/raw-pipeline/$crate/Cargo.toml"
+	expect_changed "$crate manifest content"
+	cp "$first/src/raw-pipeline/$crate/Cargo.toml" "$second/src/raw-pipeline/$crate/Cargo.toml"
+done
 
 printf 'changed\n' >>"$second/src/raw-pipeline/raw-ffi/Cargo.toml"
 expect_changed 'Cargo manifest content'

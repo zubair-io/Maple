@@ -42,7 +42,9 @@ public actor XMPSidecarStore: WorkflowSidecarStoreProtocol {
   var lineageHeadID = ""
   var stagedAdoption: StagedAdoption?
   let reconciliationHub = SidecarReconciliationHub()
-  var removalObservedRevision: RemovalSidecarRevision?
+  /// The sidecar text this store last observed; hashed only when removal
+  /// authoring asks for a revision, never on an ordinary read or save.
+  var removalObservedXML: String??
   var removalRecovery = LocalRemovalCommitRecovery()
   var pendingTask: Task<Void, Never>?
   var pendingModel: AdjustmentModel?
@@ -111,7 +113,7 @@ public actor XMPSidecarStore: WorkflowSidecarStoreProtocol {
       observedSidecarXML = nil
       hasObservedSidecar = true
       lineageHeadID = ""
-      removalObservedRevision = .missing
+      removalObservedXML = .some(nil)
       return nil
     }
     let result = try readFromDisk()
@@ -179,14 +181,16 @@ public actor XMPSidecarStore: WorkflowSidecarStoreProtocol {
   /// Comparing the loaded stack under the same lock as every local write
   /// prevents an older Maple writer from replacing a newer removal (#3940).
   public func removalRevision() throws -> RemovalSidecarRevision {
-    let current = try RemovalSidecarRevision(xml: existingSidecarXML(at: sidecarURL))
-    if let removalObservedRevision, current != removalObservedRevision {
+    let xml = try existingSidecarXML(at: sidecarURL)
+    if let observed = removalObservedXML,
+      observed.map({ Data($0.utf8) }) != xml.map({ Data($0.utf8) })
+    {
       // A retry cannot bless changed external XML while retaining the old
       // in-memory adjustment model. Reopen the photo to hydrate a new session.
       throw RemovalError.saveConflict
     }
-    removalObservedRevision = current
-    return current
+    removalObservedXML = xml
+    return try RemovalSidecarRevision(xml: xml)
   }
 
   public func writeRemovalConfirmed(
@@ -247,7 +251,7 @@ public actor XMPSidecarStore: WorkflowSidecarStoreProtocol {
       observedSidecarXML = nil
       hasObservedSidecar = true
       lineageHeadID = ""
-      removalObservedRevision = .missing
+      removalObservedXML = .some(nil)
       return (.default, CullingState())
     }
     let data = try Data(contentsOf: sidecarURL)
@@ -257,17 +261,18 @@ public actor XMPSidecarStore: WorkflowSidecarStoreProtocol {
     observedSidecarXML = xml
     hasObservedSidecar = true
     lineageHeadID = head
-    removalObservedRevision = try RemovalSidecarRevision(xml: xml)
+    removalObservedXML = xml
     return result
   }
 
   private func writePending() async {
     // A removal-owned photo's lease can be briefly held by a peer writer; yield
     // and retry rather than surfacing the contention as a failed save (#3940).
+    // A flush runs on its caller's task, so cancellation only ends the retries.
     for attempt in 0..<50 {
-      guard !Task.isCancelled, let model = pendingModel, let culling = pendingCulling else {
-        return
-      }
+      guard attempt == 0 || !Task.isCancelled, let model = pendingModel,
+        let culling = pendingCulling
+      else { return }
       do {
         try writeAtomically(model: model, culling: culling, durable: false)
         pendingModel = nil
@@ -301,7 +306,7 @@ public actor XMPSidecarStore: WorkflowSidecarStoreProtocol {
       {
         self.pendingSemanticEdits.removeAll()
         self.pendingMetadata = nil
-        self.removalObservedRevision = try RemovalSidecarRevision(xml: existing)
+        self.removalObservedXML = existing
         return recovered
       }
       if let expectedSidecarRevision,
@@ -362,7 +367,7 @@ public actor XMPSidecarStore: WorkflowSidecarStoreProtocol {
   func coordinateSidecarWrite<T>(
     reconciling: Bool = false, removalChange: Bool = false, _ write: (URL, String?) throws -> T
   ) throws -> T {
-    try withRemovalLease(removalChange: removalChange) {
+    try withRemovalLease(removalChange: removalChange) { needsLease in
       let coordinator = NSFileCoordinator(filePresenter: nil)
       var error: NSError?
       var result: Result<T, Error>?
@@ -373,7 +378,8 @@ public actor XMPSidecarStore: WorkflowSidecarStoreProtocol {
           if !reconciling, self.hasObservedSidecar, existing != self.observedSidecarXML {
             throw XMPStoreError.externalConflict(self.sidecarURL)
           }
-          return try write(url, existing)
+          return try needsLease(existing)
+            ? self.holdingRemovalLease { try write(url, existing) } : write(url, existing)
         }
       }
       if let error { throw error }
@@ -440,7 +446,7 @@ public actor XMPSidecarStore: WorkflowSidecarStoreProtocol {
     // this writer used to delete on the first slider nudge.
     let passthroughOnDisk = existingXML.map(XMPParser.parsePassthrough) ?? .empty
     let existingRemoval = try existingXML.flatMap {
-      try RemovalXMPRecords.field(Data($0.utf8))
+      RemovalXMPRecords.mayCarryRecords($0) ? try RemovalXMPRecords.field(Data($0.utf8)) : nil
     }
     let canonicalRemovalName = "papp:InpaintRemovals"
     // Canonical serialization binds papp to Maple. A foreign namespace using
@@ -504,7 +510,7 @@ public actor XMPSidecarStore: WorkflowSidecarStoreProtocol {
     observedSidecarXML = adoption?.represented ?? xml
     hasObservedSidecar = true
     lineageHeadID = head
-    removalObservedRevision = try RemovalSidecarRevision(xml: xml)
+    removalObservedXML = xml
     stagedAdoption = adoption.map { StagedAdoption(published: xml, document: $0.document) }
     if let adoption { reconciliationHub.publish(adoption.document) }
     try afterPublication?()

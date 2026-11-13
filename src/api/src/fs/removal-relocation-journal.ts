@@ -3,7 +3,7 @@ import * as fs from './mirrored.ts';
 import { basename, dirname, isAbsolute, join } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { ffiPool } from '../ffi/ffi-pool.ts';
-import { removalRecords } from './removal-records.ts';
+import { carriesRemovalRecords, removalRecords } from './removal-records.ts';
 import { listPairedSidecars } from './xmp-conflict.ts';
 import { xmpSidecarPath } from './xmp-sidecar-path';
 import { removalLeaseFiles, removalRelocationLease } from './removal-relocation-lease.ts';
@@ -200,8 +200,7 @@ async function restore(target: string, record: Journal) {
  * relocation journal, or an existing coordination inode (another owner has
  * leased it before) needs the kernel lease. Ordinary metadata writes and
  * relocations on every other photo stay inode-free, exactly as before #1472.
- * An unreadable sidecar cannot prove the absence of edits, so it requires the
- * lease. `paired` also inspects conflict variants, which a relocation carries
+ * `paired` also inspects conflict variants, which a relocation carries
  * along with the primary. */
 export async function removalCoordinationRequired(
   raw: string,
@@ -217,12 +216,9 @@ export async function removalCoordinationRequired(
   }
   const sidecars = scope === 'paired' ? await listPairedSidecars(raw) : [xmpSidecarPath(raw)];
   for (const sidecar of sidecars) {
-    const xml = await fs.readFile(sidecar, 'utf8').catch((error: unknown) => {
-      if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT')
-        return '';
-      return null;
-    });
-    if (xml === null || xml.includes('InpaintRemovals')) return true;
+    // An unreadable sidecar is left to the ordinary write, which fails or proceeds exactly as on main.
+    const xml = await fs.readFile(sidecar, 'utf8').catch(() => '');
+    if (carriesRemovalRecords(xml)) return true;
   }
   return false;
 }

@@ -552,7 +552,7 @@ extension EditSession {
         "decodeAndRender failed gen=\(gen ?? 0) phase=\(String(describing: phase), privacy: .public) error=\(String(describing: error), privacy: .public)"
       )
       settleAutoFitFailure(assetID: asset.id, profile: m.profile, revision: fitRevision)
-      renderError = await renderActor.removalRenderFailure(error, asset: asset, model: m)
+      guard await publishRenderFailure(error, asset: asset, model: m, gen: gen) else { return }
       // Terminal failure once the decode is done (e.g. an unreadable file):
       // no full-quality frame is coming, so settle the cold-open indicator
       // here too — otherwise `isResolvingFirstFrame` (cleared only on a

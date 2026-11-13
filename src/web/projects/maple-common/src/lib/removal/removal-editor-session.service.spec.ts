@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
-import { beforeAll, beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
 import { initSync, NativeDetailSession, removal_selection } from '../raw-pipeline/pkg/raw_wasm';
 import { NativeDetailWorker } from '../raw-pipeline/raw-pipeline.native-detail-handler';
 import { runRemovalAuthoring } from '../raw-pipeline/raw-pipeline.removal-handler';
@@ -35,6 +35,9 @@ const fixtureRoot = resolve(process.cwd(), '../../test-fixtures/removal/basic');
 const raw = new Uint8Array(readFileSync(join(fixtureRoot, 'source.dng')));
 const prior = readFileSync(join(fixtureRoot, 'prior.xmp'), 'utf8');
 
+let restoreWebLocks: () => void = () => undefined;
+afterAll(() => restoreWebLocks());
+
 describe('editor removal lifecycle with actual retained RAW and filesystem XMP', () => {
   let root: string,
     folder: MapleFolderHandle,
@@ -47,7 +50,7 @@ describe('editor removal lifecycle with actual retained RAW and filesystem XMP',
         resolve(process.cwd(), 'projects/maple-common/src/lib/raw-pipeline/pkg/raw_wasm_bg.wasm'),
       ),
     });
-    installTestWebLocks();
+    restoreWebLocks = installTestWebLocks();
   });
   beforeEach(async () => {
     root = await fs.mkdtemp(join(tmpdir(), 'maple-removal-editor-'));

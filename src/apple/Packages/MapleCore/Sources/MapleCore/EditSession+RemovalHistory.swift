@@ -106,11 +106,28 @@ extension EditSession {
 
   func permitsModelChange(from previous: AdjustmentModel) -> Bool {
     if isApplyingRemovalCommit || workflow.isApplying { return true }
-    guard !isSavingRemoval, !workflow.isBusy else { return false }
+    guard !isSavingRemoval else { return false }
     guard model.inpaintRemovals == previous.inpaintRemovals else {
       sidecarError = RemovalError.invalid("Accepted removals require a confirmed save")
       return false
     }
+    return true
+  }
+
+  /// Ordinary photos publish a render failure synchronously, as before
+  /// removals existed. Only a saved stack is diagnosed on the render actor,
+  /// and a newer render that started meanwhile keeps its frame.
+  func publishRenderFailure(
+    _ error: Error, asset: AssetRef, model: AdjustmentModel, gen: UInt64?
+  ) async -> Bool {
+    guard model.inpaintRemovals?.isEmpty == false else {
+      renderError = error
+      return true
+    }
+    let failure = await renderActor.removalRenderFailure(error, asset: asset, model: model)
+    if let gen, await renderActor.currentGeneration() != gen { return false }
+    guard !Task.isCancelled else { return false }
+    renderError = failure
     return true
   }
 

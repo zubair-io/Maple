@@ -208,6 +208,27 @@ final class LocalRemovalRelocateTests: XCTestCase {
       let reopened = try await LocalRemovalAssetStore(rawURL: raw).readAssets(records: records)
       XCTAssertEqual(reopened, assets)
     }
+
+    func testOSTrashCarriesOwnedWorkflowVariantsWithAcceptedEdit() async throws {
+      let (raw, _) = try await stage()
+      let root = raw.deletingLastPathComponent()
+      let variant = root.appendingPathComponent("photo.v\(UUID().uuidString.lowercased()).xmp")
+      let variantBytes = Data("<version/>".utf8)
+      try variantBytes.write(to: variant)
+      let trashed = try await LocalFileOperations.trash(raw, libraryRoot: root)
+      let folder = URL(fileURLWithPath: trashed.primaryPath).deletingLastPathComponent()
+      addTeardownBlock {
+        if folder.lastPathComponent.contains(" Recovery ") {
+          try? FileManager.default.removeItem(at: folder)
+        }
+      }
+      XCTAssertFalse(FileManager.default.fileExists(atPath: variant.path))
+      XCTAssertEqual(
+        try Data(contentsOf: folder.appendingPathComponent(variant.lastPathComponent)),
+        variantBytes)
+      _ = try await LocalFileOperations.restoreRemovalTrashPackage(folder, libraryRoot: root)
+      XCTAssertEqual(try Data(contentsOf: variant), variantBytes)
+    }
   #endif
 
   func testExtensionRenameKeepsSharedStemSidecarAndFinishesJournal() async throws {

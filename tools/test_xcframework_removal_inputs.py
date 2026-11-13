@@ -23,7 +23,9 @@ class XcframeworkRemovalInputTests(unittest.TestCase):
         pipeline.mkdir()
         (pipeline / "Cargo.toml").write_text("[workspace]\nmembers = []\n")
         (pipeline / "Cargo.lock").write_text("version = 4\n")
-        for crate in ("raw-core", "raw-ffi", "raw-gpu", "maple-pano", "maple-removal"):
+        for crate in (
+            "raw-core", "raw-ffi", "raw-gpu", "maple-pano", "maple-removal", "maple-ort"
+        ):
             source = pipeline / crate / "src"
             source.mkdir(parents=True)
             (source / "lib.rs").write_text("pub fn version() -> u32 { 1 }\n")
@@ -71,6 +73,18 @@ class XcframeworkRemovalInputTests(unittest.TestCase):
             manifest = pipeline / "maple-removal/Cargo.toml"
             manifest.write_text(manifest.read_text() + "[features]\nml = []\n")
             self.assertNotEqual(before, self.digest(probe))
+
+    def test_shared_ort_crate_change_invalidates_hash(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            pipeline, probe = self.fixture(Path(temporary))
+            before = self.digest(probe)
+            source = pipeline / "maple-ort/src/lib.rs"
+            source.write_text("pub fn version() -> u32 { 2 }\n")
+            changed = self.digest(probe)
+            self.assertNotEqual(before, changed)
+            manifest = pipeline / "maple-ort/Cargo.toml"
+            manifest.write_text(manifest.read_text() + "[features]\nml = []\n")
+            self.assertNotEqual(changed, self.digest(probe))
 
     def test_unrelated_document_change_does_not_invalidate_hash(self):
         with tempfile.TemporaryDirectory() as temporary:

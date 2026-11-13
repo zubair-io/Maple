@@ -9,6 +9,7 @@ import {
   recoverRemovalRelocation,
   removalCoordinationRequired,
 } from './removal-relocation-journal.ts';
+import { carriesRemovalRecords } from './removal-records.ts';
 
 const pending = new Map<string, Promise<void>>();
 
@@ -45,16 +46,16 @@ export async function withSidecarMutationLease<T>(
   pending.set(sidecar, gate);
   try {
     await previous;
-    await fs.mkdir(dirname(sidecar), { recursive: true });
     await recoverRemovalRelocation(raw);
     // An ordinary save on a photo without accepted removals needs no kernel
     // lease: taking one would leave permanent coordination inodes beside
     // every edited photo.
     const required =
       options.removal === true ||
-      (options.incomingXml?.includes('InpaintRemovals') ?? false) ||
+      carriesRemovalRecords(options.incomingXml ?? '') ||
       (await removalCoordinationRequired(raw, 'primary'));
     if (!required) return await mutation();
+    await fs.mkdir(dirname(sidecar), { recursive: true });
     const lease = await removalRelocationLease(raw, raw);
     try {
       await assertRemovalRecovered(raw);

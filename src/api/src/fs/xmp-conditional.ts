@@ -14,7 +14,6 @@ import {
   writeSidecarAtomic,
   writeSidecarCreateOnly,
 } from './sidecar-io';
-import { removalStackChanged } from './removal-records.ts';
 
 export type ConditionalXmpResult =
   | { kind: 'ok'; data: string }
@@ -44,8 +43,8 @@ export async function writeXmpIfUnchanged(
           signal?.throwIfAborted();
           const actualEtag = current === null ? null : computeBodyETag(current);
           if (actualEtag !== expectedEtag) return { kind: 'conflict' };
-          if (removalStackChanged(current, xml)) return { kind: 'removal-conflict' };
           const prepared = await preparePrimarySidecarWrite(destination, xml, signal);
+          if (!prepared.ok && prepared.removalConflict) return { kind: 'removal-conflict' };
           if (!prepared.ok) return { kind: 'error', error: prepared.error };
           signal?.throwIfAborted();
           if (expectedEtag === null) {

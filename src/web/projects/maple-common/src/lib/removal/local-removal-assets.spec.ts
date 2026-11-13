@@ -6,7 +6,7 @@ import { LibraryStateService } from '../state/library-state.service';
 import { SavedRemovalRenderService } from './saved-removal-render.service';
 import { savedRemovalRecords } from './saved-removal-records';
 import { TestBed } from '@angular/core/testing';
-import { beforeAll, beforeEach, afterEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, afterEach, describe, expect, it } from 'vitest';
 import {
   initSync,
   workflow_read_xmp,
@@ -43,6 +43,9 @@ const fixture = (name: string) => new Uint8Array(readFileSync(join(fixtureRoot, 
 const text = (name: string) => new TextDecoder().decode(fixture(name));
 const culling = { rating: 0, flag: 'unflagged' as const, colorLabel: null };
 
+let restoreWebLocks: () => void = () => undefined;
+afterAll(() => restoreWebLocks());
+
 describe('durable browser removal through actual WASM and filesystem files', () => {
   let root: string;
   let folder: MapleFolderHandle;
@@ -68,7 +71,7 @@ describe('durable browser removal through actual WASM and filesystem files', () 
       ),
     });
     // Use Node's native LockManager or Bun's serial test fallback.
-    installTestWebLocks();
+    restoreWebLocks = installTestWebLocks();
   });
   beforeEach(async () => {
     TestBed.resetTestingModule();

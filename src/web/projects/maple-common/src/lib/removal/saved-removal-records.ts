@@ -1,7 +1,9 @@
 // Sidecar record discovery by namespace identity; Rust owns record validation.
 import { hasXmlParseError, managedXmpName, rdfDescriptions } from '../xmp/xmp-dom-utils';
 
+/** A sidecar that never names the record element costs one substring scan, so ordinary photos keep main's parse-free path. */
 export function savedRemovalRecords(xml: string): string | undefined {
+  if (!xml.includes('InpaintRemovals')) return undefined;
   const document = new DOMParser().parseFromString(xml, 'application/xml');
   if (hasXmlParseError(document)) throw new Error('Cannot render a malformed photo sidecar.');
   const values = rdfDescriptions(document).flatMap((description) =>

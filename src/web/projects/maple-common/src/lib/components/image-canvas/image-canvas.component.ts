@@ -227,15 +227,19 @@ export class ImageCanvasComponent
 
   /** Crop-stripped render model, shared by GPU and CPU cold-open dedup. */
   serializeForRender(model: AdjustmentModel): string {
-    return this.savedRemovals.serialize(
-      this.currentAssetId,
-      renderModelForCrop(model, this.cropSession.active()),
-    );
+    return this.captureRenderSerializer()(model);
   }
 
+  /** Only a photo with saved removals renders its passthrough (and tracks its revision). */
   captureRenderSerializer(): (model: AdjustmentModel) => string {
     const cropActive = this.cropSession.active();
-    return (model) => this.xmpSerializer.serialize(renderModelForCrop(model, cropActive));
+    const assetId = this.currentAssetId;
+    return (model) => {
+      const render = renderModelForCrop(model, cropActive);
+      return model.inpaintRemovals
+        ? this.savedRemovals.serialize(assetId, render)
+        : this.xmpSerializer.serialize(render);
+    };
   }
 
   ngAfterViewInit(): void {

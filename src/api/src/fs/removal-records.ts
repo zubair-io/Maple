@@ -46,3 +46,16 @@ export function removalStackChanged(current: string | null, next: string): boole
   const before = current ? (removalRecords(current) ?? '[]') : '[]';
   return before !== (removalRecords(next) ?? '[]');
 }
+
+/** Accepted records, or a recognized field that cannot be read, need removal coordination. */
+export function carriesRemovalRecords(xml: string): boolean {
+  if (!xml.includes('InpaintRemovals')) return false;
+  try {
+    const records = removalRecords(xml);
+    if (records === null) return false;
+    const parsed: unknown = JSON.parse(records);
+    return !Array.isArray(parsed) || parsed.length > 0;
+  } catch {
+    return true;
+  }
+}

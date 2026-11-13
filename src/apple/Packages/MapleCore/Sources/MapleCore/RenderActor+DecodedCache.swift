@@ -91,7 +91,6 @@ extension RenderActor {
     // cancelAll revokes ownership before the abandoned FFI task finishes.
     // A new render must start a fresh decode instead of joining that task.
     let liveBaked = liveModel.map(Self.bakedModel(fromLive:))
-    guard let requestedBaked = liveBaked ?? Self.validatedBakedModel(for: asset) else { return nil }
     if let existing = decodeTask, decodeCancelFlag != nil, decodeTaskAssetID == asset.id,
       decodeTaskSidecarURL == asset.sidecarURL,
       liveBaked == nil || decodeTaskBakedModel == liveBaked,
@@ -117,6 +116,9 @@ extension RenderActor {
     decodeTaskAssetID = nil
     decodeTaskSidecarURL = nil
     decodeTaskBakedModel = nil
+    // A cold decode reads its own sidecar; only its text is kept so a Keep
+    // landing mid-decode cannot label these pixels with the new stack (#3955).
+    let requestedSidecarXML = liveBaked == nil ? Self.sidecarText(for: asset) : nil
 
     let decodeSignpostID = editSessionSignposter.makeSignpostID()
     let decodeState = editSessionSignposter.beginInterval("decode", id: decodeSignpostID)
@@ -392,10 +394,13 @@ extension RenderActor {
     // write landing mid-capture can only make a future check do an extra
     // parse, never serve stale.
     let currentMtime = EditSession.sidecarMtime(for: asset)
-    // A Keep landing mid-decode must discard these pixels, never label them
-    // with the newly accepted stack (#3955).
-    guard let currentBaked = liveBaked ?? Self.validatedBakedModel(for: asset),
-      currentBaked.inpaintRemovals == requestedBaked.inpaintRemovals
+    // An unreadable accepted removal stack has no baked key (#3955): these
+    // pixels cannot be cached under it, nor under a stack accepted meanwhile.
+    let currentSidecarXML = liveBaked == nil ? Self.sidecarText(for: asset) : nil
+    guard
+      let currentBaked = liveBaked ?? Self.validatedBakedModel(xml: currentSidecarXML),
+      liveBaked != nil
+        || Self.sameRemovalStack(requestedSidecarXML, currentSidecarXML)
     else {
       decodeTask = nil
       decodeTaskAssetID = nil

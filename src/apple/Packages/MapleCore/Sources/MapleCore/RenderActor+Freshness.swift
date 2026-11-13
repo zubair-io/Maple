@@ -79,16 +79,38 @@ extension RenderActor {
   /// unparseable accepted removal stack has no baked key (#3955), so no decode
   /// may be cached, seeded, or published under it.
   nonisolated static func validatedBakedModel(for asset: AssetRef) -> AdjustmentModel? {
+    validatedBakedModel(xml: sidecarText(for: asset))
+  }
+
+  /// `.some(nil)` is an absent sidecar; `nil` a sidecar that exists but
+  /// cannot be read.
+  nonisolated static func sidecarText(for asset: AssetRef) -> String?? {
     guard EditSession.sidecarMtime(for: asset) != nil, let url = asset.sidecarURL else {
-      return defaultBakedModel
+      return .some(nil)
     }
-    guard let xml = try? String(contentsOf: url, encoding: .utf8) else {
-      return bakedModel(fromLive: .default)
-    }
+    return (try? String(contentsOf: url, encoding: .utf8)).map { .some($0) }
+  }
+
+  nonisolated static func validatedBakedModel(xml text: String??) -> AdjustmentModel? {
+    guard let text else { return bakedModel(fromLive: .default) }
+    guard let xml = text else { return defaultBakedModel }
     guard let (model, _) = try? XMPParser.parse(xml) else {
-      return xml.contains("InpaintRemovals") ? nil : bakedModel(fromLive: .default)
+      return RemovalXMPRecords.mayCarryRecords(xml) ? nil : bakedModel(fromLive: .default)
     }
     return bakedModel(fromLive: model)
+  }
+
+  /// Byte-equal text skips the removal parse; plain sidecars skip it too.
+  nonisolated static func sameRemovalStack(_ lhs: String??, _ rhs: String??) -> Bool {
+    let bytes = { (text: String??) in text.map { $0.map { Data($0.utf8) } } }
+    guard bytes(lhs) != bytes(rhs) else { return true }
+    let records = { (text: String??) -> String?? in
+      guard let text else { return nil }
+      guard let xml = text, RemovalXMPRecords.mayCarryRecords(xml) else { return .some(nil) }
+      return (try? RemovalXMPRecords.read(Data(xml.utf8))).map { .some($0) }
+    }
+    guard let left = records(lhs), let right = records(rhs) else { return false }
+    return left == right
   }
 
   enum DecodeXMPSource: Equatable {

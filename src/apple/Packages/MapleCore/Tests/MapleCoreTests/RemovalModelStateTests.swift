@@ -317,4 +317,63 @@ final class RemovalModelStateTests: XCTestCase {
     XCTAssertEqual(bytes(image), bytes(expected.image))
     XCTAssertEqual(try Data(contentsOf: raw), try fixture("source", "dng"))
   }
+
+  func testFlushFromACancelledTaskStillWritesThePendingEdit() async throws {
+    let (raw, _) = try stage()
+    let store = XMPSidecarStore(rawURL: raw)
+    var edited = AdjustmentModel.default
+    edited.exposure = 0.5
+    await store.update(model: edited, culling: CullingState())
+    let flush = Task {
+      while !Task.isCancelled { await Task.yield() }
+      await store.flush()
+    }
+    flush.cancel()
+    await flush.value
+    let reopened = try await XMPSidecarStore(rawURL: raw).load().0
+    XCTAssertEqual(reopened.exposure, 0.5)
+  }
+
+  @MainActor
+  func testOrdinaryModelChangeDuringAWorkflowOperationIsApplied() throws {
+    let (raw, _) = try stage()
+    let session = EditSession(asset: AssetRef(url: raw), model: .default)
+    session.workflow.isBusy = true
+    defer { session.workflow.isBusy = false }
+    session.model.exposure = 0.75
+    XCTAssertEqual(session.model.exposure, 0.75)
+  }
+
+  @MainActor
+  func testRenderFailureWithoutRemovalsIsImmediateAndASavedStackYieldsToNewerRender()
+    async throws
+  {
+    let (raw, xml) = try stage()
+    let session = EditSession(asset: AssetRef(url: raw), model: .default)
+    let stale = await session.renderActor.currentGeneration()
+    await session.renderActor.scheduleRender(phase: .fast) { _ in }
+    let failure = CocoaError(.fileReadCorruptFile)
+    let ordinary = await session.publishRenderFailure(
+      failure, asset: session.asset, model: .default, gen: stale)
+    XCTAssertTrue(ordinary)
+    XCTAssertNotNil(session.renderError)
+    session.renderError = nil
+    let saved = try XMPParser.parse(xml).0
+    XCTAssertEqual(saved.inpaintRemovals?.isEmpty, false)
+    let superseded = await session.publishRenderFailure(
+      failure, asset: session.asset, model: saved, gen: stale)
+    XCTAssertFalse(superseded)
+    XCTAssertNil(session.renderError, "A newer render keeps its frame")
+  }
+
+  func testRemovalMarkerGateKeepsUTF16RecordsAndSkipsPlainSidecars() throws {
+    let (_, xml) = try stage()
+    let utf16 = try XCTUnwrap(xml.data(using: .utf16))
+    XCTAssertTrue(RemovalXMPRecords.mayCarryRecords(utf16))
+    XCTAssertEqual(
+      try RemovalXMPRecords.read(utf16), try RemovalXMPRecords.read(Data(xml.utf8)))
+    let plain = XMPSerializer.serialize(model: .default, culling: CullingState())
+    XCTAssertFalse(RemovalXMPRecords.mayCarryRecords(plain))
+    XCTAssertNil(try RemovalXMPRecords.read(Data(plain.utf8)))
+  }
 }
