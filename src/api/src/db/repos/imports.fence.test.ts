@@ -201,4 +201,31 @@ describe('writes fenced to the attempt holding an import', () => {
     ]);
     expect([...(await getImportPublishingDests(id, db))]).toEqual([[0, '2026/04/landed-0.dng']]);
   });
+
+  test('a file outcome sets or clears the marker in the same write, and leaves it alone when told nothing', async () => {
+    using handle = await createTestDatabase();
+    const db = testSqliteDb(handle.db);
+    const id = await takenOver(db, new ObjectId(insertFolder(handle.db)));
+    const markers = async () => [...(await getImportPublishingDests(id, db))];
+    await markImportFilePublishing(
+      id,
+      { index: 0, destRel: '2026/04/A-1.dng', holder: 'second' },
+      db,
+    );
+
+    await updateImportProgress(id, copied(0, 'second'), undefined, db);
+    expect(await markers()).toEqual([[0, '2026/04/A-1.dng']]);
+
+    await expect(
+      updateImportProgress(id, { ...copied(0, 'first'), publishingDest: null }, undefined, db),
+    ).rejects.toBeInstanceOf(ImportTakenOver);
+    expect(await markers()).toEqual([[0, '2026/04/A-1.dng']]);
+
+    const failed = { ...copied(0, 'second'), state: 'failed' as const, error: 'EIO' };
+    await updateImportProgress(id, { ...failed, publishingDest: '2026/04/A.dng' }, undefined, db);
+    expect(await markers()).toEqual([[0, '2026/04/A.dng']]);
+
+    await updateImportProgress(id, { ...failed, publishingDest: null }, undefined, db);
+    expect(await markers()).toEqual([]);
+  });
 });

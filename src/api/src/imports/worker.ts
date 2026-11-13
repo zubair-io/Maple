@@ -16,10 +16,10 @@
  *   - On-disk name collisions resolve to a free sibling; byte-identical files
  *     already present are skipped.
  *   - Before an image or movie is published, its row is marked with the name
- *     it is about to land under, and the marker stays until the group is
- *     finished. A later attempt that finds one finishes that group: a file
- *     already at the marked name counts as copied and the group's sidecars and
- *     indexer hand-off follow.
+ *     it is about to land under, and the marker is cleared when the group
+ *     ends. A later attempt that finds one looks at the marked name: a file
+ *     already there with the source's bytes counts as copied and the group's
+ *     sidecars and indexer hand-off follow.
  *   - Cancel, from the API or from Temporal, is observed BETWEEN files;
  *     already-copied files stay.
  */
@@ -98,6 +98,19 @@ export interface ImportRunnerConfig {
 
 type PrimaryOutcome = ImportFileEntry['state'];
 
+/**
+ * The marker a primary's outcome leaves, written with the outcome so no stop
+ * can fall between the two. A later retry trusts a file it finds at a marked
+ * name, so a group that ends without a copy gives its marker up: after a
+ * failure, nothing of this attempt's is at the name it marked. What survives is
+ * the name an earlier attempt marked, because that attempt may still be
+ * running and land its copy there, or the name could not be read.
+ */
+function markerAfter(state: PrimaryOutcome, earlierDest: string | null): string | null | undefined {
+  if (state === 'copied') return undefined;
+  return state === 'failed' ? earlierDest : null;
+}
+
 interface GroupRun {
   claim: ClaimedImport;
   files: ImportFileEntry[];
@@ -161,7 +174,7 @@ export class ImportRunner {
     const counts = { copied: 0, skipped: 0, failed: 0 };
     let current = 0;
 
-    const record: RecordFile = async (index, state, error, destRel, sidecarDests) => {
+    const record: RecordFile = async (index, state, error, destRel, withIt) => {
       if (state === 'copied') counts.copied += 1;
       else if (state === 'skipped_duplicate') counts.skipped += 1;
       else if (state === 'failed') {
@@ -176,7 +189,7 @@ export class ImportRunner {
       current += 1;
       await updateImportProgress(
         id,
-        { index, state, error, destRel, current, counts, holder, sidecarDests },
+        { index, state, error, destRel, current, counts, holder, ...withIt },
         this.now,
       );
       held.progress = { current, total: files.length };
@@ -190,10 +203,8 @@ export class ImportRunner {
       }
 
       const sidecarIdxs = sidecars.get(pIdx) ?? [];
-      const settled = await this.processGroup({ claim, files, pIdx, sidecarIdxs, record, marks });
-      // A failed primary keeps its marker: the failure may have come after the
-      // file landed, and a retry looks at the marked name before it copies.
-      if (settled !== 'failed') await marks.finish(pIdx);
+      const ended = await this.processGroup({ claim, files, pIdx, sidecarIdxs, record, marks });
+      if (ended === 'copied') await marks.finish(pIdx);
     }
 
     // Terminal status: an import that copied or skipped at least one file is
@@ -306,11 +317,13 @@ export class ImportRunner {
     state: 'failed' | 'skipped_duplicate',
     error: string | null,
   ): Promise<PrimaryOutcome> {
-    const { files, pIdx, sidecarIdxs, record } = group;
+    const { files, pIdx, sidecarIdxs, record, marks } = group;
     for (const sIdx of sidecarIdxs) {
       await record(sIdx, state, error, files[sIdx].dest);
     }
-    await record(pIdx, state, error, files[pIdx].dest);
+    await record(pIdx, state, error, files[pIdx].dest, {
+      publishingDest: markerAfter(state, marks.earlierDest(pIdx)),
+    });
     return state;
   }
 
@@ -331,6 +344,8 @@ export class ImportRunner {
 
   private async recordPreFailedGroup(group: GroupRun): Promise<PrimaryOutcome> {
     const { claim, files, pIdx, sidecarIdxs, record } = group;
+    // The marker is left alone: a row is failed at load either from the scan,
+    // which never marks, or from a write that settled its marker already.
     const primary = files[pIdx];
     const reason = primary.error ?? 'rejected during scan';
     log.warn(
@@ -358,8 +373,10 @@ export class ImportRunner {
     // The sidecars follow the primary's RESOLVED stem, in the rows and on disk
     // (invariant #1: the sidecar is the contract). See sidecar-dest.ts.
     const sidecarDests = sidecarDestsBeside(files, pIdx, sidecarIdxs, pr.destRel);
-    const renamed = pr.state === 'copied' ? renamedSidecars(files, sidecarDests) : [];
-    await record(pIdx, pr.state, pr.error, pr.destRel, renamed);
+    await record(pIdx, pr.state, pr.error, pr.destRel, {
+      sidecarDests: pr.state === 'copied' ? renamedSidecars(files, sidecarDests) : [],
+      publishingDest: markerAfter(pr.state, earlierDest),
+    });
 
     for (const sidecar of sidecarDests) {
       if (pr.state !== 'copied') {

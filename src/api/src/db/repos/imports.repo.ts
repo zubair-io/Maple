@@ -335,6 +335,10 @@ export async function setImportFiles(
  * `sidecarDests` moves the sidecars that follow an image to the names they take
  * beside it when it landed under a new one. They change with the image's own
  * row or not at all, so the group's rows never name two different stems.
+ *
+ * `publishingDest` sets or clears the row's publish marker in the same write,
+ * so an attempt that stops straight after recording a file cannot leave behind
+ * a marker the outcome had already settled.
  */
 export async function updateImportProgress(
   id: ObjectId,
@@ -347,6 +351,7 @@ export async function updateImportProgress(
     counts: ImportCounts;
     holder?: string;
     sidecarDests?: { index: number; destRel: string }[];
+    publishingDest?: string | null;
   },
   now: () => Date = () => new Date(),
   dbOverride?: SqliteDb,
@@ -354,11 +359,23 @@ export async function updateImportProgress(
   const hex = toHex(id);
   const db = sqliteDb(dbOverride);
   const fence = heldBy(hex, args.holder);
+  const marker =
+    args.publishingDest === undefined
+      ? { sql: '', params: [] }
+      : { sql: ', publishing_dest = ?', params: [args.publishingDest] };
   const results = await db.transaction([
     {
-      sql: `UPDATE import_files SET state = ?, error = ?, dest = ?
+      sql: `UPDATE import_files SET state = ?, error = ?, dest = ?${marker.sql}
              WHERE import_id = ? AND idx = ?${fence.sql}`,
-      params: [args.state, args.error, args.destRel, hex, args.index, ...fence.params],
+      params: [
+        args.state,
+        args.error,
+        args.destRel,
+        ...marker.params,
+        hex,
+        args.index,
+        ...fence.params,
+      ],
     },
     {
       sql: `UPDATE imports
