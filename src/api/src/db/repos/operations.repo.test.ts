@@ -28,6 +28,7 @@ import {
   activeOperationId,
   heldOperationIds,
   nextOperationId,
+  operationStatus,
   waitingOperationId,
 } from './operations.repo.ts';
 
@@ -52,6 +53,21 @@ async function drainUserJobs(db: SqliteDb): Promise<string[]> {
   await completeJob(new ObjectId(id), {}, at(0), 'w', db);
   return [id, ...(await drainUserJobs(db))];
 }
+
+describe('the status a waiting request polls', () => {
+  test('follows the row from queued to done, and is null for a row that does not exist', async () => {
+    using handle = await createTestDatabase();
+    const db = testSqliteDb(handle.db);
+    const scan = await operation(db, 'folder_scan', 1_000, { folderId: 'a'.repeat(24) });
+
+    expect(await operationStatus(scan._id, db)).toBe('queued');
+    await claimJob(scan._id, 'w', at(2_000), db);
+    expect(await operationStatus(scan._id, db)).toBe('running');
+    await completeJob(scan._id, {}, at(3_000), 'w', db);
+    expect(await operationStatus(scan._id, db)).toBe('done');
+    expect(await operationStatus(new ObjectId(), db)).toBeNull();
+  });
+});
 
 describe('the two lanes over one table', () => {
   test('each lane relays and holds only its own kinds', async () => {

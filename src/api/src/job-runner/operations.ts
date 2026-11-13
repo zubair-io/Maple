@@ -6,7 +6,11 @@
 
 import { setTimeout as sleep } from 'node:timers/promises';
 import { ObjectId } from '../db/object-id.ts';
-import { activeOperationId, waitingOperationId } from '../db/repos/operations.repo.ts';
+import {
+  activeOperationId,
+  operationStatus,
+  waitingOperationId,
+} from '../db/repos/operations.repo.ts';
 import type { JobWithId, OperationKind } from '../db/schema.ts';
 import { createJob, getJob, JobConflictError, operationFolderId } from './jobs.repo.ts';
 
@@ -71,9 +75,10 @@ export async function awaitOperation(
   id: ObjectId,
   until: OperationDeadline,
 ): Promise<JobWithId | null> {
-  const job = await getJob(id);
-  if (job === null) throw new Error(`Job ${id.toHexString()} is not in the database`);
-  if (FINISHED.has(job.status)) return job;
+  const status = await operationStatus(id);
+  if (status === null) throw new Error(`Job ${id.toHexString()} is not in the database`);
+  const finished = FINISHED.has(status) ? await getJob(id) : null;
+  if (finished !== null) return finished;
   if (Date.now() >= until.deadline || until.signal?.aborted) return null;
   await sleep(until.intervalMs, undefined, { signal: until.signal }).catch(() => undefined);
   return awaitOperation(id, until);

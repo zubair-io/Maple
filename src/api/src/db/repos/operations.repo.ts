@@ -4,7 +4,8 @@
  * claim, progress, finish, cancel — is the job repository's own.
  */
 
-import type { OperationKind } from '../schema.ts';
+import type { ObjectId } from '../object-id.ts';
+import type { JobStatus, OperationKind } from '../schema.ts';
 import { sqliteDb, type SqliteDb } from './db-handle.ts';
 import {
   ACTIVE_OPERATION_SQL,
@@ -12,6 +13,7 @@ import {
   NEXT_OPERATION_SQL,
   WAITING_OPERATION_SQL,
 } from './jobs.sql.ts';
+import { toHex } from './values.ts';
 
 export async function nextOperationId(dbOverride?: SqliteDb): Promise<string | null> {
   const rows = await sqliteDb(dbOverride).read<{ id: string }>(NEXT_OPERATION_SQL, []);
@@ -46,4 +48,20 @@ export async function waitingOperationId(
     JSON.stringify(payload),
   ]);
   return rows[0]?.id ?? null;
+}
+
+/**
+ * Only the status, for a request polling an operation it waits on: a running
+ * scan's row carries its saved position, megabytes for a large library, and a
+ * whole-row read would load and parse that on every poll.
+ */
+export async function operationStatus(
+  id: ObjectId,
+  dbOverride?: SqliteDb,
+): Promise<JobStatus | null> {
+  const rows = await sqliteDb(dbOverride).read<{ status: JobStatus }>(
+    `SELECT status FROM jobs WHERE id = ?`,
+    [toHex(id)],
+  );
+  return rows[0]?.status ?? null;
 }
