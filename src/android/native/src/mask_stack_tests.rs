@@ -1,7 +1,7 @@
 //! Real sidecars through the writer: a rewritten container whose own tag binds a
 //! canonical prefix elsewhere, a correction that shadows a vendor prefix its
 //! mask leaf restores, and edits that would move Android's layers across
-//! corrections it keeps verbatim (`mask_stack`).
+//! corrections it keeps verbatim or tied with them (`mask_stack`).
 use super::*;
 use crate::mask_model::{layer_from_json, layer_json, AuthoredLayer};
 
@@ -318,4 +318,34 @@ fn a_brush_container_raw_core_drops_whole_never_unkeys_the_stack() {
     let saved = through_file(&write(&source, &layers));
     assert_radial_then_linear(&saved);
     assert_eq!(rendered(&saved.xml)[1], linear.layer, "{}", saved.xml);
+}
+
+#[test]
+fn an_edit_keeps_a_layer_tied_with_a_kept_correction_on_its_side_of_it() {
+    // A brush and, after it in the document, an Android linear, both keyed 1:
+    // raw-core breaks the tie by document order.
+    let linear = write(&sidecar(EMPTY), &[new_layer(android_stack()[0].clone())]);
+    let keyed = " papp:LayerOrder=\"1\"";
+    let brush = BRUSH.replacen("<rdf:Description", &format!("<rdf:Description{keyed}"), 1);
+    let open = "<crs:GradientBasedCorrections>";
+    let mut xml = linear.replacen(open, &format!("{}\n      {open}", brush.trim_start()), 1);
+    let at = xml.find(open).unwrap();
+    let description = at + xml[at..].find("<rdf:Description").unwrap() + "<rdf:Description".len();
+    xml.insert_str(description, keyed);
+    let source = through_file(&xml);
+    let masks = |saved: &Sidecar| -> Vec<bool> {
+        rendered(&saved.xml)
+            .iter()
+            .map(|layer| matches!(layer.mask, Mask::Brush { .. }))
+            .collect()
+    };
+    assert_eq!(masks(&source), [true, false], "{}", source.xml);
+
+    let mut layers = read(&source);
+    let mut edited = layer_from_json(&layers[0]).unwrap();
+    edited.layer.adjustments.exposure = Some(1.25);
+    layers[0] = layer_json(&edited);
+    let saved = through_file(&write(&source, &layers));
+    assert_eq!(masks(&saved), [true, false], "{}", saved.xml);
+    assert_eq!(rendered(&saved.xml)[1], edited.layer, "{}", saved.xml);
 }

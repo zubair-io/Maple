@@ -1,13 +1,14 @@
 //! Keeps an edit from moving Android's layers across the corrections it keeps
 //! verbatim. raw-core reads the stack in `papp:LayerOrder` order only when every
-//! modeled correction is keyed, and in document order otherwise. In a stack
-//! read in document order beside a kept correction, the edit is placed in that
-//! order. When the written document order would no longer match it (a layer
-//! relocated into another container, reordered or added past a kept
-//! correction), or when the keys written would key the whole stack (every kept
-//! correction is keyed and no Android layer stays unkeyed), every modeled
-//! correction is keyed by that order: Android's layers and the kept ones, which
-//! keep their place in the stack.
+//! modeled correction is keyed (ties in document order), and in document order
+//! otherwise. In a stack read in document order beside a kept correction, or
+//! keyed with an Android layer tied to a kept correction, the edit is placed in
+//! that order. When the written document order would no longer match it (a
+//! layer relocated into another container, reordered or added past a kept
+//! correction), when the keys written would key the whole stack (every kept
+//! correction is keyed and no Android layer stays unkeyed), or when a tie
+//! orders the stack, every modeled correction is keyed by that order:
+//! Android's layers and the kept ones, which keep their place in the stack.
 use crate::mask_document::Document;
 use crate::mask_model::AuthoredLayer;
 use crate::mask_order::{assign, format_key};
@@ -36,7 +37,16 @@ pub fn restack(
     layers: &[AuthoredLayer],
     positions: &[(usize, usize, usize)],
 ) -> Result<Option<Restack>, String> {
-    if document.all_keyed {
+    // A key an Android layer shares with a kept correction orders them by
+    // document position alone, which the plain assignment cannot keep.
+    let tied = document.all_keyed
+        && document.corrections.iter().any(|correction| {
+            correction.authored.is_some()
+                && correction
+                    .key
+                    .is_some_and(|key| document.verbatim_keys.contains(&key))
+        });
+    if document.all_keyed && !tied {
         return Ok(None);
     }
     let mut units = Vec::new();
@@ -52,11 +62,20 @@ pub fn restack(
             });
         }
     }
-    // Android's layers alone read in model order, which is the document order here.
+    if tied {
+        // Today's stack is the key order, ties in document order (a stable sort);
+        // an opaque container cannot be keyed and refuses the edit below.
+        let key = |unit: &Unit| match unit {
+            Unit::Android(slot) | Unit::Kept(slot) => document.corrections[*slot].key,
+            Unit::Opaque(..) => None,
+        };
+        units.sort_by(|a, b| key(a).unwrap_or(0.0).total_cmp(&key(b).unwrap_or(0.0)));
+    }
+    // Android's layers alone read in model order, which is that order here.
     if units.iter().all(|unit| matches!(unit, Unit::Android(_))) {
         return Ok(None);
     }
-    // Today's stack is the document order: number it, then place the edit in it.
+    // Number today's stack, then place the edit in it.
     let order = |slot: usize| {
         units
             .iter()
