@@ -9,6 +9,10 @@ extension RawJpegStackServerTests {
     _ recorder: Recorder, names: [String: String], folders: Set<String> = []
   ) -> RemoteCatalog {
     catalog(recorder) { record, request in
+      if record.path == "/api/folders" {
+        return self.respond(
+          request, json: #"[{"id":"f1","path":"\#(self.libPath)","label":"L","file_count":2}]"#)
+      }
       if record.path == "/api/folders/f1/file-meta" {
         return self.fileMeta(request, taken: [], folders: folders)
       }
@@ -40,12 +44,14 @@ extension RawJpegStackServerTests {
     }
   }
 
-  private func asset(_ name: String, id: String, stack: RawJpegStack? = nil) -> AssetRef {
+  private func asset(
+    _ name: String, id: String, stack: RawJpegStack? = nil, address: Bool = true
+  ) -> AssetRef {
     AssetRef(
       displayName: name, hintExtension: (name as NSString).pathExtension, stableID: id,
       catalog: CatalogRef(
         serverID: URL(string: "https://example.test")!, folderID: "f1",
-        absPath: "\(libPath)/Trip/\(name)", address: "lib:Trip/\(name)"),
+        absPath: "\(libPath)/Trip/\(name)", address: address ? "lib:Trip/\(name)" : nil),
       stack: stack, bytesProvider: { Data() })
   }
 
@@ -170,5 +176,31 @@ extension RawJpegStackServerTests {
     XCTAssertEqual(
       try XCTUnwrap(vm.applyResults).first?.outcome,
       .skipped(reason: "Beach_2.JPG already exists, so this RAW and its JPEG kept their names."))
+  }
+
+  /// A hit from a library with no registered slug carries no address for the RAW or the JPEG
+  /// (`routes/search/project.ts`): a Replace batch skipped every such stack, even with the JPEG's
+  /// new name free. The JPEG's folder now comes from its server path under the library's root.
+  @MainActor
+  func testAReplaceBatchRenamesASluglessStackWhoseJpegNameIsFree() async throws {
+    let recorder = Recorder()
+    let slugless = RawJpegStack(
+      primary: .init(name: "IMG_1.CR3", size: 3), companion: .init(name: "IMG_1.JPG", size: 2),
+      location: .cloud(address: nil, path: "\(libPath)/Trip/IMG_1.JPG", id: jpegID))
+    let vm = BatchRenameViewModel(
+      assets: [asset("IMG_1.CR3", id: rawID, stack: slugless, address: false)], routing: .cloud,
+      cloudCatalog: batchCatalog(recorder, names: [rawID: "Beach_2.CR3"]))
+    vm.template = "Beach_{n}.{ext}"
+    vm.collision = .replace
+
+    await vm.apply()
+
+    let lookups = recorder.requests.filter { $0.path == "/api/folders/f1/file-meta" }
+    XCTAssertEqual(lookups.map(\.query), ["path=Trip/Beach_2.JPG"])
+    let batches = recorder.requests.filter { $0.path == "/api/assets/batch-rename" }
+    XCTAssertEqual(batches.map { $0.body["ids"] as? [String] ?? [] }, [[rawID]])
+    XCTAssertTrue(recorder.requests.contains { $0.path == "/api/assets/\(jpegID)/rename" })
+    XCTAssertEqual(
+      try XCTUnwrap(vm.applyResults).first?.outcome, .renamed(newFilename: "Beach_2.CR3"))
   }
 }

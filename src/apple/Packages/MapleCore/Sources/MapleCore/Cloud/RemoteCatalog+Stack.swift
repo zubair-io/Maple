@@ -225,19 +225,15 @@ extension RemoteCatalog {
   /// file even though the RAW is put back. Throws the companion's error when the JPEG has no server
   /// location yet, and `destinationExists` naming the JPEG's new name when a file or folder in the
   /// library `libraryFolderID` holds it beside the JPEG. A hit's JPEG carries no address, so its
-  /// folder is the RAW's, from `primaryAddress`.
+  /// folder is the RAW's, from `primaryAddress`; a hit from a library with no slug carries neither,
+  /// so the folder comes from the JPEG's server path under the library's root.
   public func requireCompanionRenameFree(
     of stack: RawJpegStack, toMatch primaryFilename: String, libraryFolderID: String,
     primaryAddress: String?
   ) async throws {
     _ = try companionID(of: stack)
-    guard let beside = (companionAddress(of: stack) ?? primaryAddress),
-      let besidePath = Self.relativePath(ofAddress: beside)
-    else {
-      throw FileOperationError.unsupportedSource(
-        "the server didn't say which folder \(stack.companion.name) is in")
-    }
-    let directory = (besidePath as NSString).deletingLastPathComponent
+    let directory = try await companionDirectory(
+      of: stack, libraryFolderID: libraryFolderID, primaryAddress: primaryAddress)
     func inDirectory(_ name: String) -> String { directory.isEmpty ? name : "\(directory)/\(name)" }
     let name = stack.companionFilename(forPrimaryFilename: primaryFilename)
     let path = inDirectory(name)
@@ -245,6 +241,26 @@ extension RemoteCatalog {
     if try await occupant(folderID: libraryFolderID, relativePath: path) != .free {
       throw FileOperationError.destinationExists(name)
     }
+  }
+
+  /// The JPEG's folder in the library `libraryFolderID` ("" at its root): from the JPEG's address,
+  /// else the RAW's `primaryAddress`, else the JPEG's server path under the library's root.
+  private func companionDirectory(
+    of stack: RawJpegStack, libraryFolderID: String, primaryAddress: String?
+  ) async throws -> String {
+    if let beside = companionAddress(of: stack) ?? primaryAddress,
+      let besidePath = Self.relativePath(ofAddress: beside)
+    {
+      return (besidePath as NSString).deletingLastPathComponent
+    }
+    if case .cloud(_, let absPath, _) = stack.location, !absPath.isEmpty,
+      let root = try await listFolders().first(where: { $0.id == libraryFolderID }),
+      let directory = Self.libraryDirectory(of: absPath, root: root.path)
+    {
+      return directory
+    }
+    throw FileOperationError.unsupportedSource(
+      "the server didn't say which folder \(stack.companion.name) is in")
   }
 
   /// The first RAW filename (`IMG_1.CR3`, `IMG_1.1.CR3`, …) whose stem names no file in
