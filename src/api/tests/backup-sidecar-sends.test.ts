@@ -289,6 +289,27 @@ describe('backup sends are reconciled from what the device sent (#5796)', () => 
     expect([property(stored, 'exposure'), property(stored, 'contrast')]).toEqual(['2', '5']);
   });
 
+  test("a send matching a merged send's head is answered with a head of its own", async () => {
+    const target = await seedUpload('merged-head');
+    const v1 = xmp('v1', { exposure: '0', contrast: '0' });
+    const first = await firstSend(target, v1);
+    await post(target, xmp('other', { exposure: '1', contrast: '0' }), undefined, first.head);
+    // A device's stale send is merged: its entry records exposure 1, not the 0 it sent.
+    await replyOf(post(target, xmp('B', { exposure: '0', contrast: '5' }), sha256(v1)));
+    const merged = (await history(await onDisk(target.relPath))).at(-1)!.id;
+
+    // A head-based client resends the merged document the file now holds.
+    const ack = await replyOf(post(target, await onDisk(target.relPath), undefined, merged));
+    expect(ack.head).not.toBe(merged);
+    const head = (await history(await onDisk(target.relPath))).at(-1)!.id;
+    await replyOf(post(target, xmp('other', { exposure: '2', contrast: '5' }), undefined, head));
+
+    // Its contrast-only edit keeps the later writer's exposure.
+    await replyOf(post(target, xmp('C', { exposure: '1', contrast: '6' }), undefined, ack.head));
+    const stored = await onDisk(target.relPath);
+    expect([property(stored, 'exposure'), property(stored, 'contrast')]).toEqual(['2', '6']);
+  });
+
   test("a copy's sends stay while its sidecar holds them, though the other copy moved on", async () => {
     const target = await seedUpload('two-copies');
     const v1 = xmp('v1', { exposure: '0', contrast: '0' });
