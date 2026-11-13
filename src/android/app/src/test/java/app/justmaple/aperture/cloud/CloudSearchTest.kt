@@ -3,6 +3,7 @@ package app.justmaple.aperture.cloud
 import android.net.Uri
 import app.justmaple.aperture.data.Folder
 import java.time.LocalDate
+import java.util.Locale
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
@@ -57,6 +58,20 @@ class CloudSearchTest {
         assertEquals("2" to "pin", ranked["page"] to ranked["rankPin"])
         assertEquals("c1", params(CloudSearchWire.searchPath(CloudSearchQuery(), today, SearchContinuation("c1", 0, null)))["cursor"])
         assertTrue(CloudSearchWire.facetsPath(query, today).startsWith("/api/search/facets?placeQuery=red%20barn"))
+    }
+
+    @Test
+    fun dateBoundariesUseIsoDigitsWhateverTheDeviceLocale() {
+        val device = Locale.getDefault()
+        // Arabic (Egypt) formats numbers with Arabic-Indic digits.
+        Locale.setDefault(Locale.forLanguageTag("ar-EG"))
+        try {
+            for (preset in SearchDatePreset.entries)
+                preset.range(today).toList().forEach { assertTrue("$preset: $it", it.matches(Regex("\\d{4}-\\d{2}-\\d{2}")) && it.all { c -> c.code < 0x80 }) }
+            assertEquals("2026-01-01" to "2026-03-10", SearchDatePreset.ThisYear.range(today))
+        } finally {
+            Locale.setDefault(device)
+        }
     }
 
     @Test

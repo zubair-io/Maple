@@ -28,7 +28,7 @@ enum class SearchDatePreset(val label: String) {
             Today -> today.toString() to today.toString()
             Last7 -> today.minusDays(6).toString() to today.toString()
             Last30 -> today.minusDays(29).toString() to today.toString()
-            ThisYear -> "%04d-01-01".format(today.year) to today.toString()
+            ThisYear -> today.withDayOfYear(1).toString() to today.toString()
         }
 }
 
