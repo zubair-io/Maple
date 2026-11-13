@@ -225,10 +225,21 @@ function acknowledged(
   return { kind: 'unchanged', head, sends: { retained: retainedBy(history), sent } };
 }
 
+/** Whether the head is a merged send's entry: a client naming it is reconciled from what that
+ * send's device held, so it cannot also name the merged adjustments another device holds. */
+async function mergedHead(
+  history: readonly WorkflowHistoryEntry[],
+  send: BackupSidecarSend,
+): Promise<boolean> {
+  const head = history.at(-1);
+  return head !== undefined && !(await headParent(history, head.id, send))?.exact;
+}
+
 /** Whether `send` asks for nothing the stored sidecar and its head do not already hold:
- * the same adjustments, no new named snapshot, and a head that records the file. A
- * send of what an outside edit left ahead of the history lands as an entry instead,
- * so the head it is answered with holds what it acknowledged. */
+ * the same adjustments, no new named snapshot, and a head that records the file and names
+ * nothing else. A send of what an outside edit left ahead of the history, or of what a
+ * merged send became, lands as an entry instead, so the head it is answered with holds
+ * what it acknowledged. */
 async function alreadyHeld(
   send: BackupSidecarSend,
   history: readonly WorkflowHistoryEntry[],
@@ -236,6 +247,7 @@ async function alreadyHeld(
   added: readonly WorkflowSnapshot[],
 ): Promise<boolean> {
   if (added.length > 0 || sent !== (await checkpointOf(send.current))) return false;
+  if (await mergedHead(history, send)) return false;
   return !(await aheadOfHistory(send.current, history, send.now));
 }
 
