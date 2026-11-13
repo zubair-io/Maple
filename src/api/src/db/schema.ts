@@ -1190,8 +1190,9 @@ export function normaliseEnrichment(raw: Partial<Enrichment> | undefined | null)
 // cooperative cancellation.
 // ---------------------------------------------------------------------------
 
-/** Operator one-shots: run on their own lane (`maple-operations`), at most one
- * active per kind, and per folder for a scan. */
+/** Operator one-shots: run on their own lane (`maple-operations`). One reconcile
+ * and one scan per folder are active at a time; a clustering request queues
+ * behind a running pass. */
 export type OperationKind = 'mirror_reconcile' | 'people_cluster' | 'folder_scan';
 
 /** Job kinds the runner knows how to dispatch. Add new kinds by extending

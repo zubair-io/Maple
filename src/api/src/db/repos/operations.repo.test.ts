@@ -3,6 +3,8 @@
  * each lane's relay queries see only their own kinds, user jobs keep running
  * strictly one at a time in creation order whatever operations do, and the
  * insert refuses a second active operation of a kind (per folder, for scans).
+ * Clustering is the exception: a request made while a pass runs gets a row of
+ * its own, which the lane holds back until that pass has finished.
  */
 
 import { describe, expect, test } from 'bun:test';
@@ -22,7 +24,12 @@ import {
   nextJobId,
   requestCancel,
 } from './jobs.repo.ts';
-import { activeOperationId, heldOperationIds, nextOperationId } from './operations.repo.ts';
+import {
+  activeOperationId,
+  heldOperationIds,
+  nextOperationId,
+  waitingOperationId,
+} from './operations.repo.ts';
 
 const at = (ms: number) => () => new Date(ms);
 const hex = (job: { _id: ObjectId }) => job._id.toHexString();
@@ -96,19 +103,17 @@ describe('the two lanes over one table', () => {
 });
 
 describe('one active operation per kind and folder', () => {
-  test('a second reconcile or clustering is refused while the first is queued or running', async () => {
+  test('a second reconcile is refused while the first is queued or running', async () => {
     using handle = await createTestDatabase();
     const db = testSqliteDb(handle.db);
     const reconcile = await operation(db, 'mirror_reconcile', 0);
-    const cluster = await operation(db, 'people_cluster', 0);
 
     await expect(operation(db, 'mirror_reconcile', 1)).rejects.toBeInstanceOf(JobConflictError);
-    await claimJob(cluster._id, 'w', at(1), db);
-    await expect(operation(db, 'people_cluster', 2)).rejects.toBeInstanceOf(JobConflictError);
+    await claimJob(reconcile._id, 'w', at(2), db);
+    await expect(operation(db, 'mirror_reconcile', 3)).rejects.toBeInstanceOf(JobConflictError);
 
     expect(await activeOperationId('mirror_reconcile', null, db)).toBe(hex(reconcile));
-    expect(await activeOperationId('people_cluster', null, db)).toBe(hex(cluster));
-    expect(await listJobs({}, db)).toHaveLength(2);
+    expect(await listJobs({}, db)).toHaveLength(1);
   });
 
   test('scans are exclusive per folder, not across folders', async () => {
@@ -175,5 +180,80 @@ describe('one active operation per kind and folder', () => {
     await requestCancel(job._id, at(1), db);
 
     expect(await getJob(job._id, db)).toMatchObject({ status: 'queued', cancel_requested: true });
+  });
+});
+
+describe('clustering requests line up behind a running pass', () => {
+  const THRESHOLD = { similarity_threshold: 0.7 };
+
+  async function runningPass(db: SqliteDb) {
+    const pass = await operation(db, 'people_cluster', 0);
+    await markJobDispatched(hex(pass), db);
+    await claimJob(pass._id, 'w', at(1), db);
+    return pass;
+  }
+
+  test('a request made while one runs gets a row the lane holds back until that one finishes', async () => {
+    using handle = await createTestDatabase();
+    const db = testSqliteDb(handle.db);
+    const running = await runningPass(db);
+
+    const next = await operation(db, 'people_cluster', 2, THRESHOLD);
+
+    expect(await nextOperationId(db)).toBeNull();
+    await completeJob(running._id, {}, at(3), 'w', db);
+    expect(await nextOperationId(db)).toBe(hex(next));
+  });
+
+  test('a request is refused in favour of one with the same payload that has not started', async () => {
+    using handle = await createTestDatabase();
+    const db = testSqliteDb(handle.db);
+    await runningPass(db);
+    const waiting = await operation(db, 'people_cluster', 2, THRESHOLD);
+
+    await expect(operation(db, 'people_cluster', 3, THRESHOLD)).rejects.toBeInstanceOf(
+      JobConflictError,
+    );
+
+    expect(await waitingOperationId(THRESHOLD, db)).toBe(hex(waiting));
+  });
+
+  test('a request with a different payload gets a row of its own, run in the order they were made', async () => {
+    using handle = await createTestDatabase();
+    const db = testSqliteDb(handle.db);
+    const running = await runningPass(db);
+    const first = await operation(db, 'people_cluster', 2, THRESHOLD);
+    const second = await operation(db, 'people_cluster', 3, { similarity_threshold: 0.5 });
+
+    await completeJob(running._id, {}, at(4), 'w', db);
+    const relayedFirst = await nextOperationId(db);
+    await markJobDispatched(hex(first), db);
+
+    expect(relayedFirst).toBe(hex(first));
+    expect(await nextOperationId(db)).toBeNull();
+    await claimJob(first._id, 'w', at(5), db);
+    await completeJob(first._id, {}, at(6), 'w', db);
+    expect(await nextOperationId(db)).toBe(hex(second));
+  });
+
+  test('one that has started no longer stands in for a new request', async () => {
+    using handle = await createTestDatabase();
+    const db = testSqliteDb(handle.db);
+    await runningPass(db);
+
+    expect(await waitingOperationId({}, db)).toBeNull();
+    const next = await operation(db, 'people_cluster', 2);
+    expect(await waitingOperationId({}, db)).toBe(hex(next));
+  });
+
+  test('a running pass whose cancel is pending does not hold the next request back', async () => {
+    using handle = await createTestDatabase();
+    const db = testSqliteDb(handle.db);
+    const stopping = await runningPass(db);
+    const next = await operation(db, 'people_cluster', 2);
+
+    await requestCancel(stopping._id, at(3), db);
+
+    expect(await nextOperationId(db)).toBe(hex(next));
   });
 });

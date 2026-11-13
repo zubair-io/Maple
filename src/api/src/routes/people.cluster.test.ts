@@ -2,9 +2,9 @@
  * `POST /api/people/cluster` keeps its synchronous answer while the pass runs
  * on the worker tier: the route leaves a `people_cluster` row, waits for it,
  * and answers from the row's result. The handler stands in for the pass here;
- * `job-runner/handlers/people-cluster.test.ts` covers the real one. A run
- * already going when the request arrives is waited out and followed by one of
- * the request's own.
+ * `job-runner/handlers/people-cluster.test.ts` covers the real one. A request
+ * made while a pass runs leaves a row of its own that runs after it, whether
+ * or not the request is still waiting.
  */
 
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
@@ -45,10 +45,9 @@ const cluster = (body: unknown = {}, wait = FAST) =>
     );
 
 const clusterRows = () =>
-  live.db.query(`SELECT status, params FROM jobs WHERE kind = 'people_cluster'`).all() as {
-    status: string;
-    params: string;
-  }[];
+  live.db
+    .query(`SELECT status, params FROM jobs WHERE kind = 'people_cluster' ORDER BY created_at, id`)
+    .all() as { status: string; params: string }[];
 
 const stubCluster = (run: JobHandler['run']) => ({ handlers: { people_cluster: { run } } });
 
@@ -130,8 +129,44 @@ describe('POST /api/people/cluster', () => {
     );
     const res = await response;
 
-    expect(whileEarlierRuns).toEqual({ answered: false, rows: ['running'] });
+    expect(whileEarlierRuns).toEqual({ answered: false, rows: ['running', 'queued'] });
     expect(await res.json()).toEqual({ assigned: 1, new_people: 0, scanned: 4 });
     expect(clusterRows().map((row) => row.status)).toEqual(['done', 'done']);
+  });
+
+  it('keeps the pass of a request that gave up while an earlier one was running', async () => {
+    const earlier = await createJob({ kind: 'people_cluster', payload: {} });
+    await claimJob(earlier._id, 'automatic');
+    const seen: unknown[] = [];
+
+    const res = await cluster({ similarity_threshold: 0.7 }, { timeoutMs: 30, intervalMs: 5 });
+    const leftBehind = clusterRows();
+    await completeJob(earlier._id, {}, undefined, 'automatic');
+    await withOperationsRunning(
+      async () => {
+        while (seen.length === 0) await sleep(5);
+      },
+      stubCluster(async (payload) => {
+        seen.push(payload);
+        return { kind: 'done', result: { assigned: 0, new_people: 0, scanned: 0 } };
+      }),
+    );
+
+    expect(res.status).toBe(504);
+    expect(leftBehind).toEqual([
+      { status: 'running', params: '{}' },
+      { status: 'queued', params: '{"similarity_threshold":0.7}' },
+    ]);
+    expect(seen).toEqual([{ similarity_threshold: 0.7 }]);
+  });
+
+  it('joins a request with the same threshold that has not started', async () => {
+    const briefly = { timeoutMs: 30, intervalMs: 5 };
+
+    await cluster({ similarity_threshold: 0.7 }, briefly);
+    await cluster({ similarity_threshold: 0.7 }, briefly);
+    await cluster({}, briefly);
+
+    expect(clusterRows().map((row) => row.params)).toEqual(['{"similarity_threshold":0.7}', '{}']);
   });
 });

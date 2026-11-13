@@ -17,10 +17,10 @@ import { cancelUnfinishedJob, markJobDispatched } from './jobs.repo.ts';
 const OPERATION_TASK_QUEUE = 'maple-operations';
 
 /**
- * The database allows one active reconcile, one clustering and one scan per
- * folder; this only bounds how many run at once. Four leaves a reconcile and a
- * clustering room beside two folder scans; a further scan waits in Temporal
- * for a slot.
+ * The database allows one active reconcile and one scan per folder, and hands
+ * over one clustering at a time; this only bounds how many run at once. Four
+ * leaves a reconcile and a clustering room beside two folder scans; a further
+ * scan waits in Temporal for a slot.
  */
 const OPERATION_CONCURRENCY = 4;
 

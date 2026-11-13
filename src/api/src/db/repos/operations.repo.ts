@@ -6,7 +6,12 @@
 
 import type { OperationKind } from '../schema.ts';
 import { sqliteDb, type SqliteDb } from './db-handle.ts';
-import { ACTIVE_OPERATION_SQL, HELD_OPERATIONS_SQL, NEXT_OPERATION_SQL } from './jobs.sql.ts';
+import {
+  ACTIVE_OPERATION_SQL,
+  HELD_OPERATIONS_SQL,
+  NEXT_OPERATION_SQL,
+  WAITING_OPERATION_SQL,
+} from './jobs.sql.ts';
 
 export async function nextOperationId(dbOverride?: SqliteDb): Promise<string | null> {
   const rows = await sqliteDb(dbOverride).read<{ id: string }>(NEXT_OPERATION_SQL, []);
@@ -27,6 +32,18 @@ export async function activeOperationId(
   const rows = await sqliteDb(dbOverride).read<{ id: string }>(ACTIVE_OPERATION_SQL, [
     kind,
     folderId,
+  ]);
+  return rows[0]?.id ?? null;
+}
+
+/** The clustering request with exactly this payload that has not started yet. */
+export async function waitingOperationId(
+  payload: Record<string, unknown>,
+  dbOverride?: SqliteDb,
+): Promise<string | null> {
+  const rows = await sqliteDb(dbOverride).read<{ id: string }>(WAITING_OPERATION_SQL, [
+    'people_cluster',
+    JSON.stringify(payload),
   ]);
   return rows[0]?.id ?? null;
 }
