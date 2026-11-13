@@ -107,6 +107,8 @@ const FENCED_OPERATION_KINDS: ReadonlySet<string> = new Set(OPERATION_KINDS);
 
 function insertFence(kind: string, scopes: string[] | undefined): JobInsertFence {
   if (scopes !== undefined && scopes.length > 0) return 'batch_scopes';
+  // A clustering request lines up behind a running pass instead of joining it.
+  if (kind === 'people_cluster') return 'fresh_operation';
   if (FENCED_OPERATION_KINDS.has(kind)) return 'operation';
   return FENCED_PANO_KINDS.has(kind) ? 'pano_stitch' : 'none';
 }
@@ -123,6 +125,7 @@ function fenceParams(
 ): SqlValue[] {
   if (fence === 'batch_scopes') return [JSON.stringify(scopes)];
   if (fence === 'operation') return [input.kind, operationFolderId(input.payload)];
+  if (fence === 'fresh_operation') return [input.kind, JSON.stringify(input.payload)];
   return [];
 }
 
@@ -131,6 +134,7 @@ const FENCE_MESSAGES: Record<JobInsertFence, string> = {
   batch_scopes: BATCH_ACTIVE_MESSAGE,
   pano_stitch: PANO_STITCH_ACTIVE_MESSAGE,
   operation: OPERATION_ACTIVE_MESSAGE,
+  fresh_operation: OPERATION_ACTIVE_MESSAGE,
 };
 
 /**
@@ -197,8 +201,9 @@ function insertParams(
  *    is a caller error.
  *  - **Another settings batch holds one of these roots**, or (for a pano job) a
  *    panorama stitch is already queued or running, or (for an operation) one of
- *    its kind is already active on the same folder. The fence blocked the
- *    insert, so no row with this id exists.
+ *    its kind is already active on the same folder, or (for clustering) one
+ *    with the same payload has not started yet. The fence blocked the insert,
+ *    so no row with this id exists.
  */
 export async function createJob(
   input: CreateJobInput,

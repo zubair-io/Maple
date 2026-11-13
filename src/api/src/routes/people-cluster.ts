@@ -9,7 +9,7 @@ import {
   awaitOperation,
   DEFAULT_OPERATION_WAIT,
   operationDeadline,
-  startFreshOperation,
+  startClustering,
   type OperationWait,
 } from '../job-runner/operations.ts';
 
@@ -27,9 +27,8 @@ export const peopleClusterRoutes = (wait: OperationWait = DEFAULT_OPERATION_WAIT
         typeof body?.similarity_threshold === 'number'
           ? { similarity_threshold: body.similarity_threshold }
           : {};
-      const until = operationDeadline(wait, request.signal);
-      const job = await startFreshOperation('people_cluster', payload, until);
-      const finished = await awaitOperation(job._id, until);
+      const job = await startClustering(payload);
+      const finished = await awaitOperation(job._id, operationDeadline(wait, request.signal));
       if (finished === null) {
         set.status = 504;
         return { error: 'Clustering is still running and will finish in the background' };

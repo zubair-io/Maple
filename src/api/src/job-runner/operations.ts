@@ -6,7 +6,7 @@
 
 import { setTimeout as sleep } from 'node:timers/promises';
 import { ObjectId } from '../db/object-id.ts';
-import { activeOperationId } from '../db/repos/operations.repo.ts';
+import { activeOperationId, waitingOperationId } from '../db/repos/operations.repo.ts';
 import type { JobWithId, OperationKind } from '../db/schema.ts';
 import { createJob, getJob, JobConflictError, operationFolderId } from './jobs.repo.ts';
 
@@ -17,13 +17,14 @@ export interface StartedOperation {
 }
 
 /**
- * Creates the operation, or answers with the one already active in its place:
- * the insert refuses a second active operation of a kind (per folder, for a
- * scan). One that finishes between the refusal and the lookup leaves room for
- * this one, so the insert is tried again.
+ * Creates the reconcile or scan, or answers with the one already active in its
+ * place: the insert refuses a second active one (per folder, for a scan). One
+ * that finishes between the refusal and the lookup leaves room for this one,
+ * so the insert is tried again. Clustering never joins a running pass; see
+ * {@link startClustering}.
  */
 export async function startOperation(
-  kind: OperationKind,
+  kind: Exclude<OperationKind, 'people_cluster'>,
   payload: Record<string, unknown>,
 ): Promise<StartedOperation> {
   try {
@@ -79,18 +80,21 @@ export async function awaitOperation(
 }
 
 /**
- * An operation that ran at or after this request arrived: one already active
+ * A clustering pass that starts after this request arrived: one already running
  * may have read the database before the caller's change, so its result is not
- * the caller's. Waits it out, then starts another, unless a third request
- * started one first.
+ * the caller's. The request gets a row of its own, which the lane hands over
+ * once the running one has finished, so the pass happens whether or not the
+ * caller is still waiting. A request with the same payload that has not
+ * started yet is joined instead; one that starts between the refusal and the
+ * lookup leaves room for this one, so the insert is tried again.
  */
-export async function startFreshOperation(
-  kind: OperationKind,
-  payload: Record<string, unknown>,
-  until: OperationDeadline,
-): Promise<JobWithId> {
-  const started = await startOperation(kind, payload);
-  if (!started.joined) return started.job;
-  const earlier = await awaitOperation(started.job._id, until);
-  return earlier === null ? started.job : (await startOperation(kind, payload)).job;
+export async function startClustering(payload: Record<string, unknown>): Promise<JobWithId> {
+  try {
+    return await createJob({ kind: 'people_cluster', payload });
+  } catch (error) {
+    if (!(error instanceof JobConflictError)) throw error;
+    const waitingId = await waitingOperationId(payload);
+    const waiting = waitingId === null ? null : await getJob(new ObjectId(waitingId));
+    return waiting ?? startClustering(payload);
+  }
 }

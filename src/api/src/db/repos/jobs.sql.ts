@@ -86,14 +86,34 @@ const NO_ACTIVE_OPERATION = `
        AND o.cancel_requested = 0
        AND json_extract(o.params, '$.folderId') IS ?)`;
 
+/**
+ * For an operation whose answer must come from a run that started after the
+ * request: only one that has not started yet, with the same parameters, stands
+ * in for a new row. Binds the kind and the parameters as stored. A row waiting
+ * behind a running one is held back by {@link NEXT_OPERATION_SQL}.
+ */
+const NO_WAITING_OPERATION = `
+  NOT EXISTS (
+    SELECT 1 FROM jobs o
+     WHERE o.kind = ?
+       AND o.status = 'queued'
+       AND o.cancel_requested = 0
+       AND o.params = ?)`;
+
 /** Which admission rule an insert is checked against, in the same statement. */
-export type JobInsertFence = 'none' | 'batch_scopes' | 'pano_stitch' | 'operation';
+export type JobInsertFence =
+  | 'none'
+  | 'batch_scopes'
+  | 'pano_stitch'
+  | 'operation'
+  | 'fresh_operation';
 
 const FENCE_PREDICATES: Record<JobInsertFence, string> = {
   none: '1 = 1',
   batch_scopes: NO_ACTIVE_BATCH_OVERLAP,
   pano_stitch: NO_ACTIVE_PANO_STITCH,
   operation: NO_ACTIVE_OPERATION,
+  fresh_operation: NO_WAITING_OPERATION,
 };
 
 /**
@@ -142,7 +162,10 @@ export const DISPATCHED_MARKER = 'temporal';
  * A job Temporal holds: running, or queued with its workflow already started.
  * At most one user job is held at a time, because {@link NEXT_JOB_SQL} waits for it.
  */
-const HELD = `(status = 'running' OR (status = 'queued' AND locked_by IS NOT NULL))`;
+const heldRow = (alias = '') =>
+  `(${alias}status = 'running' OR (${alias}status = 'queued' AND ${alias}locked_by IS NOT NULL))`;
+
+const HELD = heldRow();
 
 /**
  * The oldest queued user job, but only once no other user job is held.
@@ -163,14 +186,22 @@ export const HELD_JOBS_SQL = `
   SELECT id FROM jobs WHERE ${IS_USER_JOB} AND ${HELD} ORDER BY created_at, id`;
 
 /**
- * The oldest queued operation not yet handed to Temporal. Operations run side
- * by side: the insert fence already keeps two of a kind (or two scans of one
- * folder) from being active together, so nothing here has to wait.
+ * The oldest queued operation not yet handed to Temporal whose kind (and
+ * folder, for a scan) Temporal does not already hold. Operations of different
+ * kinds and folders run side by side; a clustering request made while one runs
+ * waits here, as a row, until that one has finished. One whose cancel is
+ * pending holds nothing back, as in {@link NO_ACTIVE_OPERATION}.
  */
 export const NEXT_OPERATION_SQL = `
-  SELECT id FROM jobs
-   WHERE status = 'queued' AND locked_by IS NULL AND ${IS_OPERATION}
-   ORDER BY created_at, id LIMIT 1`;
+  SELECT q.id FROM jobs q
+   WHERE q.status = 'queued' AND q.locked_by IS NULL AND q.kind IN (${OPERATION_KIND_LIST})
+     AND NOT EXISTS (
+       SELECT 1 FROM jobs h
+        WHERE h.kind = q.kind
+          AND h.cancel_requested = 0
+          AND ${heldRow('h.')}
+          AND json_extract(h.params, '$.folderId') IS json_extract(q.params, '$.folderId'))
+   ORDER BY q.created_at, q.id LIMIT 1`;
 
 export const HELD_OPERATIONS_SQL = `
   SELECT id FROM jobs WHERE ${IS_OPERATION} AND ${HELD} ORDER BY created_at, id`;
@@ -180,6 +211,12 @@ export const ACTIVE_OPERATION_SQL = `
   SELECT id FROM jobs
    WHERE kind = ? AND status IN ('queued', 'running') AND cancel_requested = 0
      AND json_extract(params, '$.folderId') IS ?
+   ORDER BY created_at DESC LIMIT 1`;
+
+/** The not-yet-started operation a fresh insert was refused in favour of. */
+export const WAITING_OPERATION_SQL = `
+  SELECT id FROM jobs
+   WHERE kind = ? AND status = 'queued' AND cancel_requested = 0 AND params = ?
    ORDER BY created_at DESC LIMIT 1`;
 
 /**
