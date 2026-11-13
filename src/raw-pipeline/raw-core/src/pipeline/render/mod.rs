@@ -84,10 +84,12 @@ pub use entries::{
 // Scene-linear (no-view-tail) render entries — fp16/f32 RGBA pack + orient
 // (#1170 size-budget split); re-exported so `pipeline::{…}` keeps resolving them.
 mod capture;
-pub(in crate::pipeline) use capture::render_capture_sized_sensor_framed_from_camera;
 pub use capture::{
     finish_capture_refine, render_capture_from_raw_f32, render_capture_sized_from_raw_f32,
     render_capture_sized_sensor_framed_f32, render_capture_with_base_from_raw_f32, CaptureRender,
+};
+pub(in crate::pipeline) use capture::{
+    render_capture_from_camera, render_capture_with_base_from_camera,
 };
 mod scene_linear;
 pub use scene_linear::{

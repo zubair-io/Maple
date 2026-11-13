@@ -65,20 +65,16 @@ pub fn render_capture_sized_sensor_framed_f32(
     finish(model, capture, ExifOrientation::Normal)
 }
 
-/// [`render_capture_sized_sensor_framed_f32`] from an already prepared sized
-/// camera buffer.
-pub(in crate::pipeline) fn render_capture_sized_sensor_framed_from_camera(
+/// The capture decode from an already prepared camera buffer.
+pub(in crate::pipeline) fn render_capture_from_camera(
     raw: &RawImage,
     model: &AdjustmentModel,
-    ready: CameraReady,
+    (chain, ready): (Chain, CameraReady),
+    orientation: ExifOrientation,
     cancel: CancelToken<'_>,
 ) -> Result<CaptureRender> {
-    let (camera, input) = ready.colour(raw, model, Chain::Sized, cancel);
-    finish(
-        model,
-        capture_colour(camera, input)?,
-        ExifOrientation::Normal,
-    )
+    let (camera, input) = ready.colour(raw, model, chain, cancel);
+    finish(model, capture_colour(camera, input)?, orientation)
 }
 
 fn sized_capture(
@@ -110,13 +106,24 @@ pub fn render_capture_with_base_from_raw_f32(
     max_long_edge: Option<u32>,
     cancel: CancelToken<'_>,
 ) -> Result<(CaptureRender, CaptureBase)> {
-    let (chain, ready) = match max_long_edge {
+    let prepared = match max_long_edge {
         Some(edge) => (
             Chain::Sized,
             develop_sized_camera(raw, model, quality, edge, cancel)?,
         ),
         None => (Chain::Full, develop_camera(raw, model, quality, cancel)?),
     };
+    render_capture_with_base_from_camera(raw, (loaded, model), prepared, cancel)
+}
+
+/// [`render_capture_with_base_from_raw_f32`] from an already prepared camera
+/// buffer.
+pub(in crate::pipeline) fn render_capture_with_base_from_camera(
+    raw: &RawImage,
+    (loaded, model): (&AdjustmentModel, &AdjustmentModel),
+    (chain, ready): (Chain, CameraReady),
+    cancel: CancelToken<'_>,
+) -> Result<(CaptureRender, CaptureBase)> {
     let (camera, input) = ready.colour(raw, model, chain, cancel);
     let base = capture_base(camera, input, loaded)?;
     let capture = base.refine_cpu(model, chain, cancel)?;

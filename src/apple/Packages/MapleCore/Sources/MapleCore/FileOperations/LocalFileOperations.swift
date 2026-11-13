@@ -246,7 +246,7 @@ public enum LocalFileOperations {
       return outcome
     }
     carryFreshDerivatives(for: plan)
-    guard plan.mode == .move else { return outcome }
+    guard plan.mode == .move, !removalSourceChangedSincePlan(plan) else { return outcome }
 
     let fm = FileManager.default
     do {

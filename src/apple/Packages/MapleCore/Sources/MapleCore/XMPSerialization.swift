@@ -37,8 +37,6 @@ public struct XMPParser {
 
   public static func parse(_ xml: String) throws -> (AdjustmentModel, CullingState) {
     var m = AdjustmentModel()
-    m.temperatureSeen = false
-    m.tintSeen = false
     var c = CullingState()
     let parser = XMLParser(data: Data(xml.utf8))
     let delegate = _XMPParserDelegate(
@@ -70,9 +68,9 @@ public struct XMPParser {
     // Repair spots (#3409) — same nested-element walker shape; see
     // `XMPSerialization+Retouch.swift`.
     m.retouchSpots = delegate.retouch.finish()
-    m.inpaintRemovals = try RemovalXMPRecords.read(Data(xml.utf8)).map {
-      try RemovalRecords(json: $0)
-    }
+    m.inpaintRemovals =
+      xml.contains("InpaintRemovals")
+      ? try RemovalXMPRecords.read(Data(xml.utf8)).map { try RemovalRecords(json: $0) } : nil
     // An unstamped Maple list is the legacy sensor frame (#4473). It is kept
     // exactly as read and left unstamped, so an unrelated save cannot relabel
     // another host's decode-frame spots as upright; the first spot edit here

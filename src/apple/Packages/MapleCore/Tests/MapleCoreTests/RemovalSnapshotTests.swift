@@ -76,6 +76,7 @@ final class RemovalSnapshotTests: XCTestCase {
 
   func testSnapshotFlushesOurPendingScalarWriteAndIgnoresAnIdenticalRewrite() async throws {
     let session = try stage()
+    await session.loadSidecar()
     session.beginEdit()
     session.model.exposure = 1.25
     session.endEdit()
@@ -88,7 +89,9 @@ final class RemovalSnapshotTests: XCTestCase {
     await session.flushPendingSidecarWrite()
     XCTAssertNotNil(session.model.inpaintRemovals)
     XCTAssertEqual(session.model.exposure, 1.25)
-    XCTAssertEqual(try XMPParser.parse(data: Data(contentsOf: sidecar)).0, session.model)
+    let reopened = try XMPParser.parse(data: Data(contentsOf: sidecar)).0
+    XCTAssertEqual(reopened.exposure, 1.25)
+    XCTAssertEqual(reopened.inpaintRemovals, session.model.inpaintRemovals)
     await session.releaseTransientMemory()
   }
 

@@ -74,6 +74,7 @@ import {
 import { carryLateSidecars } from './relocate-late-sidecar.ts';
 import { deleteOriginals } from './relocate-originals.ts';
 import { carryRemovalAssets, withRelocationLease } from './relocate-removal.ts';
+import { recoverRemovalRelocation } from './removal-relocation-journal.ts';
 
 export { sidecarRenameTarget };
 
@@ -453,6 +454,7 @@ async function relocateOnce(
   ownSidecars: readonly string[],
 ): Promise<RelocateOutcome> {
   // 1. Resolve the destination per the caller's collision policy.
+  await recoverRemovalRelocation(req.destAbsPath);
   const resolution = await resolveDestination(req, ownSidecars);
   if (resolution.kind === 'skip') {
     return { kind: 'skipped', reason: 'collision' };

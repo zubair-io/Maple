@@ -106,22 +106,34 @@ pub(crate) unsafe fn capture_entry(
             }
         };
         let quality = quality(develop.quality_preview);
-        let rendered = match (base_out, develop.max_long_edge) {
-            (Some(_), edge) => raw_core::pipeline::render_capture_with_base_from_raw_f32(
+        let rendered = if !loaded.inpaint_removals.is_empty() {
+            crate::removal_file::render_saved_capture(
                 &raw,
+                &source,
+                xmp_path.as_deref(),
                 (&loaded, &model),
-                quality,
-                edge,
+                (quality, develop.max_long_edge),
+                base_out.is_some(),
                 token,
             )
-            .map(|(capture, base)| (capture, Some(base))),
-            (None, Some(edge)) => raw_core::pipeline::render_capture_sized_from_raw_f32(
-                &raw, &model, quality, edge, token,
-            )
-            .map(|capture| (capture, None)),
-            (None, None) => {
-                raw_core::pipeline::render_capture_from_raw_f32(&raw, &model, quality, token)
-                    .map(|capture| (capture, None))
+        } else {
+            match (base_out, develop.max_long_edge) {
+                (Some(_), edge) => raw_core::pipeline::render_capture_with_base_from_raw_f32(
+                    &raw,
+                    (&loaded, &model),
+                    quality,
+                    edge,
+                    token,
+                )
+                .map(|(capture, base)| (capture, Some(base))),
+                (None, Some(edge)) => raw_core::pipeline::render_capture_sized_from_raw_f32(
+                    &raw, &model, quality, edge, token,
+                )
+                .map(|capture| (capture, None)),
+                (None, None) => {
+                    raw_core::pipeline::render_capture_from_raw_f32(&raw, &model, quality, token)
+                        .map(|capture| (capture, None))
+                }
             }
         };
         let (capture, base) = match rendered {

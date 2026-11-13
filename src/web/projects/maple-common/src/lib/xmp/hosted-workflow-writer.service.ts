@@ -130,7 +130,10 @@ export class HostedWorkflowWriterService {
     },
   ): Promise<SidecarWrite> {
     const { current, base, variantId } = disk;
-    const records = current === null ? undefined : savedRemovalRecords(current);
+    const records =
+      current === null || !current.includes('InpaintRemovals')
+        ? undefined
+        : savedRemovalRecords(current);
     const model = { ...edit.model, inpaintRemovals: records };
     const pending = disk.pending.map((captured) => ({
       ...captured,

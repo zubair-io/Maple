@@ -33,7 +33,7 @@ extension RenderActor {
       // File untouched since decode → baked model unchanged.
       isFresh = true
     } else {
-      isFresh = (Self.bakedModel(for: asset) == decodedBakedModel)
+      isFresh = Self.validatedBakedModel(for: asset).map { $0 == decodedBakedModel } ?? false
       if isFresh {
         decodedSidecarMtime = currentMtime
         decodedSidecarURL = asset.sidecarURL
@@ -73,6 +73,22 @@ extension RenderActor {
   nonisolated static func bakedModel(for asset: AssetRef) -> AdjustmentModel {
     guard EditSession.sidecarMtime(for: asset) != nil else { return defaultBakedModel }
     return bakedModel(fromLive: EditSession.parseSidecarModel(for: asset))
+  }
+
+  /// `bakedModel(for:)` with the same single read and parse, except that an
+  /// unparseable accepted removal stack has no baked key (#3955), so no decode
+  /// may be cached, seeded, or published under it.
+  nonisolated static func validatedBakedModel(for asset: AssetRef) -> AdjustmentModel? {
+    guard EditSession.sidecarMtime(for: asset) != nil, let url = asset.sidecarURL else {
+      return defaultBakedModel
+    }
+    guard let xml = try? String(contentsOf: url, encoding: .utf8) else {
+      return bakedModel(fromLive: .default)
+    }
+    guard let (model, _) = try? XMPParser.parse(xml) else {
+      return xml.contains("InpaintRemovals") ? nil : bakedModel(fromLive: .default)
+    }
+    return bakedModel(fromLive: model)
   }
 
   enum DecodeXMPSource: Equatable {

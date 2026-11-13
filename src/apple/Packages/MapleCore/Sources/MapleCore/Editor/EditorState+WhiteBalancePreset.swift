@@ -20,8 +20,6 @@ extension EditorState {
       model.tint = pair.tint
       model.wbScaleVersion = AdjustmentModel.default.wbScaleVersion
     }
-    model.temperatureSeen = true
-    model.tintSeen = true
     model.partialWhiteBalance = nil
     model.whiteBalancePreset = preset
     model.wbSource = preset == .custom ? .manual : .preset

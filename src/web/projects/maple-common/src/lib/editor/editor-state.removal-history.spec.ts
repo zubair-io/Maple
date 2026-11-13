@@ -34,6 +34,7 @@ import { LocalRemovalAssets } from '../removal/local-removal-assets';
 import { savedRemovalRecords } from '../removal/saved-removal-records';
 import { EditorStateService } from './editor-state.service';
 import { WorkflowXmpService } from '../xmp/workflow-xmp.service';
+import { HostedSidecarFreshnessService } from '../xmp/hosted-sidecar-freshness.service';
 import type { SidecarWorkflow, WorkflowHistoryEntry } from '../generated/workflow.generated';
 import { installTestWebLocks } from '../removal/testing/web-locks';
 
@@ -146,6 +147,7 @@ describe('confirmed Web removal history with real XMP and companions', () => {
       ],
     });
     sidecars = TestBed.inject(XmpStoreService);
+    TestBed.inject(HostedSidecarFreshnessService).remember(folder, 'photo.xmp', text('prior.xmp'));
     sidecars.rememberPassthrough(
       'photo',
       TestBed.inject(XmpParserService).parseAdjustmentModel(text('prior.xmp')).passthrough,

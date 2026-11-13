@@ -227,18 +227,72 @@ impl ResolvedCalibrationRemovals {
         max_long_edge: u32,
         cancel: CancelToken<'_>,
     ) -> crate::Result<super::CaptureRender> {
-        if cancel.is_cancelled() {
-            return Err(crate::Error::Cancelled);
-        }
-        self.verify_current(raw, original, model)?;
-        super::removal_calibration::render_capture_sized_sensor_framed(
+        self.verify_for_render(raw, original, model, cancel)?;
+        super::removal_calibration::render_capture(
             raw,
             model,
-            quality,
-            max_long_edge,
+            (quality, Some(max_long_edge)),
+            crate::image::ExifOrientation::Normal,
             &self.patches,
             cancel,
         )
+    }
+
+    /// The oriented capture decode (full resolution, or sized to
+    /// `max_long_edge`) with this stack's replacements composited.
+    pub fn render_capture(
+        &self,
+        raw: &RawImage,
+        original: &ContentDigest,
+        model: &AdjustmentModel,
+        quality: super::RenderQuality,
+        max_long_edge: Option<u32>,
+        cancel: CancelToken<'_>,
+    ) -> crate::Result<super::CaptureRender> {
+        self.verify_for_render(raw, original, model, cancel)?;
+        super::removal_calibration::render_capture(
+            raw,
+            model,
+            (quality, max_long_edge),
+            raw.orientation,
+            &self.patches,
+            cancel,
+        )
+    }
+
+    /// [`Self::render_capture`] with the refine base; `loaded` is the host's
+    /// model and `model` the developed one, as for
+    /// [`super::render_capture_with_base_from_raw_f32`].
+    pub fn render_capture_with_base(
+        &self,
+        raw: &RawImage,
+        original: &ContentDigest,
+        (loaded, model): (&AdjustmentModel, &AdjustmentModel),
+        quality: super::RenderQuality,
+        max_long_edge: Option<u32>,
+        cancel: CancelToken<'_>,
+    ) -> crate::Result<(super::CaptureRender, super::CaptureBase)> {
+        self.verify_for_render(raw, original, model, cancel)?;
+        super::removal_calibration::render_capture_with_base(
+            raw,
+            (loaded, model),
+            (quality, max_long_edge),
+            &self.patches,
+            cancel,
+        )
+    }
+
+    fn verify_for_render(
+        &self,
+        raw: &RawImage,
+        original: &ContentDigest,
+        model: &AdjustmentModel,
+        cancel: CancelToken<'_>,
+    ) -> crate::Result<()> {
+        if cancel.is_cancelled() {
+            return Err(crate::Error::Cancelled);
+        }
+        self.verify_current(raw, original, model)
     }
 }
 

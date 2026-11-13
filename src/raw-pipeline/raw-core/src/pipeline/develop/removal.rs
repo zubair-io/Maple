@@ -40,7 +40,7 @@ pub(in crate::pipeline) fn develop_with_calibration_patches(
 /// The profile-ready camera buffer with the replacements composited. The
 /// Whites statistic stays the original plate's, so a removal never moves the
 /// global tone anchor; the original plate is released before the rebuild.
-fn develop_camera_with_patches(
+pub(in crate::pipeline) fn develop_camera_with_patches(
     raw: &RawImage,
     model: &AdjustmentModel,
     quality: RenderQuality,

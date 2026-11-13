@@ -114,7 +114,7 @@ extension EditorWorkflowPerfTests {
       XCTAssertEqual(decoded.decodedAtModel?.inpaintRemovals?.json ?? "[]", records)
       let readback = await driver.renderCurrentFrameBytes(
         model: session.model, asShotCCT: session.asShotCCT,
-        asShotTint: session.asShotTint, wbFrame: decoded.wbFrame)
+        asShotTint: session.asShotTint)
       let frame = try XCTUnwrap(readback)
       let digest = try RemovalBridge.digest(Data(frame.bytes))
       // Readback/hash is outside the timed input loop. No synthetic decode seed.

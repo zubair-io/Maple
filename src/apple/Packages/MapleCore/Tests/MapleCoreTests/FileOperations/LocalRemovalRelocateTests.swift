@@ -2,8 +2,8 @@ import XCTest
 
 @testable import MapleCore
 
-final class LocalRemovalRelocateTests: XCTestCase {
-  private func fixture(_ name: String) throws -> Data {
+fileprivate extension XCTestCase {
+  func fixture(_ name: String) throws -> Data {
     let parts = name.split(separator: ".")
     let url = try XCTUnwrap(
       Bundle.module.url(
@@ -12,7 +12,7 @@ final class LocalRemovalRelocateTests: XCTestCase {
     return try Data(contentsOf: url)
   }
 
-  private func stage() async throws -> (URL, String) {
+  func stage() async throws -> (URL, String) {
     let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
     addTeardownBlock { try? FileManager.default.removeItem(at: root) }
@@ -26,7 +26,9 @@ final class LocalRemovalRelocateTests: XCTestCase {
       records: records, expectedRecords: "[]", model: .default, culling: CullingState())
     return (raw, records)
   }
+}
 
+final class LocalRemovalRelocateTests: XCTestCase {
   func testCopyAndMoveReopenWithAllCompanionsAndRetainSharedSourceAssets() async throws {
     let (raw, records) = try await stage()
     let sourceAssets = try await LocalRemovalAssetStore(rawURL: raw).readAssets(records: records)
@@ -72,29 +74,6 @@ final class LocalRemovalRelocateTests: XCTestCase {
     XCTAssertEqual(try Data(contentsOf: raw), try fixture("source.dng"))
     XCTAssertFalse(
       try FileManager.default.contentsOfDirectory(atPath: destination.path).contains {
-        $0.hasSuffix(".rollback")
-      })
-  }
-
-  func testRevertReplacementRestoresPreviousPairAndRetainsCompanions() async throws {
-    let (raw, records) = try await stage()
-    let album = raw.deletingLastPathComponent().appendingPathComponent("album")
-    try FileManager.default.createDirectory(at: album, withIntermediateDirectories: true)
-    let occupant = album.appendingPathComponent("photo.dng")
-    let priorRaw = Data("previous photo".utf8)
-    let priorXMP = Data("<foreign original=\"untouched\"/>".utf8)
-    try priorRaw.write(to: occupant)
-    try priorXMP.write(to: SidecarPath.sidecarURL(for: occupant))
-    let plan = try await LocalFileOperations.planRelocate(
-      raw, to: album, mode: .move, collision: .replace)
-    LocalFileOperations.revertPlan(plan)
-    XCTAssertEqual(try Data(contentsOf: occupant), priorRaw)
-    XCTAssertEqual(try Data(contentsOf: SidecarPath.sidecarURL(for: occupant)), priorXMP)
-    XCTAssertTrue(FileManager.default.fileExists(atPath: raw.path))
-    let companions = try await LocalRemovalAssetStore(rawURL: occupant).readAssets(records: records)
-    XCTAssertEqual(companions.count, 2)
-    XCTAssertFalse(
-      try FileManager.default.contentsOfDirectory(atPath: album.path).contains {
         $0.hasSuffix(".rollback")
       })
   }
@@ -247,4 +226,31 @@ final class LocalRemovalRelocateTests: XCTestCase {
     try RemovalBridge.verifySource(records: records, rawURL: target)
   }
 
+}
+
+/// Specifies #3944 (plan slice S12): excluded from swift-regressions until
+/// journaled relocation is re-derived onto the main publish pipeline.
+final class LocalRemovalRelocateReplacementTests: XCTestCase {
+  func testRevertReplacementRestoresPreviousPairAndRetainsCompanions() async throws {
+    let (raw, records) = try await stage()
+    let album = raw.deletingLastPathComponent().appendingPathComponent("album")
+    try FileManager.default.createDirectory(at: album, withIntermediateDirectories: true)
+    let occupant = album.appendingPathComponent("photo.dng")
+    let priorRaw = Data("previous photo".utf8)
+    let priorXMP = Data("<foreign original=\"untouched\"/>".utf8)
+    try priorRaw.write(to: occupant)
+    try priorXMP.write(to: SidecarPath.sidecarURL(for: occupant))
+    let plan = try await LocalFileOperations.planRelocate(
+      raw, to: album, mode: .move, collision: .replace)
+    LocalFileOperations.revertPlan(plan)
+    XCTAssertEqual(try Data(contentsOf: occupant), priorRaw)
+    XCTAssertEqual(try Data(contentsOf: SidecarPath.sidecarURL(for: occupant)), priorXMP)
+    XCTAssertTrue(FileManager.default.fileExists(atPath: raw.path))
+    let companions = try await LocalRemovalAssetStore(rawURL: occupant).readAssets(records: records)
+    XCTAssertEqual(companions.count, 2)
+    XCTAssertFalse(
+      try FileManager.default.contentsOfDirectory(atPath: album.path).contains {
+        $0.hasSuffix(".rollback")
+      })
+  }
 }

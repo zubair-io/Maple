@@ -27,20 +27,7 @@ impl ResolvedCalibrationRemovals {
         if !ae_gain.is_finite() || ae_gain <= 0.0 {
             return Err(crate::Error::Pipeline("invalid saved tile AE gain".into()));
         }
-        if !patches.is_empty() {
-            crate::pipeline::removal_calibration::validate_upstream(model)?;
-            if raw.opcode_list3.is_none() && crate::lens_profile::applies(raw, model) {
-                return Err(crate::Error::Pipeline(
-                    "saved native detail requires the full-image render when a lens profile is active".into(),
-                ));
-            }
-        }
-        if crate::pipeline::tile::tile_working_pixels(raw, model, rect, quality)? > 8 * 1024 * 1024
-        {
-            return Err(crate::Error::Pipeline(
-                "saved native tile exceeds working-pixel budget".into(),
-            ));
-        }
+        guard_tile(patches, raw, model, rect, quality)?;
         crate::pipeline::tile::develop_saved_tile(
             raw,
             model,
@@ -52,6 +39,21 @@ impl ResolvedCalibrationRemovals {
             patches,
             crate::CancelToken::never(),
         )
+    }
+
+    /// [`Self::render_scene_linear_tile_f32`]'s capture result in the fixed
+    /// as-shot basis (#5377), under the same refusals; no asset I/O.
+    pub fn render_capture_tile_f32(
+        &self,
+        raw: &RawImage,
+        original: &ContentDigest,
+        model: &AdjustmentModel,
+        rect: crate::pipeline::TileRect,
+        quality: RenderQuality,
+    ) -> Result<(u32, u32, Vec<f32>)> {
+        let patches = self.detail_patches(raw, original, model)?;
+        guard_tile(patches, raw, model, rect, quality)?;
+        crate::pipeline::tile::develop_saved_capture_tile(raw, model, rect, quality, patches)
     }
 
     /// No display transform, crop or quantization. The host strips stages it
@@ -98,6 +100,30 @@ impl ResolvedCalibrationRemovals {
             scene.nr_sampling_scale,
         ))
     }
+}
+
+fn guard_tile(
+    patches: &[crate::types::InpaintPatch],
+    raw: &RawImage,
+    model: &AdjustmentModel,
+    rect: crate::pipeline::TileRect,
+    quality: RenderQuality,
+) -> Result<()> {
+    if !patches.is_empty() {
+        crate::pipeline::removal_calibration::validate_upstream(model)?;
+        if raw.opcode_list3.is_none() && crate::lens_profile::applies(raw, model) {
+            return Err(crate::Error::Pipeline(
+                "saved native detail requires the full-image render when a lens profile is active"
+                    .into(),
+            ));
+        }
+    }
+    if crate::pipeline::tile::tile_working_pixels(raw, model, rect, quality)? > 8 * 1024 * 1024 {
+        return Err(crate::Error::Pipeline(
+            "saved native tile exceeds working-pixel budget".into(),
+        ));
+    }
+    Ok(())
 }
 
 #[cfg(test)]

@@ -131,6 +131,15 @@ impl MapleRawHandleInner {
         rect: TileRect,
         quality: RenderQuality,
     ) -> Result<(u32, u32, Vec<f32>)> {
+        if let Some(saved) = &self.saved {
+            return saved.render_capture_tile_f32(
+                &self.raw,
+                &self.original,
+                &self.model,
+                rect,
+                quality,
+            );
+        }
         pipeline::reject_untileable_tile(&self.raw, &self.model, rect)?;
         match self.frame_context(quality)? {
             Some(context) => {

@@ -14,6 +14,21 @@ extension LocalFileOperations {
     (try? String(contentsOf: sidecar, encoding: .utf8))?.contains("InpaintRemovals") ?? false
   }
 
+  /// A move keeps its source when the source sidecar now carries accepted
+  /// removals that differ from the copy the plan staged: deleting it could
+  /// discard a newer stack whose companions never reached the destination.
+  static func removalSourceChangedSincePlan(_ plan: RelocatePlan) -> Bool {
+    guard let sourcePath = plan.sourceSidecarPath, !plan.retainsSourceSidecar,
+      sidecarCarriesRemovals(URL(fileURLWithPath: sourcePath))
+    else { return false }
+    let staged = plan.finalSidecarPath.flatMap { FileManager.default.contents(atPath: $0) }
+    guard FileManager.default.contents(atPath: sourcePath) != staged else { return false }
+    removalRelocationLog.error(
+      "finalizeRelocate: source sidecar changed after planning; source retained (\(sourcePath, privacy: .public))"
+    )
+    return true
+  }
+
   static func finalizeLocalSnapshot(
     _ plan: RelocatePlan, snapshot: LocalRelocationSnapshot
   ) async {

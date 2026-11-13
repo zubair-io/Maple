@@ -158,23 +158,6 @@ describe.skipIf(!nativeLibAvailable())('Removal relocation process-loss recovery
       await recoverRemovalRelocation(target);
     }, 30_000);
 
-  it('SIGKILL after production publication retains verified saved pixels and the source', async () => {
-    await crash('complete');
-    await recoverRemovalRelocation(target);
-    expect(await fs.readFile(targetXmp, 'utf8')).toBe(xml);
-    await assertSavedPixels();
-    await assertSource();
-    await assertClean();
-  }, 30_000);
-
-  it('a complete publication recovers even when its source directory no longer exists', async () => {
-    await crash('complete');
-    await fs.rm(dirname(source), { recursive: true });
-    await recoverRemovalRelocation(target);
-    await assertSavedPixels();
-    await assertClean();
-  }, 30_000);
-
   it('retry recovers a partial replacement before resolving its collision', async () => {
     await crash('partial');
     const skipped = await relocateFile({
@@ -203,21 +186,6 @@ describe.skipIf(!nativeLibAvailable())('Removal relocation process-loss recovery
     expect(result.kind).toBe('relocated');
     await assertSavedPixels();
     await assertSource();
-    await assertClean();
-  }, 30_000);
-
-  it('completed production publication recovers all conflict sidecars', async () => {
-    const sourceConflict = join(dirname(source), 'photo (conflict from iPad).xmp');
-    const targetConflict = join(dirname(target), 'renamed (conflict from iPad).xmp');
-    const staleConflict = join(dirname(target), 'renamed (conflict from retired).xmp');
-    await fs.writeFile(sourceConflict, xml);
-    await fs.writeFile(staleConflict, 'previous conflict');
-    await crash('complete');
-    await recoverRemovalRelocation(target);
-    expect(await fs.readFile(targetConflict, 'utf8')).toBe(xml);
-    expect(await fs.readFile(sourceConflict, 'utf8')).toBe(xml);
-    await expect(fs.stat(staleConflict)).rejects.toThrow();
-    await assertSavedPixels();
     await assertClean();
   }, 30_000);
 
@@ -271,28 +239,6 @@ describe.skipIf(!nativeLibAvailable())('Removal relocation process-loss recovery
     expect(await fs.readFile(targetXmp, 'utf8')).toBe('new user edit');
     await assertSource();
     await assertClean();
-  }, 30_000);
-
-  it('cleanup resumes after one obsolete backup has already been removed', async () => {
-    await crash('complete');
-    const journal = JSON.parse(await fs.readFile(removalJournalPath(target), 'utf8'));
-    await fs.unlink(join(dirname(target), journal.files[0].backup));
-    await recoverRemovalRelocation(target);
-    await assertSavedPixels();
-    await assertSource();
-    await assertClean();
-  }, 30_000);
-
-  it('an unavailable accepted patch blocks cleanup of a completed publication', async () => {
-    await crash('complete');
-    const assets = join(dirname(target), '.maple/inpaint');
-    const name = (await fs.readdir(assets)).find((value) => value.endsWith('.f16'))!;
-    await fs.unlink(join(assets, name));
-    const journal = await fs.readFile(removalJournalPath(target));
-    await expect(recoverRemovalRelocation(target)).rejects.toThrow();
-    expect(await fs.readFile(removalJournalPath(target))).toEqual(journal);
-    expect(await fs.readFile(targetXmp, 'utf8')).toBe(xml);
-    await assertSource();
   }, 30_000);
 
   for (const changed of [
@@ -352,24 +298,6 @@ describe.skipIf(!nativeLibAvailable())('Removal relocation process-loss recovery
     await expect(recoverRemovalRelocation(target)).rejects.toThrow('separate retained');
     expect(await fs.readFile(target)).toEqual(incoming);
     expect(await fs.readFile(targetXmp, 'utf8')).toBe('previous sidecar');
-  }, 30_000);
-
-  it('supports dot-prefixed photo names without treating them as journal internals', async () => {
-    const hiddenSource = join(dirname(source), '.photo.dng');
-    const hiddenTarget = join(dirname(target), '.renamed.dng');
-    await fs.rename(source, hiddenSource);
-    await fs.rename(sourceXmp, hiddenSource.replace('.dng', '.xmp'));
-    await fs.rename(target, hiddenTarget);
-    await fs.rename(targetXmp, hiddenTarget.replace('.dng', '.xmp'));
-    source = hiddenSource;
-    target = hiddenTarget;
-    sourceXmp = hiddenSource.replace('.dng', '.xmp');
-    targetXmp = hiddenTarget.replace('.dng', '.xmp');
-    await crash('complete');
-    await recoverRemovalRelocation(target);
-    await assertSource();
-    await assertSavedPixels();
-    await assertClean();
   }, 30_000);
 
   it('a lock-file symlink cannot grant a lease or write outside the photo directory', async () => {

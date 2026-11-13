@@ -269,6 +269,7 @@ final class RemovalHistoryTests: XCTestCase {
   }
   func testWorkflowSnapshotRestoreRequiresRemovalCompanionsAndKeepsBothHistories() async throws {
     let session = try stage()
+    await session.loadSidecar()
     try await keep(session)
     await session.flushPendingSidecarWrite()
     let accepted = session.model

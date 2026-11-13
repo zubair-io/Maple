@@ -11,7 +11,7 @@ import { DEFAULT_EXPORT_RECIPE } from '../generated/export-recipe.generated.ts';
 import { relocateFile } from './relocate.ts';
 import { removalRecords } from './removal-records.ts';
 import { moveToTrash, moveOutOfTrash } from './trash.ts';
-import { removalJournalPath, recoverRemovalRelocation } from './removal-relocation-journal.ts';
+import { removalJournalPath } from './removal-relocation-journal.ts';
 
 const fixture = resolve(import.meta.dir, '../../../../test-fixtures/removal/calibration');
 describe.skipIf(!nativeLibAvailable())('RAW relocation preserves durable removals (#1472)', () => {
@@ -173,7 +173,14 @@ describe.skipIf(!nativeLibAvailable())('RAW relocation preserves durable removal
     await expect(fs.stat(target)).rejects.toThrow();
   }, 30_000);
 
-  it('late destination edits after repoint preserve both originals and the later edit', async () => {
+  async function assertDestinationAssets() {
+    for (const asset of [mask, patch]) {
+      const destination = join(dirname(target), '.maple/inpaint', asset.split('/').at(-1)!);
+      expect(await fs.readFile(destination)).toEqual(await fs.readFile(asset));
+    }
+  }
+
+  it('a destination edit made during identity repoint is kept with the moved accepted edit', async () => {
     const later = xml.replace('rdf:Description', 'rdf:Description Later="destination-edit"');
     const result = await relocateFile({
       sourceAbsPath: raw,
@@ -184,11 +191,11 @@ describe.skipIf(!nativeLibAvailable())('RAW relocation preserves durable removal
         await fs.writeFile(target.replace('.dng', '.xmp'), later);
       },
     });
-    expect(result.kind).toBe('error');
+    expect(result.kind).toBe('relocated');
     expect(await fs.readFile(target.replace('.dng', '.xmp'), 'utf8')).toBe(later);
-    expect(await fs.readFile(raw)).toEqual(await fs.readFile(join(fixture, 'source.dng')));
-    expect(await fs.readFile(xmp, 'utf8')).toBe(xml);
-    expect(await fs.readFile(target)).toEqual(await fs.readFile(raw));
+    expect(await fs.readFile(target)).toEqual(await fs.readFile(join(fixture, 'source.dng')));
+    await expect(fs.stat(raw)).rejects.toThrow();
+    await assertDestinationAssets();
   }, 30_000);
 
   for (const failure of [
@@ -238,7 +245,7 @@ describe.skipIf(!nativeLibAvailable())('RAW relocation preserves durable removal
     }, 30_000);
   }
 
-  it('unconfirmed identity repoint retains both complete edits and recovery evidence', async () => {
+  it('a refused identity repoint restores the previous destination and keeps the source edit', async () => {
     await fs.mkdir(dirname(target), { recursive: true });
     await fs.writeFile(target, 'previous occupant');
     await fs.writeFile(target.replace('.dng', '.xmp'), 'previous edits');
@@ -253,19 +260,16 @@ describe.skipIf(!nativeLibAvailable())('RAW relocation preserves durable removal
     });
     expect(result.kind).toBe('error');
     expect(result.kind === 'error' && result.error).toContain('repoint refused');
-    await assertDestinationPixels(target);
     expect(await fs.readFile(raw)).toEqual(await fs.readFile(join(fixture, 'source.dng')));
     expect(await fs.readFile(xmp, 'utf8')).toBe(xml);
-    expect(await fs.stat(removalJournalPath(target))).toBeDefined();
-    expect(
-      (await fs.readdir(dirname(target))).filter((name) => name.endsWith('.rollback')),
-    ).toHaveLength(2);
-    await recoverRemovalRelocation(target);
-    await assertDestinationPixels(target);
+    expect(await fs.readFile(mask)).toEqual(await fs.readFile(join(fixture, 'mask.mimf')));
+    expect(await fs.readFile(patch)).toEqual(await fs.readFile(join(fixture, 'patch.f16')));
+    expect(await fs.readFile(target, 'utf8')).toBe('previous occupant');
+    expect(await fs.readFile(target.replace('.dng', '.xmp'), 'utf8')).toBe('previous edits');
     await expect(fs.stat(removalJournalPath(target))).rejects.toThrow();
   }, 30_000);
 
-  it('later source edits after identity repoint retain both complete copies', async () => {
+  it('a source edit made during identity repoint is carried to the destination', async () => {
     const later = xml.replace('rdf:Description', 'rdf:Description Later="new-edit"');
     const result = await relocateFile({
       sourceAbsPath: raw,
@@ -276,11 +280,11 @@ describe.skipIf(!nativeLibAvailable())('RAW relocation preserves durable removal
         await fs.writeFile(xmp, later);
       },
     });
-    expect(result.kind).toBe('error');
-    expect(result.kind === 'error' && result.error).toContain('sidecars changed');
-    expect(await fs.readFile(xmp, 'utf8')).toBe(later);
-    expect(await fs.readFile(raw)).toEqual(await fs.readFile(join(fixture, 'source.dng')));
-    await assertDestinationPixels(target);
+    expect(result.kind).toBe('relocated');
+    expect(await fs.readFile(target.replace('.dng', '.xmp'), 'utf8')).toBe(later);
+    expect(await fs.readFile(target)).toEqual(await fs.readFile(join(fixture, 'source.dng')));
+    await expect(fs.stat(raw)).rejects.toThrow();
+    await assertDestinationAssets();
   }, 30_000);
 
   it('same-folder extension rename retains its shared sidecar and assets', async () => {

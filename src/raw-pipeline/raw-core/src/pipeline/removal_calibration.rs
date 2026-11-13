@@ -124,29 +124,54 @@ fn validate_patches(model: &AdjustmentModel, patches: &[InpaintPatch]) -> Result
     Ok(())
 }
 
-/// The sensor-framed sized capture decode with the replacements composited
-/// into the pre-optics camera plate, for a live host's resident prefix.
-pub(super) fn render_capture_sized_sensor_framed(
+/// The capture decode (full resolution, or sized to `max_long_edge`) with the
+/// replacements composited into the pre-optics camera plate.
+pub(super) fn render_capture(
     raw: &RawImage,
     model: &AdjustmentModel,
-    quality: RenderQuality,
-    max_long_edge: u32,
+    (quality, max_long_edge): (RenderQuality, Option<u32>),
+    orientation: crate::image::ExifOrientation,
     patches: &[InpaintPatch],
     cancel: CancelToken<'_>,
 ) -> Result<super::CaptureRender> {
-    if max_long_edge == 0 {
+    let prepared = camera_with_patches(raw, model, (quality, max_long_edge), patches, cancel)?;
+    super::render::render_capture_from_camera(raw, model, prepared, orientation, cancel)
+}
+
+/// [`render_capture`] with the refine base, so a refine starts from the
+/// composited capture input.
+pub(super) fn render_capture_with_base(
+    raw: &RawImage,
+    (loaded, model): (&AdjustmentModel, &AdjustmentModel),
+    (quality, max_long_edge): (RenderQuality, Option<u32>),
+    patches: &[InpaintPatch],
+    cancel: CancelToken<'_>,
+) -> Result<(super::CaptureRender, super::CaptureBase)> {
+    let prepared = camera_with_patches(raw, model, (quality, max_long_edge), patches, cancel)?;
+    super::render::render_capture_with_base_from_camera(raw, (loaded, model), prepared, cancel)
+}
+
+fn camera_with_patches(
+    raw: &RawImage,
+    model: &AdjustmentModel,
+    (quality, max_long_edge): (RenderQuality, Option<u32>),
+    patches: &[InpaintPatch],
+    cancel: CancelToken<'_>,
+) -> Result<(super::capture_first::Chain, develop::CameraReady)> {
+    if max_long_edge == Some(0) {
         return Err(invalid("output cap must be positive"));
     }
     validate_patches(model, patches)?;
-    let ready = super::develop_sized::camera_with_patches(
-        raw,
-        model,
-        quality,
-        max_long_edge,
-        cancel,
-        patches,
-    )?;
-    super::render::render_capture_sized_sensor_framed_from_camera(raw, model, ready, cancel)
+    Ok(match max_long_edge {
+        Some(cap) => (
+            super::capture_first::Chain::Sized,
+            super::develop_sized::camera_with_patches(raw, model, quality, cap, cancel, patches)?,
+        ),
+        None => (
+            super::capture_first::Chain::Full,
+            develop::develop_camera_with_patches(raw, model, quality, cancel, patches)?,
+        ),
+    })
 }
 
 pub(super) fn validate_upstream(model: &AdjustmentModel) -> Result<()> {

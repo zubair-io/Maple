@@ -91,6 +91,7 @@ extension RenderActor {
     // cancelAll revokes ownership before the abandoned FFI task finishes.
     // A new render must start a fresh decode instead of joining that task.
     let liveBaked = liveModel.map(Self.bakedModel(fromLive:))
+    guard let requestedBaked = liveBaked ?? Self.validatedBakedModel(for: asset) else { return nil }
     if let existing = decodeTask, decodeCancelFlag != nil, decodeTaskAssetID == asset.id,
       decodeTaskSidecarURL == asset.sidecarURL,
       liveBaked == nil || decodeTaskBakedModel == liveBaked,
@@ -391,7 +392,18 @@ extension RenderActor {
     // write landing mid-capture can only make a future check do an extra
     // parse, never serve stale.
     let currentMtime = EditSession.sidecarMtime(for: asset)
-    let currentBaked = liveBaked ?? Self.bakedModel(for: asset)
+    // A Keep landing mid-decode must discard these pixels, never label them
+    // with the newly accepted stack (#3955).
+    guard let currentBaked = liveBaked ?? Self.validatedBakedModel(for: asset),
+      currentBaked.inpaintRemovals == requestedBaked.inpaintRemovals
+    else {
+      decodeTask = nil
+      decodeTaskAssetID = nil
+      decodeTaskSidecarURL = nil
+      decodeTaskBakedModel = nil
+      decodeCancelFlag = nil
+      return nil
+    }
     let newRawResolution = decoded.extent.size
     let sameAssetCached = (decodedForAssetID == asset.id) && (decodedImage != nil)
     let cachedCoversNewDecode = Self.cacheCoversNewDecode(

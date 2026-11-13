@@ -116,7 +116,7 @@ async function requirePrimarySidecarDestination(rawAbsPath: string): Promise<str
 }
 
 /** Ordinary saves cannot introduce, discard or replace accepted removal pixels. */
-export class RemovalStackChangedError extends Error {
+class RemovalStackChangedError extends Error {
   constructor() {
     super('Removal history changed; use a confirmed removal commit before saving this document');
   }

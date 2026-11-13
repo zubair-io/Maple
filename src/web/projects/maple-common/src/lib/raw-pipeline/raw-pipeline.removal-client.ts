@@ -14,6 +14,7 @@ import type {
 export class RemovalAuthoringClient {
   private epoch = 0;
   private input: { sourceId: string; ext: string; original: string } | null = null;
+  private retainedSource = false;
   constructor(
     private readonly worker: () => Worker,
     private readonly nextId: () => number,
@@ -27,6 +28,13 @@ export class RemovalAuthoringClient {
 
   get isOpen(): boolean {
     return this.input !== null;
+  }
+
+  /** Whether an authoring view left its mosaic in the worker since the last release. */
+  releaseRetainedSource(): boolean {
+    const retained = this.retainedSource;
+    this.retainedSource = false;
+    return retained;
   }
 
   /** Cold cache work has its own temporary RAW; it cannot replace an editor owner. */
@@ -53,6 +61,7 @@ export class RemovalAuthoringClient {
     this.close();
     const epoch = this.epoch;
     const bytes = input.bytes.slice().buffer as ArrayBuffer;
+    this.retainedSource = true;
     const value = await this.send(
       { sourceId: input.sourceId, ext: input.ext },
       { kind: 'source', bytes },

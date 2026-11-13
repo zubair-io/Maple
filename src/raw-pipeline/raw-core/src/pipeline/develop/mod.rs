@@ -66,7 +66,7 @@ pub use entries::{
     develop_scene_linear_from_raw_with_quality_cancellable,
     develop_scene_linear_from_raw_with_quality_with_gain,
 };
-pub(super) use removal::develop_with_calibration_patches;
+pub(super) use removal::{develop_camera_with_patches, develop_with_calibration_patches};
 
 /// Same develop chain as [`develop_scene_linear_from_raw_with_quality_cancellable`],
 /// additionally returning the scalar gain the `auto_exposure` stage applied

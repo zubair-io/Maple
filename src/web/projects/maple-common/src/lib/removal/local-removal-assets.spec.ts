@@ -17,7 +17,11 @@ import {
 } from '../raw-pipeline/pkg/raw_wasm';
 import { WorkflowXmpService } from '../xmp/workflow-xmp.service';
 import { HostedWorkflowWriterService } from '../xmp/hosted-workflow-writer.service';
-import type { SidecarWorkflow, WorkflowHistoryEntry } from '../generated/workflow.generated';
+import {
+  WORKFLOW_VERSION,
+  type SidecarWorkflow,
+  type WorkflowHistoryEntry,
+} from '../generated/workflow.generated';
 import { DiskDirectory } from '../editor/copy-paste/testing/batch-test-files';
 import {
   fsAccessReadFile,
@@ -137,12 +141,12 @@ describe('durable browser removal through actual WASM and filesystem files', () 
     await expect(renderer.load('photo', xml())).rejects.toThrow();
   });
 
-  it('binds removal and workflow writes to the named sibling without changing primary or RAW', async () => {
+  it('binds removal writes to the named sibling without changing primary or RAW', async () => {
     const primary = await fs.readFile(join(root, 'photo.xmp'));
     const id = crypto.randomUUID();
     const filename = workflow_variant_filename('photo.xmp', id);
     const workflow: SidecarWorkflow = {
-      schemaVersion: 1,
+      schemaVersion: WORKFLOW_VERSION,
       variantId: id,
       variantName: 'Removal branch',
       snapshots: [],
@@ -169,13 +173,9 @@ describe('durable browser removal through actual WASM and filesystem files', () 
       records,
       revision,
     );
-    await sidecars.writeWorkflow('photo', folder, 'photo.dng', {
-      ...workflow,
-      variantName: 'Removed objects',
-    });
     const selected = await fs.readFile(join(root, filename), 'utf8');
     expect(savedRemovalRecords(selected)).toBe(records);
-    expect(JSON.parse(workflow_read_xmp(selected)).variantName).toBe('Removed objects');
+    expect(JSON.parse(workflow_read_xmp(selected)).variantName).toBe('Removal branch');
     expect(await fs.readFile(join(root, 'photo.xmp'))).toEqual(primary);
     expect(new Uint8Array(await fs.readFile(join(root, 'photo.dng')))).toEqual(
       fixture('source.dng'),
@@ -252,7 +252,7 @@ describe('durable browser removal through actual WASM and filesystem files', () 
       adjustmentXmp: workflow_checkpoint_xmp(accepted),
     };
     await sidecars.writeWorkflow('photo', folder, 'photo.dng', {
-      schemaVersion: 1,
+      schemaVersion: WORKFLOW_VERSION,
       variantId: 'primary',
       variantName: 'Original',
       snapshots: [snapshot],

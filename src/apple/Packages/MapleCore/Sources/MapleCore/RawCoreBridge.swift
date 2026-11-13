@@ -174,8 +174,6 @@ public enum RawCoreBridge {
     // White balance — chain applies it from a D65 reference (see above).
     m.temperature = d.temperature
     m.tint = d.tint
-    m.temperatureSeen = false
-    m.tintSeen = false
     // Preset/provenance describe the live WB pair, not decoded pixels.
     // Keep them out of the baked-model cache key as well as decode XMP.
     m.whiteBalancePreset = d.whiteBalancePreset
@@ -409,12 +407,7 @@ public enum RawCoreBridge {
     // (#3955). Malformed owned metadata fails instead of becoming a
     // successful original-only preview.
     let originalXML = original.flatMap { try? String(contentsOf: $0, encoding: .utf8) }
-    let removalRecords: String?
-    if let originalXML {
-      removalRecords = try RemovalXMPRecords.read(Data(originalXML.utf8))
-    } else {
-      removalRecords = nil
-    }
+    let carriesRemovals = originalXML?.contains("InpaintRemovals") == true
     var stripped: AdjustmentModel
     let culling: CullingState
     if let original {
@@ -424,7 +417,7 @@ public enum RawCoreBridge {
         stripped = stripAppleGPUStages(parsed.0)
         culling = parsed.1
       } catch {
-        if removalRecords != nil { throw error }
+        if carriesRemovals { throw error }
         bridgeLog.warning(
           "withStrippedXMP: failed to read/parse \(original.path, privacy: .public): \(error.localizedDescription, privacy: .public). Falling back to defaults."
         )

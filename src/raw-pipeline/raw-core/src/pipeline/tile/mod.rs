@@ -50,7 +50,8 @@ mod prefix;
 mod region;
 mod removal;
 pub(in crate::pipeline) use removal::{
-    develop_saved_tile, render_removal_camera_context, render_saved_tile,
+    develop_saved_capture_tile, develop_saved_tile, render_removal_camera_context,
+    render_saved_tile,
 };
 
 #[cfg(test)]

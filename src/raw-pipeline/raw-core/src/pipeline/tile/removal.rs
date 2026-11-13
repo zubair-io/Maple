@@ -143,3 +143,25 @@ pub(in crate::pipeline) fn develop_saved_tile(
         cancel,
     )
 }
+
+/// The capture result of a tile with verified replacements composited in
+/// camera space (#5377): the ordinary capture tile with the saved stack.
+pub(in crate::pipeline) fn develop_saved_capture_tile(
+    raw: &RawImage,
+    model: &AdjustmentModel,
+    rect: super::TileRect,
+    quality: RenderQuality,
+    patches: &[InpaintPatch],
+) -> Result<(u32, u32, Vec<f32>)> {
+    super::develop_tile_with_patches(
+        raw,
+        model,
+        rect,
+        quality,
+        super::TileOutput::Capture,
+        None,
+        None,
+        patches,
+        CancelToken::never(),
+    )
+}

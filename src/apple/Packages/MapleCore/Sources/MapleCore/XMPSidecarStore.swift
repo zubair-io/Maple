@@ -304,17 +304,10 @@ public actor XMPSidecarStore: WorkflowSidecarStoreProtocol {
         self.removalObservedRevision = try RemovalSidecarRevision(xml: existing)
         return recovered
       }
-      if removalChange != nil {
-        // An accepted stack is a compare-and-swap, never a merge onto a file
-        // the editor has not seen.
-        if self.hasObservedSidecar, existing != self.observedSidecarXML {
-          throw XMPStoreError.externalConflict(self.sidecarURL)
-        }
-        if let expectedSidecarRevision,
-          try RemovalSidecarRevision(xml: existing) != expectedSidecarRevision
-        {
-          throw RemovalError.saveConflict
-        }
+      if let expectedSidecarRevision,
+        try RemovalSidecarRevision(xml: existing) != expectedSidecarRevision
+      {
+        throw RemovalError.saveConflict
       }
       return try self.writeSidecar(
         model: model, culling: culling, existingXML: existing, at: destination,

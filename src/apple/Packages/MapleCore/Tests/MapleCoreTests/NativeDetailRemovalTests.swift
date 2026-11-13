@@ -58,7 +58,7 @@ final class NativeDetailRemovalTests: XCTestCase {
     for x in [0, 3] {
       let sourceRect = CGRect(x: x, y: 1, width: 8, height: 4)
       let image = try await renderer.render(
-        asset: asset, sourceRect: sourceRect, model: model, aeGain: 1)
+        asset: asset, sourceRect: sourceRect, model: model)
       let expectedRect = CGRect(x: x, y: 3, width: 8, height: 4)
       let actual = pixels(image)
       let expected = pixels(full.image.cropped(to: expectedRect))
@@ -69,14 +69,6 @@ final class NativeDetailRemovalTests: XCTestCase {
           at: raw.deletingLastPathComponent().appendingPathComponent(".maple/inpaint"))
         try FileManager.default.removeItem(at: SidecarPath.sidecarURL(for: raw))
       }
-    }
-    model.exposure = 1.5  // Live grade is replayed downstream, not baked into a new owner.
-    let unity = try await renderer.render(
-      asset: asset, sourceRect: CGRect(x: 3, y: 1, width: 8, height: 4), model: model, aeGain: 1)
-    let gained = try await renderer.render(
-      asset: asset, sourceRect: CGRect(x: 3, y: 1, width: 8, height: 4), model: model, aeGain: 1.75)
-    for (index, pair) in zip(pixels(unity), pixels(gained)).enumerated() {
-      XCTAssertEqual(pair.1, index % 4 == 3 ? pair.0 : pair.0 * 1.75, accuracy: 0.00001)
     }
     XCTAssertEqual(try Data(contentsOf: raw), try data("source", "dng"))
   }
@@ -89,7 +81,7 @@ final class NativeDetailRemovalTests: XCTestCase {
     do {
       _ = try await NativeDetailRenderer().render(
         asset: AssetRef(url: raw), sourceRect: CGRect(x: 0, y: 0, width: 8, height: 4),
-        model: model, aeGain: 1)
+        model: model)
       XCTFail("An incomplete accepted stack cannot return original native pixels")
     } catch { XCTAssertTrue(error is PipelineError) }
   }

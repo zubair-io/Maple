@@ -35,7 +35,7 @@ export class RawPipelineSessionClients {
   closeNativeDetail(worker: Worker | null): void {
     this.savedPreview.close();
     if (this.removal.isOpen) this.detail.detach();
-    else this.detail.close(worker);
+    else this.detail.close(this.removal.releaseRetainedSource() ? worker : null);
   }
 
   workerFailed(): void {

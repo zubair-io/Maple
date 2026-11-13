@@ -172,3 +172,6 @@ mod scene;
 
 #[path = "removal_handle_file_tests.rs"]
 mod handle;
+
+#[path = "removal_capture_file_tests.rs"]
+mod capture;

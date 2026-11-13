@@ -1,5 +1,5 @@
 // Coordinates debounced sidecar writes and loaded XMP metadata for the Develop tab.
-import { Injectable, inject, DestroyRef } from '@angular/core';
+import { Injectable, inject, DestroyRef, signal } from '@angular/core';
 import { Subject } from 'rxjs';
 import type { AdjustmentModel } from '../models/adjustment-model';
 import type { XmpCulling, PassthroughBucket, XmpMetadata } from './xmp.types';
@@ -72,7 +72,6 @@ export class XmpStoreService {
   /** Publish workflow metadata through the same per-asset atomic write chain.
    * Requires an existing sidecar; the caller commits initial adjustments first. */
   // Browser workflow gate calls this through a nested handler; product controls follow #2437.
-  // fallow-ignore-next-line unused-class-member
   async writeWorkflow(
     assetId: AssetId,
     folder: MapleFolderHandle,
@@ -100,7 +99,7 @@ export class XmpStoreService {
           if (folder.native) this.freshness.assertUnchanged(folder, name, disk, xml);
           await this.folderAccess.writeFile(folder, name, new TextEncoder().encode(output));
           this.freshness.remember(folder, name, output);
-          this._passthroughs.set(assetId, this.parser.parseAdjustmentModel(output).passthrough);
+          this.rememberPassthrough(assetId, this.parser.parseAdjustmentModel(output).passthrough);
         };
         if (folder.native && navigator.locks)
           await navigator.locks.request('maple-workflow-variant:primary', publish);
@@ -116,6 +115,7 @@ export class XmpStoreService {
   private readonly _inFlightWrites = new Map<AssetId, Promise<void>>();
 
   private _passthroughs = new Map<AssetId, PassthroughBucket>();
+  private readonly passthroughRevision = signal(0);
   private readonly _metadata = new Map<AssetId, XmpMetadata>();
 
   rememberMetadata(assetId: AssetId, metadata: XmpMetadata): void {
@@ -129,15 +129,10 @@ export class XmpStoreService {
   /** Store a passthrough bucket for an asset that was loaded externally. */
   rememberPassthrough(assetId: AssetId, passthrough: PassthroughBucket): void {
     this._passthroughs.set(assetId, passthrough);
+    this.passthroughRevision.update((revision) => revision + 1);
   }
 
-  /**
-   * Replace passthrough state for a freshly enumerated asset scope.
-   *
-   * Folder reopen uses this as one commit step after every sidecar has been
-   * read. Deleting the complete scope first prevents a missing or removed
-   * sidecar from inheriting unknown XML loaded during an earlier open.
-   */
+  /** Folder reopen commits a freshly read scope at once, so a removed sidecar never inherits unknown XML from an earlier open. */
   replacePassthroughs(
     assetIds: Iterable<AssetId>,
     replacements: ReadonlyMap<AssetId, PassthroughBucket>,
@@ -153,10 +148,12 @@ export class XmpStoreService {
     for (const [assetId, metadata] of metadataReplacements) {
       this._metadata.set(assetId, metadata);
     }
+    this.passthroughRevision.update((revision) => revision + 1);
   }
 
   /** The passthrough bucket last stored for an asset, for callers that bypass `scheduleWrite`. */
   passthroughFor(assetId: AssetId): PassthroughBucket | undefined {
+    this.passthroughRevision();
     return this._passthroughs.get(assetId);
   }
 
@@ -517,7 +514,7 @@ export class XmpStoreService {
   /** The written document becomes the next save's source, so an edited rating or label is not resurrected from the old bytes (#4403). */
   private _rememberWritten(assetId: AssetId, written: string, current: boolean): void {
     if (current)
-      this._passthroughs.set(assetId, this.parser.parseAdjustmentModel(written).passthrough);
+      this.rememberPassthrough(assetId, this.parser.parseAdjustmentModel(written).passthrough);
   }
 
   private async _flushWrite(

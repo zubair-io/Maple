@@ -2,11 +2,11 @@
 //! the host and never runs in retained slider/detail rendering.
 use raw_core::{
     image::RawImage,
-    pipeline::{RawInput, RenderQuality, ResolvedCalibrationRemovals},
+    pipeline::{CaptureBase, CaptureRender, RawInput, RenderQuality, ResolvedCalibrationRemovals},
     types::accepted_removal::ContentDigest,
     xmp::AdjustmentModel,
 };
-use std::{collections::BTreeMap, path::Path};
+use std::{borrow::Cow, collections::BTreeMap, path::Path};
 
 /// Return None for the historical unedited path, preserving its exact caller
 /// semantics. A saved stack requires all immutable companions and source checks;
@@ -111,4 +111,53 @@ pub(crate) fn render_saved_scene(
             saved.render_scene_linear_f32_with_anchors(raw, &original, model, quality, cap, cancel)
         })
     })
+}
+
+/// The capture decode with a saved stack (#5377). Only reached when `model`
+/// carries accepted records: the companions resolve from the RAW's directory
+/// for a file and from the sidecar's for bytes, as the scene-linear entries do.
+pub(crate) fn render_saved_capture(
+    raw: &RawImage,
+    source: &crate::capture_f32::Source,
+    xmp_path: Option<&str>,
+    (loaded, model): (&AdjustmentModel, &AdjustmentModel),
+    (quality, max_long_edge): (RenderQuality, Option<u32>),
+    with_base: bool,
+    cancel: raw_core::CancelToken<'_>,
+) -> raw_core::Result<(CaptureRender, Option<CaptureBase>)> {
+    if cancel.is_cancelled() {
+        return Err(raw_core::Error::Cancelled);
+    }
+    let (bytes, directory) = match source {
+        crate::capture_f32::Source::Path(path) => {
+            let path = Path::new(path);
+            let bytes = std::fs::read(path).map_err(|source| raw_core::Error::Io {
+                path: path.to_owned(),
+                source,
+            })?;
+            (Cow::Owned(bytes), path.parent())
+        }
+        crate::capture_f32::Source::Bytes { bytes, .. } => (
+            Cow::Borrowed(bytes.as_slice()),
+            xmp_path.and_then(|path| Path::new(path).parent()),
+        ),
+    };
+    let (saved, original) = prepare_saved(raw, &bytes, model, directory)
+        .expect("nonempty stack requires verification")?;
+    if with_base {
+        saved
+            .render_capture_with_base(
+                raw,
+                &original,
+                (loaded, model),
+                quality,
+                max_long_edge,
+                cancel,
+            )
+            .map(|(capture, base)| (capture, Some(base)))
+    } else {
+        saved
+            .render_capture(raw, &original, model, quality, max_long_edge, cancel)
+            .map(|capture| (capture, None))
+    }
 }

@@ -112,7 +112,7 @@ final class RemovalModelStateTests: XCTestCase {
     try xml.write(to: sidecar, atomically: true, encoding: .utf8)
     let savedIsFresh = await actor._testDecodedCacheIsFresh(forAsset: asset)
     XCTAssertFalse(savedIsFresh)
-    XCTAssertEqual(RenderActor.bakedModel(for: asset)?.inpaintRemovals, model.inpaintRemovals)
+    XCTAssertEqual(RenderActor.bakedModel(for: asset).inpaintRemovals, model.inpaintRemovals)
     let saved = try RawCoreBridge.withStrippedModelXMP(model) { temporary in
       let temporary = try XCTUnwrap(temporary)
       XCTAssertEqual(
