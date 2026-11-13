@@ -328,6 +328,46 @@ fn a_save_after_an_outside_edit_merges_and_the_editor_adopts_it() {
 }
 
 #[test]
+fn a_merge_made_while_an_earlier_cloud_sync_is_in_flight_is_adopted_when_it_completes() {
+    // #5888 review: cloud save A is still synchronizing when save B merges an
+    // outside change. A's completion is stale for the editor and B's upload
+    // reports no further merge, so B's merge must be kept, not discarded.
+    let (directory, path) = fixture();
+    let mut app = MapleApp::from_context(egui::Context::default());
+    app.open_folder(directory.path().into());
+    pump(&mut app, |app| app.folder.is_some());
+    app.select(app.folder.as_ref().unwrap().photos[0].clone());
+    pump(&mut app, |app| app.texture.is_some());
+    let outside = r#"<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description rdf:about="" xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/" crs:Vibrance="30"/></rdf:RDF></x:xmpmeta>"#;
+    std::fs::write(path.with_extension("xmp"), outside).unwrap();
+    let save_a = app.edit_revision;
+    app.saving += 1; // Save A's cloud synchronization is in flight.
+    Control::Exposure
+        .set(&mut app.document.as_mut().unwrap().model, 1.0)
+        .unwrap();
+    app.changed();
+    app.flush();
+    pump(&mut app, |app| app.save_documents.is_empty());
+    assert!(!app.save_failed, "{:?}", app.error);
+    assert_eq!(app.saving, 1);
+    assert_eq!(
+        app.document.as_ref().unwrap().model.vibrance,
+        0.0,
+        "nothing is adopted while save A is still in flight"
+    );
+
+    app.cloud
+        .synchronized
+        .push_back((app.session, save_a, Ok(None)));
+    pump(&mut app, |app| app.saving == 0);
+    let adopted = &app.document.as_ref().unwrap().model;
+    assert_eq!((adopted.exposure, adopted.vibrance), (1.0, 30.0));
+    assert!(app.dirty.is_none(), "adoption schedules no save");
+    let (_, saved) = crate::sidecar::SidecarStore::open(&path).unwrap();
+    assert_eq!(saved.model, *adopted);
+}
+
+#[test]
 fn a_redo_after_an_adopted_merge_and_a_saved_undo_keeps_the_redone_edit() {
     // #5887 review: Exposure 0 -> 1 while another app sets Vibrance, adopt the
     // merge, Undo and let it save, then Redo.
