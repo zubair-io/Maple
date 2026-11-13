@@ -31,12 +31,14 @@ internal class CloudDocumentWrites(
         val directory = mime == Document.MIME_TYPE_DIR
         val requested = CloudDocumentRows.nameFor(displayName.trim(), mime)
         CloudDocumentId.requireValidName(requested)
-        val name = CloudDocumentRows.unique(requested, directory, store.names(parent))
-        val created = parent.child(name, directory)
-        if (directory) {
-            api.mkdir(created)
-            store.remember(created, CloudEntry(created.path, CloudEntryKind.Folder, null, null, false))
-        } else uploads.create(account, created, creates = true)
+        val taken = store.names(parent)
+        val created =
+            if (directory)
+                parent.child(CloudDocumentRows.unique(requested, true, taken), true).also {
+                    api.mkdir(it)
+                    store.remember(it, CloudEntry(it.path, CloudEntryKind.Folder, null, null, false))
+                }
+            else uploads.reserve(account, parent, requested, taken)
         store.notifyFolder(parent)
         return created
     }

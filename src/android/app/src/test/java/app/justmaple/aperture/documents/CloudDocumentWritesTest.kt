@@ -382,6 +382,26 @@ class CloudDocumentWritesTest {
     }
 
     @Test
+    fun concurrentCreatesOfOneNameTakeDistinctNames() {
+        api.page("2026")
+        val store = store()
+        val listing = CountDownLatch(2)
+        api.listed = {
+            // Both creates have listed the folder before either records its document.
+            listing.countDown()
+            listing.await(10, TimeUnit.SECONDS)
+        }
+        val pool = Executors.newFixedThreadPool(2)
+        val created =
+            (1..2)
+                .map { pool.submit<CloudDocumentId> { writes(store).create(folder, "text/plain", "notes.txt") } }
+                .map { it.get(30, TimeUnit.SECONDS) }
+        pool.shutdown()
+        assertEquals(setOf("notes.txt", "notes (1).txt"), created.mapTo(HashSet()) { it.name })
+        assertEquals(setOf("2026/notes.txt", "2026/notes (1).txt"), uploads.all(account("ann")).mapTo(HashSet()) { it.path })
+    }
+
+    @Test
     fun aSecondWriterWaitsUntilTheServerCopyIsStaged() {
         api.page("2026", files = listOf("notes.txt"))
         val store = store()
@@ -436,6 +456,7 @@ class CloudDocumentWritesTest {
         val replaced = mutableListOf<String>()
         var status: (String) -> Int = { 201 }
         var download: (OutputStream) -> Unit = {}
+        var listed: () -> Unit = {}
         private val existing = mutableSetOf<String>()
         private val pages = mutableMapOf<String, JSONObject>()
 
@@ -478,7 +499,7 @@ class CloudDocumentWritesTest {
             val uri = Uri.parse("https://maple.test$path")
             val page = pages["${uri.path}|${uri.getQueryParameter("cursor").orEmpty()}"]
             return when {
-                page != null -> response(200, page)
+                page != null -> response(200, page).also { listed() }
                 uri.path!!.endsWith("/file-meta") ->
                     if (uri.getQueryParameter("path") !in existing) response(404, JSONObject())
                     else response(200, JSONObject().put("size", 10).put("mtime", "2026-02-01T00:00:00Z"))
