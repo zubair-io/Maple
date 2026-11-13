@@ -122,6 +122,20 @@ class XmpRepairSpliceTest {
     }
 
     @Test
+    fun mapleMarkupOutsideTheImportedDescriptionLeavesTheListUpright() {
+        val source = fixture("lightroom-spots.xmp")
+        val papp = "xmlns:papp=\"http://ns.justmaple.app/photo/1.0/\""
+        // raw-core imports neither another subject nor a vendor subtree of the primary one.
+        val auxiliary = source.replace("</rdf:RDF>", " <rdf:Description rdf:about=\"urn:other\" $papp papp:Note=\"x\"/>\n </rdf:RDF>")
+        val opaque = source.replace("<vnd:Keep>", "<vnd:Keep $papp>")
+        for (text in listOf(auxiliary, opaque)) assertFalse(throughFile(text).repairsInSensorFrame)
+        assertTrue(
+            "A Maple namespace in the description's scope is Maple markup wherever it is declared",
+            throughFile(source.replace(" <rdf:RDF", " <rdf:RDF $papp")).repairsInSensorFrame,
+        )
+    }
+
+    @Test
     fun anUnchangedOutputIsNoEditAndAppendedContainersFollowTheMasks() {
         val source = fixture("lightroom-spots.xmp")
         val document = throughFile(source)
