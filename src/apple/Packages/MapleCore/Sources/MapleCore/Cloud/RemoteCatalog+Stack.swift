@@ -181,7 +181,9 @@ extension RemoteCatalog {
   /// each asset's trash name on its own, so with a file of the pair's stem already in the Trash of
   /// the library `libraryFolderID` the RAW and the JPEG would land under different stems and the
   /// JPEG's sidecar beside the older photo: that trash is refused before anything moves, until the
-  /// server can trash a pair under one stem (#5930). `primaryAbsPath` is the RAW's server path.
+  /// server can trash a pair under one stem (#5930). The server's trash takes no location, so a
+  /// JPEG it holds in several places is refused too: it would trash whichever copy it picks.
+  /// `primaryAbsPath` is the RAW's server path.
   public func deleteAsset(
     assetID: String, intent: DeleteAssetIntent, stack: RawJpegStack, libraryFolderID: String,
     primaryAbsPath: String
@@ -190,6 +192,7 @@ extension RemoteCatalog {
     if intent == .trash {
       try await requireTrashStemFree(
         stack, libraryFolderID: libraryFolderID, primaryAbsPath: primaryAbsPath)
+      try await requireOneCompanionLocation(stack, id: companion)
     }
     let primary = try await deleteAsset(assetID: assetID, intent: intent)
     guard primary == .ok else { return primary }
@@ -205,6 +208,20 @@ extension RemoteCatalog {
       }
       throw error
     }
+  }
+
+  /// Throws `unsupportedSource` when the server holds the JPEG at more than one live location:
+  /// `DELETE /api/assets/<id>` trashes the copy the server picks (`activeFileInfo`), which need
+  /// not be the one listed beside the RAW, and both DELETEs would succeed with the pair split.
+  private func requireOneCompanionLocation(_ stack: RawJpegStack, id: String) async throws {
+    guard let asset = try await getAsset(assetID: id) else {
+      throw FileOperationError.sourceMissing(stack.companion.name)
+    }
+    guard (asset.fileInfo ?? []).filter({ $0.deletedAt == nil }).count > 1 else { return }
+    throw FileOperationError.unsupportedSource(
+      "The server holds \(stack.companion.name) in more than one place and can't be told which"
+        + " copy to trash, so it could trash a different copy and leave this one behind. Nothing"
+        + " was trashed.")
   }
 
   /// Throws `destinationExists` when the library's `.maple/trash/<dir>` already holds the RAW's,

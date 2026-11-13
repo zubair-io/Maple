@@ -10,7 +10,7 @@ final class RawJpegStackServerTests: XCTestCase {
   private let server = URL(string: "https://example.test")!
   let rawID = "650a1b2c3d4e5f6071829301"
   let jpegID = "650a1b2c3d4e5f6071829302"
-  private let libPath = "/srv/photos/Library"
+  let libPath = "/srv/photos/Library"
 
   struct Request {
     let method: String
@@ -244,102 +244,9 @@ final class RawJpegStackServerTests: XCTestCase {
     XCTAssertNil(RemoteCatalog.address("no-library", movedTo: moved))
   }
 
-  // MARK: - Trash
+  // MARK: - Trash (more in RawJpegStackServerTests+Trash.swift)
 
-  private let rawAbsPath = "/srv/photos/Library/Trip/IMG_1.CR3"
-
-  /// The lookups a stacked trash makes before trashing: the library roots, and `file-meta` for the
-  /// library's Trash, which holds `inTrash`.
-  private func trashLookup(
-    _ record: Request, _ request: URLRequest, inTrash: Set<String> = []
-  ) -> (Data, HTTPURLResponse)? {
-    if record.path == "/api/folders" {
-      return respond(
-        request,
-        json: """
-          [{"id":"f1","slug":"library","path":"\(libPath)","label":"Library",
-            "last_scan":null,"file_count":1,"created_at":"2026-01-01T00:00:00Z"}]
-          """)
-    }
-    if record.path == "/api/folders/f1/file-meta" { return fileMeta(request, taken: inTrash) }
-    return nil
-  }
-
-  func testTrashGoesRawFirstAndARefusedJpegBringsTheRawBack() async throws {
-    let recorder = Recorder()
-    let catalog = catalog(recorder) { record, request in
-      if let lookup = self.trashLookup(record, request) { return lookup }
-      if record.method == "DELETE", record.path.contains(self.jpegID) {
-        return self.respond(request, status: 409, json: #"{"error":"state","state":"trashed"}"#)
-      }
-      if record.path.hasSuffix("/restore") {
-        return self.respond(request, json: #"{"abs_path":"/srv/photos/Library/Trip/IMG_1.CR3"}"#)
-      }
-      let response = HTTPURLResponse(
-        url: request.url!, statusCode: 204, httpVersion: "HTTP/1.1", headerFields: nil)!
-      return (Data(), response)
-    }
-
-    let result = try await catalog.deleteAsset(
-      assetID: rawID, intent: .trash, stack: stack, libraryFolderID: "f1",
-      primaryAbsPath: rawAbsPath)
-
-    XCTAssertEqual(result, .stateMismatch(state: "trashed"))
-    XCTAssertEqual(
-      recorder.requests.filter { $0.method != "GET" }.map { "\($0.method) \($0.path)" },
-      [
-        "DELETE /api/assets/\(rawID)", "DELETE /api/assets/\(jpegID)",
-        "POST /api/assets/\(rawID)/restore",
-      ])
-  }
-
-  func testARefusedRawLeavesTheJpegUntouched() async throws {
-    let recorder = Recorder()
-    let catalog = catalog(recorder) { record, request in
-      if let lookup = self.trashLookup(record, request) { return lookup }
-      return self.respond(request, status: 409, json: #"{"error":"state","state":"purged"}"#)
-    }
-
-    let result = try await catalog.deleteAsset(
-      assetID: rawID, intent: .trash, stack: stack, libraryFolderID: "f1",
-      primaryAbsPath: rawAbsPath)
-
-    XCTAssertEqual(result, .stateMismatch(state: "purged"))
-    XCTAssertEqual(
-      recorder.requests.filter { $0.method == "DELETE" }.map(\.path), ["/api/assets/\(rawID)"])
-  }
-
-  /// The server names each trashed asset on its own: with an older `IMG_1.CR3` in its Trash the
-  /// RAW became `IMG_1.1.CR3` while the JPEG landed as `IMG_1.JPG` and published `IMG_1.xmp`
-  /// beside the older RAW, both answering success. Such a trash is now refused before anything
-  /// moves, until the server trashes a pair under one stem (#5930).
-  func testTrashIsRefusedWhenTheServerTrashHoldsAFileOfThePairsStem() async throws {
-    for occupant in ["IMG_1.CR3", "IMG_1.JPG", "IMG_1.xmp"] {
-      let recorder = Recorder()
-      let catalog = catalog(recorder) { record, request in
-        if let lookup = self.trashLookup(
-          record, request, inTrash: [".maple/trash/Trip/\(occupant)"])
-        {
-          return lookup
-        }
-        let response = HTTPURLResponse(
-          url: request.url!, statusCode: 204, httpVersion: "HTTP/1.1", headerFields: nil)!
-        return (Data(), response)
-      }
-
-      do {
-        _ = try await catalog.deleteAsset(
-          assetID: rawID, intent: .trash, stack: stack, libraryFolderID: "f1",
-          primaryAbsPath: rawAbsPath)
-        XCTFail("\(occupant) in the server's Trash must refuse the stacked trash")
-      } catch FileOperationError.destinationExists(let message) {
-        XCTAssertTrue(message.contains(occupant), message)
-      }
-      XCTAssertEqual(
-        recorder.requests.filter { $0.method != "GET" }.map(\.path), [],
-        "nothing is trashed when \(occupant) is in the server's Trash")
-    }
-  }
+  let rawAbsPath = "/srv/photos/Library/Trip/IMG_1.CR3"
 
   func testTheTrashFolderIsTheRawsFolderInItsLibrary() {
     XCTAssertEqual(
