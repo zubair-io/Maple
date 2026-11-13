@@ -67,11 +67,17 @@ final class RawJpegStackServerTests: XCTestCase {
         """)
   }
 
-  /// `file-meta` for a library-relative path: a file when `taken` holds it, else 404.
-  func fileMeta(_ request: URLRequest, taken: Set<String>) -> (Data, HTTPURLResponse) {
+  /// `file-meta` for a library-relative path: a file when `taken` holds it, a folder (404 "not a
+  /// regular file", `routes/folders.ts`) when `folders` does, else 404.
+  func fileMeta(_ request: URLRequest, taken: Set<String>, folders: Set<String> = []) -> (
+    Data, HTTPURLResponse
+  ) {
     let path =
       URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?
       .queryItems?.first { $0.name == "path" }?.value ?? ""
+    if folders.contains(path) {
+      return respond(request, status: 404, json: #"{"error":"not a regular file"}"#)
+    }
     return taken.contains(path)
       ? respond(
         request,

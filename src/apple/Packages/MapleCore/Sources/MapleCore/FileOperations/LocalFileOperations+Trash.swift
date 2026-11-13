@@ -22,17 +22,34 @@ extension LocalFileOperations {
   ) async throws -> RelocateOutcome {
     #if os(macOS)
       guard let companion else { return try await trashToOSTrash(primaryURL) }
-      // The JPEG goes first: if the RAW then fails to trash, it is still whole.
-      let companionOutcome = try await trashToOSTrash(companion)
-      let primary = try await trashToOSTrash(primaryURL)
-      return RelocateOutcome(
-        primaryPath: primary.primaryPath, sidecarPath: primary.sidecarPath ?? companionOutcome.sidecarPath,
-        renamedDueToCollision: false, sidecarFollowed: primary.sidecarFollowed,
-        companionPath: companionOutcome.primaryPath)
+      return try await trashStack(primaryURL, companion: companion, trash: trashToOSTrash)
     #else
       return try await trashToMapleFolder(
         primaryURL, libraryRoot: libraryRoot, companion: companion)
     #endif
+  }
+
+  /// A stacked tile's trash on macOS (#5050), with `trash` the per-file Trash move. The JPEG goes
+  /// first, so a RAW that then fails is still whole, and the JPEG is moved back before the RAW's
+  /// error is reported, so the tile is never left half trashed. The JPEG is trashed while its RAW
+  /// still claims the stem, so only the JPEG itself moved: its sidecar got a copy.
+  static func trashStack(
+    _ primaryURL: URL, companion: URL, trash: (URL) async throws -> RelocateOutcome
+  ) async throws -> RelocateOutcome {
+    let companionOutcome = try await trash(companion)
+    let primary: RelocateOutcome
+    do {
+      primary = try await trash(primaryURL)
+    } catch {
+      try? FileManager.default.moveItem(
+        at: URL(fileURLWithPath: companionOutcome.primaryPath), to: companion)
+      throw error
+    }
+    return RelocateOutcome(
+      primaryPath: primary.primaryPath,
+      sidecarPath: primary.sidecarPath ?? companionOutcome.sidecarPath,
+      renamedDueToCollision: false, sidecarFollowed: primary.sidecarFollowed,
+      companionPath: companionOutcome.primaryPath)
   }
 
   #if os(macOS)
