@@ -558,7 +558,7 @@ pub fn write(input: &Value) -> Result<Value, String> {
         .collect();
     let restack = mask_stack::restack(&document, &layers, &positions)?;
     let (keys, kept_keys) = match restack {
-        Some(restack) => (restack.layers.into_iter().map(Some).collect(), restack.kept),
+        Some(restack) => (restack.layers, restack.kept),
         None => {
             let stamp = positions.windows(2).any(|pair| pair[0] >= pair[1]);
             let read: Vec<Option<f64>> = layers

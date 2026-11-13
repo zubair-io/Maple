@@ -86,6 +86,75 @@ fn a_move_past_a_correction_android_cannot_key_is_refused() {
     assert!(refused.contains("cannot rewrite"), "{refused}");
 }
 
+/// In document order: an Android linear keyed 2, a kept brush keyed 1 and an
+/// unkeyed Android radial. The radial has no key, so raw-core reads the
+/// document order: linear, brush, radial.
+fn partially_keyed() -> Sidecar {
+    let stack = android_stack();
+    let authored = write(
+        &sidecar(EMPTY),
+        &[new_layer(stack[0].clone()), new_layer(stack[1].clone())],
+    );
+    assert!(!authored.contains("LayerOrder"), "{authored}");
+    let brush = BRUSH.replace(
+        "crs:What=\"Correction\" crs:LocalExposure2012",
+        "crs:What=\"Correction\" papp:LayerOrder=\"1\" crs:LocalExposure2012",
+    );
+    let close = "</crs:GradientBasedCorrections>";
+    let mut xml = authored.replacen(close, &format!("{close}{brush}"), 1);
+    let linear = xml.find("<crs:GradientBasedCorrections>").unwrap();
+    let description = linear + xml[linear..].find("<rdf:Description").unwrap();
+    xml.insert_str(
+        description + "<rdf:Description".len(),
+        " papp:LayerOrder=\"2\"",
+    );
+    let saved = through_file(&xml);
+    assert_stack(&saved);
+    saved
+}
+
+/// raw-core renders linear, brush, radial.
+fn assert_stack(saved: &Sidecar) {
+    let stack = rendered(&saved.xml);
+    let masks: Vec<&Mask> = stack.iter().map(|layer| &layer.mask).collect();
+    assert!(
+        matches!(
+            masks[..],
+            [Mask::Linear { .. }, Mask::Brush { .. }, Mask::Radial { .. }]
+        ),
+        "{}",
+        saved.xml
+    );
+}
+
+#[test]
+fn an_in_place_edit_keeps_a_partially_keyed_stack_in_document_order() {
+    let source = partially_keyed();
+    let mut layers = read(&source);
+    let mut linear = layer_from_json(&layers[0]).unwrap();
+    linear.layer.adjustments.exposure = Some(1.25);
+    layers[0] = layer_json(&linear);
+    let saved = through_file(&write(&source, &layers));
+    assert_stack(&saved);
+    assert_eq!(rendered(&saved.xml)[0], linear.layer);
+    assert!(
+        !saved.xml.contains("LayerOrder=\"3\""),
+        "the unkeyed radial stays unkeyed: {}",
+        saved.xml
+    );
+}
+
+#[test]
+fn removing_the_last_unkeyed_layer_keys_the_stack_in_document_order() {
+    let source = partially_keyed();
+    let layers = read(&source);
+    let saved = through_file(&write(&source, &layers[..1]));
+    let stack = rendered(&saved.xml);
+    assert_eq!(stack.len(), 2, "{}", saved.xml);
+    assert_eq!(stack[0], layer(&layers[0]), "{}", saved.xml);
+    assert!(matches!(stack[1].mask, Mask::Brush { .. }), "{}", saved.xml);
+}
+
 #[test]
 fn a_container_binding_a_canonical_prefix_elsewhere_is_never_declared_twice() {
     let authored = write(&sidecar(EMPTY), &[new_layer(android_stack()[0].clone())]);

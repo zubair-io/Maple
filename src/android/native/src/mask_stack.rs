@@ -1,10 +1,13 @@
 //! Keeps an edit from moving Android's layers across the corrections it keeps
 //! verbatim. raw-core reads the stack in `papp:LayerOrder` order only when every
-//! modeled correction is keyed, and in document order otherwise. When a kept
-//! correction is unkeyed and the written document order would no longer match
-//! the stack (a layer relocated into another container, reordered or added past
-//! a kept correction), every modeled correction is keyed: Android's layers and
-//! the kept ones, which keep their place in the stack.
+//! modeled correction is keyed, and in document order otherwise. In a stack
+//! read in document order beside a kept correction, the edit is placed in that
+//! order. When the written document order would no longer match it (a layer
+//! relocated into another container, reordered or added past a kept
+//! correction), or when the keys written would key the whole stack (every kept
+//! correction is keyed and no Android layer stays unkeyed), every modeled
+//! correction is keyed by that order: Android's layers and the kept ones, which
+//! keep their place in the stack.
 use crate::mask_document::Document;
 use crate::mask_model::AuthoredLayer;
 use crate::mask_order::{assign, format_key};
@@ -13,8 +16,8 @@ use std::collections::BTreeMap;
 
 /// Keys for every modeled correction once the stack has to be keyed.
 pub struct Restack {
-    /// One key per Android layer, in model order.
-    pub layers: Vec<f64>,
+    /// One key per Android layer, in model order; `None` writes no key.
+    pub layers: Vec<Option<f64>>,
     /// Keys stamped on the kept corrections, by correction slot.
     pub kept: BTreeMap<usize, f64>,
 }
@@ -26,14 +29,14 @@ enum Unit {
     Opaque(usize, usize),
 }
 
-/// `None` when the document order Android writes still reads back as the
-/// stack; `positions` are each layer's written `(container, item, order)`.
+/// `None` when the keys the plain assignment writes keep the stack's order;
+/// `positions` are each layer's written `(container, item, order)`.
 pub fn restack(
     document: &Document,
     layers: &[AuthoredLayer],
     positions: &[(usize, usize, usize)],
 ) -> Result<Option<Restack>, String> {
-    if !document.verbatim_unkeyed {
+    if document.all_keyed {
         return Ok(None);
     }
     let mut units = Vec::new();
@@ -48,6 +51,10 @@ pub fn restack(
                 None => Unit::Kept(slot),
             });
         }
+    }
+    // Android's layers alone read in model order, which is the document order here.
+    if units.iter().all(|unit| matches!(unit, Unit::Android(_))) {
+        return Ok(None);
     }
     // Today's stack is the document order: number it, then place the edit in it.
     let order = |slot: usize| {
@@ -85,7 +92,22 @@ pub fn restack(
     }
     written.sort_by_key(|(position, _)| *position);
     if written.windows(2).all(|pair| pair[0].1 < pair[1].1) {
-        return Ok(None);
+        // An unkeyed kept correction keeps raw-core on document order.
+        if document.verbatim_unkeyed {
+            return Ok(None);
+        }
+        // Every kept correction is keyed: an Android layer left unkeyed does the same,
+        // so the read keys stay as they are.
+        let read: Vec<Option<f64>> = layers
+            .iter()
+            .map(|layer| layer.slot.and_then(|slot| document.corrections[slot].key))
+            .collect();
+        if read.iter().any(Option::is_none) {
+            return Ok(Some(Restack {
+                layers: read,
+                kept: BTreeMap::new(),
+            }));
+        }
     }
     if units.iter().any(|unit| matches!(unit, Unit::Opaque(..))) {
         return Err("This edit would reorder masks Android cannot rewrite; edit this stack in Maple on a Mac or iPad".into());
@@ -98,7 +120,10 @@ pub fn restack(
             _ => None,
         })
         .collect();
-    Ok(Some(Restack { layers: keys, kept }))
+    Ok(Some(Restack {
+        layers: keys.into_iter().map(Some).collect(),
+        kept,
+    }))
 }
 
 /// `item` (a kept `rdf:li` correction) with `declarations` on its start tag
