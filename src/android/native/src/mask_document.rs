@@ -8,7 +8,7 @@
 use crate::mask_model::{authorable, AuthoredLayer};
 use crate::mask_order::parse_key;
 use crate::mask_xml::{self, Element, Scopes, RDF};
-use raw_core::types::{LocalAdjustment, Mask};
+use raw_core::types::{local_adjustment, LocalAdjustment, Mask};
 use serde_json::Value;
 use std::collections::BTreeMap;
 
@@ -298,17 +298,15 @@ impl Document {
     pub fn layers(&self) -> Result<Vec<AuthoredLayer>, String> {
         if !self.any_modeled {
             if let Some(legacy) = &self.legacy {
-                return Ok(
-                    raw_core::types::local_adjustment::decode_local_adjustments(legacy)?
-                        .into_iter()
-                        .filter(|layer| authorable(&layer.mask))
-                        .map(|layer| AuthoredLayer {
-                            sources: vec![None; component_count(&layer.mask)],
-                            layer,
-                            slot: None,
-                        })
-                        .collect(),
-                );
+                return Ok(local_adjustment::decode_local_adjustments(legacy)?
+                    .into_iter()
+                    .filter(|layer| authorable(&layer.mask))
+                    .map(|layer| AuthoredLayer {
+                        sources: vec![None; component_count(&layer.mask)],
+                        layer,
+                        slot: None,
+                    })
+                    .collect());
             }
         }
         let mut layers: Vec<(Option<f64>, AuthoredLayer)> = self
@@ -332,6 +330,53 @@ impl Document {
         }
         Ok(layers.into_iter().map(|(_, layer)| layer).collect())
     }
+
+    /// Writing masks replaces the legacy `papp:LocalAdjustments` attribute
+    /// with containers holding [`Self::layers`]; refuse when the attribute
+    /// carries anything those layers would not keep (an entry raw-core skips,
+    /// a layer Android does not author, or a field raw-core does not read).
+    pub fn check_legacy_migration(&self) -> Result<(), String> {
+        let Some(legacy) = self.legacy.as_deref().filter(|_| !self.any_modeled) else {
+            return Ok(());
+        };
+        let entries: Value =
+            serde_json::from_str(legacy).map_err(|e| format!("invalid JSON: {e}"))?;
+        let lossless = entries.as_array().is_some_and(|entries| {
+            entries.iter().all(|entry| {
+                let one = Value::Array(vec![entry.clone()]).to_string();
+                match local_adjustment::decode_local_adjustments(&one).as_deref() {
+                    Ok([layer]) if authorable(&layer.mask) => {
+                        let written =
+                            local_adjustment::encode_local_adjustments(std::slice::from_ref(layer));
+                        serde_json::from_str::<Value>(&written)
+                            .is_ok_and(|written| retains(entry, &written[0]))
+                    }
+                    _ => false,
+                }
+            })
+        });
+        if lossless {
+            Ok(())
+        } else {
+            Err("The legacy papp:LocalAdjustments masks hold data Android cannot migrate".into())
+        }
+    }
+}
+
+/// Whether `written` keeps every field of `source` (raw-core's f32 precision).
+fn retains(source: &Value, written: &Value) -> bool {
+    match (source, written) {
+        (Value::Object(source), Value::Object(written)) => source
+            .iter()
+            .all(|(key, value)| written.get(key).is_some_and(|w| retains(value, w))),
+        (Value::Array(source), Value::Array(written)) => {
+            source.len() == written.len() && source.iter().zip(written).all(|(s, w)| retains(s, w))
+        }
+        (Value::Number(source), Value::Number(written)) => {
+            source.as_f64().map(|v| v as f32) == written.as_f64().map(|v| v as f32)
+        }
+        _ => source == written,
+    }
 }
 
 #[cfg(test)]
@@ -347,5 +392,41 @@ mod tests {
         let mut keys = Vec::new();
         all_keys(&mask_xml::parse(&xml).unwrap()[0], &mut keys);
         assert_eq!(keys, [1.0, 2.5]);
+    }
+
+    fn migrate(legacy: &str) -> Result<Value, String> {
+        let mut input = serde_json::json!({"target": {"crs": mask_xml::CRS}, "legacy": legacy});
+        input["layers"] = crate::mask_write::read(&input)?["layers"].clone();
+        crate::mask_write::write(&input)
+    }
+
+    const LINEAR: &str = r#"{"mask":{"type":"linear","start":[0.1,0.2],"end":[0.9,0.8],"feather":0.3},"adjustments":{"exposure":0.7}}"#;
+    const RADIAL: &str = r#"{"mask":{"type":"radial","center":[0.5,0.5],"radii":[0.2,0.3],"angle":0,"feather":0.5},"adjustments":{"saturation":-0.4}}"#;
+
+    #[test]
+    fn legacy_masks_raw_core_fully_models_migrate() {
+        let written = migrate(&format!("[{LINEAR},{RADIAL}]")).unwrap();
+        assert_eq!(written["appended"].as_array().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn legacy_masks_with_data_raw_core_skips_are_never_migrated() {
+        let unknown_entry =
+            format!(r#"[{LINEAR},{{"mask":{{"type":"brush","dabs":[1,2]}},"adjustments":{{}}}}]"#);
+        let unknown_field = format!(
+            "[{}]",
+            LINEAR.replacen(r#""feather":0.3"#, r#""feather":0.3,"curve":"smooth""#, 1)
+        );
+        let unknown_adjustment =
+            format!("[{}]", RADIAL.replacen("-0.4", r#"-0.4,"clarity":0.2"#, 1));
+        for legacy in [
+            unknown_entry,
+            unknown_field,
+            unknown_adjustment,
+            "[3]".to_owned(),
+        ] {
+            let error = migrate(&legacy).unwrap_err();
+            assert!(error.contains("cannot migrate"), "{legacy}: {error}");
+        }
     }
 }

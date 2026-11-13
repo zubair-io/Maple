@@ -111,9 +111,10 @@ the last primary description. An unchanged layer keeps its source bytes; an edit
 layer is raw-core's canonical XML, carrying the unknown attributes and child nodes of the
 correction it came from. Brush, person and whole-image layers from other hosts, and groups
 holding them, are not listed and stay in the sidecar untouched, as do all foreign bytes.
-Writing masks drops the
-legacy `papp:LocalAdjustments` attribute. The slider ranges come from raw-core's
-`types/local_adjustment/controls.rs` through `tools/codegen.sh`
+Writing masks migrates the legacy `papp:LocalAdjustments` attribute into containers and
+drops it; when the attribute holds an entry or field raw-core does not read, or a layer
+Android does not author, the write is refused so nothing is lost. The slider ranges come
+from raw-core's `types/local_adjustment/controls.rs` through `tools/codegen.sh`
 (`generated/LocalMaskControls.kt`).
 
 ## Build

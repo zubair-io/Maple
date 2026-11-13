@@ -456,6 +456,7 @@ pub fn write(input: &Value) -> Result<Value, String> {
         .map(layer_from_json)
         .collect::<Result<Vec<_>, _>>()?;
     validate(&document, &layers)?;
+    document.check_legacy_migration()?;
     let ranks: Vec<usize> = layers
         .iter()
         .map(|l| container_rank(&l.layer.mask))
