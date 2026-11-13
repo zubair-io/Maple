@@ -6,7 +6,7 @@
 
 import type { ImportFileEntry } from '../db/schema.ts';
 import { destAbsPath } from './copy.ts';
-import { holdsSource, publishFile, type CopyOutcome } from './publish.ts';
+import { publishFile, type CopyOutcome } from './publish.ts';
 import { renamedSidecars, sidecarDestsBeside, type SidecarDest } from './sidecar-dest.ts';
 
 export type RecordFile = (
@@ -49,9 +49,7 @@ async function placeInterruptedSidecar(
   destRel: string,
 ): Promise<CopyOutcome> {
   const outcome = await publishFile(libraryRoot, src, destRel, { keepExisting: true });
-  const landedEarlier =
-    outcome.state === 'skipped_duplicate' && (await holdsSource(libraryRoot, destRel, src));
-  return landedEarlier ? { ...outcome, state: 'copied' } : outcome;
+  return outcome.alreadyPresent ? { ...outcome, state: 'copied' } : outcome;
 }
 
 /**

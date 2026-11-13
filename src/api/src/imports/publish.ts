@@ -22,6 +22,8 @@ export interface CopyOutcome {
   destRel: string;
   /** The file was already at `destRel`, put there by an earlier attempt of this import. */
   landedEarlier?: true;
+  /** Skipped because `destRel` already holds these exact bytes, not because another file is there. */
+  alreadyPresent?: true;
 }
 
 interface PublishOptions {
@@ -109,7 +111,10 @@ async function publishOnce(
   if (landed.value !== null) {
     return { state: 'copied', error: null, destRel: landed.value, landedEarlier: true };
   }
-  if (alreadyPresent || (keepExisting && target !== destRel)) {
+  if (alreadyPresent) {
+    return { state: 'skipped_duplicate', error: null, destRel, alreadyPresent: true };
+  }
+  if (keepExisting && target !== destRel) {
     return { state: 'skipped_duplicate', error: null, destRel };
   }
   return copyTo(libraryRoot, src, destRel, target, beforePublish);
