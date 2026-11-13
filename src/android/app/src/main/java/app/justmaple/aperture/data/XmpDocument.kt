@@ -51,11 +51,11 @@ private constructor(
             }
         }
         /**
-         * A Maple namespace appears in the source outside an embedded `papp:Workflow` record,
-         * so raw-core reads it as Maple-authored.
+         * A Maple namespace is in scope on a primary description, so raw-core's import reads
+         * the document as Maple-authored; other subjects and opaque subtrees never count.
          */
         val pappPresent by lazy {
-            WORKFLOW.replace(xml, "").let { text -> (LEGACY_PAPP + NAMESPACES.getValue("papp")).any { it in text } }
+            tags.any { (_, scope) -> scope.bindings.values.any { it == NAMESPACES.getValue("papp") || it in LEGACY_PAPP } }
         }
         /**
          * raw-core reads the source's repair list as upright without a frame stamp, because
@@ -235,12 +235,7 @@ private constructor(
         val wbScale =
             attribute("papp:WbScaleVersion")
                 ?: if (attribute("crs:Temperature") != null || attribute("crs:Tint") != null) {
-                    val mapleAuthored = tags.any { (_, scope) ->
-                        scope.bindings.values.any {
-                            it == NAMESPACES.getValue("papp") || it in LEGACY_PAPP
-                        }
-                    }
-                    if (mapleAuthored) "1" else AdjustmentFields.whiteBalanceScaleVersion.toString()
+                    if (source.pappPresent) "1" else AdjustmentFields.whiteBalanceScaleVersion.toString()
                 } else null
         // An untouched upright Lightroom list gains the stamp the Maple markup below requires.
         val frame =
@@ -343,9 +338,6 @@ private constructor(
         private const val RETOUCH_FRAME = "papp:RetouchFrameVersion"
         /** An entry of a repair list's sequence. */
         private val REPAIR_ENTRY = Regex("""<(?:[^\s/>:]+:)?li[\s/>]""")
-        /** An embedded workflow record, which raw-core never reads as Maple authorship. */
-        private val WORKFLOW =
-            Regex("""<([^\s/>:]+:|)Workflow[\s/>](?:[^>]*/>|.*?</\1Workflow\s*>)""", RegexOption.DOT_MATCHES_ALL)
 
         /** [bindings] as [serialize] leaves them: a local legacy `papp` declaration is rewritten. */
         private fun effectiveBindings(tag: String, bindings: Map<String, String>): Map<String, String> =
